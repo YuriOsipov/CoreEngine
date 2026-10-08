@@ -1,0 +1,107 @@
+{
+  "name": "CRM BFF → updateRecord",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-flow",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-crm-flow",
+      "name": "CRM Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "crm-flow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-crm-flow-secret'] || $json.headers['X-CRM-Flow-Secret']}}",
+              "value2": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        }
+      },
+      "id": "if-secret",
+      "name": "Secret OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{$env.CRM_N8N_EMAIL}}\",\n  \"password\": \"{{$env.CRM_N8N_PASSWORD}}\"\n}",
+        "options": {}
+      },
+      "id": "bff-login",
+      "name": "BFF Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, -80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/graphql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"mutation($e:String!,$id:ID!,$d:JSON!){ updateRecord(entity:$e,id:$id,data:$d) }\",\n  \"variables\": {\n    \"e\": \"{{$('CRM Webhook').item.json.body.collection || $('CRM Webhook').item.json.collection}}\",\n    \"id\": \"{{$('CRM Webhook').item.json.body.recordId || $('CRM Webhook').item.json.recordId}}\",\n    \"d\": { \"note\": \"updated-by-n8n\" }\n  }\n}",
+        "options": {}
+      },
+      "id": "bff-update",
+      "name": "GraphQL updateRecord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, -80]
+    }
+  ],
+  "connections": {
+    "CRM Webhook": {
+      "main": [[{ "node": "Secret OK?", "type": "main", "index": 0 }]]
+    },
+    "Secret OK?": {
+      "main": [
+        [{ "node": "BFF Login", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "BFF Login": {
+      "main": [[{ "node": "GraphQL updateRecord", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "Set n8n env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD. Production webhook URL → N8N_WEBHOOK_URL then npm run registry:seed-n8n-flow-trigger."
+  },
+  "pinData": {},
+  "versionId": "1"
+}

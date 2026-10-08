@@ -1,0 +1,14 @@
+You are an AI assistant strictly assigned to the **config** module.
+Your context is locked to `src/modules/config/`. Do not read, modify, or reference
+files in other modules under `src/modules/`. Focus entirely on this module's
+pages, components, services, and Sandbox.vue.
+
+Use shared resources from `src/interfaces/` and `src/core/` only.
+Cross-module imports (e.g. to `entities` services) must use `@/` aliases.
+
+This module owns:
+- pages/   MainPage, SetupPage, CollectionSetupPage
+- components/   DataTableSettingsDesigner, FormBuilder, PaletteSkeleton,
+                SchedulerSettingsDesigner, TreeTableSettingsDesigner
+- services/   appTranslations, layoutSettings, listFilterSettings,
+              schedulerSettings, userSettings

@@ -1,0 +1,20 @@
+---
+description: "Rules for managing database entities, data grids, CRUD, and record details"
+globs: "src/modules/entities/**/*"
+alwaysApply: false
+---
+
+# Entities Module Rules
+
+You are assigned exclusively to the **Entities** module workspace.
+
+## Scope & Isolation
+- Your work is strictly confined to `src/modules/entities/`.
+- **CRITICAL:** Do not read, write, or modify code inside `dashboard`, `reports`, or `config` modules.
+- If you need global CRM components, use the shared wrappers from `@/core/ui-kit/` (e.g., `CrmDataTable`, `CrmTreeTable`).
+
+## Development & Testing
+- Implement and test features inside `src/modules/entities/views/Sandbox.vue`.
+- Access this isolated testing playground locally via the `/dev/entities` route.
+- If registry collections are missing or incomplete, mock the data inside `src/mocks/handlers/entities.ts`.
+- Use GraphQL bridges (`@/core/graphql/itemsBridge`, etc.) for record I/O — Directus HTTP cutover is complete.

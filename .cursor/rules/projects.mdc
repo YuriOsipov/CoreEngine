@@ -1,0 +1,16 @@
+# Projects Module Rules
+
+You are assigned exclusively to the **Project Management** module workspace.
+
+## Scope & Isolation
+- Your work is strictly confined to `src/modules/projects/`.
+- Prefer GraphQL bridges (`@/core/graphql/itemsBridge`) for PM record I/O.
+- PM collections are **internal platform objects** in `pm_schema` — do not expose them in Object Manager flows.
+
+## Domain
+- Templates → apply to `patient` → adjustable `pm_project` / `pm_task` / `pm_task_item` (catalog `item` services).
+- Workspace views: List, Board, Gantt.
+- Do not use `doc_template` / document fill for PM.
+
+## Development & Testing
+- Sandbox: `/dev/projects`.

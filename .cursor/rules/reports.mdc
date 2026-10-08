@@ -1,0 +1,23 @@
+---
+description: "Rules for data exports, reporting filters, builders, and heavy analytical grids"
+globs: "src/modules/reports/**/*"
+alwaysApply: false
+---
+
+# Reports Module Rules
+
+You are assigned exclusively to the **Reports** module workspace.
+
+## Scope & Isolation
+- Your work is strictly confined to `src/modules/reports/`.
+- **CRITICAL:** Do not read, write, or modify code inside `entities`, `dashboard`, or `config` modules.
+
+## Technical Specifications
+- Use PrimeVue filtering utilities (`FilterMatchMode`) inside reporting grids.
+- For date selections, always use PrimeVue `DatePicker` (or `Calendar` depending on version) with `selectionMode="range"`.
+- Use the `reportVTableAdapter.ts` utility for mapping BFF/GraphQL aggregate rows to UI-compatible tables.
+
+## Development & Testing
+- Implement and test features inside `src/modules/reports/views/Sandbox.vue`.
+- Access this isolated testing playground locally via the `/dev/reports` route.
+- Mock long-running query operations inside `src/mocks/handlers/reports.ts`.

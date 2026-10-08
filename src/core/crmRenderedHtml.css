@@ -1,0 +1,115 @@
+/* Restores typography inside v-html content (Tailwind preflight resets lists/links). */
+.crm-rendered-html p {
+  margin: 0 0 0.35rem;
+}
+
+.crm-rendered-html p:last-child {
+  margin-bottom: 0;
+}
+
+.crm-rendered-html ul,
+.crm-rendered-html ol {
+  margin: 0 0 0.35rem;
+  padding-left: 1.1rem;
+}
+
+.crm-rendered-html ul {
+  list-style-type: disc;
+}
+
+.crm-rendered-html ol {
+  list-style-type: decimal;
+}
+
+.crm-rendered-html li {
+  display: list-item;
+  margin-bottom: 0.15rem;
+}
+
+.crm-rendered-html h1,
+.crm-rendered-html h2,
+.crm-rendered-html h3,
+.crm-rendered-html h4,
+.crm-rendered-html h5,
+.crm-rendered-html h6 {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.crm-rendered-html h1 {
+  font-size: 1.35rem;
+}
+
+.crm-rendered-html h2 {
+  font-size: 1.2rem;
+}
+
+.crm-rendered-html h3 {
+  font-size: 1.05rem;
+}
+
+.crm-rendered-html a {
+  color: var(--p-primary-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.crm-rendered-html a:hover {
+  color: var(--p-primary-700, var(--p-primary-color));
+}
+
+.crm-rendered-html a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border-radius: var(--p-content-border-radius, 6px);
+  font-weight: 600;
+  vertical-align: middle;
+  margin: 0.25rem 0;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.crm-rendered-html a.btn-sm {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+}
+
+.crm-rendered-html a.btn-md {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+.crm-rendered-html a.btn-lg {
+  padding: 0.625rem 1.125rem;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.crm-rendered-html a.btn-primary {
+  background-color: var(--p-primary-color);
+  color: var(--p-primary-contrast-color, #ffffff);
+  border: 1px solid var(--p-primary-color);
+}
+
+.crm-rendered-html a.btn-primary:hover {
+  background-color: var(--p-primary-hover-color, var(--p-primary-color));
+  border-color: var(--p-primary-hover-color, var(--p-primary-color));
+  color: var(--p-primary-contrast-color, #ffffff);
+}
+
+.crm-rendered-html a.btn-secondary,
+.crm-rendered-html a.btn-outline {
+  background-color: transparent;
+  color: var(--p-primary-color);
+  border: 1px solid var(--p-primary-color);
+}
+
+.crm-rendered-html a.btn-secondary:hover,
+.crm-rendered-html a.btn-outline:hover {
+  background-color: var(--p-primary-50);
+  color: var(--p-primary-700, var(--p-primary-color));
+}

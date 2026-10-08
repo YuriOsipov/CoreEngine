@@ -1,0 +1,272 @@
+import type { PrimeVueComponentType } from '@/interfaces'
+import type {
+  FieldDefinition,
+  RelationDefinition,
+} from '@/interfaces'
+import { isAddressFieldDefinition } from '@/core/addressField'
+import { isRepeaterFieldDefinition } from '@/core/repeaterField'
+import type { PaletteItem } from './fieldPalette'
+
+const SKIP_SPECIAL = new Set([
+  'o2m',
+  'translations',
+  'no-data',
+])
+
+const SYSTEM_FIELD_NAMES = new Set([
+  'user_created',
+  'user_updated',
+  'date_created',
+  'date_updated',
+])
+
+/** Registry may return meta.special as a string or string[]. */
+export function normalizeSpecial(
+  special: string[] | string | null | undefined,
+): string[] {
+  if (!special) return []
+  if (Array.isArray(special)) return special
+  return [special]
+}
+
+function mapInterfaceToComponent(
+  metaInterface: string | null | undefined,
+  typeComponent: PrimeVueComponentType | null,
+): PrimeVueComponentType | null {
+  if (!metaInterface) return null
+  const i = metaInterface.toLowerCase()
+
+  // List choices, e.g. patient.sex.
+  if (i.includes('select-dropdown')) return 'Select'
+  if (i.includes('select')) return 'Select'
+
+  if (i.includes('wysiwyg') || i.includes('rich-text-html')) {
+    return typeComponent === 'InputText' || typeComponent === 'Textarea'
+      ? 'Editor'
+      : null
+  }
+
+  if (i.includes('textarea')) {
+    return typeComponent === 'InputText' || typeComponent === 'Textarea'
+      ? 'Textarea'
+      : null
+  }
+
+  // Common datetime/date UIs.
+  if (i.includes('datetime') || i.includes('date')) {
+    return typeComponent === 'DatePicker' ? 'DatePicker' : null
+  }
+
+  // Common boolean UIs.
+  if (i.includes('toggle') || i.includes('boolean') || i.includes('checkbox')) {
+    return typeComponent === 'Checkbox' ? 'Checkbox' : null
+  }
+
+  if (i.includes('currency') || i.includes('number') || i.includes('numeric') || i.includes('slider')) {
+    return typeComponent === 'InputNumber' ? 'InputNumber' : null
+  }
+
+  if (i.includes('calculated') || i.includes('formula') || i.includes('computed')) {
+    return typeComponent
+  }
+
+  if (i.includes('input') || i.includes('text')) {
+    return typeComponent === 'InputText' ? 'InputText' : null
+  }
+
+  return null
+}
+
+/**
+ * Maps a registry field type (and relation metadata) to a PrimeVue component name.
+ */
+export function mapFieldTypeToComponent(
+  field: FieldDefinition,
+  relation?: RelationDefinition,
+): PrimeVueComponentType | null {
+  const special = normalizeSpecial(field.meta?.special)
+
+  if (special.some((s) => SKIP_SPECIAL.has(s))) {
+    return null
+  }
+
+  if (special.includes('m2a')) {
+    return 'M2ABuilder'
+  }
+
+  if (special.includes('m2m')) {
+    return 'M2MMultiSelect'
+  }
+
+  if (isRepeaterFieldDefinition(field)) {
+    return 'Repeater'
+  }
+
+  if (isAddressFieldDefinition(field)) {
+    return 'Address'
+  }
+
+  if (field.type === 'alias') {
+    return null
+  }
+
+  if (special.includes('file') || special.includes('files')) {
+    return 'Files'
+  }
+
+  if (special.includes('m2o') || relation?.related_collection) {
+    return 'AutoComplete'
+  }
+
+  const typeComponent = mapPrimitiveTypeComponent(field.type)
+  const byInterface = mapInterfaceToComponent(
+    field.meta?.interface,
+    typeComponent,
+  )
+
+  if (byInterface) return byInterface
+  return typeComponent
+}
+
+function mapPrimitiveTypeComponent(type: string): PrimeVueComponentType | null {
+  switch (type) {
+    case 'string':
+    case 'uuid':
+    case 'hash':
+    case 'csv':
+      return 'InputText'
+    case 'integer':
+    case 'bigInteger':
+    case 'float':
+    case 'decimal':
+      return 'InputNumber'
+    case 'text':
+      return 'Textarea'
+    case 'date':
+    case 'dateTime':
+    case 'timestamp':
+    case 'time':
+      return 'DatePicker'
+    case 'boolean':
+      return 'Checkbox'
+    default:
+      return null
+  }
+}
+
+export function isLayoutEligibleField(field: FieldDefinition): boolean {
+  if (field.meta?.hidden) return false
+  if (SYSTEM_FIELD_NAMES.has(field.field)) return false
+  return mapFieldTypeToComponent(field) !== null
+}
+
+const CALCULATED_INTERFACE_HINTS = ['calculated', 'formula', 'computed'] as const
+
+export function isCalculatedFieldInterface(interfaceName: string | null | undefined): boolean {
+  if (!interfaceName) return false
+  const normalized = interfaceName.toLowerCase()
+  return CALCULATED_INTERFACE_HINTS.some((hint) => normalized.includes(hint))
+}
+
+/** Fields that must not be edited in entity forms (meta.readonly, calculated UI, etc.). */
+export function isFieldReadonly(field: FieldDefinition): boolean {
+  if (field.meta?.readonly === true) return true
+  if (isCalculatedFieldInterface(field.meta?.interface)) return true
+  const options = field.meta?.options
+  if (options && typeof options === 'object') {
+    const mode = String(
+      (options as Record<string, unknown>).computeMode ??
+        (options as Record<string, unknown>).compute_mode ??
+        '',
+    )
+      .trim()
+      .toLowerCase()
+    if (mode === 'formula' || mode === 'rollup' || mode === 'autonumber') return true
+  }
+  return false
+}
+
+export function findRelationForField(
+  field: FieldDefinition,
+  relations: RelationDefinition[],
+): RelationDefinition | undefined {
+  return relations.find(
+    (r) => r.collection === field.collection && r.field === field.field,
+  )
+}
+
+export function buildPaletteItemFromField(
+  field: FieldDefinition,
+  relations: RelationDefinition[],
+): PaletteItem | null {
+  const relation = findRelationForField(field, relations)
+  const component = mapFieldTypeToComponent(field, relation)
+  if (!component) return null
+
+  const label =
+    field.meta?.note?.trim() ||
+    humanizeFieldName(field.field)
+
+  const item: PaletteItem = {
+    id: `palette-${field.collection}-${field.field}`,
+    label,
+    component,
+    fieldKey: field.field,
+    fieldType: field.type,
+    description: `${field.type}${relation?.related_collection ? ` → ${relation.related_collection}` : ''}`,
+  }
+
+  if (component === 'AutoComplete' && relation?.related_collection) {
+    item.relatedCollection = relation.related_collection
+  }
+
+  if (component === 'M2MMultiSelect' && relation?.related_collection) {
+    item.relatedCollection = relation.related_collection
+  }
+
+  if (component === 'Files') {
+    const special = normalizeSpecial(field.meta?.special)
+    item.multiple = special.includes('files')
+    if (special.includes('file') && relation?.related_collection) {
+      item.relatedCollection = relation.related_collection
+    } else if (special.includes('files')) {
+      const junctionRelation = relations.find(
+        (entry) =>
+          entry.meta?.one_collection === field.collection &&
+          entry.meta?.one_field === field.field,
+      )
+      item.relatedCollection =
+        junctionRelation?.meta?.many_collection ??
+        junctionRelation?.collection ??
+        undefined
+    }
+  }
+
+  if (component === 'M2ABuilder') {
+    const m2aRelation = relations.find(
+      (relation) =>
+        relation.meta?.one_collection === field.collection &&
+        relation.meta?.one_field === field.field,
+    )
+    item.relatedCollection = m2aRelation?.meta?.many_collection ?? undefined
+  }
+
+  return item
+}
+
+export function buildPaletteFromFields(
+  fields: FieldDefinition[],
+  relations: RelationDefinition[],
+): PaletteItem[] {
+  return fields
+    .filter(isLayoutEligibleField)
+    .map((field) => buildPaletteItemFromField(field, relations))
+    .filter((item): item is PaletteItem => item !== null)
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+function humanizeFieldName(field: string): string {
+  return field
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}

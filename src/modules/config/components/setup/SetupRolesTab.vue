@@ -1,0 +1,532 @@
+<script lang="ts">
+export default {
+  name: 'SetupRolesTab',
+}
+</script>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useConfirm } from 'primevue/useconfirm'
+import { useToast } from 'primevue/usetoast'
+import { useTranslation } from '@/core/translation'
+import {
+  createAppRole,
+  deleteAppRole,
+  fetchAppRolesAdmin,
+  fetchPermissionEntities,
+  fetchRolePermissions,
+  replaceRolePermissions,
+  updateAppRole,
+  type AppRoleAdminDto,
+  type PermissionEntityDto,
+  type RolePermissionDto,
+} from '@/core/graphql/userAdminApi'
+import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
+
+interface PermissionMatrixRow {
+  entityApiName: string
+  label: string
+  hidden: boolean
+  canCreate: boolean
+  canRead: boolean
+  canUpdate: boolean
+  canDelete: boolean
+}
+
+const { t } = useTranslation()
+const toast = useToast()
+const confirm = useConfirm()
+
+const loading = ref(false)
+const saving = ref(false)
+const isAdmin = ref(false)
+const roles = ref<AppRoleAdminDto[]>([])
+const entities = ref<PermissionEntityDto[]>([])
+const searchQuery = ref('')
+const permissionFilter = ref('')
+const dialogVisible = ref(false)
+const editingId = ref<string | null>(null)
+const matrix = ref<PermissionMatrixRow[]>([])
+
+const form = reactive({
+  name: '',
+  isAdmin: false,
+})
+
+const filteredRoles = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return roles.value
+  return roles.value.filter((role) => role.name.toLowerCase().includes(q))
+})
+
+const filteredMatrix = computed(() => {
+  const q = permissionFilter.value.trim().toLowerCase()
+  if (!q) return matrix.value
+  return matrix.value.filter(
+    (row) =>
+      row.label.toLowerCase().includes(q)
+      || row.entityApiName.toLowerCase().includes(q),
+  )
+})
+
+function showError(err: unknown, summary?: string): void {
+  toast.add({
+    severity: 'error',
+    summary: summary || t('common.error', 'Error'),
+    detail: err instanceof Error ? err.message : String(err),
+    life: 6000,
+  })
+}
+
+function buildMatrix(
+  entityList: PermissionEntityDto[],
+  permissions: RolePermissionDto[],
+): PermissionMatrixRow[] {
+  const byEntity = new Map(
+    permissions.map((row) => [row.entityApiName, row] as const),
+  )
+  return entityList.map((entity) => {
+    const granted = byEntity.get(entity.apiName)
+    return {
+      entityApiName: entity.apiName,
+      label: entity.label,
+      hidden: entity.hidden,
+      canCreate: Boolean(granted?.canCreate),
+      canRead: Boolean(granted?.canRead),
+      canUpdate: Boolean(granted?.canUpdate),
+      canDelete: Boolean(granted?.canDelete),
+    }
+  })
+}
+
+async function load(): Promise<void> {
+  loading.value = true
+  try {
+    const me = await readCurrentUserBridge()
+    isAdmin.value = Boolean(me.adminAccess || me.roleAdminAccess)
+    if (!isAdmin.value) {
+      roles.value = []
+      entities.value = []
+      return
+    }
+    const [nextRoles, nextEntities] = await Promise.all([
+      fetchAppRolesAdmin(),
+      fetchPermissionEntities(),
+    ])
+    roles.value = nextRoles
+    entities.value = nextEntities
+  } catch (err) {
+    showError(err, t('setup.roles.loadError', 'Failed to load roles'))
+  } finally {
+    loading.value = false
+  }
+}
+
+function openCreate(): void {
+  editingId.value = null
+  form.name = ''
+  form.isAdmin = false
+  permissionFilter.value = ''
+  matrix.value = buildMatrix(entities.value, [])
+  // New roles get full access by default (matches BFF seed on create).
+  for (const row of matrix.value) {
+    row.canCreate = true
+    row.canRead = true
+    row.canUpdate = true
+    row.canDelete = true
+  }
+  dialogVisible.value = true
+}
+
+async function openEdit(role: AppRoleAdminDto): Promise<void> {
+  editingId.value = role.id
+  form.name = role.name
+  form.isAdmin = role.isAdmin
+  permissionFilter.value = ''
+  dialogVisible.value = true
+  saving.value = true
+  try {
+    const permissions = await fetchRolePermissions(role.id)
+    matrix.value = buildMatrix(entities.value, permissions)
+  } catch (err) {
+    showError(err, t('setup.roles.permissionsLoadError', 'Failed to load permissions'))
+    matrix.value = buildMatrix(entities.value, [])
+  } finally {
+    saving.value = false
+  }
+}
+
+function setAll(action: 'all' | 'none' | 'read'): void {
+  for (const row of matrix.value) {
+    if (action === 'all') {
+      row.canCreate = true
+      row.canRead = true
+      row.canUpdate = true
+      row.canDelete = true
+    } else if (action === 'none') {
+      row.canCreate = false
+      row.canRead = false
+      row.canUpdate = false
+      row.canDelete = false
+    } else {
+      row.canCreate = false
+      row.canRead = true
+      row.canUpdate = false
+      row.canDelete = false
+    }
+  }
+}
+
+async function save(): Promise<void> {
+  if (!form.name.trim()) return
+  saving.value = true
+  try {
+    let roleId = editingId.value
+    if (roleId) {
+      await updateAppRole(roleId, {
+        name: form.name.trim(),
+        isAdmin: form.isAdmin,
+      })
+    } else {
+      const created = await createAppRole({
+        name: form.name.trim(),
+        isAdmin: form.isAdmin,
+      })
+      roleId = created.id
+    }
+
+    if (!form.isAdmin && roleId) {
+      await replaceRolePermissions(
+        roleId,
+        matrix.value.map((row) => ({
+          entityApiName: row.entityApiName,
+          canCreate: row.canCreate,
+          canRead: row.canRead,
+          canUpdate: row.canUpdate,
+          canDelete: row.canDelete,
+        })),
+      )
+    }
+
+    dialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: t('setup.roles.saved', 'Role saved'),
+      life: 3000,
+    })
+    await load()
+  } catch (err) {
+    showError(err, t('setup.roles.saveError', 'Failed to save role'))
+  } finally {
+    saving.value = false
+  }
+}
+
+function confirmDelete(role: AppRoleAdminDto): void {
+  confirm.require({
+    message: t(
+      'setup.roles.deleteMessage',
+      'Delete role "{name}"? Users must be unassigned first.',
+      { name: role.name },
+    ),
+    header: t('setup.roles.deleteHeader', 'Delete role'),
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    accept: () => {
+      void (async () => {
+        try {
+          await deleteAppRole(role.id)
+          toast.add({
+            severity: 'success',
+            summary: t('setup.roles.deleted', 'Role deleted'),
+            life: 3000,
+          })
+          await load()
+        } catch (err) {
+          showError(err, t('setup.roles.deleteError', 'Failed to delete role'))
+        }
+      })()
+    },
+  })
+}
+
+onMounted(() => {
+  void load()
+})
+</script>
+
+<template>
+  <section class="setup-tab-content">
+    <div class="setup-panel-header">
+      <div>
+        <h2>{{ t('setup.roles.title', 'Roles') }}</h2>
+        <p class="setup-panel-header__meta">
+          {{
+            t(
+              'setup.roles.hint',
+              'User groups with collection Create / Read / Update / Delete permissions.',
+            )
+          }}
+        </p>
+      </div>
+      <div class="setup-panel-header__actions">
+        <IconField>
+          <InputIcon class="pi pi-search" />
+          <InputText
+            v-model="searchQuery"
+            :placeholder="t('setup.quickFind', 'Quick Find')"
+            class="setup-quick-find"
+          />
+        </IconField>
+        <Button
+          :label="t('setup.roles.new', 'New role')"
+          icon="pi pi-plus"
+          :disabled="!isAdmin || loading"
+          @click="openCreate"
+        />
+      </div>
+    </div>
+
+    <Message
+      v-if="!loading && !isAdmin"
+      severity="warn"
+      :closable="false"
+      class="mb-3"
+    >
+      {{ t('setup.access.adminRequired', 'Administrator access is required.') }}
+    </Message>
+
+    <div
+      v-if="loading"
+      class="page-loading"
+    >
+      <ProgressSpinner stroke-width="4" />
+      <span>{{ t('setup.roles.loading', 'Loading roles...') }}</span>
+    </div>
+
+    <DataTable
+      v-else-if="isAdmin"
+      :value="filteredRoles"
+      striped-rows
+      table-style="table-layout: fixed; width: 100%"
+      :empty-message="t('setup.roles.empty', 'No roles yet.')"
+    >
+      <Column
+        field="name"
+        :header="t('setup.roles.columnName', 'Name')"
+        sortable
+        style="width: 16rem"
+        header-style="width: 16rem"
+      />
+      <Column
+        field="isAdmin"
+        :header="t('setup.roles.columnAdmin', 'Admin')"
+        style="width: 8rem"
+        header-style="width: 8rem"
+      >
+        <template #body="{ data }">
+          <i
+            v-if="data.isAdmin"
+            class="pi pi-check"
+          />
+        </template>
+      </Column>
+      <Column
+        field="userCount"
+        :header="t('setup.roles.columnUsers', 'Users')"
+        sortable
+        style="width: 8rem"
+        header-style="width: 8rem"
+      />
+      <Column
+        :header="t('setup.columnActions', 'Actions')"
+        style="width: 8rem"
+        header-style="width: 8rem"
+      >
+        <template #body="{ data }">
+          <Button
+            icon="pi pi-pencil"
+            text
+            rounded
+            :aria-label="t('common.edit', 'Edit')"
+            @click="openEdit(data)"
+          />
+          <Button
+            icon="pi pi-trash"
+            text
+            rounded
+            severity="danger"
+            :disabled="data.userCount > 0"
+            :aria-label="t('common.delete', 'Delete')"
+            @click="confirmDelete(data)"
+          />
+        </template>
+      </Column>
+    </DataTable>
+
+    <Dialog
+      v-model:visible="dialogVisible"
+      modal
+      :header="
+        editingId
+          ? t('setup.roles.edit', 'Edit role')
+          : t('setup.roles.new', 'New role')
+      "
+      :style="{ width: 'min(56rem, 96vw)' }"
+      :dismissable-mask="true"
+    >
+      <div class="flex flex-col gap-3">
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.roles.columnName', 'Name') }}</label>
+          <InputText
+            v-model="form.name"
+            class="w-full"
+            autocomplete="off"
+          />
+        </div>
+        <div class="flex items-center gap-2">
+          <Checkbox
+            v-model="form.isAdmin"
+            binary
+            input-id="role-is-admin"
+          />
+          <label for="role-is-admin">
+            {{ t('setup.roles.isAdmin', 'Administrator') }}
+          </label>
+        </div>
+
+        <Message
+          v-if="form.isAdmin"
+          severity="info"
+          :closable="false"
+        >
+          {{
+            t(
+              'setup.roles.adminBypass',
+              'Administrators bypass the permission matrix and have full access.',
+            )
+          }}
+        </Message>
+
+        <template v-else>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label class="font-semibold">
+              {{ t('setup.roles.permissions', 'Permissions') }}
+            </label>
+            <div class="flex flex-wrap gap-2">
+              <IconField>
+                <InputIcon class="pi pi-search" />
+                <InputText
+                  v-model="permissionFilter"
+                  :placeholder="t('setup.roles.filterEntities', 'Filter objects…')"
+                />
+              </IconField>
+              <Button
+                :label="t('setup.roles.allowAll', 'Allow all')"
+                size="small"
+                severity="secondary"
+                outlined
+                @click="setAll('all')"
+              />
+              <Button
+                :label="t('setup.roles.readOnly', 'Read only')"
+                size="small"
+                severity="secondary"
+                outlined
+                @click="setAll('read')"
+              />
+              <Button
+                :label="t('setup.roles.denyAll', 'Deny all')"
+                size="small"
+                severity="secondary"
+                outlined
+                @click="setAll('none')"
+              />
+            </div>
+          </div>
+
+          <DataTable
+            :value="filteredMatrix"
+            striped-rows
+            size="small"
+            scrollable
+            scroll-height="22rem"
+            :empty-message="t('setup.roles.noEntities', 'No objects found.')"
+          >
+            <Column
+              field="label"
+              :header="t('setup.roles.columnCollection', 'Collection')"
+              sortable
+            >
+              <template #body="{ data }">
+                <div class="flex flex-col">
+                  <span>{{ data.label }}</span>
+                  <small class="text-muted-color">{{ data.entityApiName }}</small>
+                </div>
+              </template>
+            </Column>
+            <Column
+              :header="t('setup.roles.canCreate', 'Create')"
+              style="width: 5.5rem; text-align: center"
+            >
+              <template #body="{ data }">
+                <Checkbox
+                  v-model="data.canCreate"
+                  binary
+                />
+              </template>
+            </Column>
+            <Column
+              :header="t('setup.roles.canRead', 'Read')"
+              style="width: 5.5rem; text-align: center"
+            >
+              <template #body="{ data }">
+                <Checkbox
+                  v-model="data.canRead"
+                  binary
+                />
+              </template>
+            </Column>
+            <Column
+              :header="t('setup.roles.canUpdate', 'Update')"
+              style="width: 5.5rem; text-align: center"
+            >
+              <template #body="{ data }">
+                <Checkbox
+                  v-model="data.canUpdate"
+                  binary
+                />
+              </template>
+            </Column>
+            <Column
+              :header="t('setup.roles.canDelete', 'Delete')"
+              style="width: 5.5rem; text-align: center"
+            >
+              <template #body="{ data }">
+                <Checkbox
+                  v-model="data.canDelete"
+                  binary
+                />
+              </template>
+            </Column>
+          </DataTable>
+        </template>
+      </div>
+
+      <template #footer>
+        <Button
+          :label="t('common.cancel', 'Cancel')"
+          severity="secondary"
+          text
+          @click="dialogVisible = false"
+        />
+        <Button
+          :label="t('common.save', 'Save')"
+          :loading="saving"
+          :disabled="!form.name.trim()"
+          @click="save"
+        />
+      </template>
+    </Dialog>
+  </section>
+</template>

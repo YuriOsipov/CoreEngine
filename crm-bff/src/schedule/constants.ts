@@ -1,0 +1,5 @@
+export const SCHEDULE_TEMPLATE_COLLECTION = 'crm_schedule_template'
+export const SCHEDULE_SLOT_COLLECTION = 'crm_schedule'
+export const SCHEDULE_SLOT_TEMPLATE_FIELD = 'template'
+export const PUBLISHED_STATUS = 'published'
+export const DEFAULT_INTAKE_TYPE = 'intake'

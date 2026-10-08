@@ -1,0 +1,46 @@
+# Vue 3 / Vite Modular Architecture Rules
+Project_Type = "Multi-purpose schema-driven platform (Federa)"
+Stack = ["Vue 3 (Composition API)", "PrimeVue", "Supabase + GraphQL BFF"]
+
+
+## Tech Stack
+- Vue 3 Composition API (`<script setup>`), TypeScript, Vite
+- PrimeVue 4, Directus-compatible GraphQL BFF (crm-bff), vue-router 4
+- Always output strongly-typed code.
+
+## Source Layout
+```
+src/
+├── core/          # App-wide singletons: GraphQL bridges, router, date utils, ui-kit components
+├── interfaces/    # Shared TypeScript contracts (no runtime code)
+└── modules/
+    ├── entities/  # Object lists, record detail, related records
+    ├── dashboard/ # Dashboard page and recent-records service
+    ├── reports/   # Report page, pivot tables, report settings
+    └── config/    # Builder, form renderer, layout/filter/scheduler settings
+```
+
+## PrimeVue Usage
+- Use PrimeVue components and utilities wherever they can replace hand-written HTML/CSS (dialogs, tables, buttons, menus, inputs, confirmations, tags, etc.).
+- **Do NOT import PrimeVue UI components manually** — `unplugin-vue-components` with `PrimeVueResolver` is configured in `vite.config.ts` and auto-imports them at build time.
+- Still import manually: composables (`useConfirm`, `useToast`), type-only imports (`MenuItem`, `TreeNodeDropEvent`), and plugins (`PrimeVue`, `ConfirmationService`).
+
+## Import Conventions
+- Cross-layer references **must** use `@/` aliases:
+  - `@/core/…`        for core utilities and ui-kit
+  - `@/interfaces`    for shared type contracts
+  - `@/modules/…`     for cross-module imports
+- Intra-module references may use relative paths (`./`, `../`).
+
+
+## Coding Style
+- **Strict Token Budget:** Never rewrite the entire file. Only output mutated lines or code blocks using placeholders (e.g., `// ... existing code ...`).
+- **No Yapping:** Do not explain native Vue features or CSS/HTML layouts unless explicitly asked.
+
+
+## Rules
+- Never hardcode detail forms. Use a loop iterating through a dynamic JSON layout configuration.
+- Use 'vue-draggable-next' for layout modification canvas manipulation.
+- Map field strings safely into standard PrimeVue elements using <component :is="field.component" />.
+- Use or create not component specific functions in `@/core/…` folder
+- Always use the translate function t() instead of hardcoded string

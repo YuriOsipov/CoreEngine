@@ -1,0 +1,27 @@
+# Hasura GraphQL engine only — uses the Windows local Postgres (no Docker DB).
+# Same host as CRM (port 5434). Separate database `hasura` so registry stays in `supabase`.
+#
+# Once (postgres is NOT superuser on this machine; use supabase_admin):
+#   psql -h localhost -p 5434 -U postgres -c "CREATE DATABASE hasura;"
+#   psql -h localhost -p 5434 -U supabase_admin -d hasura -c "CREATE EXTENSION IF NOT EXISTS pgcrypto; GRANT ALL ON DATABASE hasura TO postgres; ALTER DATABASE hasura OWNER TO postgres;"
+#
+# Then:
+#   docker compose -f docs/hasura/docker-compose.yaml up -d
+#
+# Console: http://localhost:8090
+# GraphQL:  http://localhost:8090/v1/graphql
+
+services:
+  graphql-engine:
+    image: hasura/graphql-engine:v2.45.1
+    ports:
+      - "8090:8080"
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      HASURA_GRAPHQL_METADATA_DATABASE_URL: postgres://postgres:1@host.docker.internal:5434/hasura
+      HASURA_GRAPHQL_DATABASE_URL: postgres://postgres:1@host.docker.internal:5434/hasura
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+      HASURA_GRAPHQL_DEV_MODE: "true"
+      HASURA_GRAPHQL_ADMIN_SECRET: myadminsecretkey

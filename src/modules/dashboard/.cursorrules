@@ -1,0 +1,11 @@
+You are an AI assistant strictly assigned to the **dashboard** module.
+Your context is locked to `src/modules/dashboard/`. Do not read, modify, or reference
+files in other modules under `src/modules/`. Focus entirely on this module's
+pages, services, and Sandbox.vue.
+
+Use shared resources from `src/interfaces/` and `src/core/` only.
+Cross-module imports must use `@/` aliases.
+
+This module owns:
+- pages/   DashboardPage
+- services/   dashboardSettings, recentRecords

@@ -997,6 +997,28 @@ export async function fetchFieldRuntimeMetadata(
     }
   }
 
+  if (component === 'JsonList') {
+    const rawColumns = definition.meta?.options?.columns
+    props.columns = Array.isArray(rawColumns)
+      ? rawColumns
+          .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+          .map((item) => {
+            const name = typeof item.name === 'string' ? item.name.trim() : ''
+            const typeRaw = String(item.type ?? 'string')
+              .toLowerCase()
+              .trim()
+            const type =
+              typeRaw === 'number' || typeRaw === 'integer' || typeRaw === 'float'
+                ? 'number'
+                : typeRaw === 'boolean' || typeRaw === 'bool'
+                  ? 'boolean'
+                  : 'string'
+            return { name, type }
+          })
+          .filter((col) => Boolean(col.name))
+      : []
+  }
+
   const collectionFields = await getCachedCollectionFields(collection)
   const formula =
     resolveFieldFormula(

@@ -1066,6 +1066,15 @@ async function loadDefaultTableSettingsWithMeta(
     relatedTransfer: resolvedMeta.relatedTransfer ?? null,
     detailPanel: resolvedMeta.detailPanel ?? null,
     actions: resolvedMeta.actions ?? null,
+    ...(resolvedMeta.inlineEditRefresh === 'row' ||
+    resolvedMeta.inlineEditRefresh === 'fields'
+      ? { inlineEditRefresh: resolvedMeta.inlineEditRefresh }
+      : {}),
+    ...(resolvedMeta.inlineEditRefresh === 'fields' &&
+    Array.isArray(resolvedMeta.inlineEditRefreshFields) &&
+    resolvedMeta.inlineEditRefreshFields.length
+      ? { inlineEditRefreshFields: resolvedMeta.inlineEditRefreshFields }
+      : {}),
   }
 }
 
@@ -1214,6 +1223,8 @@ function syncListLayoutWithAvailableSettings(): void {
                 v-model:selection="selectedMasterRow"
                 selection-mode="single"
                 :record-link-field="tableSettings?.recordLinkField ?? null"
+                :inline-edit-refresh="tableSettings?.inlineEditRefresh ?? 'off'"
+                :inline-edit-refresh-fields="tableSettings?.inlineEditRefreshFields ?? []"
                 :collection="objectList.collection"
                 :primary-key="objectList.primaryKey"
                 :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
@@ -1325,6 +1336,8 @@ function syncListLayoutWithAvailableSettings(): void {
           v-model:selection="selectedMasterRow"
           :selection-mode="detailPanelEnabled ? 'single' : null"
           :record-link-field="tableSettings?.recordLinkField ?? null"
+          :inline-edit-refresh="tableSettings?.inlineEditRefresh ?? 'off'"
+          :inline-edit-refresh-fields="tableSettings?.inlineEditRefreshFields ?? []"
           :collection="objectList.collection"
           :primary-key="objectList.primaryKey"
           :empty-message="t('objectList.noRecords', 'No records found in this collection.')"

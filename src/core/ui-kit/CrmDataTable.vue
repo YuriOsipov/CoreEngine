@@ -61,7 +61,12 @@ import {
 } from '@/modules/entities/services/collectionSchema'
 import { usesPrimaryKeyRecordLink, resolveAutoRecordLinkField } from '@/modules/entities/services/tableSettings'
 import type { EntityLayoutSchema, LayoutFieldChildLookup } from '@/interfaces/config'
-import type { DataTableGroupConfig, PrimeVueComponentType } from '@/interfaces/entities'
+import type {
+  DataTableGroupConfig,
+  DataTableSettings,
+  PrimeVueComponentType,
+} from '@/interfaces/entities'
+import { fetchDataTableRuntime } from '@/modules/entities/services/dataTableRuntime'
 import { loadChildLookupFieldSettings } from '@/modules/config/services/layoutSettings'
 import { isNestedFieldPath, resolveNestedCellValue } from '@/core/dataTableFieldPath'
 import {
@@ -154,6 +159,13 @@ const props = withDefaults(
     selectionMode?: 'single' | null
     /** Currently selected row when selectionMode is set. */
     selection?: Record<string, unknown> | null
+    /**
+     * After inline cell save, re-fetch row so automation/formula fields update.
+     * Default off.
+     */
+    inlineEditRefresh?: 'off' | 'row' | 'fields'
+    /** Field names merged when `inlineEditRefresh` is `fields`. */
+    inlineEditRefreshFields?: string[]
   }>(),
   {
     paginator: false,
@@ -185,6 +197,8 @@ const props = withDefaults(
     showViewRecordAction: true,
     selectionMode: null,
     selection: null,
+    inlineEditRefresh: 'off',
+    inlineEditRefreshFields: () => [],
   },
 )
 
@@ -889,8 +903,16 @@ function isDateLikeColumn(column: CrmDataTableColumn): boolean {
   return column.component === 'DatePicker' || column.component === 'Calendar'
 }
 
+function isNumericColumn(column: CrmDataTableColumn): boolean {
+  return column.component === 'InputNumber'
+}
+
 function columnStyle(column: CrmDataTableColumn): Record<string, string> {
-  return { minWidth: columnMinWidth(column) }
+  const style: Record<string, string> = { minWidth: columnMinWidth(column) }
+  if (isNumericColumn(column)) {
+    style.textAlign = 'right'
+  }
+  return style
 }
 
 function inlineReadonlyKey(collection: string, field: string): string {
@@ -1105,6 +1127,20 @@ async function commitInlineEdit(serialized: unknown): Promise<void> {
       await bridgeUpdateItem(collection, editing.rowKey, {
         [editing.field]: serialized,
       })
+
+      const refreshMode = props.inlineEditRefresh ?? 'off'
+      if (refreshMode === 'row' || refreshMode === 'fields') {
+        const refreshed = await refreshInlineEditedRow(
+          editing.rowKey,
+          refreshMode,
+          props.inlineEditRefreshFields ?? [],
+          editing.field,
+        )
+        cancelInlineEdit()
+        if (refreshed) emit('record-updated', refreshed)
+        return
+      }
+
       let editorValue = inlineDraft.value
       if (
         kind === 'childLookup' &&
@@ -1181,6 +1217,82 @@ function patchInlineField(
   })
   emitRows(rows)
   return patchedRow
+}
+
+function replaceInlineRow(
+  id: string,
+  nextRow: Record<string, unknown>,
+): Record<string, unknown> | null {
+  let patchedRow: Record<string, unknown> | null = null
+  const rows = props.rows.map((row) => {
+    if (String(row[managedPrimaryKey.value] ?? '') !== id) return row
+    patchedRow = { ...row, ...nextRow }
+    return patchedRow
+  })
+  emitRows(rows)
+  return patchedRow
+}
+
+async function refreshInlineEditedRow(
+  rowKey: string,
+  mode: 'row' | 'fields',
+  refreshFields: string[],
+  editedField: string,
+): Promise<Record<string, unknown> | null> {
+  const collection = managedCollection.value
+  if (!collection) return null
+
+  const settings: DataTableSettings = {
+    columns: localColumns.value
+      .filter((column) => column.field && !column.autoRecordId)
+      .map((column) => ({
+        field: column.field,
+        header: column.header,
+        component: column.component,
+        relatedCollection: column.relatedCollection,
+        template: column.template,
+        format: column.format,
+        enabled: true,
+        ...(column.inlineEditable === true ? { inlineEditable: true } : {}),
+      })),
+  }
+
+  try {
+    const runtime = await fetchDataTableRuntime({
+      collection,
+      settings,
+      recordIds: [rowKey],
+      limit: 1,
+      swallowFetchErrors: true,
+    })
+    const fetched = runtime.rows[0]
+    if (!fetched) return null
+
+    if (mode === 'row') {
+      return replaceInlineRow(rowKey, fetched)
+    }
+
+    const fields = refreshFields
+      .map((field) => field.trim())
+      .filter(Boolean)
+    if (fields.length === 0) {
+      return replaceInlineRow(rowKey, fetched)
+    }
+
+    const patch: Record<string, unknown> = {}
+    for (const field of fields) {
+      if (Object.prototype.hasOwnProperty.call(fetched, field)) {
+        patch[field] = fetched[field]
+      }
+    }
+    // Always keep the cell that was just edited in sync when present on the fetch.
+    if (Object.prototype.hasOwnProperty.call(fetched, editedField)) {
+      patch[editedField] = fetched[editedField]
+    }
+    return replaceInlineRow(rowKey, patch)
+  } catch {
+    return null
+  }
 }
 
 function applyColumnOrder(ordered: CrmDataTableColumn[]): void {
@@ -2170,6 +2282,7 @@ function compareRowsByField(
         :format-group-header="formatGroupHeader"
         :resolve-column-key="resolveColumnKey"
         :column-style="columnStyle"
+        :is-numeric-column="isNumericColumn"
         :resolve-cell-value="resolveCellValue"
         :format-value="formatValue"
         :can-link-m2-o-cell="canLinkM2OCell"

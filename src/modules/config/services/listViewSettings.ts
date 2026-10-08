@@ -138,7 +138,14 @@ export async function deleteListView(
 }
 
 function emptyListViewTableMeta(): ListViewTableMeta {
-  return { relatedTransfer: null, actions: null, detailPanel: null, predefinedViews: {} }
+  return {
+    relatedTransfer: null,
+    actions: null,
+    detailPanel: null,
+    inlineEditRefresh: 'off',
+    inlineEditRefreshFields: [],
+    predefinedViews: {},
+  }
 }
 
 function mergeRawPredefinedViews(
@@ -177,6 +184,9 @@ function mergeListViewTableMeta(
     relatedTransfer: override.relatedTransfer ?? base.relatedTransfer ?? null,
     actions: override.actions ?? base.actions ?? null,
     detailPanel: override.detailPanel ?? base.detailPanel ?? null,
+    inlineEditRefresh: override.inlineEditRefresh ?? base.inlineEditRefresh ?? 'off',
+    inlineEditRefreshFields:
+      override.inlineEditRefreshFields ?? base.inlineEditRefreshFields ?? [],
     predefinedViews: normalizePredefinedViews(
       mergeRawPredefinedViews(
         base.predefinedViews ?? {},
@@ -217,12 +227,7 @@ export async function saveListViewTableMeta(
   roleId: string | null = null,
 ): Promise<void> {
   const existing = await readMetaSettingRecord(collection, roleId)
-  const current = existing?.body ? parseListViewTableMeta(existing.body) : {
-    relatedTransfer: null,
-    actions: null,
-    detailPanel: null,
-    predefinedViews: {},
-  }
+  const current = existing?.body ? parseListViewTableMeta(existing.body) : emptyListViewTableMeta()
   const body: ListViewTableMeta = {
     relatedTransfer:
       meta.relatedTransfer !== undefined
@@ -236,6 +241,14 @@ export async function saveListViewTableMeta(
       meta.detailPanel !== undefined
         ? (meta.detailPanel ?? null)
         : (current.detailPanel ?? null),
+    inlineEditRefresh:
+      meta.inlineEditRefresh !== undefined
+        ? (meta.inlineEditRefresh ?? 'off')
+        : (current.inlineEditRefresh ?? 'off'),
+    inlineEditRefreshFields:
+      meta.inlineEditRefreshFields !== undefined
+        ? (meta.inlineEditRefreshFields ?? [])
+        : (current.inlineEditRefreshFields ?? []),
     predefinedViews: meta.predefinedViews ?? current.predefinedViews ?? {},
   }
 
@@ -268,27 +281,46 @@ export async function resolvePredefinedViewTableSettings(
       groupBy: saved.groupBy ?? null,
       recordLinkField: saved.recordLinkField ?? null,
     })
-    return {
-      ...normalized,
-      relatedTransfer: resolvedMeta.relatedTransfer ?? null,
-      actions: resolvedMeta.actions ?? null,
-      detailPanel: resolvedMeta.detailPanel ?? null,
-    }
+    return applyListViewMetaToTableSettings(normalized, resolvedMeta)
   }
 
   const defaults = await buildDefaultTableSettings(collection)
+  return applyListViewMetaToTableSettings(defaults, resolvedMeta)
+}
+
+function applyListViewMetaToTableSettings(
+  settings: DataTableSettings,
+  meta: ListViewTableMeta | null | undefined,
+): DataTableSettings {
+  const refresh = meta?.inlineEditRefresh === 'row' || meta?.inlineEditRefresh === 'fields'
+    ? meta.inlineEditRefresh
+    : undefined
+  const refreshFields =
+    refresh === 'fields' && Array.isArray(meta?.inlineEditRefreshFields)
+      ? meta.inlineEditRefreshFields.filter((field) => String(field ?? '').trim())
+      : undefined
   return {
-    ...defaults,
-    relatedTransfer: resolvedMeta.relatedTransfer ?? null,
-    actions: resolvedMeta.actions ?? null,
-    detailPanel: resolvedMeta.detailPanel ?? null,
+    ...settings,
+    relatedTransfer: meta?.relatedTransfer ?? null,
+    actions: meta?.actions ?? null,
+    detailPanel: meta?.detailPanel ?? null,
+    ...(refresh ? { inlineEditRefresh: refresh } : {}),
+    ...(refreshFields?.length ? { inlineEditRefreshFields: refreshFields } : {}),
   }
 }
 
 export async function savePredefinedViewTableSettings(
   collection: string,
   viewId: PredefinedListViewId,
-  settings: Pick<DataTableSettings, 'columns' | 'sort' | 'groupBy' | 'recordLinkField'>,
+  settings: Pick<
+    DataTableSettings,
+    | 'columns'
+    | 'sort'
+    | 'groupBy'
+    | 'recordLinkField'
+    | 'inlineEditRefresh'
+    | 'inlineEditRefreshFields'
+  >,
   roleId: string | null = null,
 ): Promise<void> {
   const meta = await loadListViewTableMeta(collection, roleId)
@@ -306,6 +338,8 @@ export async function savePredefinedViewTableSettings(
   await saveListViewTableMeta(collection, {
     ...meta,
     predefinedViews,
+    inlineEditRefresh: normalized.inlineEditRefresh ?? 'off',
+    inlineEditRefreshFields: normalized.inlineEditRefreshFields ?? [],
   }, roleId)
 }
 
@@ -321,12 +355,7 @@ export function listViewToTableSettings(
     groupBy: view.groupBy ?? null,
     recordLinkField: view.recordLinkField ?? null,
   })
-  return {
-    ...normalized,
-    relatedTransfer: meta?.relatedTransfer ?? null,
-    actions: meta?.actions ?? null,
-    detailPanel: meta?.detailPanel ?? null,
-  }
+  return applyListViewMetaToTableSettings(normalized, meta)
 }
 
 export async function resolvePinnedListViewId(
@@ -543,16 +572,19 @@ function parseListViewTableMeta(body: unknown): ListViewTableMeta {
       ? (JSON.parse(body) as ListViewTableMeta)
       : (body as ListViewTableMeta)
 
+  const normalizedExtras = normalizeTableSettings({
+    columns: [],
+    actions: parsed.actions ?? null,
+    detailPanel: parsed.detailPanel ?? null,
+    inlineEditRefresh: parsed.inlineEditRefresh,
+    inlineEditRefreshFields: parsed.inlineEditRefreshFields,
+  })
   return {
     relatedTransfer: parsed.relatedTransfer ?? null,
-    actions: normalizeTableSettings({
-      columns: [],
-      actions: parsed.actions ?? null,
-    }).actions,
-    detailPanel: normalizeTableSettings({
-      columns: [],
-      detailPanel: parsed.detailPanel ?? null,
-    }).detailPanel,
+    actions: normalizedExtras.actions,
+    detailPanel: normalizedExtras.detailPanel,
+    inlineEditRefresh: normalizedExtras.inlineEditRefresh ?? 'off',
+    inlineEditRefreshFields: normalizedExtras.inlineEditRefreshFields ?? [],
     predefinedViews: normalizePredefinedViews(parsed.predefinedViews),
   }
 }

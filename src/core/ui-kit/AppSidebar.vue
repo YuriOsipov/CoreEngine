@@ -231,13 +231,13 @@ defineExpose({ reload, toggleCollapsed, collapsed })
       <button
         type="button"
         class="app-sidebar__workspace"
-        :title="app?.label || t('navigation.appFallback', 'Federa')"
+        :title="app?.label || t('navigation.appFallback', 'Helix')"
         @click="goHome"
       >
         <span class="app-sidebar__logo"><i class="pi pi-th-large" /></span>
         <span class="app-sidebar__workspace-text">
           <span class="app-sidebar__workspace-name">
-            {{ app?.label || t('navigation.appFallback', 'Federa') }}
+            {{ app?.label || t('navigation.appFallback', 'Helix') }}
           </span>
           <span class="app-sidebar__workspace-sub">
             {{ t('navigation.appSubtitle', 'Platform') }}

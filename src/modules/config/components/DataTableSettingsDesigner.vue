@@ -221,6 +221,46 @@ const recordLinkField = computed({
     })
   },
 })
+const inlineEditRefreshOptions = computed(() => [
+  {
+    label: t('tableSettings.inlineEditRefreshOff', 'Do not refresh (default)'),
+    value: 'off',
+  },
+  {
+    label: t('tableSettings.inlineEditRefreshRow', 'Refresh full row'),
+    value: 'row',
+  },
+  {
+    label: t('tableSettings.inlineEditRefreshSelected', 'Refresh selected fields'),
+    value: 'fields',
+  },
+])
+
+const inlineEditRefresh = computed({
+  get: () => props.modelValue.inlineEditRefresh ?? 'off',
+  set: (value: 'off' | 'row' | 'fields') => {
+    updateSettings({
+      ...props.modelValue,
+      inlineEditRefresh: value === 'off' ? undefined : value,
+      inlineEditRefreshFields:
+        value === 'fields'
+          ? (props.modelValue.inlineEditRefreshFields ?? [])
+          : undefined,
+    })
+  },
+})
+
+const inlineEditRefreshFields = computed({
+  get: () => props.modelValue.inlineEditRefreshFields ?? [],
+  set: (fields: string[]) => {
+    updateSettings({
+      ...props.modelValue,
+      inlineEditRefresh: 'fields',
+      inlineEditRefreshFields: fields,
+    })
+  },
+})
+
 const rowLimit = computed({
   get: () => props.modelValue.rowLimit ?? DEFAULT_RELATED_ROW_LIMIT,
   set: (value: number | null) => {
@@ -1132,6 +1172,53 @@ const batchInsertHint = computed(() =>
             :use-grouping="false"
             show-buttons
             input-id="table-row-limit"
+          />
+        </div>
+
+        <div class="table-settings-inline-options__item">
+          <div class="table-settings-inline-options__label-row">
+            <label class="table-settings-inline-options__label">
+              {{ t('tableSettings.inlineEditRefresh', 'After inline edit') }}
+            </label>
+            <button
+              type="button"
+              class="table-settings-hint"
+              v-tooltip.bottom="
+                hintTooltip(
+                  t(
+                    'tableSettings.inlineEditRefreshHint',
+                    'Re-fetch the row after inline save so automation/formula fields (e.g. text_result) update. Off by default.',
+                  ),
+                )
+              "
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </div>
+          <Select
+            v-model="inlineEditRefresh"
+            class="w-full"
+            :options="inlineEditRefreshOptions"
+            option-label="label"
+            option-value="value"
+          />
+        </div>
+
+        <div
+          v-if="inlineEditRefresh === 'fields'"
+          class="table-settings-inline-options__item"
+        >
+          <label class="table-settings-inline-options__label">
+            {{ t('tableSettings.inlineEditRefreshFields', 'Fields to refresh') }}
+          </label>
+          <MultiSelect
+            v-model="inlineEditRefreshFields"
+            class="w-full"
+            :options="selectedColumns"
+            option-label="header"
+            option-value="field"
+            display="chip"
+            filter
+            :placeholder="t('tableSettings.inlineEditRefreshFieldsPlaceholder', 'Select fields…')"
           />
         </div>
       </section>

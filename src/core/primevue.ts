@@ -53,6 +53,9 @@ const PRIME_VUE_COMPONENT_MAP: Record<PrimeVueComponentType, Component> = {
   Repeater: undefined as unknown as Component,
   // Address compound field is rendered by FormRenderer directly.
   Address: undefined as unknown as Component,
+  // JSON list / raw editors are rendered by FormRenderer directly.
+  JsonList: undefined as unknown as Component,
+  JsonCode: undefined as unknown as Component,
   // BlockLayout is a designer reference only — never resolved as a PrimeVue component.
   BlockLayout: undefined as unknown as Component,
 }

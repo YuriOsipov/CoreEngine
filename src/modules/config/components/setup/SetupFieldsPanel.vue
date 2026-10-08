@@ -136,6 +136,12 @@ function dataTypeLabel(row: RegistryFieldListRow): string {
   if (iface === 'address' || String(row.interface || '').toLowerCase().includes('address')) {
     return t('setup.fields.typeAddress', 'Address')
   }
+  if (iface === 'json-list') {
+    return `${t('setup.fields.typeJson', 'JSON')} · ${t('setup.fields.ifaceJsonList', 'JSON List')}`
+  }
+  if (iface === 'input-code' && String(row.type || '').toUpperCase() === 'JSON') {
+    return `${t('setup.fields.typeJson', 'JSON')} · ${t('setup.fields.ifaceJsonCode', 'JSON (raw)')}`
+  }
   if (iface === 'select-dropdown') {
     return `${row.type} · ${t('setup.fields.ifacePicklist', 'Picklist')}`
   }

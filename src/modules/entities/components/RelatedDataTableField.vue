@@ -509,6 +509,8 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
         :default-sort-order="field.dataTable?.sort?.order ?? null"
         :group-by="field.dataTable?.groupBy ?? null"
         :record-link-field="field.dataTable?.recordLinkField ?? null"
+        :inline-edit-refresh="field.dataTable?.inlineEditRefresh ?? 'off'"
+        :inline-edit-refresh-fields="field.dataTable?.inlineEditRefreshFields ?? []"
         :empty-message="resolvedEmptyMessage"
         @view-record="emit('view-record', $event)"
         @update:rows="updateRows"

@@ -32,6 +32,8 @@ import {
   isFullWidthLayoutField,
   isGroupInlineLabels,
   isHtmlEditorField,
+  isJsonCodeField,
+  isJsonListField,
   isRepeaterField,
   isActivityLogField,
   isDocEngineField,
@@ -42,6 +44,10 @@ import {
   sectionLabel,
 } from '@/core/fieldHelpers'
 import { formatAddressMultiline } from '@/core/addressField'
+import {
+  formatJsonCodeSummary,
+  formatJsonListSummary,
+} from '@/core/jsonField'
 import { useTranslation } from '@/core/translation'
 
 const { t } = useTranslation()
@@ -316,6 +322,36 @@ watch(
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
                 >{{ formatAddressMultiline(modelValue[field.field]) }}</div>
+              </template>
+
+              <template v-else-if="isJsonListField(field)">
+                <div
+                  class="text-surface-700 text-sm font-medium"
+                  :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
+                >{{ fieldLabels.getLabel(field) }}</div>
+                <div
+                  class="layout-field__value min-w-0 break-words text-surface-900 text-[0.95rem] leading-[1.35]"
+                  :class="{
+                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                      !embedded && !isGroupInlineLabels(group),
+                    'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
+                  }"
+                >{{ formatJsonListSummary(modelValue[field.field], []) }}</div>
+              </template>
+
+              <template v-else-if="isJsonCodeField(field)">
+                <div
+                  class="text-surface-700 text-sm font-medium"
+                  :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
+                >{{ fieldLabels.getLabel(field) }}</div>
+                <div
+                  class="layout-field__value min-w-0 break-words font-mono text-sm text-surface-900 leading-[1.35]"
+                  :class="{
+                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                      !embedded && !isGroupInlineLabels(group),
+                    'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
+                  }"
+                >{{ formatJsonCodeSummary(modelValue[field.field]) }}</div>
               </template>
 
               <template v-else-if="isHtmlEditorField(field)">

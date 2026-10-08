@@ -87,6 +87,7 @@ function inferSpecial(iface: string): string[] | null {
   if (value.includes('o2m')) return ['o2m']
   if (value.includes('m2o')) return ['m2o']
   if (value === 'address' || value.includes('address')) return ['address']
+  if (value === 'json-list' || value.includes('json-list')) return ['json-list']
   return null
 }
 
@@ -107,6 +108,8 @@ export function normalizeFieldInterface(iface: string): string {
   if (value === 'm2m') return 'list-m2m'
   if (value === 'currency') return 'currency'
   if (value === 'address') return 'address'
+  if (value === 'json-list') return 'json-list'
+  if (value === 'input-code') return 'input-code'
   if (value === 'input' || !value) return 'input'
   return iface
 }

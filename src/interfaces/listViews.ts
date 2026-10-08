@@ -52,6 +52,13 @@ export interface ListViewTableMeta {
   actions?: ListViewAction[] | null
   /** Master/detail related panel for the object list page. */
   detailPanel?: ListViewDetailPanel | null
+  /**
+   * After inline cell save, re-fetch row data so automation/formula side effects appear.
+   * Default / omitted = off.
+   */
+  inlineEditRefresh?: 'off' | 'row' | 'fields'
+  /** Field names to merge when `inlineEditRefresh` is `fields`. */
+  inlineEditRefreshFields?: string[]
   predefinedViews?: Partial<Record<PredefinedListViewId, PredefinedListViewTableSettings>>
 }
 

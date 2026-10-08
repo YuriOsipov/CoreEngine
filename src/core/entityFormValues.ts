@@ -17,6 +17,11 @@ import {
   normalizeAddressValue,
 } from '@/core/addressField'
 import {
+  getJsonListColumns,
+  isJsonListFieldDefinition,
+  normalizeJsonListValue,
+} from '@/core/jsonField'
+import {
   isRepeaterFieldDefinition,
 } from '@/core/repeaterField'
 import { serializeDateFieldValue } from '@/core/dateFormatting'
@@ -48,6 +53,10 @@ export async function normalizeEntityFormFieldValue(
 
   if (definition && isAddressFieldDefinition(definition)) {
     return normalizeAddressValue(value)
+  }
+
+  if (definition && isJsonListFieldDefinition(definition)) {
+    return normalizeJsonListValue(value, getJsonListColumns(definition))
   }
 
   if (definition && definition.type === 'json') {

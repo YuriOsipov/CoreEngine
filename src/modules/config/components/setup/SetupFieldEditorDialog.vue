@@ -28,6 +28,11 @@ interface ChoiceRow {
   value: string
 }
 
+interface JsonColumnRow {
+  name: string
+  type: 'string' | 'number' | 'boolean'
+}
+
 type ComputeMode = 'none' | 'formula' | 'rollup' | 'autoNumber'
 
 const props = defineProps<{
@@ -80,6 +85,7 @@ const form = reactive({
   dateFormatCustom: '',
   currencySuffix: '',
   decimalPlaces: 2,
+  jsonColumns: [] as JsonColumnRow[],
   formulaTemplate: '',
   rollupChildEntity: null as string | null,
   rollupParentField: null as string | null,
@@ -130,6 +136,10 @@ const isFormulaType = computed(() => form.type === 'FORMULA')
 const isRollupType = computed(() => form.type === 'ROLLUP')
 const isAutoNumberType = computed(() => form.type === 'AUTO_NUMBER')
 const isAddressType = computed(() => form.type === 'ADDRESS')
+const isJsonType = computed(() => form.type === 'JSON')
+const isJsonList = computed(
+  () => isJsonType.value && normalizeFieldInterface(form.interface) === 'json-list',
+)
 const isComputed = computed(
   () => isFormulaType.value || isRollupType.value || isAutoNumberType.value,
 )
@@ -204,7 +214,11 @@ const relationKindLocked = computed(
     (props.field?.relationKind === 'M2O' || props.field?.relationKind === 'M2M'),
 )
 const supportsChildLookup = computed(
-  () => !isM2MRelation.value && !isComputed.value && !isAddressType.value,
+  () =>
+    !isM2MRelation.value &&
+    !isComputed.value &&
+    !isAddressType.value &&
+    !isJsonType.value,
 )
 
 const {
@@ -303,6 +317,10 @@ const typeOptions = computed(() => {
       value: 'ADDRESS',
     },
     {
+      label: t('setup.fields.typeJson', 'JSON'),
+      value: 'JSON',
+    },
+    {
       label: t('setup.fields.typeFormula', 'Formula (this record)'),
       value: 'FORMULA',
     },
@@ -375,8 +393,14 @@ const interfaceOptions = computed(() => {
       return [{ label: t('setup.fields.ifaceText', 'Text'), value: 'input' }]
     case 'JSON':
       return [
-        { label: t('setup.fields.ifaceAddress', 'Address'), value: 'address' },
-        { label: t('setup.fields.ifaceJson', 'JSON'), value: 'input-code' },
+        {
+          label: t('setup.fields.ifaceJsonList', 'JSON List'),
+          value: 'json-list',
+        },
+        {
+          label: t('setup.fields.ifaceJsonCode', 'JSON (raw)'),
+          value: 'input-code',
+        },
       ]
     default:
       return [{ label: t('setup.fields.ifaceText', 'Text'), value: 'input' }]
@@ -400,8 +424,18 @@ const isDateLike = computed(
   () => storageType.value === 'DATE' || storageType.value === 'DATETIME',
 )
 const showDefaultValue = computed(
-  () => !form.isLookup && !isComputed.value && !isAddressType.value,
+  () =>
+    !form.isLookup &&
+    !isComputed.value &&
+    !isAddressType.value &&
+    !isJsonType.value,
 )
+
+const jsonColumnTypeOptions = computed(() => [
+  { label: t('setup.fields.jsonColumnTypeString', 'Text'), value: 'string' },
+  { label: t('setup.fields.jsonColumnTypeNumber', 'Number'), value: 'number' },
+  { label: t('setup.fields.jsonColumnTypeBoolean', 'Boolean'), value: 'boolean' },
+])
 
 const choiceFilter = ref('')
 
@@ -535,8 +569,9 @@ function defaultInterfaceFor(type: string, isLookup: boolean): string {
     case 'AUTO_NUMBER':
       return 'input'
     case 'ADDRESS':
-    case 'JSON':
       return 'address'
+    case 'JSON':
+      return 'json-list'
     default:
       return 'input'
   }
@@ -865,6 +900,7 @@ function resetFromProps(): void {
       options.decimalPlaces ?? options.minFractionDigits ?? 2,
     )
     if (!Number.isFinite(form.decimalPlaces)) form.decimalPlaces = 2
+    form.jsonColumns = parseJsonColumns(options)
     ensureInterfaceValid()
     void loadRelatedChildEntities()
     void loadChildFields(form.rollupChildEntity)
@@ -894,6 +930,7 @@ function resetFromProps(): void {
   form.dateFormatCustom = ''
   form.currencySuffix = ''
   form.decimalPlaces = 2
+  form.jsonColumns = []
   form.formulaTemplate = ''
   form.rollupChildEntity = null
   form.rollupParentField = null
@@ -926,6 +963,35 @@ function removeChoice(index: number): void {
   form.choices.splice(index, 1)
 }
 
+function parseJsonColumns(options: Record<string, unknown> | null | undefined): JsonColumnRow[] {
+  const raw = options?.columns
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .map((item) => {
+      const name = typeof item.name === 'string' ? item.name.trim() : ''
+      const typeRaw = String(item.type ?? 'string')
+        .toLowerCase()
+        .trim()
+      const type: JsonColumnRow['type'] =
+        typeRaw === 'number' || typeRaw === 'integer' || typeRaw === 'float'
+          ? 'number'
+          : typeRaw === 'boolean' || typeRaw === 'bool'
+            ? 'boolean'
+            : 'string'
+      return { name, type }
+    })
+    .filter((col) => Boolean(col.name))
+}
+
+function addJsonColumn(): void {
+  form.jsonColumns.push({ name: '', type: 'string' })
+}
+
+function removeJsonColumn(index: number): void {
+  form.jsonColumns.splice(index, 1)
+}
+
 function buildOptionsAndDisplay(): {
   options: Record<string, unknown>
   displayOptions: Record<string, unknown>
@@ -940,6 +1006,15 @@ function buildOptionsAndDisplay(): {
         text: row.text.trim() || row.value.trim(),
         value: coerceChoiceValue(row.value, storageType.value),
       }))
+  }
+
+  if (isJsonList.value) {
+    options.columns = form.jsonColumns
+      .map((col) => ({
+        name: col.name.trim(),
+        type: col.type,
+      }))
+      .filter((col) => Boolean(col.name))
   }
 
   if (isCurrency.value) {
@@ -1047,6 +1122,16 @@ watch(
       form.relationKind = 'none'
       return
     }
+    if (isJsonType.value) {
+      form.isLookup = false
+      form.relatedEntity = null
+      form.relationKind = 'none'
+      ensureInterfaceValid()
+      if (form.interface === 'json-list' && form.jsonColumns.length === 0) {
+        form.jsonColumns = [{ name: '', type: 'string' }]
+      }
+      return
+    }
     const prevType = prev?.[0]
     if (prevType === 'AUTO_NUMBER' && form.type === 'STRING') {
       form.readonly = false
@@ -1095,6 +1180,9 @@ watch(
         },
       ]
     }
+    if (iface === 'json-list' && form.jsonColumns.length === 0) {
+      form.jsonColumns = [{ name: '', type: 'string' }]
+    }
   },
 )
 
@@ -1105,6 +1193,12 @@ function submit(): void {
   if (
     computeMode.value === 'rollup' &&
     (!form.rollupChildEntity || !form.rollupParentField)
+  ) {
+    return
+  }
+  if (
+    isJsonList.value &&
+    !form.jsonColumns.some((col) => col.name.trim())
   ) {
     return
   }
@@ -1235,7 +1329,7 @@ function submit(): void {
       </div>
 
       <div
-        v-if="!isAutoNumberType && !isNameField && !isAddressType"
+        v-if="!isAutoNumberType && !isNameField && !isAddressType && !isJsonType"
         class="flex flex-col gap-1"
       >
         <label>{{ t('setup.fields.relationType', 'Relationship') }}</label>
@@ -1484,6 +1578,20 @@ function submit(): void {
         </div>
 
         <div
+          v-if="isJsonType"
+          class="flex flex-col gap-1"
+        >
+          <small class="text-muted-color">
+            {{
+              t(
+                'setup.fields.jsonHint',
+                'Stores structured JSON in a jsonb column. Use JSON List for tabular rows, or JSON (raw) for free-form JSON.',
+              )
+            }}
+          </small>
+        </div>
+
+        <div
           v-if="!isComputed && !isAddressType"
           class="flex flex-col gap-1"
         >
@@ -1497,6 +1605,57 @@ function submit(): void {
           />
         </div>
       </template>
+
+      <div
+        v-if="isJsonList"
+        class="setup-field-json-columns flex flex-col gap-2"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <label>
+            {{ t('setup.fields.jsonColumns', 'Columns') }}
+            <span class="text-muted-color font-normal">
+              ({{ form.jsonColumns.length }})
+            </span>
+          </label>
+          <Button
+            :label="t('setup.fields.addJsonColumn', 'Add column')"
+            icon="pi pi-plus"
+            size="small"
+            severity="secondary"
+            outlined
+            @click="addJsonColumn"
+          />
+        </div>
+        <div class="setup-field-json-columns__list flex flex-col gap-2">
+          <div
+            v-for="(col, index) in form.jsonColumns"
+            :key="index"
+            class="flex gap-2 items-center"
+          >
+            <InputText
+              v-model="col.name"
+              class="flex-1"
+              :placeholder="t('setup.fields.jsonColumnName', 'Name')"
+              autocomplete="off"
+            />
+            <Select
+              v-model="col.type"
+              :options="jsonColumnTypeOptions"
+              option-label="label"
+              option-value="value"
+              class="w-36"
+            />
+            <Button
+              icon="pi pi-trash"
+              text
+              rounded
+              severity="danger"
+              :aria-label="t('common.delete', 'Delete')"
+              @click="removeJsonColumn(index)"
+            />
+          </div>
+        </div>
+      </div>
 
       <div
         v-if="isPicklist"
@@ -1755,7 +1914,8 @@ function submit(): void {
         :disabled="
           !resolvedApiName ||
             (isRelationField && !form.relatedEntity) ||
-            (isPicklist && !form.choices.some((c) => c.text.trim() || c.value.trim()))
+            (isPicklist && !form.choices.some((c) => c.text.trim() || c.value.trim())) ||
+            (isJsonList && !form.jsonColumns.some((c) => c.name.trim()))
         "
         @click="submit"
       />

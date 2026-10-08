@@ -67,6 +67,7 @@ const props = defineProps<{
   formatGroupHeader: (row: Record<string, unknown>) => string
   resolveColumnKey: (column: CrmDataTableGridColumn) => string
   columnStyle: (column: CrmDataTableGridColumn) => Record<string, string>
+  isNumericColumn?: (column: CrmDataTableGridColumn) => boolean
   resolveCellValue: (row: Record<string, unknown>, column: CrmDataTableGridColumn) => unknown
   formatValue: (value: unknown, column: CrmDataTableGridColumn) => string
   canLinkM2OCell: (column: CrmDataTableGridColumn, value: unknown) => boolean
@@ -219,6 +220,8 @@ function handleEditButton(
       :header="column.header"
       :sortable="sortableColumns"
       :reorderable-column="!column.autoRecordId"
+      :align="isNumericColumn?.(column) ? 'right' : undefined"
+      :align-header="isNumericColumn?.(column) ? 'right' : undefined"
       :style="columnStyle(column)"
     >
       <template #body="{ data }">
@@ -232,6 +235,7 @@ function handleEditButton(
             class="crm-data-table__cell"
             :class="{
               'crm-data-table__cell--editable': isCellInlineEditable(data, column),
+              'crm-data-table__cell--numeric': isNumericColumn?.(column),
             }"
             @mousedown="handleCellMouseDown(data, column, $event)"
             @click="handleCellClick(data, column, $event)"
@@ -385,6 +389,19 @@ function handleEditButton(
   min-height: 1.65rem;
   min-width: 0;
   width: 100%;
+}
+
+.crm-data-table__cell--numeric {
+  justify-content: flex-end;
+}
+
+.crm-data-table__cell--numeric .crm-data-table__cell-text {
+  flex: 1;
+  text-align: right;
+}
+
+.crm-data-table__cell--numeric.crm-data-table__cell--editable .crm-data-table__cell-edit {
+  margin-inline-start: 0;
 }
 
 .crm-data-table__cell-text {

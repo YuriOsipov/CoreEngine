@@ -46,10 +46,10 @@ const messages = {
     noReadAccess: 'You do not have permission to view {collection}.',
   },
   auth: {
-    brand: 'Federa',
+    brand: 'Helix',
     brandSubtitle: 'Multi-purpose platform',
     signInTitle: 'Sign in',
-    signInHint: 'Sign in with your Federa account.',
+    signInHint: 'Sign in with your Helix account.',
     signIn: 'Sign in',
     signOut: 'Sign out',
     email: 'Email',
@@ -68,7 +68,7 @@ const messages = {
     title: 'Objects',
   },
   builder: {
-    title: 'Federa',
+    title: 'Helix',
     subtitle: 'Build entity layouts and open the live preview when needed',
     builderType: 'Builder type',
     table: 'Table',
@@ -576,8 +576,18 @@ const messages = {
       ifaceLookup: 'Lookup',
       ifaceAddress: 'Address',
       ifaceJson: 'JSON',
+      ifaceJsonList: 'JSON List',
+      ifaceJsonCode: 'JSON (raw)',
       addressHint:
         'Stores Street, City, State/Province, Zip/Postal Code, and Country as one structured field.',
+      jsonHint:
+        'Stores structured JSON in a jsonb column. Use JSON List for tabular rows, or JSON (raw) for free-form JSON.',
+      jsonColumns: 'Columns',
+      addJsonColumn: 'Add column',
+      jsonColumnName: 'Name',
+      jsonColumnTypeString: 'Text',
+      jsonColumnTypeNumber: 'Number',
+      jsonColumnTypeBoolean: 'Boolean',
       picklistValues: 'Picklist values',
       addChoice: 'Add value',
       choiceLabel: 'Label',
@@ -704,7 +714,10 @@ const messages = {
       compareField: 'Compare to field',
       setFields: 'Set fields',
       addSetField: 'Add field to set',
-      setValuePlaceholder: 'Value, $NOW / $NULL, or {{DATE_ADD_DAYS(project.date_start, offset_days)}}',
+      setValuePlaceholder:
+        'Value, $NOW / $NULL, or {{ JSON_GET(FIND_BETWEEN(item.options, result, "from", "to"), "value") }}',
+      setFieldsHint:
+        'Values may use {{ templates }}, related paths (item.options), FIND / FIND_BETWEEN (return a row), and JSON_GET to pick a field. Example: {{ JSON_GET(FIND_BETWEEN(item.options, result, "from", "to"), "value") }}',
       setFieldsRequired: 'Each rule needs at least one field to set.',
       effectRequired:
         'Each rule needs at least one field to set, or a notify/break action.',
@@ -930,6 +943,14 @@ const messages = {
     inlineEdit: 'Inline edit',
     inlineEditHint: 'Allow editing this field in the list',
     inlineEditUnavailable: 'This field type cannot be edited in the list',
+    inlineEditRefresh: 'After inline edit',
+    inlineEditRefreshHint:
+      'Re-fetch the row after inline save so automation/formula fields (e.g. text_result) update. Off by default.',
+    inlineEditRefreshOff: 'Do not refresh (default)',
+    inlineEditRefreshRow: 'Refresh full row',
+    inlineEditRefreshSelected: 'Refresh selected fields',
+    inlineEditRefreshFields: 'Fields to refresh',
+    inlineEditRefreshFieldsPlaceholder: 'Select fields…',
     displayTemplateExample: '{{name}}',
     listActions: 'List actions',
     listActionsHint:
@@ -1215,6 +1236,8 @@ const messages = {
     childLookupPreview: 'Child lookup select',
     childLookupValuePreview: 'Child lookup value',
     addressPreview: 'Street · City · State · Zip · Country',
+    jsonListPreview: 'JSON list (rows)',
+    jsonCodePreview: 'JSON (raw)',
     document: 'Document',
     documentTemplate: 'Document template',
     documentTemplateRuntime: 'Choose at runtime',
@@ -1404,6 +1427,12 @@ const messages = {
     city: 'City',
     street: 'Street',
     postCode: 'Zip/Postal Code',
+  },
+  jsonField: {
+    addRow: 'Add row',
+    removeRow: 'Remove row',
+    noColumns: 'No columns configured for this JSON List field.',
+    invalidJson: 'Invalid JSON',
   },
   relatedTransfer: {
     batchInsert: 'Batch insert',
@@ -1865,7 +1894,7 @@ const messages = {
     home: 'Home',
     favorites: 'Favorites',
     favoritesEmpty: 'No favorites yet',
-    appFallback: 'Federa',
+    appFallback: 'Helix',
     appSubtitle: 'Platform',
     toggleSidebar: 'Toggle sidebar',
     openSidebar: 'Open sidebar',

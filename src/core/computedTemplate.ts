@@ -79,6 +79,69 @@ function toSlug(str: unknown): string {
     .replace(/-+/g, '-')
 }
 
+function asObjectRows(list: unknown): Record<string, unknown>[] {
+  let raw: unknown = list
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return []
+    try {
+      raw = JSON.parse(trimmed)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (row): row is Record<string, unknown> =>
+      Boolean(row) && typeof row === 'object' && !Array.isArray(row),
+  )
+}
+
+function valuesEqualLoose(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (left == null || right == null) return left == null && right == null
+  const leftNum = Number(left)
+  const rightNum = Number(right)
+  if (Number.isFinite(leftNum) && Number.isFinite(rightNum) && String(left).trim() !== '' && String(right).trim() !== '') {
+    return leftNum === rightNum
+  }
+  return String(left) === String(right)
+}
+
+/** First row where row[key] equals value (loose coerce). */
+export function findRowByKey(
+  list: unknown,
+  key: unknown,
+  value: unknown,
+): Record<string, unknown> | null {
+  const field = String(key ?? '').trim()
+  if (!field) return null
+  for (const row of asObjectRows(list)) {
+    if (valuesEqualLoose(row[field], value)) return row
+  }
+  return null
+}
+
+/** First row where Number(row[lowKey]) <= needle <= Number(row[highKey]) (inclusive). */
+export function findRowBetween(
+  list: unknown,
+  needle: unknown,
+  lowKey: unknown,
+  highKey: unknown,
+): Record<string, unknown> | null {
+  const lowField = String(lowKey ?? '').trim()
+  const highField = String(highKey ?? '').trim()
+  const n = Number(needle)
+  if (!lowField || !highField || !Number.isFinite(n)) return null
+  for (const row of asObjectRows(list)) {
+    const low = Number(row[lowField])
+    const high = Number(row[highField])
+    if (!Number.isFinite(low) || !Number.isFinite(high)) continue
+    if (low <= n && n <= high) return row
+  }
+  return null
+}
+
 export function parseExpression(
   exp: string,
   values: Record<string, unknown>,
@@ -191,6 +254,13 @@ export function parseExpression(
       const valueB = parseExpression(args[1], values, defaultValues)
       const valueC = parseExpression(args[2], values, defaultValues)
       if (op === 'IF') return valueA === true ? valueB : valueC
+      if (op === 'FIND') return findRowByKey(valueA, valueB, valueC)
+    } else if (args.length === 4) {
+      const valueA = parseExpression(args[0], values, defaultValues)
+      const valueB = parseExpression(args[1], values, defaultValues)
+      const valueC = parseExpression(args[2], values, defaultValues)
+      const valueD = parseExpression(args[3], values, defaultValues)
+      if (op === 'FIND_BETWEEN') return findRowBetween(valueA, valueB, valueC, valueD)
     } else if (args.length % 2 === 0 && op === 'IFS') {
       for (let i = 0; i < args.length; i += 2) {
         if (parseExpression(args[i], values, defaultValues) === true) {

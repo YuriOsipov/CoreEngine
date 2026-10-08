@@ -165,6 +165,11 @@ export function normalizeTableSettings(
   const rowLimit = parseRelatedRowLimit(settings?.rowLimit)
 
   const detailPanel = normalizeDetailPanel(settings?.detailPanel)
+  const inlineEditRefresh = normalizeInlineEditRefresh(settings?.inlineEditRefresh)
+  const inlineEditRefreshFields = normalizeInlineEditRefreshFields(
+    settings?.inlineEditRefreshFields,
+    columns,
+  )
 
   return {
     columns,
@@ -182,7 +187,36 @@ export function normalizeTableSettings(
     ...(rowLimit !== undefined && rowLimit !== DEFAULT_RELATED_ROW_LIMIT
       ? { rowLimit }
       : {}),
+    ...(inlineEditRefresh !== 'off' ? { inlineEditRefresh } : {}),
+    ...(inlineEditRefresh === 'fields' && inlineEditRefreshFields.length
+      ? { inlineEditRefreshFields }
+      : {}),
   }
+}
+
+function normalizeInlineEditRefresh(
+  value: DataTableSettings['inlineEditRefresh'],
+): 'off' | 'row' | 'fields' {
+  if (value === 'row' || value === 'fields') return value
+  return 'off'
+}
+
+function normalizeInlineEditRefreshFields(
+  value: DataTableSettings['inlineEditRefreshFields'],
+  columns: DataTableColumnConfig[],
+): string[] {
+  if (!Array.isArray(value)) return []
+  const allowed = new Set(columns.map((column) => column.field))
+  const seen = new Set<string>()
+  const fields: string[] = []
+  for (const raw of value) {
+    const field = String(raw ?? '').trim()
+    if (!field || seen.has(field)) continue
+    if (allowed.size > 0 && !allowed.has(field)) continue
+    seen.add(field)
+    fields.push(field)
+  }
+  return fields
 }
 
 export function normalizeListViewActions(

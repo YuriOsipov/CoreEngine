@@ -544,6 +544,8 @@ async function saveView(): Promise<void> {
         sort: props.viewTableSettings.sort ?? null,
         groupBy: props.viewTableSettings.groupBy ?? null,
         recordLinkField: props.viewTableSettings.recordLinkField ?? null,
+        inlineEditRefresh: props.viewTableSettings.inlineEditRefresh ?? 'off',
+        inlineEditRefreshFields: props.viewTableSettings.inlineEditRefreshFields ?? [],
       }, props.roleId)
       status.value = t('view.columnsSaved', 'View columns saved.')
       emit('viewSaved', {

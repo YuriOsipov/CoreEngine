@@ -47,10 +47,10 @@ const messages = {
     noReadAccess: 'У вас немає дозволу переглядати {collection}.',
   },
   auth: {
-    brand: 'Federa',
+    brand: 'Helix',
     brandSubtitle: 'Багатоцільова платформа',
     signInTitle: 'Вхід',
-    signInHint: 'Увійдіть обліковим записом Federa.',
+    signInHint: 'Увійдіть обліковим записом Helix.',
     signIn: 'Увійти',
     signOut: 'Вийти',
     email: 'Email',
@@ -69,7 +69,7 @@ const messages = {
     title: 'Об’єкти',
   },
   builder: {
-    title: 'Federa',
+    title: 'Helix',
     subtitle: 'Створюйте макети сутностей і відкривайте попередній перегляд за потреби',
     builderType: 'Тип конструктора',
     table: 'Таблиця',
@@ -577,8 +577,18 @@ const messages = {
       ifaceLookup: 'Lookup',
       ifaceAddress: 'Адреса',
       ifaceJson: 'JSON',
+      ifaceJsonList: 'JSON список',
+      ifaceJsonCode: 'JSON (сирий)',
       addressHint:
         'Зберігає Вулицю, Місто, Область/штат, Поштовий індекс та Країну як одне структуроване поле.',
+      jsonHint:
+        'Зберігає структурований JSON у колонці jsonb. JSON список — табличні рядки, JSON (сирий) — вільний JSON.',
+      jsonColumns: 'Колонки',
+      addJsonColumn: 'Додати колонку',
+      jsonColumnName: 'Назва',
+      jsonColumnTypeString: 'Текст',
+      jsonColumnTypeNumber: 'Число',
+      jsonColumnTypeBoolean: 'Логічне',
       picklistValues: 'Значення списку',
       addChoice: 'Додати значення',
       choiceLabel: 'Мітка',
@@ -706,7 +716,10 @@ const messages = {
       compareField: 'Порівняти з полем',
       setFields: 'Встановити поля',
       addSetField: 'Додати поле для встановлення',
-      setValuePlaceholder: 'Значення, $NOW / $NULL або {{DATE_ADD_DAYS(project.date_start, offset_days)}}',
+      setValuePlaceholder:
+        'Значення, $NOW / $NULL або {{ JSON_GET(FIND_BETWEEN(item.options, result, "from", "to"), "value") }}',
+      setFieldsHint:
+        'У значеннях можна використовувати {{ шаблони }}, пов’язані шляхи (item.options), FIND / FIND_BETWEEN (повертають рядок) та JSON_GET для вибору поля. Приклад: {{ JSON_GET(FIND_BETWEEN(item.options, result, "from", "to"), "value") }}',
       setFieldsRequired: 'Кожне правило має мати хоча б одне поле для встановлення.',
       effectRequired:
         'Кожне правило має мати хоча б одне поле для встановлення або дію notify/break.',
@@ -932,6 +945,14 @@ const messages = {
     inlineEdit: 'Редагування в списку',
     inlineEditHint: 'Дозволити редагувати це поле в списку',
     inlineEditUnavailable: 'Цей тип поля не можна редагувати в списку',
+    inlineEditRefresh: 'Після редагування в списку',
+    inlineEditRefreshHint:
+      'Перезавантажити рядок після збереження в списку, щоб оновити поля з автоматизацій/формул (напр. text_result). За замовчуванням вимкнено.',
+    inlineEditRefreshOff: 'Не оновлювати (за замовчуванням)',
+    inlineEditRefreshRow: 'Оновити весь рядок',
+    inlineEditRefreshSelected: 'Оновити вибрані поля',
+    inlineEditRefreshFields: 'Поля для оновлення',
+    inlineEditRefreshFieldsPlaceholder: 'Оберіть поля…',
     displayTemplateExample: '{{name}}',
     listActions: 'Дії списку',
     listActionsHint:
@@ -1217,6 +1238,8 @@ const messages = {
     childLookupPreview: 'Вибір дочірнього пошуку',
     childLookupValuePreview: 'Значення дочірнього пошуку',
     addressPreview: 'Вулиця · Місто · Область · Індекс · Країна',
+    jsonListPreview: 'JSON список (рядки)',
+    jsonCodePreview: 'JSON (сирий)',
     document: 'Документ',
     documentTemplate: 'Шаблон документа',
     documentTemplateRuntime: 'Вибрати під час роботи',
@@ -1406,6 +1429,12 @@ const messages = {
     city: 'Місто',
     street: 'Вулиця',
     postCode: 'Поштовий індекс',
+  },
+  jsonField: {
+    addRow: 'Додати рядок',
+    removeRow: 'Видалити рядок',
+    noColumns: 'Для цього JSON-списку не налаштовано колонки.',
+    invalidJson: 'Невалідний JSON',
   },
   relatedTransfer: {
     batchInsert: 'Пакетне додавання',
@@ -1867,7 +1896,7 @@ const messages = {
     home: 'Головна',
     favorites: 'Обране',
     favoritesEmpty: 'Ще немає обраного',
-    appFallback: 'Federa',
+    appFallback: 'Helix',
     appSubtitle: 'Платформа',
     toggleSidebar: 'Згорнути панель',
     openSidebar: 'Відкрити бічну панель',

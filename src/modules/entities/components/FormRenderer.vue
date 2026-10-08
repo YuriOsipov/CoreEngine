@@ -22,6 +22,9 @@ import CrmScheduler from '@/core/ui-kit/CrmScheduler.vue'
 import CrmTreeTable from '@/core/ui-kit/CrmTreeTable.vue'
 import ScheduleTemplateEditor from '@/core/ui-kit/ScheduleTemplateEditor.vue'
 import CrmAddressField from '@/core/ui-kit/CrmAddressField.vue'
+import CrmJsonListField from '@/core/ui-kit/CrmJsonListField.vue'
+import CrmJsonCodeField from '@/core/ui-kit/CrmJsonCodeField.vue'
+import type { JsonListColumn } from '@/core/jsonField'
 import RelatedDataTableField from '@/modules/entities/components/RelatedDataTableField.vue'
 import M2ABlocksField from '@/modules/entities/components/M2ABlocksField.vue'
 import AttachedDataTableField from '@/modules/entities/components/AttachedDataTableField.vue'
@@ -45,6 +48,8 @@ import {
   isFilesField,
   isFullWidthLayoutField,
   isGroupInlineLabels,
+  isJsonCodeField,
+  isJsonListField,
   isM2ABuilderField,
   isM2MMultiSelectField,
   isRelationPickerField,
@@ -440,6 +445,34 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
                 />
                 <CrmAddressField
                   v-else-if="isAddressField(field)"
+                  :input-id="field.field"
+                  :model-value="formState[field.field]"
+                  :readonly="readonly"
+                  :disabled="
+                    readonly ||
+                    readonlyFieldNames.has(field.field) ||
+                    Boolean(fieldComponentProps(field).disabled)
+                  "
+                  @update:model-value="updateFormField(field.field, $event)"
+                />
+                <CrmJsonListField
+                  v-else-if="isJsonListField(field)"
+                  :input-id="field.field"
+                  :model-value="formState[field.field]"
+                  :columns="
+                    (fieldComponentProps(field).columns as JsonListColumn[] | undefined) ??
+                    []
+                  "
+                  :readonly="readonly"
+                  :disabled="
+                    readonly ||
+                    readonlyFieldNames.has(field.field) ||
+                    Boolean(fieldComponentProps(field).disabled)
+                  "
+                  @update:model-value="updateFormField(field.field, $event)"
+                />
+                <CrmJsonCodeField
+                  v-else-if="isJsonCodeField(field)"
                   :input-id="field.field"
                   :model-value="formState[field.field]"
                   :readonly="readonly"

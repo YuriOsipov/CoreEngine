@@ -636,6 +636,15 @@ watch(
           <h3 class="setup-automation-panel__title m-0">
             {{ t('setup.automations.setFields', 'Set fields') }}
           </h3>
+          <button
+            type="button"
+            class="setup-automation-hint"
+            :aria-label="t('common.hint', 'Hint')"
+            v-tooltip.bottom="hintTooltip(t(
+              'setup.automations.setFieldsHint',
+              'Values may use {{ templates }}, related paths (item.options), FIND / FIND_BETWEEN (return a row), and JSON_GET to pick a field.',
+            ))"
+          />
           <Button
             :label="t('setup.automations.addSetField', 'Add field to set')"
             icon="pi pi-plus"

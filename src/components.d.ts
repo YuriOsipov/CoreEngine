@@ -32,6 +32,7 @@ declare module 'vue' {
     MultiSelect: typeof import('primevue/multiselect')['default']
     Panel: typeof import('primevue/panel')['default']
     PanelMenu: typeof import('primevue/panelmenu')['default']
+    Password: typeof import('primevue/password')['default']
     Popover: typeof import('primevue/popover')['default']
     ProgressSpinner: typeof import('primevue/progressspinner')['default']
     RadioButton: typeof import('primevue/radiobutton')['default']

@@ -116,6 +116,8 @@ export type PrimeVueComponentType =
   | 'M2MMultiSelect'
   | 'Repeater'
   | 'Address'
+  | 'JsonList'
+  | 'JsonCode'
   | 'BlockLayout'
 
 export type ActivityLogAction = 'create' | 'update' | 'delete'
@@ -239,6 +241,13 @@ export interface DataTableSettings {
   rowLimit?: number
   /** Optional master/detail related panel for object list pages. */
   detailPanel?: ListViewDetailPanel | null
+  /**
+   * After inline cell save, re-fetch row data so automation/formula side effects appear.
+   * Default / omitted = off (only the edited cell is patched locally).
+   */
+  inlineEditRefresh?: 'off' | 'row' | 'fields'
+  /** Field names to merge when `inlineEditRefresh` is `fields`. */
+  inlineEditRefreshFields?: string[]
 }
 
 export type RelatedTransferSourceMode = 'tree' | 'table' | 'list'

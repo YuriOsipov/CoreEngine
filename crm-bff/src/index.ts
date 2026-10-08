@@ -12,7 +12,7 @@ import {
   bffRefresh,
 } from './auth/localAuth.js'
 import { bearerToken, decodeJwtClaims } from './auth/tokenClaims.js'
-import { verifyAccessToken } from './auth/jwt.js'
+import { authJwtSecret, verifyAccessToken } from './auth/jwt.js'
 import { resolveFlowsBackend, triggerFlow } from './flows/flowsAdapter.js'
 import { startTaskScheduler } from './tasks/scheduler.js'
 
@@ -293,6 +293,8 @@ app.post('/flows/trigger/:key', async (request, reply) => {
 
 async function start() {
   try {
+    // Fail fast: login/refresh call signAccessToken and otherwise surface as HTTP 500.
+    authJwtSecret()
     await app.listen({ port, host: '0.0.0.0' })
     app.log.info(`GraphQL ready at http://localhost:${port}/graphql`)
     app.log.info(`Auth proxy at http://localhost:${port}/auth/login`)

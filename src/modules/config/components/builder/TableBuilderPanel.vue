@@ -120,13 +120,30 @@ onMounted(async () => {
 async function loadCollectionTableMeta(
   collection: string,
   roleId: string | null = layoutRoleId.value,
-): Promise<Pick<DataTableSettings, 'relatedTransfer' | 'detailPanel' | 'actions'>> {
+): Promise<
+  Pick<
+    DataTableSettings,
+    | 'relatedTransfer'
+    | 'detailPanel'
+    | 'actions'
+    | 'inlineEditRefresh'
+    | 'inlineEditRefreshFields'
+  >
+> {
   const meta = await loadListViewTableMeta(collection, roleId)
   return {
     // Batch Insert is configured on Block / entity DataTable fields only.
     relatedTransfer: null,
     detailPanel: meta.detailPanel ?? null,
     actions: meta.actions ?? null,
+    ...(meta.inlineEditRefresh === 'row' || meta.inlineEditRefresh === 'fields'
+      ? { inlineEditRefresh: meta.inlineEditRefresh }
+      : {}),
+    ...(meta.inlineEditRefresh === 'fields' &&
+    Array.isArray(meta.inlineEditRefreshFields) &&
+    meta.inlineEditRefreshFields.length
+      ? { inlineEditRefreshFields: meta.inlineEditRefreshFields }
+      : {}),
   }
 }
 
@@ -178,6 +195,8 @@ async function resetTableSettingsForCollection(collection: string): Promise<void
     relatedTransfer: meta.relatedTransfer,
     detailPanel: meta.detailPanel,
     actions: meta.actions,
+    inlineEditRefresh: meta.inlineEditRefresh,
+    inlineEditRefreshFields: meta.inlineEditRefreshFields,
   }
 }
 
@@ -207,6 +226,8 @@ async function handleViewSelected(view: SavedListView | SavedListFilter | null):
       relatedTransfer: meta.relatedTransfer,
       detailPanel: meta.detailPanel,
       actions: meta.actions,
+      inlineEditRefresh: meta.inlineEditRefresh,
+      inlineEditRefreshFields: meta.inlineEditRefreshFields,
     }
     return
   }
@@ -270,6 +291,10 @@ async function handleViewSaved(): Promise<void> {
 
       actions: tableSettings.value.actions ?? null,
 
+      inlineEditRefresh: tableSettings.value.inlineEditRefresh ?? 'off',
+
+      inlineEditRefreshFields: tableSettings.value.inlineEditRefreshFields ?? [],
+
     }, layoutRoleId.value)
 
     emit('status', t('builder.tableSettingsSaved', 'Table settings saved to Setting.'))
@@ -319,6 +344,8 @@ watch(
           relatedTransfer: meta.relatedTransfer,
           detailPanel: meta.detailPanel,
           actions: meta.actions,
+          inlineEditRefresh: meta.inlineEditRefresh,
+          inlineEditRefreshFields: meta.inlineEditRefreshFields,
         }
 
         if (props.setupMode) {
@@ -366,6 +393,8 @@ watch(
           relatedTransfer: meta.relatedTransfer,
           detailPanel: meta.detailPanel,
           actions: meta.actions,
+          inlineEditRefresh: meta.inlineEditRefresh,
+          inlineEditRefreshFields: meta.inlineEditRefreshFields,
         }
       } catch (err) {
         if (token !== tableLoadToken) return

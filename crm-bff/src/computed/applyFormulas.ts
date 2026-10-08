@@ -1,5 +1,9 @@
 import { evaluateComputedTemplate } from './computedTemplate.js'
 import {
+  collectNestedRootFieldsFromTemplates,
+  hydrateM2OContext,
+} from './hydrateM2OContext.js'
+import {
   loadEntityFieldMeta,
   loadFormulaFields,
   resolveComputeMode,
@@ -43,9 +47,16 @@ export async function applyFormulasOnWrite(
   )
 
   const next = { ...patch }
-  const merged: Record<string, unknown> = {
+  let merged: Record<string, unknown> = {
     ...asObject(existing),
     ...next,
+  }
+
+  const nestedRoots = collectNestedRootFieldsFromTemplates(
+    formulas.map((field) => field.template),
+  )
+  if (nestedRoots.size > 0) {
+    merged = await hydrateM2OContext(entityApiName, merged, nestedRoots)
   }
 
   // Multi-pass so formula A can depend on formula B when ordered either way.

@@ -40,7 +40,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="login-page flex min-h-screen items-center justify-center p-4">
     <div class="login-page__card w-full max-w-md">
-      <p class="mb-1 text-2xl font-semibold">{{ t('auth.brand', 'Federa') }}</p>
+      <p class="mb-1 text-2xl font-semibold">{{ t('auth.brand', 'Helix') }}</p>
       <p class="mb-4 text-sm text-surface-600">
         {{ t('auth.brandSubtitle', 'Multi-purpose platform') }}
       </p>
@@ -48,7 +48,7 @@ async function submit(): Promise<void> {
         {{ t('auth.signInTitle', 'Sign in') }}
       </h1>
       <p class="mb-6 text-sm text-surface-600">
-        {{ t('auth.signInHint', 'Sign in with your Federa account.') }}
+        {{ t('auth.signInHint', 'Sign in with your Helix account.') }}
       </p>
 
       <Message

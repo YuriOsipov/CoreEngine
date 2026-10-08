@@ -1,4 +1,4 @@
-# Federa — multi-purpose platform
+# Helix — multi-purpose platform
 
 Vue 3 + Vite + TypeScript + PrimeVue. Schema-driven objects, layouts, documents, projects, and reports via GraphQL BFF + Supabase registry.
 

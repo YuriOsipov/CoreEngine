@@ -47,6 +47,10 @@ export function defaultValueForField(field: LayoutFieldMetadata): unknown {
         address: '',
         postCode: '',
       }
+    case 'JsonList':
+      return []
+    case 'JsonCode':
+      return null
     case 'BlockLayout':
       return null
     default:

@@ -6,7 +6,7 @@ alwaysApply: true
 
 # Global Project Rules
 
-You are an expert AI assistant helping a team build Federa, a multi-purpose schema-driven platform.
+You are an expert AI assistant helping a team build Helix, a multi-purpose schema-driven platform.
 
 ## Tech Stack
 - **Framework:** Vue 3 (Composition API, `<script setup lang="ts">`).

@@ -23,6 +23,14 @@ export function isAddressField(field: LayoutFieldMetadata): boolean {
   return field.component === 'Address'
 }
 
+export function isJsonListField(field: LayoutFieldMetadata): boolean {
+  return field.component === 'JsonList'
+}
+
+export function isJsonCodeField(field: LayoutFieldMetadata): boolean {
+  return field.component === 'JsonCode'
+}
+
 export function isM2ABuilderField(field: LayoutFieldMetadata): boolean {
   return field.component === 'M2ABuilder'
 }
@@ -99,7 +107,9 @@ export function isFullWidthLayoutField(field: LayoutFieldMetadata): boolean {
     isActivityLogField(field) ||
     isDocEngineField(field) ||
     isHtmlEditorField(field) ||
-    isRepeaterField(field)
+    isRepeaterField(field) ||
+    isJsonListField(field) ||
+    isJsonCodeField(field)
   )
 }
 
@@ -123,6 +133,8 @@ export function isRelationPickerField(field: LayoutFieldMetadata): boolean {
       !isM2MMultiSelectField(field) &&
       !isRepeaterField(field) &&
       !isAddressField(field) &&
+      !isJsonListField(field) &&
+      !isJsonCodeField(field) &&
       !isActivityLogField(field) &&
       !isDocEngineField(field),
   )

@@ -1363,6 +1363,8 @@ function paletteIcon(component: string): string {
     M2ABuilder: 'pi-database',
     Repeater: 'pi-replay',
     Address: 'pi-map-marker',
+    JsonList: 'pi-list',
+    JsonCode: 'pi-code',
     BlockLayout: 'pi-th-large',
   }
   return icons[component] ?? 'pi-file'
@@ -2097,6 +2099,12 @@ function hintTooltip(value: string) {
                 </div>
                 <div v-else-if="element.component === 'Address'" class="canvas-datatable">
                   {{ t('formBuilder.addressPreview', 'Country · State · City · Address · Post code') }}
+                </div>
+                <div v-else-if="element.component === 'JsonList'" class="canvas-datatable">
+                  {{ t('formBuilder.jsonListPreview', 'JSON list (rows)') }}
+                </div>
+                <div v-else-if="element.component === 'JsonCode'" class="canvas-datatable">
+                  {{ t('formBuilder.jsonCodePreview', 'JSON (raw)') }}
                 </div>
                 <div v-else-if="element.component === 'ChildLookup'" class="canvas-datatable">
                   {{ t('formBuilder.childLookupPreview', 'Child lookup select') }}

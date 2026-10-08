@@ -1,5 +1,5 @@
 # Vue 3 / Vite Modular Architecture Rules
-Project_Type = "Multi-purpose schema-driven platform (Federa)"
+Project_Type = "Multi-purpose schema-driven platform (Helix)"
 Stack = ["Vue 3 (Composition API)", "PrimeVue", "Supabase + GraphQL BFF"]
 
 

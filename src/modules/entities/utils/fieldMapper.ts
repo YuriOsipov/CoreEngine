@@ -4,6 +4,10 @@ import type {
   RelationDefinition,
 } from '@/interfaces'
 import { isAddressFieldDefinition } from '@/core/addressField'
+import {
+  isJsonCodeFieldDefinition,
+  isJsonListFieldDefinition,
+} from '@/core/jsonField'
 import { isRepeaterFieldDefinition } from '@/core/repeaterField'
 import type { PaletteItem } from './fieldPalette'
 
@@ -104,6 +108,14 @@ export function mapFieldTypeToComponent(
 
   if (isAddressFieldDefinition(field)) {
     return 'Address'
+  }
+
+  if (isJsonListFieldDefinition(field)) {
+    return 'JsonList'
+  }
+
+  if (isJsonCodeFieldDefinition(field)) {
+    return 'JsonCode'
   }
 
   if (field.type === 'alias') {

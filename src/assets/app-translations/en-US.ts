@@ -548,7 +548,19 @@ const messages = {
       rollupParentField: 'Parent lookup on child',
       rollupValueField: 'Value field',
       rollupOp: 'Aggregate',
-      rollupHint: 'Recalculated when child records change. Stored on this object.',
+      rollupStorage: 'Storage',
+      rollupStorageVirtual: 'Virtual (on the fly)',
+      rollupStoragePhysical: 'Physical (stored)',
+      rollupFilter: 'Child filter',
+      rollupFilterHint:
+        'Optional. Limit which child rows are counted (e.g. status equals Draft).',
+      rollupFilterAdd: 'Add filter condition',
+      rollupHintVirtual:
+        'Computed on the fly when reading records. Not stored on this object.',
+      rollupHintPhysical:
+        'Stored on this object. Recalculated when child records change.',
+      rollupHint:
+        'Computed on the fly when reading records. Not stored on this object.',
       selectField: 'Select field',
       lookupM2O: 'Lookup (Many-to-One)',
       relatedEntity: 'Related Object',
@@ -589,6 +601,15 @@ const messages = {
       jsonColumnTypeNumber: 'Number',
       jsonColumnTypeBoolean: 'Boolean',
       picklistValues: 'Picklist values',
+      picklistSource: 'Picklist source',
+      picklistSourceStatic: 'Static list',
+      picklistSourceDynamic: 'Related field',
+      picklistRelationField: 'Related record',
+      picklistJsonField: 'List field',
+      picklistValueColumn: 'Value column',
+      picklistDynamicHint:
+        'Options come from the related record. Example: Item → options → value.',
+      picklistManualPlaceholder: 'Enter value',
       addChoice: 'Add value',
       choiceLabel: 'Label',
       choiceValue: 'Value',

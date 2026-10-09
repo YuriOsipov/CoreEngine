@@ -11,6 +11,16 @@ export interface RollupConfig {
   valueField: string
   op: RollupOp
   filter?: Record<string, unknown> | null
+  /**
+   * Virtual (true): compute on read, no stored column.
+   * Physical (false): store on parent, refresh on child writes.
+   * Undefined: resolved from field type when loading (ALIAS → virtual).
+   */
+  live?: boolean
+}
+
+export function isLiveRollup(rollup: RollupConfig): boolean {
+  return rollup.live === true
 }
 
 export interface RegistryFieldMeta {
@@ -93,13 +103,27 @@ export function parseRollupConfig(
     row.filter && typeof row.filter === 'object' && !Array.isArray(row.filter)
       ? (row.filter as Record<string, unknown>)
       : null
+  let live: boolean | undefined
+  if (row.live === true || row.live === 'true') live = true
+  else if (row.live === false || row.live === 'false') live = false
   return {
     childEntity,
     parentField,
     valueField,
     op: normalizeOp(row.op ?? row.aggregate),
     filter,
+    ...(live !== undefined ? { live } : {}),
   }
+}
+
+/** Resolve virtual vs physical when `live` was omitted from options. */
+export function resolveRollupLive(
+  rollup: RollupConfig,
+  fieldType: string,
+): boolean {
+  if (rollup.live === true) return true
+  if (rollup.live === false) return false
+  return String(fieldType || '').toUpperCase() === 'ALIAS'
 }
 
 export function resolveComputeMode(
@@ -229,7 +253,10 @@ export async function loadRollupFields(
     }
     const rollup = parseRollupConfig(field.options)
     if (!rollup) continue
-    out.push({ apiName: field.apiName, rollup })
+    out.push({
+      apiName: field.apiName,
+      rollup: { ...rollup, live: resolveRollupLive(rollup, field.fieldType) },
+    })
   }
   return out
 }
@@ -250,9 +277,10 @@ async function loadAllRollupFields(): Promise<RollupFieldMeta[]> {
   const rows = await query<{
     parent_entity: string
     api_name: string
+    field_type: string
     options: Record<string, unknown> | null
   }>(
-    `SELECT e.api_name AS parent_entity, f.api_name, f.options
+    `SELECT e.api_name AS parent_entity, f.api_name, f.field_type, f.options
      FROM public.fields f
      JOIN public.entities e ON e.id = f.entity_id
      WHERE e.deleted_at IS NULL
@@ -271,7 +299,10 @@ async function loadAllRollupFields(): Promise<RollupFieldMeta[]> {
     value.push({
       parentEntity: String(row.parent_entity),
       apiName: String(row.api_name),
-      rollup,
+      rollup: {
+        ...rollup,
+        live: resolveRollupLive(rollup, String(row.field_type)),
+      },
     })
   }
 

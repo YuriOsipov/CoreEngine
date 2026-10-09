@@ -9,6 +9,11 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import type { LayoutFieldChildLookup } from '@/interfaces'
 import CrmAutoComplete from '@/core/ui-kit/CrmAutoComplete.vue'
 import CrmChildLookupField from '@/core/ui-kit/CrmChildLookupField.vue'
+import CrmDynamicPicklist from '@/core/ui-kit/CrmDynamicPicklist.vue'
+import {
+  isDynamicPicklistSource,
+  type DynamicPicklistSource,
+} from '@/core/dynamicPicklist'
 import {
   serializeInlineCellValue,
   type InlineCellEditorKind,
@@ -64,6 +69,7 @@ const rootEl = ref<HTMLElement | null>(null)
 const ignoreBlur = ref(false)
 const selectOptions = ref<ChoiceOption[]>([])
 const selectLoading = ref(false)
+const activeChoiceSource = ref<DynamicPicklistSource | null>(null)
 const dateShowTime = ref(props.kind === 'datetime')
 const dateFormat = ref('yy-mm-dd')
 let blurTimer: number | null = null
@@ -107,12 +113,18 @@ async function loadFieldMetadata(): Promise<void> {
 
   if (props.kind === 'select') {
     selectLoading.value = true
+    activeChoiceSource.value = null
     try {
       const metadata = await fetchFieldRuntimeMetadata(
         props.collection,
         props.field,
         'Select',
       )
+      if (isDynamicPicklistSource(metadata.props.choiceSource)) {
+        activeChoiceSource.value = metadata.props.choiceSource
+        selectOptions.value = []
+        return
+      }
       const options = metadata.props.options
       selectOptions.value = Array.isArray(options)
         ? (options as ChoiceOption[]).filter(
@@ -264,6 +276,21 @@ function clearBlurTimer(): void {
       size="small"
       :disabled="saving"
       class="w-full"
+      @update:model-value="updateValue"
+    />
+    <CrmDynamicPicklist
+      v-else-if="kind === 'select' && activeChoiceSource"
+      :model-value="modelValue"
+      :choice-source="activeChoiceSource"
+      :entity-collection="collection"
+      :source-record="sourceRecord ?? {}"
+      :disabled="saving"
+      size="small"
+      append-to="body"
+      fluid
+      input-class="w-full"
+      @overlay-show="handleOverlayShow"
+      @overlay-hide="handleOverlayHide"
       @update:model-value="updateValue"
     />
     <Select

@@ -27,11 +27,17 @@ const props = withDefaults(
     filterLoading?: boolean
     /** When true, show operator + value-kind (parent / source / literal). */
     rich?: boolean
+    /**
+     * When true with {@link rich}, hide value-kind and always use a literal RHS
+     * (e.g. rollup child filters: `status` equals `Draft`).
+     */
+    literalOnly?: boolean
     sourceTokenOptions?: FieldOption[]
     sourceTokenPlaceholder?: string
   }>(),
   {
     rich: false,
+    literalOnly: false,
     sourceTokenOptions: () => [],
   },
 )
@@ -67,6 +73,7 @@ function pairOperator(pair: FilterPair): string {
 }
 
 function pairValueKind(pair: FilterPair): FilterValueKind {
+  if (props.literalOnly) return 'literal'
   return pair.valueKind || 'parent'
 }
 
@@ -113,7 +120,9 @@ function onValueKindChange(index: number, valueKind: FilterValueKind): void {
       :key="pairIndex"
       class="grid gap-2 items-start"
       :class="rich
-        ? 'grid-cols-1 sm:grid-cols-[minmax(120px,1.1fr)_minmax(110px,0.9fr)_minmax(110px,0.9fr)_minmax(120px,1.2fr)_auto]'
+        ? (literalOnly
+          ? 'grid-cols-1 sm:grid-cols-[minmax(120px,1.1fr)_minmax(110px,0.9fr)_minmax(120px,1.2fr)_auto]'
+          : 'grid-cols-1 sm:grid-cols-[minmax(120px,1.1fr)_minmax(110px,0.9fr)_minmax(110px,0.9fr)_minmax(120px,1.2fr)_auto]')
         : 'grid-cols-[minmax(130px,1fr)_minmax(130px,1fr)_auto]'"
     >
       <Select
@@ -138,7 +147,7 @@ function onValueKindChange(index: number, valueKind: FilterValueKind): void {
           @update:model-value="onOperatorChange(pairIndex, String($event ?? '_eq'))"
         />
         <Select
-          v-if="needsValue(pair)"
+          v-if="needsValue(pair) && !literalOnly"
           :model-value="pairValueKind(pair)"
           :options="valueKindOptions"
           option-label="label"
@@ -147,7 +156,7 @@ function onValueKindChange(index: number, valueKind: FilterValueKind): void {
           @update:model-value="onValueKindChange(pairIndex, ($event as FilterValueKind) || 'parent')"
         />
         <div
-          v-else
+          v-else-if="!literalOnly"
           class="hidden sm:block"
         />
         <InputText
@@ -155,7 +164,10 @@ function onValueKindChange(index: number, valueKind: FilterValueKind): void {
           :model-value="pair.literalValue ?? ''"
           :placeholder="t('formBuilder.filterLiteralPlaceholder', 'Value')"
           fluid
-          @update:model-value="emit('update-pair', pairIndex, { literalValue: String($event ?? '') })"
+          @update:model-value="emit('update-pair', pairIndex, {
+            valueKind: 'literal',
+            literalValue: String($event ?? ''),
+          })"
         />
         <Select
           v-else-if="needsValue(pair)"

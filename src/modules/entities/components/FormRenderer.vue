@@ -24,6 +24,11 @@ import ScheduleTemplateEditor from '@/core/ui-kit/ScheduleTemplateEditor.vue'
 import CrmAddressField from '@/core/ui-kit/CrmAddressField.vue'
 import CrmJsonListField from '@/core/ui-kit/CrmJsonListField.vue'
 import CrmJsonCodeField from '@/core/ui-kit/CrmJsonCodeField.vue'
+import CrmDynamicPicklist from '@/core/ui-kit/CrmDynamicPicklist.vue'
+import {
+  isDynamicPicklistSource,
+  type DynamicPicklistSource,
+} from '@/core/dynamicPicklist'
 import type { JsonListColumn } from '@/core/jsonField'
 import RelatedDataTableField from '@/modules/entities/components/RelatedDataTableField.vue'
 import M2ABlocksField from '@/modules/entities/components/M2ABlocksField.vue'
@@ -158,6 +163,11 @@ function displayFieldValue(field: LayoutFieldMetadata): unknown {
     return previewValues.value[field.field]
   }
   return formState.value[field.field]
+}
+
+function dynamicChoiceSource(field: LayoutFieldMetadata): DynamicPicklistSource | null {
+  const raw = runtimeMeta.runtimeFieldProps[field.field]?.choiceSource
+  return isDynamicPicklistSource(raw) ? raw : null
 }
 
 function fieldComponentProps(field: LayoutFieldMetadata): Record<string, unknown> {
@@ -481,6 +491,16 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
                     readonlyFieldNames.has(field.field) ||
                     Boolean(fieldComponentProps(field).disabled)
                   "
+                  @update:model-value="updateFormField(field.field, $event)"
+                />
+                <CrmDynamicPicklist
+                  v-else-if="dynamicChoiceSource(field)"
+                  :input-id="field.field"
+                  :model-value="displayFieldValue(field)"
+                  :choice-source="dynamicChoiceSource(field)!"
+                  :entity-collection="schema.entity"
+                  :source-record="formState"
+                  :disabled="Boolean(fieldComponentProps(field).disabled)"
                   @update:model-value="updateFormField(field.field, $event)"
                 />
                 <component

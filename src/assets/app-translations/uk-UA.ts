@@ -549,7 +549,19 @@ const messages = {
       rollupParentField: 'Lookup батька на дочірньому',
       rollupValueField: 'Поле значення',
       rollupOp: 'Агрегація',
-      rollupHint: 'Перераховується при зміні дочірніх записів. Зберігається на цьому об’єкті.',
+      rollupStorage: 'Зберігання',
+      rollupStorageVirtual: 'Віртуальне (на льоту)',
+      rollupStoragePhysical: 'Фізичне (зберігається)',
+      rollupFilter: 'Фільтр дочірніх',
+      rollupFilterHint:
+        'Необов’язково. Обмежте, які дочірні рядки враховуються (напр. status дорівнює Draft).',
+      rollupFilterAdd: 'Додати умову фільтра',
+      rollupHintVirtual:
+        'Обчислюється на льоту під час читання записів. Не зберігається на цьому об’єкті.',
+      rollupHintPhysical:
+        'Зберігається на цьому об’єкті. Перераховується при зміні дочірніх записів.',
+      rollupHint:
+        'Обчислюється на льоту під час читання записів. Не зберігається на цьому об’єкті.',
       selectField: 'Оберіть поле',
       lookupM2O: 'Lookup (багато-до-одного)',
       relatedEntity: 'Пов’язаний об’єкт',
@@ -590,6 +602,15 @@ const messages = {
       jsonColumnTypeNumber: 'Число',
       jsonColumnTypeBoolean: 'Логічне',
       picklistValues: 'Значення списку',
+      picklistSource: 'Джерело списку',
+      picklistSourceStatic: 'Статичний список',
+      picklistSourceDynamic: 'Пов’язане поле',
+      picklistRelationField: 'Пов’язаний запис',
+      picklistJsonField: 'Поле списку',
+      picklistValueColumn: 'Колонка значення',
+      picklistDynamicHint:
+        'Варіанти беруться з пов’язаного запису. Приклад: Item → options → value.',
+      picklistManualPlaceholder: 'Введіть значення',
       addChoice: 'Додати значення',
       choiceLabel: 'Мітка',
       choiceValue: 'Значення',

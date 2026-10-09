@@ -11,6 +11,17 @@ import {
 import { isRepeaterFieldDefinition } from '@/core/repeaterField'
 import type { PaletteItem } from './fieldPalette'
 
+function fieldHasRollupCompute(field: FieldDefinition): boolean {
+  const options = field.meta?.options
+  if (!options || typeof options !== 'object') return false
+  const record = options as Record<string, unknown>
+  const mode = String(record.computeMode ?? record.compute_mode ?? '')
+    .trim()
+    .toLowerCase()
+  if (mode === 'rollup') return true
+  return Boolean(record.rollup && typeof record.rollup === 'object')
+}
+
 const SKIP_SPECIAL = new Set([
   'o2m',
   'translations',
@@ -119,6 +130,31 @@ export function mapFieldTypeToComponent(
   }
 
   if (field.type === 'alias') {
+    // Live rollups are ALIAS (no physical column) but still render as numbers.
+    if (fieldHasRollupCompute(field) || isCalculatedFieldInterface(field.meta?.interface)) {
+      const options = field.meta?.options
+      const resultType =
+        options && typeof options === 'object'
+          ? String(
+              (options as Record<string, unknown>).resultType ??
+                (options as Record<string, unknown>).result_type ??
+                '',
+            )
+              .trim()
+              .toLowerCase()
+          : ''
+      if (resultType.includes('int') || resultType === 'integer') {
+        return 'InputNumber'
+      }
+      if (
+        resultType.includes('float') ||
+        resultType.includes('decimal') ||
+        resultType.includes('number')
+      ) {
+        return 'InputNumber'
+      }
+      return mapPrimitiveTypeComponent(resultType || 'float') ?? 'InputNumber'
+    }
     return null
   }
 

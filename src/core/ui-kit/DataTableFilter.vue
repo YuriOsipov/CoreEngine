@@ -39,6 +39,7 @@ import {
   isEmptyFilterValue,
   filterConditionComponentProps,
   isAutoCompleteFilterComponent,
+  resolveFilterValueComponent,
 } from '@/core/listFilterUtils'
 import { isDateComponent } from '@/core/dateFormatting'
 import {
@@ -901,7 +902,12 @@ function defaultConditionValue(field: FilterableField): unknown {
 }
 
 function conditionComponent(condition: FilterConditionDraft) {
-  return resolvePrimeVueComponent(condition.component)
+  return resolvePrimeVueComponent(
+    resolveFilterValueComponent(
+      condition.component,
+      runtimeFieldProps[condition.field],
+    ),
+  )
 }
 
 function conditionComponentProps(

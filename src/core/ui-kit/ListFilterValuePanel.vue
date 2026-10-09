@@ -22,6 +22,7 @@ import {
   isAutoCompleteFilterComponent,
   isSelectFilterComponent,
   resolveFilterConditionValue,
+  resolveFilterValueComponent,
 } from '@/core/listFilterUtils'
 import { resolvePrimeVueComponent } from '@/core/primevue'
 import { useTranslation } from '@/core/translation'
@@ -198,7 +199,12 @@ function onNativeInput(conditionId: string, event: Event): void {
 }
 
 function conditionComponent(condition: ValueConditionDraft) {
-  return resolvePrimeVueComponent(condition.component)
+  return resolvePrimeVueComponent(
+    resolveFilterValueComponent(
+      condition.component,
+      runtimeFieldProps[condition.field],
+    ),
+  )
 }
 
 function conditionComponentProps(

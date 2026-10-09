@@ -23,6 +23,7 @@ import {
 } from '@/modules/entities/services/collectionSchema'
 import {
   filterConditionComponentProps,
+  resolveFilterValueComponent,
   isAutoCompleteFilterComponent,
 } from '@/core/listFilterUtils'
 import { resolvePrimeVueComponent } from '@/core/primevue'
@@ -178,7 +179,9 @@ function conditionFieldMeta(field: string): ConditionFieldMeta | undefined {
 function conditionValueComponent(field: string) {
   const meta = conditionFieldMeta(field)
   if (!meta?.component) return null
-  return resolvePrimeVueComponent(meta.component)
+  return resolvePrimeVueComponent(
+    resolveFilterValueComponent(meta.component, runtimeFieldProps[field]),
+  )
 }
 
 function conditionValueProps(field: string): Record<string, unknown> {

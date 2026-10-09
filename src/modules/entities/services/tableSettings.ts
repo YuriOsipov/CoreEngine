@@ -51,7 +51,8 @@ export async function listDataTableFields(
     })
     .filter(({ field, component }) => {
       if (field.meta?.hidden) return false
-      if (field.type === 'alias') return false
+      // Live rollups use ALIAS storage but are listable once mapped to a component.
+      if (field.type === 'alias' && !component) return false
       if (['user_updated', 'date_updated'].includes(field.field)) return false
       if (!component) return false
       return true

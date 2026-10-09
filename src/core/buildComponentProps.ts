@@ -31,6 +31,8 @@ export function buildComponentProps(
   if (field.field === parentName && parentId !== undefined && parentId !== null) {
     base.disabled = true
   }
+  delete base.choiceSource
+
   if (field.component === 'AutoComplete') {
     delete base.suggestions
     delete base.optionValue

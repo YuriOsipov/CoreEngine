@@ -17,6 +17,7 @@ import {
   formatLocalizedDateTime,
   toDate,
 } from '@/core/dateFormatting'
+import { isDynamicPicklistSource } from '@/core/dynamicPicklist'
 
 /** DocEngine `$payload.meta.filter`: `{ "Date Visit Start": value, ... }`. */
 export type ListFilterMetaBlock = Record<string, unknown>
@@ -173,6 +174,20 @@ export function conditionFieldSpanStyle(
   return { gridColumn: `span ${span}` }
 }
 
+/** Dynamic picklists store free text, so filters edit the value directly. */
+export function resolveFilterValueComponent(
+  component: string,
+  runtimeProps: Record<string, unknown> | undefined,
+): string {
+  if (
+    (component === 'Select' || component === 'Dropdown') &&
+    isDynamicPicklistSource(runtimeProps?.choiceSource)
+  ) {
+    return 'InputText'
+  }
+  return component
+}
+
 export function filterConditionComponentProps(
   condition: { field: string; component: string },
   runtimeFieldProps: Record<string, Record<string, unknown>>,
@@ -180,6 +195,14 @@ export function filterConditionComponentProps(
   const base: Record<string, unknown> = {
     ...(runtimeFieldProps[condition.field] ?? {}),
     fluid: true,
+  }
+
+  if (isDynamicPicklistSource(base.choiceSource)) {
+    delete base.choiceSource
+    delete base.options
+    delete base.optionLabel
+    delete base.optionValue
+    delete base.placeholder
   }
 
   if (condition.component === 'AutoComplete') {

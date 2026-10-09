@@ -32,7 +32,11 @@ import {
   loadAutoNumberFields,
   stripAutoNumberWrites,
 } from '../../computed/applyAutoNumber.js'
-import { recomputeRollupsForChildChange } from '../../computed/applyRollups.js'
+import {
+  attachLiveRollupsOnRead,
+  recomputeRollupsForChildChange,
+} from '../../computed/applyRollups.js'
+import { isLiveRollup, loadRollupFields } from '../../computed/fieldMeta.js'
 import {
   applyRecordAutomations,
   attachAutomationToasts,
@@ -449,19 +453,23 @@ async function resolveEntity(entity: string): Promise<string> {
   return resolveCanonicalEntityApiName(normalizeEntityApiName(entity))
 }
 
-/** Store backends only see physical columns; aliases are hydrated after fetch. */
+/** Store backends only see physical columns; aliases / live rollups hydrate after. */
 async function physicalStoreFields(
   entity: string,
   fields?: string[] | null,
 ): Promise<string[] | null | undefined> {
   if (!fields?.length) return fields
-  const [m2a, o2m] = await Promise.all([
+  const [m2a, o2m, rollups] = await Promise.all([
     loadM2ARelations(entity),
     loadO2MRelations(entity),
+    loadRollupFields(entity),
   ])
   const aliases = new Set([
     ...m2a.map((rel) => rel.fieldApiName),
     ...o2m.map((rel) => rel.fieldApiName),
+    ...rollups
+      .filter((field) => isLiveRollup(field.rollup))
+      .map((field) => field.apiName),
   ])
   if (!aliases.size) return fields
   return fields.filter((field) => {
@@ -491,6 +499,7 @@ export async function findManyRecords(
   }
   const result = await store.findMany(apiName, storeParams)
   result.nodes = await expandRecordRelations(apiName, result.nodes, params.fields)
+  result.nodes = await attachLiveRollupsOnRead(apiName, result.nodes, params.fields)
   return result
 }
 
@@ -525,7 +534,12 @@ export async function findOneRecord(
   const storeFields = await physicalStoreFields(apiName, fields)
   const record = await store.findOne(apiName, id, storeFields)
   const [expanded] = await expandRecordRelations(apiName, [record], fields)
-  return expanded ?? record
+  const [withRollups] = await attachLiveRollupsOnRead(
+    apiName,
+    [expanded ?? record],
+    fields,
+  )
+  return withRollups ?? expanded ?? record
 }
 
 export async function createRecord(

@@ -14,6 +14,7 @@ import {
   type RegistryFieldListRow,
 } from '@/core/graphql/fieldsApi'
 import { normalizeFieldInterface } from '@/core/graphql/schemaMapper'
+import { parseDynamicPicklistSource } from '@/core/dynamicPicklist'
 import { getCachedRelations } from '@/modules/entities/services/collectionSchema'
 import {
   keysEqual,
@@ -22,6 +23,12 @@ import {
 } from '@/core/relationHelpers'
 import { useChildLookupFieldConfig } from '@/modules/config/composables/useChildLookupFieldConfig'
 import ChildLookupSettingsDialog from '@/modules/config/components/ChildLookupSettingsDialog.vue'
+import FilterPairEditor from '@/modules/config/components/FilterPairEditor.vue'
+import {
+  filterFromPairs,
+  filterPairsFromFilter,
+  type FilterPair,
+} from '@/core/relatedTransferFilterPairs'
 
 interface ChoiceRow {
   text: string
@@ -86,11 +93,17 @@ const form = reactive({
   currencySuffix: '',
   decimalPlaces: 2,
   jsonColumns: [] as JsonColumnRow[],
+  picklistMode: 'static' as 'static' | 'dynamic',
+  dynamicRelationField: '',
+  dynamicJsonField: '',
+  dynamicValueColumn: '',
   formulaTemplate: '',
   rollupChildEntity: null as string | null,
   rollupParentField: null as string | null,
   rollupValueField: null as string | null,
   rollupOp: 'SUM' as string,
+  /** Virtual = on-read ALIAS; Physical = stored numeric column. */
+  rollupStorage: 'virtual' as 'virtual' | 'physical',
   displayFormat: '{0000}',
   startingNumber: 1,
 })
@@ -101,6 +114,8 @@ const childFieldsLoading = ref(false)
 const relatedChildEntityOptions = ref<Array<{ label: string; value: string }>>([])
 const relatedChildrenLoading = ref(false)
 const apiNameTouched = ref(false)
+/** Literal child-record filters for live rollups (e.g. status = Draft). */
+const rollupFilterPairs = ref<FilterPair[]>([])
 
 function toApiName(label: string): string {
   return label
@@ -122,6 +137,33 @@ const rollupOpOptions = computed(() => [
   { label: 'MIN', value: 'MIN' },
   { label: 'MAX', value: 'MAX' },
 ])
+
+const rollupStorageOptions = computed(() => [
+  {
+    label: t('setup.fields.rollupStorageVirtual', 'Virtual (on the fly)'),
+    value: 'virtual' as const,
+  },
+  {
+    label: t('setup.fields.rollupStoragePhysical', 'Physical (stored)'),
+    value: 'physical' as const,
+  },
+])
+
+const rollupHintText = computed(() =>
+  form.rollupStorage === 'physical'
+    ? t(
+        'setup.fields.rollupHintPhysical',
+        'Stored on this object. Recalculated when child records change.',
+      )
+    : t(
+        'setup.fields.rollupHintVirtual',
+        'Computed on the fly when reading records. Not stored on this object.',
+      ),
+)
+
+const isVirtualRollup = computed(
+  () => isRollupType.value && form.rollupStorage === 'virtual',
+)
 
 /** Mustache example kept out of the template so Vue does not parse nested `{{`. */
 const FORMULA_EXAMPLE = '{{ MULTIPLY(price, quantity) }}'
@@ -439,6 +481,176 @@ const jsonColumnTypeOptions = computed(() => [
 
 const choiceFilter = ref('')
 
+interface DynamicRelationOption {
+  label: string
+  value: string
+  relatedCollection: string
+}
+
+interface DynamicJsonFieldOption {
+  label: string
+  value: string
+  columns: string[]
+}
+
+const dynamicRelationOptions = ref<DynamicRelationOption[]>([])
+const dynamicJsonFieldOptions = ref<DynamicJsonFieldOption[]>([])
+const dynamicValueColumnOptions = ref<Array<{ label: string; value: string }>>([])
+const dynamicPicklistLoading = ref(false)
+
+const picklistModeOptions = computed(() => [
+  { label: t('setup.fields.picklistSourceStatic', 'Static list'), value: 'static' },
+  {
+    label: t('setup.fields.picklistSourceDynamic', 'Related field'),
+    value: 'dynamic',
+  },
+])
+
+const dynamicPicklistReady = computed(
+  () =>
+    Boolean(form.dynamicRelationField.trim()) &&
+    Boolean(form.dynamicJsonField.trim()) &&
+    Boolean(form.dynamicValueColumn.trim()),
+)
+
+function jsonListColumns(options: Record<string, unknown> | null | undefined): string[] {
+  const raw = options?.columns
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return ''
+      return typeof (item as { name?: unknown }).name === 'string'
+        ? (item as { name: string }).name.trim()
+        : ''
+    })
+    .filter(Boolean)
+}
+
+function syncDynamicValueColumns(): void {
+  const selected = dynamicJsonFieldOptions.value.find(
+    (option) => option.value === form.dynamicJsonField,
+  )
+  const names =
+    selected?.columns.length
+      ? selected.columns
+      : form.dynamicValueColumn
+        ? [form.dynamicValueColumn]
+        : []
+  dynamicValueColumnOptions.value = names.map((name) => ({ label: name, value: name }))
+}
+
+async function loadDynamicRelationOptions(): Promise<void> {
+  const collection = props.collection?.trim()
+  if (!collection) {
+    dynamicRelationOptions.value = []
+    return
+  }
+  const { fields, relations } = await fetchEntityFieldsAndRelations(collection)
+  const options = relations
+    .filter((relation) => relation.kind === 'M2O' && relation.relatedEntityApiName && relation.fieldApiName)
+    .map((relation) => {
+      const field = fields.find((item) => item.apiName === relation.fieldApiName)
+      return {
+        label: field ? `${field.label} (${relation.fieldApiName})` : relation.fieldApiName,
+        value: relation.fieldApiName,
+        relatedCollection: relation.relatedEntityApiName ?? '',
+      }
+    })
+    .sort((a, b) => a.label.localeCompare(b.label))
+  if (
+    form.dynamicRelationField &&
+    !options.some((option) => option.value === form.dynamicRelationField)
+  ) {
+    options.unshift({
+      label: form.dynamicRelationField,
+      value: form.dynamicRelationField,
+      relatedCollection: '',
+    })
+  }
+  dynamicRelationOptions.value = options
+}
+
+async function loadDynamicJsonFields(): Promise<void> {
+  const related = dynamicRelationOptions.value.find(
+    (option) => option.value === form.dynamicRelationField,
+  )?.relatedCollection
+  if (!related) {
+    dynamicJsonFieldOptions.value = form.dynamicJsonField
+      ? [{
+          label: form.dynamicJsonField,
+          value: form.dynamicJsonField,
+          columns: form.dynamicValueColumn ? [form.dynamicValueColumn] : [],
+        }]
+      : []
+    syncDynamicValueColumns()
+    return
+  }
+
+  const { fields } = await fetchEntityFieldsAndRelations(related)
+  const options = fields
+    .filter((field) => normalizeFieldInterface(field.interface || '') === 'json-list')
+    .map((field) => ({
+      label: `${field.label} (${field.apiName})`,
+      value: field.apiName,
+      columns: jsonListColumns(field.options),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  if (
+    form.dynamicJsonField &&
+    !options.some((option) => option.value === form.dynamicJsonField)
+  ) {
+    options.unshift({
+      label: form.dynamicJsonField,
+      value: form.dynamicJsonField,
+      columns: form.dynamicValueColumn ? [form.dynamicValueColumn] : [],
+    })
+  }
+  dynamicJsonFieldOptions.value = options
+  syncDynamicValueColumns()
+}
+
+async function loadDynamicPicklistCatalog(): Promise<void> {
+  dynamicPicklistLoading.value = true
+  try {
+    await loadDynamicRelationOptions()
+    await loadDynamicJsonFields()
+  } catch {
+    dynamicRelationOptions.value = []
+    dynamicJsonFieldOptions.value = []
+    dynamicValueColumnOptions.value = []
+  } finally {
+    dynamicPicklistLoading.value = false
+  }
+}
+
+function setPicklistMode(mode: 'static' | 'dynamic' | null): void {
+  if (mode !== 'static' && mode !== 'dynamic') return
+  form.picklistMode = mode
+  if (mode === 'static' && form.choices.length === 0) {
+    addChoice()
+  }
+  if (mode === 'dynamic') {
+    void loadDynamicPicklistCatalog()
+  }
+}
+
+async function onDynamicRelationField(value: string | null): Promise<void> {
+  form.dynamicRelationField = value ?? ''
+  form.dynamicJsonField = ''
+  form.dynamicValueColumn = ''
+  await loadDynamicJsonFields()
+}
+
+function onDynamicJsonField(value: string | null): void {
+  form.dynamicJsonField = value ?? ''
+  const selected = dynamicJsonFieldOptions.value.find(
+    (option) => option.value === form.dynamicJsonField,
+  )
+  const names = selected?.columns ?? []
+  form.dynamicValueColumn = names.includes('value') ? 'value' : names[0] ?? ''
+  syncDynamicValueColumns()
+}
+
 const filteredChoices = computed(() => {
   const q = choiceFilter.value.trim().toLowerCase()
   const rows = form.choices.map((choice, index) => ({ choice, index }))
@@ -663,11 +875,16 @@ function readFormulaTemplate(options: Record<string, unknown>): string {
   return ''
 }
 
-function readRollup(options: Record<string, unknown>): {
+function readRollup(
+  options: Record<string, unknown>,
+  fieldType?: string,
+): {
   childEntity: string | null
   parentField: string | null
   valueField: string | null
   op: string
+  filter: Record<string, unknown> | null
+  storage: 'virtual' | 'physical'
 } {
   const raw = options.rollup
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -676,15 +893,61 @@ function readRollup(options: Record<string, unknown>): {
       parentField: null,
       valueField: null,
       op: 'SUM',
+      filter: null,
+      storage: 'virtual',
     }
   }
   const row = raw as Record<string, unknown>
+  const filter =
+    row.filter && typeof row.filter === 'object' && !Array.isArray(row.filter)
+      ? (row.filter as Record<string, unknown>)
+      : null
+  let storage: 'virtual' | 'physical'
+  if (row.live === true || row.live === 'true') storage = 'virtual'
+  else if (row.live === false || row.live === 'false') storage = 'physical'
+  else {
+    storage =
+      String(fieldType || '').toUpperCase() === 'ALIAS' ? 'virtual' : 'physical'
+  }
   return {
     childEntity: String(row.childEntity ?? row.child_entity ?? '').trim() || null,
     parentField: String(row.parentField ?? row.parent_field ?? '').trim() || null,
     valueField: String(row.valueField ?? row.value_field ?? '').trim() || null,
     op: String(row.op ?? row.aggregate ?? 'SUM').trim().toUpperCase() || 'SUM',
+    filter,
+    storage,
   }
+}
+
+function addRollupFilterPair(): void {
+  rollupFilterPairs.value = [
+    ...rollupFilterPairs.value,
+    {
+      sourceField: '',
+      filterField: '',
+      operator: '_eq',
+      valueKind: 'literal',
+      literalValue: '',
+    },
+  ]
+}
+
+function updateRollupFilterPair(index: number, patch: Partial<FilterPair>): void {
+  const pairs = [...rollupFilterPairs.value]
+  const current = pairs[index]
+  if (!current) return
+  pairs[index] = {
+    ...current,
+    ...patch,
+    valueKind: 'literal',
+  }
+  rollupFilterPairs.value = pairs
+}
+
+function removeRollupFilterPair(index: number): void {
+  rollupFilterPairs.value = rollupFilterPairs.value.filter(
+    (_, pairIndex) => pairIndex !== index,
+  )
 }
 
 async function loadRelatedChildEntities(): Promise<void> {
@@ -847,12 +1110,30 @@ function resetFromProps(): void {
     form.applyDdl = true
     form.defaultValue = readDefaultFromOptions(options)
     form.choices = parseChoices(options)
+    const choiceSource = parseDynamicPicklistSource(options.choiceSource)
+    form.picklistMode = choiceSource ? 'dynamic' : 'static'
+    form.dynamicRelationField = choiceSource?.relationField ?? ''
+    form.dynamicJsonField = choiceSource?.jsonField ?? ''
+    form.dynamicValueColumn = choiceSource?.valueColumn ?? ''
     form.formulaTemplate = readFormulaTemplate(options)
-    const rollup = readRollup(options)
+    const rollup = readRollup(options, props.field.type)
     form.rollupChildEntity = rollup.childEntity
     form.rollupParentField = rollup.parentField
     form.rollupValueField = rollup.valueField
     form.rollupOp = rollup.op
+    form.rollupStorage = rollup.storage
+    rollupFilterPairs.value = filterPairsFromFilter(rollup.filter).map((pair) => ({
+      ...pair,
+      valueKind: 'literal' as const,
+    }))
+    if (mode === 'rollup') {
+      const storedResult = String(options.resultType ?? options.result_type ?? '').trim()
+      if (storedResult) {
+        form.resultType = storedResult
+      } else if (props.field.type !== 'ALIAS') {
+        form.resultType = props.field.type || 'FLOAT'
+      }
+    }
     const autoNumber = readAutoNumberConfig(options)
     form.displayFormat = autoNumber.displayFormat
     form.startingNumber = autoNumber.startingNumber
@@ -902,6 +1183,13 @@ function resetFromProps(): void {
     if (!Number.isFinite(form.decimalPlaces)) form.decimalPlaces = 2
     form.jsonColumns = parseJsonColumns(options)
     ensureInterfaceValid()
+    if (form.picklistMode === 'dynamic') {
+      void loadDynamicPicklistCatalog()
+    } else {
+      dynamicRelationOptions.value = []
+      dynamicJsonFieldOptions.value = []
+      dynamicValueColumnOptions.value = []
+    }
     void loadRelatedChildEntities()
     void loadChildFields(form.rollupChildEntity)
     void resetChildLookupFromStored()
@@ -926,6 +1214,13 @@ function resetFromProps(): void {
   form.applyDdl = true
   form.defaultValue = null
   form.choices = []
+  form.picklistMode = 'static'
+  form.dynamicRelationField = ''
+  form.dynamicJsonField = ''
+  form.dynamicValueColumn = ''
+  dynamicRelationOptions.value = []
+  dynamicJsonFieldOptions.value = []
+  dynamicValueColumnOptions.value = []
   form.dateFormat = 'short'
   form.dateFormatCustom = ''
   form.currencySuffix = ''
@@ -936,6 +1231,8 @@ function resetFromProps(): void {
   form.rollupParentField = null
   form.rollupValueField = null
   form.rollupOp = 'SUM'
+  form.rollupStorage = 'virtual'
+  rollupFilterPairs.value = []
   form.displayFormat = '{0000}'
   form.startingNumber = 1
   choiceFilter.value = ''
@@ -1000,12 +1297,20 @@ function buildOptionsAndDisplay(): {
   const displayOptions: Record<string, unknown> = {}
 
   if (isPicklist.value) {
-    options.choices = form.choices
-      .filter((row) => row.text.trim() || row.value.trim())
-      .map((row) => ({
-        text: row.text.trim() || row.value.trim(),
-        value: coerceChoiceValue(row.value, storageType.value),
-      }))
+    if (form.picklistMode === 'dynamic' && dynamicPicklistReady.value) {
+      options.choiceSource = {
+        relationField: form.dynamicRelationField.trim(),
+        jsonField: form.dynamicJsonField.trim(),
+        valueColumn: form.dynamicValueColumn.trim(),
+      }
+    } else {
+      options.choices = form.choices
+        .filter((row) => row.text.trim() || row.value.trim())
+        .map((row) => ({
+          text: row.text.trim() || row.value.trim(),
+          value: coerceChoiceValue(row.value, storageType.value),
+        }))
+    }
   }
 
   if (isJsonList.value) {
@@ -1048,11 +1353,21 @@ function buildOptionsAndDisplay(): {
     options.template = form.formulaTemplate.trim()
   } else if (computeMode.value === 'rollup') {
     options.computeMode = 'rollup'
+    options.resultType = form.resultType || 'FLOAT'
+    const filter = filterFromPairs(
+      rollupFilterPairs.value.map((pair) => ({
+        ...pair,
+        valueKind: 'literal' as const,
+      })),
+    )
+    const live = form.rollupStorage !== 'physical'
     options.rollup = {
       childEntity: form.rollupChildEntity,
       parentField: form.rollupParentField,
       valueField: form.rollupValueField || '*',
       op: form.rollupOp || 'SUM',
+      live,
+      ...(filter ? { filter } : {}),
     }
   } else if (computeMode.value === 'autoNumber') {
     options.computeMode = 'autoNumber'
@@ -1154,8 +1469,11 @@ watch(
 
 watch(
   () => form.rollupChildEntity,
-  (child) => {
+  (child, previous) => {
     void loadChildFields(child)
+    if (previous && previous !== child) {
+      rollupFilterPairs.value = []
+    }
   },
 )
 
@@ -1169,7 +1487,7 @@ watch(
 watch(
   () => form.interface,
   (iface) => {
-    if (iface === 'select-dropdown' && form.choices.length === 0) {
+    if (iface === 'select-dropdown' && form.picklistMode === 'static' && form.choices.length === 0) {
       form.choices = [
         {
           text: '',
@@ -1202,21 +1520,27 @@ function submit(): void {
   ) {
     return
   }
+  if (isPicklist.value && form.picklistMode === 'dynamic' && !dynamicPicklistReady.value) {
+    return
+  }
 
   const apiName = resolvedApiName.value
   if (!apiName) return
 
   const { options, displayOptions } = buildOptionsAndDisplay()
+  // Virtual rollups → ALIAS (no column). Physical → result type column.
   const resolvedType =
     form.relationKind === 'M2O'
       ? 'UUID'
       : form.relationKind === 'M2M'
         ? 'ALIAS'
-        : isAutoNumberType.value
-          ? 'STRING'
-          : isAddressType.value
-            ? 'JSON'
-            : storageType.value
+        : isVirtualRollup.value
+          ? 'ALIAS'
+          : isAutoNumberType.value
+            ? 'STRING'
+            : isAddressType.value
+              ? 'JSON'
+              : storageType.value
 
   const input: RegistryFieldInputDto = {
     apiName,
@@ -1482,6 +1806,16 @@ function submit(): void {
           class="flex flex-col gap-3"
         >
           <div class="flex flex-col gap-1">
+            <label>{{ t('setup.fields.rollupStorage', 'Storage') }}</label>
+            <Select
+              v-model="form.rollupStorage"
+              :options="rollupStorageOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
             <label>{{ t('setup.fields.rollupChild', 'Child object') }}</label>
             <Select
               v-model="form.rollupChildEntity"
@@ -1553,13 +1887,33 @@ function submit(): void {
               :placeholder="t('setup.fields.selectField', 'Select field')"
             />
           </div>
+          <div class="flex flex-col gap-2">
+            <label>{{ t('setup.fields.rollupFilter', 'Child filter') }}</label>
+            <small class="text-muted-color">
+              {{
+                t(
+                  'setup.fields.rollupFilterHint',
+                  'Optional. Limit which child rows are counted (e.g. status equals Draft).',
+                )
+              }}
+            </small>
+            <FilterPairEditor
+              :pairs="rollupFilterPairs"
+              :source-options="childFieldOptions"
+              :filter-options="[]"
+              :source-placeholder="t('setup.fields.selectField', 'Select field')"
+              :filter-placeholder="t('formBuilder.filterLiteralPlaceholder', 'Value')"
+              :add-label="t('setup.fields.rollupFilterAdd', 'Add filter condition')"
+              :source-loading="childFieldsLoading"
+              rich
+              literal-only
+              @add="addRollupFilterPair"
+              @update-pair="updateRollupFilterPair"
+              @remove="removeRollupFilterPair"
+            />
+          </div>
           <small class="text-muted-color">
-            {{
-              t(
-                'setup.fields.rollupHint',
-                'Recalculated when child records change. Stored on this object.',
-              )
-            }}
+            {{ rollupHintText }}
           </small>
         </div>
 
@@ -1661,7 +2015,76 @@ function submit(): void {
         v-if="isPicklist"
         class="setup-field-picklist flex flex-col gap-2"
       >
-        <div class="flex items-center justify-between gap-2">
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.fields.picklistSource', 'Picklist source') }}</label>
+          <SelectButton
+            :model-value="form.picklistMode"
+            :options="picklistModeOptions"
+            option-label="label"
+            option-value="value"
+            :allow-empty="false"
+            @update:model-value="setPicklistMode"
+          />
+        </div>
+
+        <template v-if="form.picklistMode === 'dynamic'">
+          <div class="flex flex-col gap-1">
+            <label>{{ t('setup.fields.picklistRelationField', 'Related record') }}</label>
+            <Select
+              :model-value="form.dynamicRelationField"
+              :options="dynamicRelationOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              filter
+              :loading="dynamicPicklistLoading"
+              :placeholder="t('setup.fields.selectField', 'Select field')"
+              @update:model-value="onDynamicRelationField"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label>{{ t('setup.fields.picklistJsonField', 'List field') }}</label>
+            <Select
+              :model-value="form.dynamicJsonField"
+              :options="dynamicJsonFieldOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              filter
+              :loading="dynamicPicklistLoading"
+              :disabled="!form.dynamicRelationField"
+              :placeholder="t('setup.fields.selectField', 'Select field')"
+              @update:model-value="onDynamicJsonField"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label>{{ t('setup.fields.picklistValueColumn', 'Value column') }}</label>
+            <Select
+              v-model="form.dynamicValueColumn"
+              :options="dynamicValueColumnOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              filter
+              :loading="dynamicPicklistLoading"
+              :disabled="!form.dynamicJsonField"
+              :placeholder="t('setup.fields.selectField', 'Select field')"
+            />
+          </div>
+          <small class="text-muted-color">
+            {{
+              t(
+                'setup.fields.picklistDynamicHint',
+                'Options come from the related record. Example: Item → options → value.',
+              )
+            }}
+          </small>
+        </template>
+
+        <div
+          v-else
+          class="flex items-center justify-between gap-2"
+        >
           <label>
             {{ t('setup.fields.picklistValues', 'Picklist values') }}
             <span class="text-muted-color font-normal">
@@ -1677,7 +2100,7 @@ function submit(): void {
             @click="addChoice"
           />
         </div>
-        <IconField v-if="form.choices.length > 8">
+        <IconField v-if="form.picklistMode !== 'dynamic' && form.choices.length > 8">
           <InputIcon class="pi pi-search" />
           <InputText
             v-model="choiceFilter"
@@ -1685,7 +2108,10 @@ function submit(): void {
             :placeholder="t('setup.fields.filterChoices', 'Filter values…')"
           />
         </IconField>
-        <div class="setup-field-picklist__list">
+        <div
+          v-if="form.picklistMode !== 'dynamic'"
+          class="setup-field-picklist__list"
+        >
           <div
             v-for="{ choice, index } in filteredChoices"
             :key="index"
@@ -1769,7 +2195,7 @@ function submit(): void {
       >
         <label>{{ t('setup.fields.defaultValue', 'Default Value') }}</label>
         <Select
-          v-if="isPicklist && choiceDefaultOptions.length"
+          v-if="isPicklist && form.picklistMode !== 'dynamic' && choiceDefaultOptions.length"
           v-model="form.defaultValue"
           :options="choiceDefaultOptions"
           option-label="label"
@@ -1914,7 +2340,10 @@ function submit(): void {
         :disabled="
           !resolvedApiName ||
             (isRelationField && !form.relatedEntity) ||
-            (isPicklist && !form.choices.some((c) => c.text.trim() || c.value.trim())) ||
+            (isPicklist &&
+              form.picklistMode !== 'dynamic' &&
+              !form.choices.some((c) => c.text.trim() || c.value.trim())) ||
+            (isPicklist && form.picklistMode === 'dynamic' && !dynamicPicklistReady) ||
             (isJsonList && !form.jsonColumns.some((c) => c.name.trim()))
         "
         @click="submit"

@@ -37,6 +37,7 @@ import {
   primeVueDatePickerFormat,
 } from '@/core/dateFormatting'
 import { FILES_ASSET_COLLECTION, isFilesAssetCollection, resolveFilesRelatedCollection } from '@/core/filesField'
+import { parseDynamicPicklistSource } from '@/core/dynamicPicklist'
 import { isRolesAssetCollection } from '@/core/rolesField'
 import { isUsersAssetCollection } from '@/core/usersField'
 import {
@@ -925,19 +926,25 @@ export async function fetchFieldRuntimeMetadata(
   const template = definition.meta?.options?.template
 
   if (PICKLIST_COMPONENTS.has(component)) {
-    const choices = definition.meta?.options?.choices
-    if (Array.isArray(choices)) {
-      props.optionLabel = 'label'
-      props.optionValue = 'value'
-      props.placeholder = 'Select...'
-      props.options = await Promise.all(
-        choices
-          .filter((choice) => choice?.value !== undefined)
-          .map(async (choice) => ({
-            label: await choiceLabel(choice, { collection, field }),
-            value: choice.value as unknown,
-          })),
-      )
+    const choiceSource = parseDynamicPicklistSource(definition.meta?.options?.choiceSource)
+    props.optionLabel = 'label'
+    props.optionValue = 'value'
+    props.placeholder = 'Select...'
+    if (choiceSource) {
+      props.choiceSource = choiceSource
+      props.options = []
+    } else {
+      const choices = definition.meta?.options?.choices
+      if (Array.isArray(choices)) {
+        props.options = await Promise.all(
+          choices
+            .filter((choice) => choice?.value !== undefined)
+            .map(async (choice) => ({
+              label: await choiceLabel(choice, { collection, field }),
+              value: choice.value as unknown,
+            })),
+        )
+      }
     }
   }
 

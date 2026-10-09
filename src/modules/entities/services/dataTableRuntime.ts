@@ -568,7 +568,15 @@ export async function resolveDataTableColumns(
       : fields
           .filter((field) => {
             if (excludeHiddenFields && field.meta?.hidden) return false
-            if (field.type === 'alias') return false
+            // Skip relation aliases; keep live rollup aliases (mapped as calculated).
+            if (
+              field.type === 'alias' &&
+              !String(field.meta?.interface ?? '')
+                .toLowerCase()
+                .includes('calculated')
+            ) {
+              return false
+            }
             if (['user_updated', 'date_updated'].includes(field.field)) return false
             if (defaultExcludedField === field.field) return false
             return true

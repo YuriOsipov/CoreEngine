@@ -12,9 +12,26 @@ export type FieldTreeNode = TreeNode & {
   children?: FieldTreeNode[]
 }
 
+/** Relation aliases stay hidden; live rollup ALIAS fields are selectable. */
+function isSelectableField(field: FieldDefinition): boolean {
+  if (field.type !== 'alias') return true
+  const options = field.meta?.options
+  if (options && typeof options === 'object') {
+    const record = options as Record<string, unknown>
+    const mode = String(record.computeMode ?? record.compute_mode ?? '')
+      .trim()
+      .toLowerCase()
+    if (mode === 'rollup' || (record.rollup && typeof record.rollup === 'object')) {
+      return true
+    }
+  }
+  const iface = String(field.meta?.interface ?? '').toLowerCase()
+  return iface.includes('calculated') || iface.includes('formula') || iface.includes('computed')
+}
+
 export function fieldSelectOptions(fields: FieldDefinition[]): FieldOption[] {
   return fields
-    .filter((field) => field.type !== 'alias')
+    .filter(isSelectableField)
     .map((field) => ({
       label: field.meta?.note?.trim() || humanizeFieldName(field.field),
       value: field.field,
@@ -27,7 +44,7 @@ export function nestedFieldOptions(
   relatedCollectionForField: (field: FieldDefinition) => string,
 ): FieldOption[] {
   return fields
-    .filter((field) => field.type !== 'alias')
+    .filter(isSelectableField)
     .flatMap((field) => {
       const [base] = fieldSelectOptions([field])
       if (!base) return []
@@ -51,7 +68,7 @@ export function buildFieldTreeNodes(
   relatedCollectionForField: (field: FieldDefinition) => string,
 ): FieldTreeNode[] {
   return fields
-    .filter((field) => field.type !== 'alias')
+    .filter(isSelectableField)
     .map((field) => {
       const [base] = fieldSelectOptions([field])
       if (!base) return null

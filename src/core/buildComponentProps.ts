@@ -32,6 +32,7 @@ export function buildComponentProps(
     base.disabled = true
   }
   delete base.choiceSource
+  delete base.sensitivitySource
 
   if (field.component === 'AutoComplete') {
     delete base.suggestions

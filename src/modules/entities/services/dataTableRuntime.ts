@@ -710,6 +710,7 @@ function buildFetchFilterQuery(
     return mergeListQueryFilters(
       relation ? { [relation.field]: { _eq: options.parentId } } : undefined,
       statusFilter,
+      options.listFilter,
     )
   }
 

@@ -8,6 +8,8 @@ export default {
 import { computed, ref, watch } from 'vue'
 import { VueDraggableNext } from 'vue-draggable-next'
 import type {
+  BarcodeScanMatchMode,
+  BarcodeScanSettings,
   DataTableColumnConfig,
   DataTableSettings,
   FieldDefinition,
@@ -260,6 +262,176 @@ const inlineEditRefreshFields = computed({
     })
   },
 })
+
+const barcodeScanEnabled = computed({
+  get: () => Boolean(props.modelValue.barcodeScan?.enabled),
+  set: (enabled: boolean) => {
+    if (!enabled) {
+      updateSettings({
+        ...props.modelValue,
+        barcodeScan: null,
+      })
+      return
+    }
+    const current = props.modelValue.barcodeScan
+    updateSettings({
+      ...props.modelValue,
+      barcodeScan: {
+        enabled: true,
+        field: current?.field?.trim() || 'id',
+        matchMode: current?.matchMode ?? 'open-or-filter',
+        defaultScanModeOn: current?.defaultScanModeOn ?? false,
+        setFields: current?.setFields ?? null,
+        updateField: current?.updateField ?? null,
+        confirmUpdate: current?.confirmUpdate ?? false,
+      },
+    })
+  },
+})
+
+const barcodeScanField = computed({
+  get: () => props.modelValue.barcodeScan?.field ?? 'id',
+  set: (field: string) => {
+    patchBarcodeScan({ field: String(field ?? '').trim() || 'id' })
+  },
+})
+
+const barcodeScanMatchMode = computed({
+  get: () => props.modelValue.barcodeScan?.matchMode ?? 'open-or-filter',
+  set: (matchMode: BarcodeScanMatchMode) => {
+    patchBarcodeScan({ matchMode })
+  },
+})
+
+const barcodeScanDefaultOn = computed({
+  get: () => Boolean(props.modelValue.barcodeScan?.defaultScanModeOn),
+  set: (defaultScanModeOn: boolean) => {
+    patchBarcodeScan({ defaultScanModeOn })
+  },
+})
+
+const barcodeScanConfirmUpdate = computed({
+  get: () => Boolean(props.modelValue.barcodeScan?.confirmUpdate),
+  set: (confirmUpdate: boolean) => {
+    patchBarcodeScan({ confirmUpdate })
+  },
+})
+
+const barcodeScanUpdateField = computed({
+  get: () => props.modelValue.barcodeScan?.updateField ?? null,
+  set: (updateField: string | null) => {
+    patchBarcodeScan({ updateField: updateField?.trim() || null })
+  },
+})
+
+interface BarcodeSetFieldRow {
+  field: string
+  value: string
+}
+
+const barcodeSetFieldRows = computed({
+  get: (): BarcodeSetFieldRow[] => {
+    const setFields = props.modelValue.barcodeScan?.setFields
+    if (!setFields || !Object.keys(setFields).length) {
+      return [{ field: '', value: '' }]
+    }
+    return Object.entries(setFields).map(([field, value]) => ({
+      field,
+      value: value === null || value === undefined ? '$NULL' : String(value),
+    }))
+  },
+  set: (rows: BarcodeSetFieldRow[]) => {
+    const setFields: Record<string, unknown> = {}
+    for (const row of rows) {
+      const field = row.field?.trim()
+      if (!field) continue
+      setFields[field] = row.value
+    }
+    patchBarcodeScan({
+      setFields: Object.keys(setFields).length ? setFields : null,
+    })
+  },
+})
+
+const barcodeMatchModeOptions = computed(() => [
+  {
+    label: t('tableSettings.barcodeMatchOpenOrFilter', 'Open unique / filter many'),
+    value: 'open-or-filter',
+  },
+  {
+    label: t('tableSettings.barcodeMatchOpen', 'Open record'),
+    value: 'open',
+  },
+  {
+    label: t('tableSettings.barcodeMatchFilter', 'Filter list'),
+    value: 'filter',
+  },
+])
+
+const barcodeFieldOptions = computed(() =>
+  schemaFields.value
+    .filter((field) => field.field && !field.meta?.hidden)
+    .map((field) => ({
+      label: field.field,
+      value: field.field,
+    })),
+)
+
+function patchBarcodeScan(patch: Partial<BarcodeScanSettings>): void {
+  const current = props.modelValue.barcodeScan
+  if (!current?.enabled && !patch.enabled) {
+    updateSettings({
+      ...props.modelValue,
+      barcodeScan: {
+        enabled: true,
+        field: patch.field?.trim() || 'id',
+        matchMode: patch.matchMode ?? 'open-or-filter',
+        ...patch,
+      },
+    })
+    return
+  }
+  updateSettings({
+    ...props.modelValue,
+    barcodeScan: {
+      enabled: true,
+      field: current?.field?.trim() || 'id',
+      matchMode: current?.matchMode ?? 'open-or-filter',
+      defaultScanModeOn: current?.defaultScanModeOn,
+      setFields: current?.setFields ?? null,
+      updateField: current?.updateField ?? null,
+      confirmUpdate: current?.confirmUpdate,
+      ...patch,
+    },
+  })
+}
+
+/** Keep `{{SUM(...)}}` out of the Vue template — nested mustaches break the parser. */
+const barcodeSetFieldsHintText = computed(() =>
+  t(
+    'tableSettings.barcodeSetFieldsHint',
+    'Tokens: $NOW, $NULL, $SCAN. Math: base_price + 2, base_price + group, or {{SUM(base_price, 2)}}. Applied only on a unique match.',
+  ),
+)
+
+function addBarcodeSetFieldRow(): void {
+  barcodeSetFieldRows.value = [...barcodeSetFieldRows.value, { field: '', value: '' }]
+}
+
+function removeBarcodeSetFieldRow(index: number): void {
+  const next = barcodeSetFieldRows.value.filter((_, i) => i !== index)
+  barcodeSetFieldRows.value = next.length ? next : [{ field: '', value: '' }]
+}
+
+function updateBarcodeSetFieldRow(
+  index: number,
+  patch: Partial<BarcodeSetFieldRow>,
+): void {
+  const next = barcodeSetFieldRows.value.map((row, i) =>
+    i === index ? { ...row, ...patch } : row,
+  )
+  barcodeSetFieldRows.value = next
+}
 
 const rowLimit = computed({
   get: () => props.modelValue.rowLimit ?? DEFAULT_RELATED_ROW_LIMIT,
@@ -1220,6 +1392,148 @@ const batchInsertHint = computed(() =>
             filter
             :placeholder="t('tableSettings.inlineEditRefreshFieldsPlaceholder', 'Select fields…')"
           />
+        </div>
+
+        <div class="table-settings-inline-options__item col-span-full">
+          <div class="table-settings-inline-options__label-row">
+            <label class="table-settings-inline-options__label">
+              {{ t('tableSettings.barcodeScan', 'Barcode scan') }}
+            </label>
+            <button
+              type="button"
+              class="table-settings-hint"
+              v-tooltip.bottom="
+                hintTooltip(
+                  t(
+                    'tableSettings.barcodeScanHint',
+                    'Adds a Scan toolbar: HID scanner capture (Scan mode), manual entry, optional field updates on unique match, and a toast when nothing is found.',
+                  ),
+                )
+              "
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+              <ToggleSwitch v-model="barcodeScanEnabled" input-id="barcode-scan-enabled" />
+              <label for="barcode-scan-enabled" class="text-[0.85rem]">
+                {{ t('tableSettings.barcodeScanEnable', 'Enable barcode scan') }}
+              </label>
+            </div>
+
+            <template v-if="barcodeScanEnabled">
+              <div class="flex flex-wrap gap-2">
+                <div class="flex flex-col gap-0.5 min-w-[10rem] flex-1">
+                  <label class="text-[0.75rem] text-muted-color">
+                    {{ t('tableSettings.barcodeLookupField', 'Lookup field') }}
+                  </label>
+                  <Select
+                    v-model="barcodeScanField"
+                    class="w-full"
+                    :options="barcodeFieldOptions"
+                    option-label="label"
+                    option-value="value"
+                    filter
+                    :placeholder="t('tableSettings.barcodeLookupFieldPlaceholder', 'Select field')"
+                  />
+                </div>
+                <div class="flex flex-col gap-0.5 min-w-[12rem] flex-1">
+                  <label class="text-[0.75rem] text-muted-color">
+                    {{ t('tableSettings.barcodeMatchMode', 'On match') }}
+                  </label>
+                  <Select
+                    v-model="barcodeScanMatchMode"
+                    class="w-full"
+                    :options="barcodeMatchModeOptions"
+                    option-label="label"
+                    option-value="value"
+                  />
+                </div>
+                <div class="flex flex-col gap-0.5 min-w-[10rem] flex-1">
+                  <label class="text-[0.75rem] text-muted-color">
+                    {{ t('tableSettings.barcodeUpdateField', 'Also update field') }}
+                  </label>
+                  <Select
+                    v-model="barcodeScanUpdateField"
+                    class="w-full"
+                    :options="barcodeFieldOptions"
+                    option-label="label"
+                    option-value="value"
+                    show-clear
+                    filter
+                    :placeholder="t('tableSettings.barcodeUpdateFieldPlaceholder', 'Optional')"
+                  />
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-4">
+                <div class="flex items-center gap-2">
+                  <ToggleSwitch v-model="barcodeScanDefaultOn" input-id="barcode-scan-default-on" />
+                  <label for="barcode-scan-default-on" class="text-[0.85rem]">
+                    {{ t('tableSettings.barcodeDefaultScanMode', 'Start in Scan mode') }}
+                  </label>
+                </div>
+                <div class="flex items-center gap-2">
+                  <ToggleSwitch
+                    v-model="barcodeScanConfirmUpdate"
+                    input-id="barcode-scan-confirm"
+                  />
+                  <label for="barcode-scan-confirm" class="text-[0.85rem]">
+                    {{ t('tableSettings.barcodeConfirmUpdate', 'Confirm before update') }}
+                  </label>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[0.85rem] font-medium">
+                    {{ t('tableSettings.barcodeSetFields', 'Set fields on unique match') }}
+                  </span>
+                  <Button
+                    :label="t('tableSettings.barcodeAddSetField', '+ Field')"
+                    size="small"
+                    severity="secondary"
+                    text
+                    @click="addBarcodeSetFieldRow"
+                  />
+                </div>
+                <p class="text-[0.75rem] text-muted-color m-0">
+                  {{ barcodeSetFieldsHintText }}
+                </p>
+                <div
+                  v-for="(row, index) in barcodeSetFieldRows"
+                  :key="`barcode-set-${index}`"
+                  class="flex flex-wrap items-center gap-2"
+                >
+                  <Select
+                    :model-value="row.field"
+                    class="min-w-[10rem] flex-1"
+                    :options="barcodeFieldOptions"
+                    option-label="label"
+                    option-value="value"
+                    filter
+                    :placeholder="t('tableSettings.barcodeSetFieldPlaceholder', 'Field')"
+                    @update:model-value="updateBarcodeSetFieldRow(index, { field: $event ?? '' })"
+                  />
+                  <InputText
+                    :model-value="row.value"
+                    class="min-w-[8rem] flex-1"
+                    :placeholder="t('tableSettings.barcodeSetValuePlaceholder', 'base_price + 2')"
+                    @update:model-value="updateBarcodeSetFieldRow(index, { value: $event ?? '' })"
+                  />
+                  <Button
+                    icon="pi pi-times"
+                    size="small"
+                    severity="danger"
+                    text
+                    rounded
+                    :aria-label="t('common.remove', 'Remove')"
+                    @click="removeBarcodeSetFieldRow(index)"
+                  />
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
       </section>
 

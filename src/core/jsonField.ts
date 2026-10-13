@@ -29,9 +29,12 @@ function normalizeColumnType(raw: unknown): JsonListColumnType {
 
 export function isJsonListFieldDefinition(field: FieldDefinition): boolean {
   const special = normalizeSpecial(field.meta?.special)
-  if (special.includes('json-list')) return true
-
   const iface = (field.meta?.interface ?? '').toLowerCase()
+  // Sensitivity matrix is JSON but has its own component / value shape.
+  if (iface === 'json-sensitivity' || special.includes('json-sensitivity')) {
+    return false
+  }
+  if (special.includes('json-list')) return true
   return iface === 'json-list'
 }
 
@@ -39,9 +42,14 @@ export function isJsonCodeFieldDefinition(field: FieldDefinition): boolean {
   if (isAddressFieldDefinition(field) || isJsonListFieldDefinition(field)) {
     return false
   }
+  // Sensitivity matrix is also JSON but has its own interface.
+  const iface = (field.meta?.interface ?? '').toLowerCase()
+  if (iface === 'json-sensitivity') return false
+  const special = normalizeSpecial(field.meta?.special)
+  if (special.includes('json-sensitivity')) return false
+
   if (field.type !== 'json') return false
 
-  const iface = (field.meta?.interface ?? '').toLowerCase()
   return iface === 'input-code' || iface.includes('input-code') || iface === 'json'
 }
 

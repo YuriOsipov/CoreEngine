@@ -10,6 +10,7 @@ import type { LayoutFieldMetadata } from '@/interfaces'
 import { normalizeActivityLogSettings } from '@/interfaces'
 import {
   fetchRecordActivityLog,
+  type ActivityLogDeltaEntry,
   type ActivityLogEntry,
 } from '../services/activityLogService'
 import { useTranslation } from '@/core/translation'
@@ -66,6 +67,19 @@ function actionSeverity(action: string): 'success' | 'info' | 'warn' | 'danger' 
     default:
       return 'secondary'
   }
+}
+
+function isMultilineValue(value: string | null | undefined): boolean {
+  if (!value) return false
+  return value.includes('\n') || value.length > 120
+}
+
+function hasDeltaChange(delta: ActivityLogDeltaEntry): boolean {
+  return Boolean(
+    delta.previousValue &&
+      delta.previousValue !== '—' &&
+      delta.previousValue !== delta.value,
+  )
 }
 
 async function loadActivityLog(): Promise<void> {
@@ -146,7 +160,7 @@ watch(
       data-key="id"
       size="small"
       striped-rows
-      class="border border-surface-200 rounded-lg overflow-hidden"
+      class="activity-log-table border border-surface-200 rounded-lg overflow-hidden"
     >
       <Column
         v-if="showDeltas"
@@ -156,12 +170,12 @@ watch(
       <Column
         field="timestampLabel"
         :header="t('activityLog.columnTimestamp', 'When')"
-        style="min-width: 10rem"
+        style="min-width: 9rem; width: 9rem"
       />
       <Column
         field="userName"
         :header="t('activityLog.columnUser', 'User')"
-        style="min-width: 8rem"
+        style="min-width: 7rem; width: 8rem"
       >
         <template #body="{ data }">
           {{ data.userName || t('activityLog.unknownUser', 'Unknown user') }}
@@ -170,7 +184,7 @@ watch(
       <Column
         field="action"
         :header="t('activityLog.columnAction', 'Action')"
-        style="width: 7rem"
+        style="width: 6.5rem"
       >
         <template #body="{ data }">
           <Tag
@@ -182,10 +196,17 @@ watch(
       <Column
         field="summary"
         :header="t('activityLog.columnSummary', 'Changes')"
-      />
+        style="min-width: 8rem"
+      >
+        <template #body="{ data }">
+          <span class="activity-log-summary__text">
+            {{ data.summary || '—' }}
+          </span>
+        </template>
+      </Column>
 
       <template v-if="showDeltas" #expansion="{ data }">
-        <div class="flex flex-col gap-2 px-2 py-1">
+        <div class="activity-log-expansion flex flex-col gap-2 px-2 py-1">
           <p v-if="data.comment" class="m-0 text-sm text-muted-color">
             {{ t('activityLog.comment', 'Comment') }}: {{ data.comment }}
           </p>
@@ -197,23 +218,59 @@ watch(
           </div>
           <ul
             v-else
-            class="m-0 pl-5 flex flex-col gap-1 text-sm"
+            class="m-0 pl-0 list-none flex flex-col gap-3 text-sm"
           >
-            <li v-for="delta in data.deltas" :key="`${data.id}-${delta.field}`">
-              <span class="font-medium">{{ delta.label }}:</span>
-              <template
-                v-if="
-                  delta.previousValue &&
-                  delta.previousValue !== '—' &&
-                  delta.previousValue !== delta.value
-                "
-              >
-                <span class="text-muted-color">{{ delta.previousValue }}</span>
-                <span aria-hidden="true"> → </span>
-                {{ delta.value }}
+            <li
+              v-for="delta in data.deltas"
+              :key="`${data.id}-${delta.field}`"
+              class="activity-log-delta"
+            >
+              <div class="font-medium mb-1">
+                {{ delta.label }}
+              </div>
+              <template v-if="hasDeltaChange(delta)">
+                <div class="activity-log-delta__block">
+                  <div class="activity-log-delta__label text-muted-color">
+                    {{ t('activityLog.previousValue', 'Previous') }}
+                  </div>
+                  <pre
+                    v-if="isMultilineValue(delta.previousValue)"
+                    class="activity-log-delta__pre"
+                  >{{ delta.previousValue }}</pre>
+                  <div
+                    v-else
+                    class="activity-log-delta__value text-muted-color"
+                  >
+                    {{ delta.previousValue }}
+                  </div>
+                </div>
+                <div class="activity-log-delta__block">
+                  <div class="activity-log-delta__label text-muted-color">
+                    {{ t('activityLog.newValue', 'New') }}
+                  </div>
+                  <pre
+                    v-if="isMultilineValue(delta.value)"
+                    class="activity-log-delta__pre"
+                  >{{ delta.value }}</pre>
+                  <div
+                    v-else
+                    class="activity-log-delta__value"
+                  >
+                    {{ delta.value }}
+                  </div>
+                </div>
               </template>
               <template v-else>
-                {{ delta.value }}
+                <pre
+                  v-if="isMultilineValue(delta.value)"
+                  class="activity-log-delta__pre"
+                >{{ delta.value }}</pre>
+                <div
+                  v-else
+                  class="activity-log-delta__value"
+                >
+                  {{ delta.value }}
+                </div>
               </template>
             </li>
           </ul>
@@ -222,3 +279,41 @@ watch(
     </DataTable>
   </div>
 </template>
+
+<style scoped>
+.activity-log-summary__text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  word-break: break-word;
+}
+
+.activity-log-delta__block + .activity-log-delta__block {
+  margin-top: 0.5rem;
+}
+
+.activity-log-delta__label {
+  font-size: 0.75rem;
+  margin-bottom: 0.15rem;
+}
+
+.activity-log-delta__value {
+  word-break: break-word;
+}
+
+.activity-log-delta__pre {
+  margin: 0;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--p-content-border-color, #e5e7eb);
+  border-radius: 0.4rem;
+  background: var(--p-surface-50, #f8fafc);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>

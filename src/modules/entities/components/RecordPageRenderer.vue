@@ -71,8 +71,8 @@ const bodyStyle = computed(() => {
   if (!showSidebar.value) return undefined
   const main = mainSize.value
   return {
-    '--record-page-main-fr': String(main),
-    '--record-page-sidebar-fr': String(100 - main),
+    '--record-page-main-pct': `${main}%`,
+    '--record-page-sidebar-pct': `${100 - main}%`,
   } as Record<string, string>
 })
 
@@ -369,11 +369,11 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 <style scoped>
 .record-page-runtime__body--with-sidebar {
   grid-template-columns:
-    minmax(0, calc(var(--record-page-main-fr, 50) * 1fr))
-    minmax(0, calc(var(--record-page-sidebar-fr, 50) * 1fr));
+    minmax(0, var(--record-page-main-pct, 50%))
+    minmax(0, var(--record-page-sidebar-pct, 50%));
 }
 
-@media (max-width: 991px) {
+@media (max-width: 767px) {
   .record-page-runtime__body--with-sidebar {
     grid-template-columns: minmax(0, 1fr);
   }

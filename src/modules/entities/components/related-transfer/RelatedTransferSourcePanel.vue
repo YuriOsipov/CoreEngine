@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TreeNode } from 'primevue/treenode'
+import type { TreeNode } from 'openvue/treenode'
 import type { DataTableColumnConfig } from '@/interfaces'
 import RelatedTransferSourceTable from './RelatedTransferSourceTable.vue'
 

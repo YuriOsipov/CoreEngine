@@ -6,9 +6,9 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
-import type { MenuItem } from 'primevue/menuitem'
+import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
+import type { MenuItem } from 'openvue/menuitem'
 import { useTranslation } from '@/core/translation'
 import {
   fetchEntityAutomations,

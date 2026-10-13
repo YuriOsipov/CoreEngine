@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
-import { PrimeVueResolver } from '@primevue/auto-import-resolver'
+import { PrimeVueResolver } from '@openvue/auto-import-resolver'
 import { fileURLToPath, URL } from 'node:url'
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))

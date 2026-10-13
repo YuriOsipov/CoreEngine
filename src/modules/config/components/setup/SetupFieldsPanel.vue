@@ -6,8 +6,8 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
 import type { LayoutFieldChildLookup } from '@/interfaces'
 import {
@@ -138,6 +138,9 @@ function dataTypeLabel(row: RegistryFieldListRow): string {
   }
   if (iface === 'json-list') {
     return `${t('setup.fields.typeJson', 'JSON')} · ${t('setup.fields.ifaceJsonList', 'JSON List')}`
+  }
+  if (iface === 'json-sensitivity') {
+    return `${t('setup.fields.typeJson', 'JSON')} · ${t('setup.fields.ifaceJsonSensitivity', 'Sensitivity matrix')}`
   }
   if (iface === 'input-code' && String(row.type || '').toUpperCase() === 'JSON') {
     return `${t('setup.fields.typeJson', 'JSON')} · ${t('setup.fields.ifaceJsonCode', 'JSON (raw)')}`

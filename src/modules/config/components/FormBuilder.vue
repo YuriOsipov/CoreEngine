@@ -12,6 +12,7 @@ import type {
   M2ASettings,
   EntityAction,
   EntityLayoutSchema,
+  EntityRecordAutomationCondition,
   LayoutFieldMetadata,
   LayoutGroup,
   LayoutSection,
@@ -21,6 +22,7 @@ import type { PaletteItem } from '@/modules/entities/utils/fieldPalette'
 import PaletteSkeleton from './PaletteSkeleton.vue'
 import FilesSettingsDesigner from './FilesSettingsDesigner.vue'
 import M2ASettingsDesigner from './M2ASettingsDesigner.vue'
+import LayoutShowIfEditor from './LayoutShowIfEditor.vue'
 import RelatedFieldSettingsDialog, {
   type RelatedFieldSettingsApplyPayload,
 } from './RelatedFieldSettingsDialog.vue'
@@ -656,6 +658,24 @@ const configGroupInlineLabels = computed({
   },
 })
 
+const configGroupShowIf = computed({
+  get: (): EntityRecordAutomationCondition[] => selectedGroup.value?.showIf ?? [],
+  set: (showIf: EntityRecordAutomationCondition[]) => {
+    if (!selectedGroupId.value) return
+    updateGroup(selectedGroupId.value, {
+      showIf: showIf.length > 0 ? showIf : undefined,
+    })
+  },
+})
+
+const configGroupShowIfLogic = computed({
+  get: () => (selectedGroup.value?.showIfLogic === 'or' ? 'or' : 'and'),
+  set: (showIfLogic: 'and' | 'or') => {
+    if (!selectedGroupId.value) return
+    updateGroup(selectedGroupId.value, { showIfLogic })
+  },
+})
+
 const configFieldGroupInlineLabels = computed({
   get: () => selectedFieldParentGroup.value?.inlineLabels ?? true,
   set: (inlineLabels: boolean) => {
@@ -679,6 +699,25 @@ const configTabDescription = computed({
     updateTab(selectedTabId.value, { description })
   },
 })
+
+const configTabShowIf = computed({
+  get: (): EntityRecordAutomationCondition[] => selectedTab.value?.showIf ?? [],
+  set: (showIf: EntityRecordAutomationCondition[]) => {
+    if (!selectedTabId.value) return
+    updateTab(selectedTabId.value, {
+      showIf: showIf.length > 0 ? showIf : undefined,
+    })
+  },
+})
+
+const configTabShowIfLogic = computed({
+  get: () => (selectedTab.value?.showIfLogic === 'or' ? 'or' : 'and'),
+  set: (showIfLogic: 'and' | 'or') => {
+    if (!selectedTabId.value) return
+    updateTab(selectedTabId.value, { showIfLogic })
+  },
+})
+
 const configActionLabel = computed({
   get: () => selectedAction.value?.label ?? '',
   set: (label: string) => {
@@ -929,6 +968,8 @@ function patchSchema(sectionPatch: Partial<LayoutSection>): void {
     columns: sectionPatch.columns ?? baseSection.columns,
     sort: sectionPatch.sort ?? baseSection.sort,
     groups: sectionPatch.groups ?? baseSection.groups,
+    showIf: sectionPatch.showIf ?? baseSection.showIf,
+    showIfLogic: sectionPatch.showIfLogic ?? baseSection.showIfLogic,
   }
   const sectionIndex = props.modelValue.sections.findIndex(
     (section) => section.id === nextSection.id,
@@ -962,11 +1003,14 @@ function ensureSectionsHaveGroups(): void {
 
     changed = true
     return {
+      ...section,
       id: section.id,
       title: section.title,
       description: section.description,
       columns: section.columns,
       sort: section.sort,
+      showIf: section.showIf,
+      showIfLogic: section.showIfLogic,
       groups:
         existingGroups.length > 0
           ? [
@@ -1365,6 +1409,7 @@ function paletteIcon(component: string): string {
     Address: 'pi-map-marker',
     JsonList: 'pi-list',
     JsonCode: 'pi-code',
+    SensitivityMatrix: 'pi-table',
     BlockLayout: 'pi-th-large',
   }
   return icons[component] ?? 'pi-file'
@@ -2106,6 +2151,14 @@ function hintTooltip(value: string) {
                 <div v-else-if="element.component === 'JsonCode'" class="canvas-datatable">
                   {{ t('formBuilder.jsonCodePreview', 'JSON (raw)') }}
                 </div>
+                <div v-else-if="element.component === 'SensitivityMatrix'" class="canvas-datatable">
+                  {{
+                    t(
+                      'formBuilder.sensitivityMatrixPreview',
+                      'Pathogen · Pharmacy · Resistance',
+                    )
+                  }}
+                </div>
                 <div v-else-if="element.component === 'ChildLookup'" class="canvas-datatable">
                   {{ t('formBuilder.childLookupPreview', 'Child lookup select') }}
                 </div>
@@ -2434,6 +2487,15 @@ function hintTooltip(value: string) {
             fluid
           />
         </div>
+        <LayoutShowIfEditor
+          :collection="collection"
+          :conditions="configTabShowIf"
+          :logic="configTabShowIfLogic"
+          :title="t('formBuilder.showIfTab', 'Show tab when')"
+          :empty-text="t('formBuilder.showIfTabEmpty', 'No conditions — tab is always visible.')"
+          @update:conditions="configTabShowIf = $event"
+          @update:logic="configTabShowIfLogic = $event"
+        />
         <p class="m-0 text-[0.8rem] text-muted-color">
           {{ t('formBuilder.tabId', 'Tab id') }}: <code>{{ selectedTab.id }}</code>
         </p>
@@ -2489,6 +2551,15 @@ function hintTooltip(value: string) {
             :aria-label="t('formBuilder.inlineLabelsHint', 'Show labels beside values on wide screens; stack above values on small screens.')"
           />
         </div>
+        <LayoutShowIfEditor
+          :collection="collection"
+          :conditions="configGroupShowIf"
+          :logic="configGroupShowIfLogic"
+          :title="t('formBuilder.showIfGroup', 'Show group when')"
+          :empty-text="t('formBuilder.showIfGroupEmpty', 'No conditions — group is always visible.')"
+          @update:conditions="configGroupShowIf = $event"
+          @update:logic="configGroupShowIfLogic = $event"
+        />
         <p class="m-0 text-[0.8rem] text-muted-color">
           {{ t('formBuilder.groupId', 'Group id') }}: <code>{{ selectedGroup.id }}</code>
         </p>

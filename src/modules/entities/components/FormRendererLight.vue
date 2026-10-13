@@ -34,6 +34,7 @@ import {
   isHtmlEditorField,
   isJsonCodeField,
   isJsonListField,
+  isSensitivityMatrixField,
   isRepeaterField,
   isActivityLogField,
   isDocEngineField,
@@ -48,7 +49,12 @@ import {
   formatJsonCodeSummary,
   formatJsonListSummary,
 } from '@/core/jsonField'
+import CrmSensitivityCrossTable from '@/core/ui-kit/CrmSensitivityCrossTable.vue'
 import { useTranslation } from '@/core/translation'
+import {
+  filterVisibleLayoutGroups,
+  filterVisibleLayoutSections,
+} from '@/core/recordConditionMatch'
 
 const { t } = useTranslation()
 
@@ -73,8 +79,26 @@ const emit = defineEmits<{
 const fieldLabels = useFieldLabels(() => props.schema.entity)
 const fieldDisplay = useFieldDisplay(() => props.schema.entity)
 const compactTooltip = useCompactTooltip()
-const activeSectionIndex = ref(0)
+const activeSectionId = ref<string | null>(null)
 const systemInfoCollapsed = ref(false)
+
+const visibleSections = computed(() =>
+  filterVisibleLayoutSections(props.schema.sections, props.modelValue),
+)
+
+const activeSectionIndex = computed({
+  get: () => {
+    const sections = visibleSections.value
+    if (sections.length === 0) return 0
+    const byId = activeSectionId.value
+      ? sections.findIndex((section) => section.id === activeSectionId.value)
+      : -1
+    return byId >= 0 ? byId : 0
+  },
+  set: (index: number) => {
+    activeSectionId.value = visibleSections.value[index]?.id ?? null
+  },
+})
 
 watch(
   () => props.schema.systemInfo?.collapsed,
@@ -121,16 +145,26 @@ const showSystemInfo = computed(
 )
 
 const showSectionTabs = computed(
-  () => !props.embedded && props.schema.sections.length > 0,
+  () => !props.embedded && visibleSections.value.length > 0,
 )
 
-const activeSection = computed(() => props.schema.sections[activeSectionIndex.value])
+const activeSection = computed(() => visibleSections.value[activeSectionIndex.value])
+
+const visibleGroups = computed(() =>
+  activeSection.value
+    ? filterVisibleLayoutGroups(activeSection.value.groups, props.modelValue)
+    : [],
+)
 
 watch(
-  () => props.schema.sections.length,
-  (sectionCount) => {
-    if (activeSectionIndex.value >= sectionCount) {
-      activeSectionIndex.value = 0
+  visibleSections,
+  (sections) => {
+    if (sections.length === 0) {
+      activeSectionId.value = null
+      return
+    }
+    if (!activeSectionId.value || !sections.some((section) => section.id === activeSectionId.value)) {
+      activeSectionId.value = sections[0]?.id ?? null
     }
   },
   { immediate: true },
@@ -152,14 +186,14 @@ watch(
     class="flex flex-col gap-4"
     :class="{ 'w-full min-w-0': embedded }"
   >
-    <div v-if="schema.sections.length > 0" class="flex flex-col gap-4">
+    <div v-if="visibleSections.length > 0" class="flex flex-col gap-4">
       <div
         v-if="showSectionTabs"
         class="flex gap-[0.4rem] border-b border-surface-200"
         role="tablist"
       >
         <button
-          v-for="(section, sectionIndex) in schema.sections"
+          v-for="(section, sectionIndex) in visibleSections"
           :key="section.id"
           type="button"
           class="border border-transparent border-b-0 rounded-t-lg bg-transparent text-muted-color cursor-pointer px-3 py-2 font-[inherit]"
@@ -187,7 +221,7 @@ watch(
         </p>
 
         <section
-          v-for="group in activeSection.groups"
+          v-for="group in visibleGroups"
           :key="group.id"
           class="overflow-hidden"
           :class="embedded && !group.title
@@ -324,6 +358,23 @@ watch(
                 >{{ formatAddressMultiline(modelValue[field.field]) }}</div>
               </template>
 
+              <template v-else-if="isSensitivityMatrixField(field)">
+                <div
+                  class="text-surface-700 text-sm font-medium"
+                  :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
+                >{{ fieldLabels.getLabel(field) }}</div>
+                <div
+                  class="layout-field__value min-w-0 w-full"
+                  :class="{
+                    'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                      !embedded && !isGroupInlineLabels(group),
+                    'flex-1 min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
+                  }"
+                >
+                  <CrmSensitivityCrossTable :model-value="modelValue[field.field]" />
+                </div>
+              </template>
+
               <template v-else-if="isJsonListField(field)">
                 <div
                   class="text-surface-700 text-sm font-medium"
@@ -423,7 +474,7 @@ watch(
           </p>
         </section>
 
-        <p v-if="activeSection.groups.length === 0" class="m-0 text-muted-color text-[0.9rem]">
+        <p v-if="visibleGroups.length === 0" class="m-0 text-muted-color text-[0.9rem]">
           {{ t('formRenderer.noGroups', 'No groups in this tab yet.') }}
         </p>
       </section>

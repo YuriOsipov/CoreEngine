@@ -1,4 +1,5 @@
 import type {
+  BarcodeScanSettings,
   DataTableColumnConfig,
   DataTableGroupConfig,
   DataTableSortConfig,
@@ -59,6 +60,8 @@ export interface ListViewTableMeta {
   inlineEditRefresh?: 'off' | 'row' | 'fields'
   /** Field names to merge when `inlineEditRefresh` is `fields`. */
   inlineEditRefreshFields?: string[]
+  /** Barcode / Scan mode (shared across views for the collection). */
+  barcodeScan?: BarcodeScanSettings | null
   predefinedViews?: Partial<Record<PredefinedListViewId, PredefinedListViewTableSettings>>
 }
 

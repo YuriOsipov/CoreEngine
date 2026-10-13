@@ -42,6 +42,10 @@ import {
 import { appendFileRequestFields } from '@/core/filesField'
 import { isFilesField, isM2MMultiSelectField } from '@/core/fieldHelpers'
 import { isClientOnlyLayoutField } from '@/core/layoutFieldRules'
+import {
+  collectShowIfFieldPaths,
+  showIfRequestFields,
+} from '@/core/recordConditionMatch'
 import { keysEqual } from '@/core/utils/object'
 import type {
   FieldDefinition,
@@ -193,6 +197,10 @@ async function collectLayoutRequestFields(
     ),
     ...extraFields,
   ]
+
+  for (const path of showIfRequestFields(collectShowIfFieldPaths(schema.sections))) {
+    requestFields.add(path)
+  }
 
   for (const field of layoutFields) {
     if (isClientOnlyLayoutField(field)) continue

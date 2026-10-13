@@ -6,8 +6,8 @@ export default {
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
-import type { MenuItem } from 'primevue/menuitem'
+import { useConfirm } from 'openvue/useconfirm'
+import type { MenuItem } from 'openvue/menuitem'
 import { formatLocalizedDateTime } from '@/core/dateFormatting'
 import { useTranslation } from '@/core/translation'
 import type { SetupLayoutListItem } from '@/interfaces'

@@ -1,7 +1,7 @@
 import { ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import type { MenuItem } from 'primevue/menuitem'
+import type { MenuItem } from 'openvue/menuitem'
 import type { NavItem, NavLink, NavTarget, NavigationApp } from '@/interfaces'
 import { useTranslation } from '@/core/translation'
 import {

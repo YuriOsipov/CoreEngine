@@ -45,6 +45,7 @@ import {
 } from '@/modules/config/services/listViewSettings'
 
 import { buildDefaultTableSettings } from '@/modules/entities/services/tableSettings'
+import { normalizeBarcodeScanSettings } from '@/core/barcodeScan'
 
 
 
@@ -128,6 +129,7 @@ async function loadCollectionTableMeta(
     | 'actions'
     | 'inlineEditRefresh'
     | 'inlineEditRefreshFields'
+    | 'barcodeScan'
   >
 > {
   const meta = await loadListViewTableMeta(collection, roleId)
@@ -136,6 +138,7 @@ async function loadCollectionTableMeta(
     relatedTransfer: null,
     detailPanel: meta.detailPanel ?? null,
     actions: meta.actions ?? null,
+    barcodeScan: meta.barcodeScan ?? null,
     ...(meta.inlineEditRefresh === 'row' || meta.inlineEditRefresh === 'fields'
       ? { inlineEditRefresh: meta.inlineEditRefresh }
       : {}),
@@ -197,6 +200,7 @@ async function resetTableSettingsForCollection(collection: string): Promise<void
     actions: meta.actions,
     inlineEditRefresh: meta.inlineEditRefresh,
     inlineEditRefreshFields: meta.inlineEditRefreshFields,
+    barcodeScan: meta.barcodeScan,
   }
 }
 
@@ -228,6 +232,7 @@ async function handleViewSelected(view: SavedListView | SavedListFilter | null):
       actions: meta.actions,
       inlineEditRefresh: meta.inlineEditRefresh,
       inlineEditRefreshFields: meta.inlineEditRefreshFields,
+      barcodeScan: meta.barcodeScan,
     }
     return
   }
@@ -282,6 +287,8 @@ async function handleViewSaved(): Promise<void> {
       )
     }
 
+    const barcodeScan = normalizeBarcodeScanSettings(tableSettings.value.barcodeScan)
+
     await saveListViewTableMeta(props.collection, {
 
       // Clear any legacy list-level Batch Insert; keep it on Block layout only.
@@ -295,7 +302,22 @@ async function handleViewSaved(): Promise<void> {
 
       inlineEditRefreshFields: tableSettings.value.inlineEditRefreshFields ?? [],
 
+      barcodeScan,
+
     }, layoutRoleId.value)
+
+    // Barcode scan is collection-wide UX — also keep it on default meta so all roles see it.
+    if (layoutRoleId.value !== null) {
+      const defaultMeta = await loadListViewTableMeta(props.collection, null)
+      await saveListViewTableMeta(
+        props.collection,
+        {
+          ...defaultMeta,
+          barcodeScan,
+        },
+        null,
+      )
+    }
 
     emit('status', t('builder.tableSettingsSaved', 'Table settings saved to Setting.'))
 
@@ -346,6 +368,7 @@ watch(
           actions: meta.actions,
           inlineEditRefresh: meta.inlineEditRefresh,
           inlineEditRefreshFields: meta.inlineEditRefreshFields,
+          barcodeScan: meta.barcodeScan,
         }
 
         if (props.setupMode) {
@@ -395,6 +418,7 @@ watch(
           actions: meta.actions,
           inlineEditRefresh: meta.inlineEditRefresh,
           inlineEditRefreshFields: meta.inlineEditRefreshFields,
+          barcodeScan: meta.barcodeScan,
         }
       } catch (err) {
         if (token !== tableLoadToken) return

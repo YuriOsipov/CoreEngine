@@ -7,7 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
 import RelatedTransferField from '../components/RelatedTransferField.vue'
 import ObjectListDetailPanel from '../components/ObjectListDetailPanel.vue'

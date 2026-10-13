@@ -8,7 +8,7 @@ export default {
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
 import {
   createRegistryEntityViaGraphQL,

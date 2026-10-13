@@ -20,6 +20,7 @@ import {
   mapFieldTypeToComponent,
 } from '../utils/fieldMapper'
 import { translateField } from '@/core/translation'
+import { normalizeBarcodeScanSettings } from '@/core/barcodeScan'
 
 const SETTINGS_GROUP = 'list'
 const SETTINGS_SUB_GROUP = 'related_table'
@@ -171,6 +172,7 @@ export function normalizeTableSettings(
     settings?.inlineEditRefreshFields,
     columns,
   )
+  const barcodeScan = normalizeBarcodeScanSettings(settings?.barcodeScan)
 
   return {
     columns,
@@ -192,6 +194,7 @@ export function normalizeTableSettings(
     ...(inlineEditRefresh === 'fields' && inlineEditRefreshFields.length
       ? { inlineEditRefreshFields }
       : {}),
+    ...(barcodeScan ? { barcodeScan } : {}),
   }
 }
 

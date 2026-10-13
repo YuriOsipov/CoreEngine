@@ -6,7 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
+import { useConfirm } from 'openvue/useconfirm'
 import { useTranslation } from '@/core/translation'
 import { layoutLabelForRole, buildRoleSelectOptions, roleIdToSelectValue, selectValueToRoleId, canDeleteRoleScopedLayout } from '@/core/settingRoleUtils'
 import type { AppRoleOption, RoleScopedLayoutMode, SavedRoleScopedLayout } from '@/interfaces'

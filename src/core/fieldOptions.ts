@@ -1,5 +1,5 @@
 import type { FieldDefinition } from '@/interfaces'
-import type { TreeNode } from 'primevue/treenode'
+import type { TreeNode } from 'openvue/treenode'
 import { humanizeFieldName } from '@/modules/entities/utils/recordDisplay'
 
 export interface FieldOption {

@@ -1,6 +1,6 @@
 # Helix — multi-purpose platform
 
-Vue 3 + Vite + TypeScript + PrimeVue. Schema-driven objects, layouts, documents, projects, and reports via GraphQL BFF + Supabase registry.
+Vue 3 + Vite + TypeScript + OpenVue. Schema-driven objects, layouts, documents, projects, and reports via GraphQL BFF + Supabase registry.
 
 ## Setup
 

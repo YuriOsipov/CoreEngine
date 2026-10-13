@@ -7,6 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
+import CrmBarcodeScanToolbar from '@/core/ui-kit/CrmBarcodeScanToolbar.vue'
 import CrmAutoComplete from '@/core/ui-kit/CrmAutoComplete.vue'
 import RelatedTransferField from '@/modules/entities/components/RelatedTransferField.vue'
 import { useDataTableCompact } from '../composables/useDataTableCompact'
@@ -15,6 +16,7 @@ import {
   fetchCollectionLabel,
   fetchDataTableRuntimeMetadata,
   fetchTranslatedFieldLabel,
+  findParentFkField,
   resolveRelatedCreateTarget,
   type RelatedCreateTarget,
 } from '../services/collectionSchema'
@@ -25,12 +27,20 @@ import type {
   ListViewAction,
   RelatedTransferSettings,
 } from '@/interfaces'
+import {
+  barcodeScanNeedsUpdate,
+  isBarcodeScanEnabled,
+  lookupRecordsByBarcode,
+  normalizeBarcodeScanSettings,
+  updateRecordFromBarcodeScan,
+} from '@/core/barcodeScan'
 import { useTranslation } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
 import { resolveRelatedRowLimit } from '../services/tableSettings'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
+import { useConfirm } from 'openvue/useconfirm'
 
 interface SelectOption {
   label: string
@@ -100,6 +110,17 @@ const listToolbarActions = computed(
 )
 const { t } = useTranslation()
 const toast = useToast()
+const confirm = useConfirm()
+
+const barcodeScanBusy = ref(false)
+const barcodeScanModeOn = ref(false)
+const barcodeListFilter = ref<Record<string, unknown> | null>(null)
+const barcodeToolbarRef = ref<InstanceType<typeof CrmBarcodeScanToolbar> | null>(null)
+const parentFkField = ref<string | null>(null)
+const barcodeScanSettings = computed(() =>
+  normalizeBarcodeScanSettings(props.field.dataTable?.barcodeScan),
+)
+const showBarcodeScan = computed(() => isBarcodeScanEnabled(barcodeScanSettings.value))
 
 const { canRead: canReadRelated, canDelete: canDeleteRelated } =
   useEntityPermissions(() => props.field.relatedCollection)
@@ -145,6 +166,7 @@ const watchKey = computed(() => {
     props.parentId ?? '',
     props.refreshKey ?? '',
     JSON.stringify(props.field.dataTable ?? {}),
+    JSON.stringify(barcodeListFilter.value ?? null),
   ].join('.')
 })
 
@@ -165,8 +187,23 @@ const {
       props.parentId,
       rowLimit.value,
       props.field.dataTable,
+      0,
+      barcodeListFilter.value,
     ),
 })
+
+watch(
+  () =>
+    [props.field.relatedCollection ?? '', props.parentName ?? ''] as const,
+  ([related, parent]) => {
+    parentFkField.value = null
+    if (!related || !parent) return
+    void findParentFkField(related, parent).then((field) => {
+      parentFkField.value = field
+    })
+  },
+  { immediate: true },
+)
 
 const resolvedEmptyMessage = computed(() =>
   props.emptyMessage ?? t('relatedDataTable.noRecords', 'No related records found.'),
@@ -375,6 +412,147 @@ async function runListDocumentAction(action: ListViewAction): Promise<void> {
   }
 }
 
+function clearBarcodeListFilter(): void {
+  barcodeListFilter.value = null
+  barcodeToolbarRef.value?.markFilterActive(false)
+}
+
+watch(barcodeScanModeOn, (on, wasOn) => {
+  if (wasOn && !on) {
+    clearBarcodeListFilter()
+  }
+})
+
+async function handleBarcodeScanSubmit(payload: {
+  code: string
+  value: string
+}): Promise<void> {
+  const settings = barcodeScanSettings.value
+  const collection = props.field.relatedCollection?.trim()
+  if (!settings || !collection || barcodeScanBusy.value) return
+
+  const run = async (): Promise<void> => {
+    barcodeScanBusy.value = true
+    try {
+      const fk = parentFkField.value ?? runtime.value?.parentName ?? null
+      const parentId = runtime.value?.parentId ?? props.parentId
+      const extraFilter =
+        fk && parentId !== undefined && parentId !== null && parentId !== ''
+          ? { [fk]: { _eq: parentId } }
+          : null
+
+      const lookup = await lookupRecordsByBarcode({
+        collection,
+        field: settings.field,
+        code: payload.code,
+        extraFilter,
+        fields: ['id', settings.field],
+        limit: 25,
+      })
+
+      if (lookup.totalCount === 0 || lookup.records.length === 0) {
+        toast.add({
+          severity: 'warn',
+          summary: t('barcodeScan.notFoundTitle', 'Not found'),
+          detail: t(
+            'barcodeScan.notFound',
+            'No record found for “{code}”.',
+            { code: payload.code },
+          ),
+          life: 5000,
+        })
+        return
+      }
+
+      const unique = lookup.totalCount === 1 ? lookup.records[0] : null
+      if (unique && barcodeScanNeedsUpdate(settings, payload.value)) {
+        const id = unique.id
+        if (
+          (typeof id === 'string' || typeof id === 'number') &&
+          id !== ''
+        ) {
+          await updateRecordFromBarcodeScan({
+            collection,
+            id,
+            settings,
+            scanCode: payload.code,
+            updateValue: payload.value,
+            record: unique,
+          })
+          toast.add({
+            severity: 'success',
+            summary: t('common.saved', 'Saved'),
+            detail: t('barcodeScan.updated', 'Record updated.'),
+            life: 3000,
+          })
+        }
+      }
+
+      const mode = settings.matchMode ?? 'open-or-filter'
+      if (unique && (mode === 'open' || mode === 'open-or-filter')) {
+        barcodeScanModeOn.value = false
+        barcodeToolbarRef.value?.exitScanMode()
+        emit('view-record', unique)
+        await refreshRuntime()
+        return
+      }
+
+      if (lookup.totalCount > 1) {
+        toast.add({
+          severity: 'info',
+          summary: t('barcodeScan.multipleTitle', 'Multiple matches'),
+          detail: t(
+            'barcodeScan.multipleFound',
+            'Multiple records match “{code}”. Showing filtered list.',
+            { code: payload.code },
+          ),
+          life: 5000,
+        })
+      }
+
+      if (mode === 'filter' || mode === 'open-or-filter' || lookup.totalCount > 1) {
+        barcodeListFilter.value = lookup.filter
+        barcodeToolbarRef.value?.markFilterActive(true)
+      } else {
+        await refreshRuntime()
+      }
+    } catch (err) {
+      toast.add({
+        severity: 'error',
+        summary: t('common.error', 'Error'),
+        detail:
+          err instanceof Error
+            ? err.message
+            : t('barcodeScan.lookupError', 'Barcode lookup failed.'),
+        life: 6000,
+      })
+    } finally {
+      barcodeScanBusy.value = false
+    }
+  }
+
+  if (
+    settings.confirmUpdate &&
+    barcodeScanNeedsUpdate(settings, payload.value)
+  ) {
+    confirm.require({
+      message: t(
+        'barcodeScan.confirmUpdateMessage',
+        'Update the matching record for “{code}”?',
+        { code: payload.code },
+      ),
+      header: t('barcodeScan.confirmUpdateHeader', 'Confirm barcode update'),
+      icon: 'pi pi-exclamation-triangle',
+      accept: () => {
+        void run()
+      },
+    })
+    return
+  }
+
+  await run()
+}
+
 async function handleLinkSelected(option: SelectOption | null): Promise<void> {
   linkSelection.value = option
   const junction = relatedCreateTarget.value?.junction
@@ -430,7 +608,14 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
           ({{ runtime?.totalCount ?? 0 }})
         </span>
       </span>
-      <div class="flex items-center gap-[0.6rem]">
+      <div class="flex flex-wrap items-center justify-end gap-[0.6rem]">
+        <CrmBarcodeScanToolbar
+          v-if="showBarcodeScan"
+          v-model:scan-mode="barcodeScanModeOn"
+          toggle-only
+          :settings="barcodeScanSettings"
+          :busy="barcodeScanBusy"
+        />
         <slot name="actions" :has-more="hasMore" />
         <Button
           v-for="action in listToolbarActions"
@@ -462,6 +647,22 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
           @click="handleCreateClick"
         />
       </div>
+    </div>
+
+    <div
+      v-if="showBarcodeScan && barcodeScanModeOn"
+      class="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-surface-200"
+    >
+      <CrmBarcodeScanToolbar
+        ref="barcodeToolbarRef"
+        v-model:scan-mode="barcodeScanModeOn"
+        hide-toggle
+        class="w-full"
+        :settings="barcodeScanSettings"
+        :busy="barcodeScanBusy"
+        @submit="handleBarcodeScanSubmit"
+        @clear-filter="clearBarcodeListFilter"
+      />
     </div>
 
     <p

@@ -6,7 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
 import {
   createAppUser,

@@ -15,18 +15,18 @@ import {
   watch,
 } from 'vue'
 import { useRoute } from 'vue-router'
-import Button from 'primevue/button'
-import Dialog from 'primevue/dialog'
-import Menu from 'primevue/menu'
-import Message from 'primevue/message'
-import ProgressSpinner from 'primevue/progressspinner'
-import { useConfirm } from 'primevue/useconfirm'
+import Button from 'openvue/button'
+import Dialog from 'openvue/dialog'
+import Menu from 'openvue/menu'
+import Message from 'openvue/message'
+import ProgressSpinner from 'openvue/progressspinner'
+import { useConfirm } from 'openvue/useconfirm'
 import CrmDataTableGrid from '@/core/ui-kit/CrmDataTableGrid.vue'
 import type { CrmDataTableEditRequest } from '@/core/ui-kit/CrmDataTableGrid.vue'
 import CrmInlineCellEditor from '@/core/ui-kit/CrmInlineCellEditor.vue'
 import FormRenderer from '@/modules/entities/components/FormRenderer.vue'
 import RecordCreateDialog from '@/modules/entities/components/RecordCreateDialog.vue'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import { bridgeUpdateItem } from '@/core/graphql/itemsBridge'
 import {
   buildInlinePatchedFieldValue,
@@ -283,8 +283,9 @@ const tableSelection = computed({
 })
 const isSelectionEnabled = computed(() => props.selectionMode === 'single')
 
-function handleRowSelect(event: { data: Record<string, unknown> }): void {
-  emit('row-select', event.data)
+function handleRowSelect(event: unknown): void {
+  const data = (event as { data?: Record<string, unknown> } | null)?.data
+  if (data) emit('row-select', data)
 }
 
 function handleRowUnselect(): void {
@@ -1086,7 +1087,11 @@ function handleOpenActionMenu(payload: {
   event: Event
   row: Record<string, unknown>
 }): void {
-  openActionMenu(payload.event, payload.row)
+  const mouseEvent =
+    payload.event instanceof MouseEvent
+      ? payload.event
+      : new MouseEvent('click')
+  openActionMenu(mouseEvent, payload.row)
 }
 
 async function commitCurrentInlineEdit(): Promise<void> {
@@ -1321,31 +1326,38 @@ function applyColumnOrder(ordered: CrmDataTableColumn[]): void {
   localColumns.value = dataColumns
 }
 
-function handleColumnReorder(event: { dragIndex?: number; dropIndex?: number }): void {
-  if (event.dragIndex === undefined || event.dropIndex === undefined) return
-  if (event.dragIndex === event.dropIndex) return
+function handleColumnReorder(event: unknown): void {
+  const { dragIndex, dropIndex } = (event ?? {}) as {
+    dragIndex?: number
+    dropIndex?: number
+  }
+  if (dragIndex === undefined || dropIndex === undefined) return
+  if (dragIndex === dropIndex) return
 
   const reorderableCount = displayedColumns.value.length
-  if (event.dragIndex >= reorderableCount || event.dropIndex >= reorderableCount) return
-  if (displayedColumns.value[event.dragIndex]?.autoRecordId) return
+  if (dragIndex >= reorderableCount || dropIndex >= reorderableCount) return
+  if (displayedColumns.value[dragIndex]?.autoRecordId) return
 
   const ordered = [...displayedColumns.value]
-  const [moved] = ordered.splice(event.dragIndex, 1)
+  const [moved] = ordered.splice(dragIndex, 1)
   if (!moved) return
-  ordered.splice(event.dropIndex, 0, moved)
+  ordered.splice(dropIndex, 0, moved)
 
   applyColumnOrder(ordered)
   columnLayoutKey.value += 1
 }
 
-function handleSort(event: {
-  sortField?: string | ((item: unknown) => string)
-  sortOrder?: number | null
-}): void {
+function handleSort(event: unknown): void {
+  const payload = (event ?? {}) as {
+    sortField?: string | ((item: unknown) => string)
+    sortOrder?: number | null
+  }
   sortField.value =
-    typeof event.sortField === 'string' ? event.sortField : null
+    typeof payload.sortField === 'string' ? payload.sortField : null
   sortOrder.value =
-    event.sortOrder === 1 || event.sortOrder === -1 ? event.sortOrder : null
+    payload.sortOrder === 1 || payload.sortOrder === -1
+      ? payload.sortOrder
+      : null
 
   if (props.lazy) {
     emit('sort-change', {
@@ -1667,10 +1679,17 @@ async function archiveRecordConfirmed(
     )
     emit('record-deleted', row)
   } catch (err) {
-    actionError.value =
+    const detail =
       err instanceof Error
         ? err.message
         : t('datatable.deleteError', 'Failed to delete record.')
+    actionError.value = detail
+    toast.add({
+      severity: 'error',
+      summary: t('datatable.deleteError', 'Failed to delete record.'),
+      detail,
+      life: 6000,
+    })
   }
 }
 

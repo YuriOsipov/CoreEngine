@@ -31,6 +31,10 @@ export function isJsonCodeField(field: LayoutFieldMetadata): boolean {
   return field.component === 'JsonCode'
 }
 
+export function isSensitivityMatrixField(field: LayoutFieldMetadata): boolean {
+  return field.component === 'SensitivityMatrix'
+}
+
 export function isM2ABuilderField(field: LayoutFieldMetadata): boolean {
   return field.component === 'M2ABuilder'
 }
@@ -109,7 +113,8 @@ export function isFullWidthLayoutField(field: LayoutFieldMetadata): boolean {
     isHtmlEditorField(field) ||
     isRepeaterField(field) ||
     isJsonListField(field) ||
-    isJsonCodeField(field)
+    isJsonCodeField(field) ||
+    isSensitivityMatrixField(field)
   )
 }
 
@@ -135,6 +140,7 @@ export function isRelationPickerField(field: LayoutFieldMetadata): boolean {
       !isAddressField(field) &&
       !isJsonListField(field) &&
       !isJsonCodeField(field) &&
+      !isSensitivityMatrixField(field) &&
       !isActivityLogField(field) &&
       !isDocEngineField(field),
   )

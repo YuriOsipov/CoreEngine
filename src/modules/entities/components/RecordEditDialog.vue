@@ -6,7 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
+import { useConfirm } from 'openvue/useconfirm'
 import FormRenderer from './FormRenderer.vue'
 import type { EntityLayoutSchema } from '@/interfaces'
 import {

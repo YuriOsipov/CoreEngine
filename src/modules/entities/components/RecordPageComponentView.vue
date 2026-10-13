@@ -6,7 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { MenuItem } from 'primevue/menuitem'
+import type { MenuItem } from 'openvue/menuitem'
 import FormRendererLight from '@/modules/entities/components/FormRendererLight.vue'
 import CompactRecordTooltip from '@/modules/entities/components/CompactRecordTooltip.vue'
 import RelatedListFieldHost from '@/modules/entities/components/RelatedListFieldHost.vue'

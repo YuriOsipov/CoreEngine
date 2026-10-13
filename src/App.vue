@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onErrorCaptured, onMounted, onUnmounted, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import type { MenuItem } from 'primevue/menuitem'
-import ConfirmDialog from 'primevue/confirmdialog'
-import Toast from 'primevue/toast'
-import Message from 'primevue/message'
-import { useToast } from 'primevue/usetoast'
+import type { MenuItem } from 'openvue/menuitem'
+import ConfirmDialog from 'openvue/confirmdialog'
+import Toast from 'openvue/toast'
+import Message from 'openvue/message'
+import { useToast } from 'openvue/usetoast'
 import AppSidebar from '@/core/ui-kit/AppSidebar.vue'
 import {
   getRolePreviewDisplayLabel,

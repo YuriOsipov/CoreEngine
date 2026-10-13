@@ -5,7 +5,7 @@ export default { name: 'ProjectWorkspacePage' }
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
 import type {
   PmProjectRecord,

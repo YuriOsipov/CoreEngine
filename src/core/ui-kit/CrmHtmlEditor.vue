@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Editor from 'primevue/editor'
+import Editor from 'openvue/editor'
 
 withDefaults(
   defineProps<{

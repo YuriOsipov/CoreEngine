@@ -7,7 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { VueDraggableNext } from 'vue-draggable-next'
-import { useConfirm } from 'primevue/useconfirm'
+import { useConfirm } from 'openvue/useconfirm'
 import {
   listFilterableFields,
   ALL_RECORDS_FILTER_ID,

@@ -144,6 +144,7 @@ function emptyListViewTableMeta(): ListViewTableMeta {
     detailPanel: null,
     inlineEditRefresh: 'off',
     inlineEditRefreshFields: [],
+    barcodeScan: null,
     predefinedViews: {},
   }
 }
@@ -187,6 +188,8 @@ function mergeListViewTableMeta(
     inlineEditRefresh: override.inlineEditRefresh ?? base.inlineEditRefresh ?? 'off',
     inlineEditRefreshFields:
       override.inlineEditRefreshFields ?? base.inlineEditRefreshFields ?? [],
+    // Same as relatedTransfer: null/omitted on a role record must not wipe default meta.
+    barcodeScan: override.barcodeScan ?? base.barcodeScan ?? null,
     predefinedViews: normalizePredefinedViews(
       mergeRawPredefinedViews(
         base.predefinedViews ?? {},
@@ -249,6 +252,10 @@ export async function saveListViewTableMeta(
       meta.inlineEditRefreshFields !== undefined
         ? (meta.inlineEditRefreshFields ?? [])
         : (current.inlineEditRefreshFields ?? []),
+    barcodeScan:
+      meta.barcodeScan !== undefined
+        ? (meta.barcodeScan ?? null)
+        : (current.barcodeScan ?? null),
     predefinedViews: meta.predefinedViews ?? current.predefinedViews ?? {},
   }
 
@@ -304,6 +311,7 @@ function applyListViewMetaToTableSettings(
     relatedTransfer: meta?.relatedTransfer ?? null,
     actions: meta?.actions ?? null,
     detailPanel: meta?.detailPanel ?? null,
+    barcodeScan: meta?.barcodeScan ?? null,
     ...(refresh ? { inlineEditRefresh: refresh } : {}),
     ...(refreshFields?.length ? { inlineEditRefreshFields: refreshFields } : {}),
   }
@@ -578,6 +586,7 @@ function parseListViewTableMeta(body: unknown): ListViewTableMeta {
     detailPanel: parsed.detailPanel ?? null,
     inlineEditRefresh: parsed.inlineEditRefresh,
     inlineEditRefreshFields: parsed.inlineEditRefreshFields,
+    barcodeScan: parsed.barcodeScan ?? null,
   })
   return {
     relatedTransfer: parsed.relatedTransfer ?? null,
@@ -585,6 +594,7 @@ function parseListViewTableMeta(body: unknown): ListViewTableMeta {
     detailPanel: normalizedExtras.detailPanel,
     inlineEditRefresh: normalizedExtras.inlineEditRefresh ?? 'off',
     inlineEditRefreshFields: normalizedExtras.inlineEditRefreshFields ?? [],
+    barcodeScan: normalizedExtras.barcodeScan ?? null,
     predefinedViews: normalizePredefinedViews(parsed.predefinedViews),
   }
 }

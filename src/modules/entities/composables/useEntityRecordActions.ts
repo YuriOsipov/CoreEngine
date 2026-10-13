@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useConfirm } from 'primevue/useconfirm'
+import { useConfirm } from 'openvue/useconfirm'
 import type { EntityAction } from '@/interfaces'
 import { triggerFlowAction } from '@/modules/entities/services/recordDetails'
 import { applyCloneRelatedAction } from '@/modules/entities/services/cloneRelatedFromSource'

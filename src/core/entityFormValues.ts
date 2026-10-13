@@ -22,6 +22,10 @@ import {
   normalizeJsonListValue,
 } from '@/core/jsonField'
 import {
+  isSensitivityMatrixFieldDefinition,
+  normalizeSensitivityValue,
+} from '@/core/sensitivityField'
+import {
   isRepeaterFieldDefinition,
 } from '@/core/repeaterField'
 import { serializeDateFieldValue } from '@/core/dateFormatting'
@@ -53,6 +57,10 @@ export async function normalizeEntityFormFieldValue(
 
   if (definition && isAddressFieldDefinition(definition)) {
     return normalizeAddressValue(value)
+  }
+
+  if (definition && isSensitivityMatrixFieldDefinition(definition)) {
+    return normalizeSensitivityValue(value)
   }
 
   if (definition && isJsonListFieldDefinition(definition)) {

@@ -8,9 +8,19 @@ export default {
 import { computed, nextTick, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
+import CrmBarcodeScanToolbar from '@/core/ui-kit/CrmBarcodeScanToolbar.vue'
 import CrmScheduler from '@/core/ui-kit/CrmScheduler.vue'
 import CrmTreeTable from '@/core/ui-kit/CrmTreeTable.vue'
 import ScheduleSlotGenerator from '@/core/ui-kit/ScheduleSlotGenerator.vue'
+import {
+  barcodeScanNeedsUpdate,
+  isBarcodeScanEnabled,
+  lookupRecordsByBarcode,
+  mergeRawListFilters,
+  normalizeBarcodeScanSettings,
+  updateRecordFromBarcodeScan,
+} from '@/core/barcodeScan'
+import { useConfirm } from 'openvue/useconfirm'
 import { SCHEDULE_TEMPLATE_COLLECTION } from '@/core/scheduleGeneration'
 import DataTableFilter from '@/core/ui-kit/DataTableFilter.vue'
 import ListFilterValuePanel from '@/core/ui-kit/ListFilterValuePanel.vue'
@@ -87,7 +97,7 @@ import { useEntityPermissions } from '@/core/entityPermissions'
 import { recordDetailRoute } from '@/core/compactRecordRoutes'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 
 type ListLayout = 'table' | 'tree' | 'scheduler'
 
@@ -95,7 +105,17 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useTranslation()
 const toast = useToast()
+const confirm = useConfirm()
 const collectionName = computed(() => String(route.params.collection ?? ''))
+const barcodeScanBusy = ref(false)
+const barcodeScanModeOn = ref(false)
+const barcodeListFilter = ref<Record<string, unknown> | null>(null)
+const barcodeToolbarRef = ref<InstanceType<typeof CrmBarcodeScanToolbar> | null>(null)
+const barcodeToolbarRefDetail = ref<InstanceType<typeof CrmBarcodeScanToolbar> | null>(null)
+const barcodeScanSettings = computed(() =>
+  normalizeBarcodeScanSettings(tableSettings.value?.barcodeScan),
+)
+const showBarcodeScan = computed(() => isBarcodeScanEnabled(barcodeScanSettings.value))
 const {
   ready: permissionsReady,
   canRead: canReadCollection,
@@ -729,7 +749,7 @@ async function fetchListRecords(
   if (!isRecentlyViewedFilter.value) {
     return fetchObjectRecords(
       collection,
-      activeListFilter.value,
+      mergeRawListFilters(activeListFilter.value, barcodeListFilter.value),
       settings,
       {
         ...options,
@@ -820,6 +840,148 @@ function openRecord(row: Record<string, unknown>): void {
   void router.push(recordDetailRoute(objectList.value.collection, String(id)))
 }
 
+function exitBarcodeScanMode(): void {
+  barcodeScanModeOn.value = false
+  barcodeToolbarRef.value?.exitScanMode()
+  barcodeToolbarRefDetail.value?.exitScanMode()
+}
+
+function clearBarcodeListFilter(): void {
+  const hadFilter = barcodeListFilter.value !== null
+  barcodeListFilter.value = null
+  barcodeToolbarRef.value?.markFilterActive(false)
+  barcodeToolbarRefDetail.value?.markFilterActive(false)
+  if (hadFilter) {
+    void loadRecords(collectionName.value, { inPlace: true })
+  }
+}
+
+watch(barcodeScanModeOn, (on, wasOn) => {
+  if (wasOn && !on) {
+    clearBarcodeListFilter()
+  }
+})
+
+async function handleBarcodeScanSubmit(payload: {
+  code: string
+  value: string
+}): Promise<void> {
+  const settings = barcodeScanSettings.value
+  const collection = collectionName.value
+  if (!settings || !collection || barcodeScanBusy.value) return
+
+  const run = async (): Promise<void> => {
+    barcodeScanBusy.value = true
+    try {
+      const lookup = await lookupRecordsByBarcode({
+        collection,
+        field: settings.field,
+        code: payload.code,
+        fields: ['id', settings.field],
+        limit: 25,
+      })
+
+      if (lookup.totalCount === 0 || lookup.records.length === 0) {
+        toast.add({
+          severity: 'warn',
+          summary: t('barcodeScan.notFoundTitle', 'Not found'),
+          detail: t(
+            'barcodeScan.notFound',
+            'No record found for “{code}”.',
+            { code: payload.code },
+          ),
+          life: 5000,
+        })
+        return
+      }
+
+      const unique = lookup.totalCount === 1 ? lookup.records[0] : null
+      if (unique && barcodeScanNeedsUpdate(settings, payload.value)) {
+        const id = unique.id
+        if (
+          (typeof id === 'string' || typeof id === 'number') &&
+          id !== ''
+        ) {
+          await updateRecordFromBarcodeScan({
+            collection,
+            id,
+            settings,
+            scanCode: payload.code,
+            updateValue: payload.value,
+            record: unique,
+          })
+          toast.add({
+            severity: 'success',
+            summary: t('common.saved', 'Saved'),
+            detail: t('barcodeScan.updated', 'Record updated.'),
+            life: 3000,
+          })
+        }
+      }
+
+      const mode = settings.matchMode ?? 'open-or-filter'
+      if (unique && (mode === 'open' || mode === 'open-or-filter')) {
+        exitBarcodeScanMode()
+        openRecord(unique)
+        return
+      }
+
+      if (lookup.totalCount > 1) {
+        toast.add({
+          severity: 'info',
+          summary: t('barcodeScan.multipleTitle', 'Multiple matches'),
+          detail: t(
+            'barcodeScan.multipleFound',
+            'Multiple records match “{code}”. Showing filtered list.',
+            { code: payload.code },
+          ),
+          life: 5000,
+        })
+      }
+
+      if (mode === 'filter' || mode === 'open-or-filter' || lookup.totalCount > 1) {
+        barcodeListFilter.value = lookup.filter
+        barcodeToolbarRef.value?.markFilterActive(true)
+        barcodeToolbarRefDetail.value?.markFilterActive(true)
+        await loadRecords(collection, { inPlace: true })
+      }
+    } catch (err) {
+      toast.add({
+        severity: 'error',
+        summary: t('common.error', 'Error'),
+        detail:
+          err instanceof Error
+            ? err.message
+            : t('barcodeScan.lookupError', 'Barcode lookup failed.'),
+        life: 6000,
+      })
+    } finally {
+      barcodeScanBusy.value = false
+    }
+  }
+
+  if (
+    settings.confirmUpdate &&
+    barcodeScanNeedsUpdate(settings, payload.value)
+  ) {
+    confirm.require({
+      message: t(
+        'barcodeScan.confirmUpdateMessage',
+        'Update the matching record for “{code}”?',
+        { code: payload.code },
+      ),
+      header: t('barcodeScan.confirmUpdateHeader', 'Confirm barcode update'),
+      icon: 'pi pi-exclamation-triangle',
+      accept: () => {
+        void run()
+      },
+    })
+    return
+  }
+
+  await run()
+}
+
 function openTreeRecord(row: Record<string, unknown>): void {
   const settings = treeSettings.value
   if (!settings) return
@@ -837,6 +999,9 @@ function openTreeRecord(row: Record<string, unknown>): void {
 
 function handleViewSelected(view: SavedListView | SavedListFilter | null): void {
   selectedListFilter.value = view
+  barcodeListFilter.value = null
+  barcodeToolbarRef.value?.markFilterActive(false)
+  barcodeToolbarRefDetail.value?.markFilterActive(false)
   if (!collectionName.value) return
 
   void (async () => {
@@ -1066,6 +1231,7 @@ async function loadDefaultTableSettingsWithMeta(
     relatedTransfer: resolvedMeta.relatedTransfer ?? null,
     detailPanel: resolvedMeta.detailPanel ?? null,
     actions: resolvedMeta.actions ?? null,
+    barcodeScan: resolvedMeta.barcodeScan ?? null,
     ...(resolvedMeta.inlineEditRefresh === 'row' ||
     resolvedMeta.inlineEditRefresh === 'fields'
       ? { inlineEditRefresh: resolvedMeta.inlineEditRefresh }
@@ -1257,9 +1423,27 @@ function syncListLayoutWithAvailableSettings(): void {
                       :conditions="visibleFilterConditions"
                       @values-change="scheduleDraftFilterReload"
                     />
+                    <CrmBarcodeScanToolbar
+                      v-if="showBarcodeScan"
+                      ref="barcodeToolbarRefDetail"
+                      v-model:scan-mode="barcodeScanModeOn"
+                      hide-toggle
+                      class="w-full basis-full"
+                      :settings="barcodeScanSettings"
+                      :busy="barcodeScanBusy"
+                      @submit="handleBarcodeScanSubmit"
+                      @clear-filter="clearBarcodeListFilter"
+                    />
                   </div>
                 </template>
                 <template #toolbar-actions>
+                  <CrmBarcodeScanToolbar
+                    v-if="showBarcodeScan"
+                    v-model:scan-mode="barcodeScanModeOn"
+                    toggle-only
+                    :settings="barcodeScanSettings"
+                    :busy="barcodeScanBusy"
+                  />
                   <Button
                     v-for="action in listToolbarActions"
                     :key="action.id"
@@ -1370,9 +1554,27 @@ function syncListLayoutWithAvailableSettings(): void {
                 :conditions="visibleFilterConditions"
                 @values-change="scheduleDraftFilterReload"
               />
+              <CrmBarcodeScanToolbar
+                v-if="showBarcodeScan"
+                ref="barcodeToolbarRef"
+                v-model:scan-mode="barcodeScanModeOn"
+                hide-toggle
+                class="w-full basis-full"
+                :settings="barcodeScanSettings"
+                :busy="barcodeScanBusy"
+                @submit="handleBarcodeScanSubmit"
+                @clear-filter="clearBarcodeListFilter"
+              />
             </div>
           </template>
           <template #toolbar-actions>
+            <CrmBarcodeScanToolbar
+              v-if="showBarcodeScan"
+              v-model:scan-mode="barcodeScanModeOn"
+              toggle-only
+              :settings="barcodeScanSettings"
+              :busy="barcodeScanBusy"
+            />
             <Button
               v-for="action in listToolbarActions"
               :key="action.id"

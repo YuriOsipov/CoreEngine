@@ -49,6 +49,8 @@ export function defaultValueForField(field: LayoutFieldMetadata): unknown {
       }
     case 'JsonList':
       return []
+    case 'SensitivityMatrix':
+      return { results: [], notes: [] }
     case 'JsonCode':
       return null
     case 'BlockLayout':

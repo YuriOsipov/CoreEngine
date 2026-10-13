@@ -15,6 +15,10 @@ import {
 } from '@/core/graphql/fieldsApi'
 import { normalizeFieldInterface } from '@/core/graphql/schemaMapper'
 import { parseDynamicPicklistSource } from '@/core/dynamicPicklist'
+import {
+  defaultSensitivitySource,
+  parseSensitivitySource,
+} from '@/core/sensitivityField'
 import { getCachedRelations } from '@/modules/entities/services/collectionSchema'
 import {
   keysEqual,
@@ -97,6 +101,11 @@ const form = reactive({
   dynamicRelationField: '',
   dynamicJsonField: '',
   dynamicValueColumn: '',
+  sensitivityRelationField: '',
+  sensitivityPatogenField: 'patogen',
+  sensitivityPharmacyField: 'pharmacy',
+  sensitivityResistanceField: 'resistance',
+  sensitivityValueColumn: 'name',
   formulaTemplate: '',
   rollupChildEntity: null as string | null,
   rollupParentField: null as string | null,
@@ -182,6 +191,11 @@ const isJsonType = computed(() => form.type === 'JSON')
 const isJsonList = computed(
   () => isJsonType.value && normalizeFieldInterface(form.interface) === 'json-list',
 )
+const isJsonSensitivity = computed(
+  () =>
+    isJsonType.value &&
+    normalizeFieldInterface(form.interface) === 'json-sensitivity',
+)
 const isComputed = computed(
   () => isFormulaType.value || isRollupType.value || isAutoNumberType.value,
 )
@@ -232,11 +246,17 @@ const relationKindOptions = computed(() => [
 
 const onDeleteOptions = computed(() => [
   {
-    label: t('setup.fields.onDeleteRestrict', 'Restrict (block delete)'),
+    label: t(
+      'setup.fields.onDeleteRestrict',
+      'Restrict (block archive / delete)',
+    ),
     value: 'RESTRICT',
   },
   {
-    label: t('setup.fields.onDeleteCascade', 'Cascade (delete children)'),
+    label: t(
+      'setup.fields.onDeleteCascade',
+      'Cascade (archive & restore children)',
+    ),
     value: 'CASCADE',
   },
   {
@@ -440,6 +460,10 @@ const interfaceOptions = computed(() => {
           value: 'json-list',
         },
         {
+          label: t('setup.fields.ifaceJsonSensitivity', 'Sensitivity matrix'),
+          value: 'json-sensitivity',
+        },
+        {
           label: t('setup.fields.ifaceJsonCode', 'JSON (raw)'),
           value: 'input-code',
         },
@@ -497,6 +521,19 @@ const dynamicRelationOptions = ref<DynamicRelationOption[]>([])
 const dynamicJsonFieldOptions = ref<DynamicJsonFieldOption[]>([])
 const dynamicValueColumnOptions = ref<Array<{ label: string; value: string }>>([])
 const dynamicPicklistLoading = ref(false)
+
+const sensitivityRelationOptions = ref<DynamicRelationOption[]>([])
+const sensitivityListFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const sensitivityCatalogLoading = ref(false)
+
+const sensitivitySourceReady = computed(
+  () =>
+    Boolean(form.sensitivityRelationField.trim()) &&
+    Boolean(form.sensitivityPatogenField.trim()) &&
+    Boolean(form.sensitivityPharmacyField.trim()) &&
+    Boolean(form.sensitivityResistanceField.trim()) &&
+    Boolean(form.sensitivityValueColumn.trim()),
+)
 
 const picklistModeOptions = computed(() => [
   { label: t('setup.fields.picklistSourceStatic', 'Static list'), value: 'static' },
@@ -621,6 +658,93 @@ async function loadDynamicPicklistCatalog(): Promise<void> {
   } finally {
     dynamicPicklistLoading.value = false
   }
+}
+
+async function loadSensitivityRelationOptions(): Promise<void> {
+  const collection = props.collection?.trim()
+  if (!collection) {
+    sensitivityRelationOptions.value = []
+    return
+  }
+  const { fields, relations } = await fetchEntityFieldsAndRelations(collection)
+  const options = relations
+    .filter((relation) => relation.kind === 'M2O' && relation.relatedEntityApiName && relation.fieldApiName)
+    .map((relation) => {
+      const field = fields.find((item) => item.apiName === relation.fieldApiName)
+      return {
+        label: field ? `${field.label} (${relation.fieldApiName})` : relation.fieldApiName,
+        value: relation.fieldApiName,
+        relatedCollection: relation.relatedEntityApiName ?? '',
+      }
+    })
+    .sort((a, b) => a.label.localeCompare(b.label))
+  if (
+    form.sensitivityRelationField &&
+    !options.some((option) => option.value === form.sensitivityRelationField)
+  ) {
+    options.unshift({
+      label: form.sensitivityRelationField,
+      value: form.sensitivityRelationField,
+      relatedCollection: '',
+    })
+  }
+  sensitivityRelationOptions.value = options
+}
+
+async function loadSensitivityListFields(): Promise<void> {
+  const related = sensitivityRelationOptions.value.find(
+    (option) => option.value === form.sensitivityRelationField,
+  )?.relatedCollection
+  const selected = [
+    form.sensitivityPatogenField,
+    form.sensitivityPharmacyField,
+    form.sensitivityResistanceField,
+  ].filter(Boolean)
+
+  if (!related) {
+    sensitivityListFieldOptions.value = selected.map((name) => ({
+      label: name,
+      value: name,
+    }))
+    return
+  }
+
+  const { fields } = await fetchEntityFieldsAndRelations(related)
+  const options = fields
+    .filter((field) => {
+      const iface = normalizeFieldInterface(field.interface || '')
+      return iface === 'json-list' || String(field.type || '').toUpperCase() === 'JSON'
+    })
+    .map((field) => ({
+      label: `${field.label} (${field.apiName})`,
+      value: field.apiName,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+
+  for (const name of selected) {
+    if (name && !options.some((option) => option.value === name)) {
+      options.unshift({ label: name, value: name })
+    }
+  }
+  sensitivityListFieldOptions.value = options
+}
+
+async function loadSensitivityCatalog(): Promise<void> {
+  sensitivityCatalogLoading.value = true
+  try {
+    await loadSensitivityRelationOptions()
+    await loadSensitivityListFields()
+  } catch {
+    sensitivityRelationOptions.value = []
+    sensitivityListFieldOptions.value = []
+  } finally {
+    sensitivityCatalogLoading.value = false
+  }
+}
+
+async function onSensitivityRelationField(value: string | null): Promise<void> {
+  form.sensitivityRelationField = value ?? ''
+  await loadSensitivityListFields()
 }
 
 function setPicklistMode(mode: 'static' | 'dynamic' | null): void {
@@ -1115,6 +1239,13 @@ function resetFromProps(): void {
     form.dynamicRelationField = choiceSource?.relationField ?? ''
     form.dynamicJsonField = choiceSource?.jsonField ?? ''
     form.dynamicValueColumn = choiceSource?.valueColumn ?? ''
+    const sensitivitySource =
+      parseSensitivitySource(options.sensitivitySource) ?? defaultSensitivitySource()
+    form.sensitivityRelationField = sensitivitySource.relationField
+    form.sensitivityPatogenField = sensitivitySource.patogenField
+    form.sensitivityPharmacyField = sensitivitySource.pharmacyField
+    form.sensitivityResistanceField = sensitivitySource.resistanceField
+    form.sensitivityValueColumn = sensitivitySource.valueColumn
     form.formulaTemplate = readFormulaTemplate(options)
     const rollup = readRollup(options, props.field.type)
     form.rollupChildEntity = rollup.childEntity
@@ -1190,6 +1321,12 @@ function resetFromProps(): void {
       dynamicJsonFieldOptions.value = []
       dynamicValueColumnOptions.value = []
     }
+    if (normalizeFieldInterface(form.interface) === 'json-sensitivity') {
+      void loadSensitivityCatalog()
+    } else {
+      sensitivityRelationOptions.value = []
+      sensitivityListFieldOptions.value = []
+    }
     void loadRelatedChildEntities()
     void loadChildFields(form.rollupChildEntity)
     void resetChildLookupFromStored()
@@ -1221,6 +1358,13 @@ function resetFromProps(): void {
   dynamicRelationOptions.value = []
   dynamicJsonFieldOptions.value = []
   dynamicValueColumnOptions.value = []
+  form.sensitivityRelationField = ''
+  form.sensitivityPatogenField = 'patogen'
+  form.sensitivityPharmacyField = 'pharmacy'
+  form.sensitivityResistanceField = 'resistance'
+  form.sensitivityValueColumn = 'name'
+  sensitivityRelationOptions.value = []
+  sensitivityListFieldOptions.value = []
   form.dateFormat = 'short'
   form.dateFormatCustom = ''
   form.currencySuffix = ''
@@ -1320,6 +1464,16 @@ function buildOptionsAndDisplay(): {
         type: col.type,
       }))
       .filter((col) => Boolean(col.name))
+  }
+
+  if (isJsonSensitivity.value && sensitivitySourceReady.value) {
+    options.sensitivitySource = {
+      relationField: form.sensitivityRelationField.trim(),
+      patogenField: form.sensitivityPatogenField.trim() || 'patogen',
+      pharmacyField: form.sensitivityPharmacyField.trim() || 'pharmacy',
+      resistanceField: form.sensitivityResistanceField.trim() || 'resistance',
+      valueColumn: form.sensitivityValueColumn.trim() || 'name',
+    }
   }
 
   if (isCurrency.value) {
@@ -1501,6 +1655,13 @@ watch(
     if (iface === 'json-list' && form.jsonColumns.length === 0) {
       form.jsonColumns = [{ name: '', type: 'string' }]
     }
+    if (iface === 'json-sensitivity') {
+      if (!form.sensitivityPatogenField.trim()) form.sensitivityPatogenField = 'patogen'
+      if (!form.sensitivityPharmacyField.trim()) form.sensitivityPharmacyField = 'pharmacy'
+      if (!form.sensitivityResistanceField.trim()) form.sensitivityResistanceField = 'resistance'
+      if (!form.sensitivityValueColumn.trim()) form.sensitivityValueColumn = 'name'
+      void loadSensitivityCatalog()
+    }
   },
 )
 
@@ -1518,6 +1679,9 @@ function submit(): void {
     isJsonList.value &&
     !form.jsonColumns.some((col) => col.name.trim())
   ) {
+    return
+  }
+  if (isJsonSensitivity.value && !sensitivitySourceReady.value) {
     return
   }
   if (isPicklist.value && form.picklistMode === 'dynamic' && !dynamicPicklistReady.value) {
@@ -1711,7 +1875,7 @@ function submit(): void {
           {{
             t(
               'setup.fields.onDeleteHint',
-              'What happens to this record when the related record is deleted.',
+              'What happens to this record when the related record is archived, restored, or deleted.',
             )
           }}
         </small>
@@ -1959,6 +2123,84 @@ function submit(): void {
           />
         </div>
       </template>
+
+      <div
+        v-if="isJsonSensitivity"
+        class="setup-field-sensitivity flex flex-col gap-2"
+      >
+        <small class="text-muted-color">
+          {{
+            t(
+              'setup.fields.sensitivityHint',
+              'Each list comes from a separate JSON List field on the related record (e.g. patogen, pharmacy, resistance).',
+            )
+          }}
+        </small>
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.fields.sensitivityRelationField', 'Related record') }}</label>
+          <Select
+            :model-value="form.sensitivityRelationField"
+            :options="sensitivityRelationOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+            filter
+            :loading="sensitivityCatalogLoading"
+            :placeholder="t('setup.fields.selectField', 'Select field')"
+            @update:model-value="onSensitivityRelationField"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.fields.sensitivityPatogenField', 'Pathogen list field') }}</label>
+          <Select
+            v-model="form.sensitivityPatogenField"
+            :options="sensitivityListFieldOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+            filter
+            :loading="sensitivityCatalogLoading"
+            :disabled="!form.sensitivityRelationField"
+            :placeholder="t('setup.fields.selectField', 'Select field')"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.fields.sensitivityPharmacyField', 'Pharmacy list field') }}</label>
+          <Select
+            v-model="form.sensitivityPharmacyField"
+            :options="sensitivityListFieldOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+            filter
+            :loading="sensitivityCatalogLoading"
+            :disabled="!form.sensitivityRelationField"
+            :placeholder="t('setup.fields.selectField', 'Select field')"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.fields.sensitivityResistanceField', 'Resistance list field') }}</label>
+          <Select
+            v-model="form.sensitivityResistanceField"
+            :options="sensitivityListFieldOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+            filter
+            :loading="sensitivityCatalogLoading"
+            :disabled="!form.sensitivityRelationField"
+            :placeholder="t('setup.fields.selectField', 'Select field')"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label>{{ t('setup.fields.sensitivityValueColumn', 'Value column') }}</label>
+          <InputText
+            v-model="form.sensitivityValueColumn"
+            class="w-full"
+            autocomplete="off"
+          />
+        </div>
+      </div>
 
       <div
         v-if="isJsonList"
@@ -2344,7 +2586,8 @@ function submit(): void {
               form.picklistMode !== 'dynamic' &&
               !form.choices.some((c) => c.text.trim() || c.value.trim())) ||
             (isPicklist && form.picklistMode === 'dynamic' && !dynamicPicklistReady) ||
-            (isJsonList && !form.jsonColumns.some((c) => c.name.trim()))
+            (isJsonList && !form.jsonColumns.some((c) => c.name.trim())) ||
+            (isJsonSensitivity && !sensitivitySourceReady)
         "
         @click="submit"
       />

@@ -13,8 +13,8 @@ You are assigned exclusively to the **Reports** module workspace.
 - **CRITICAL:** Do not read, write, or modify code inside `entities`, `dashboard`, or `config` modules.
 
 ## Technical Specifications
-- Use PrimeVue filtering utilities (`FilterMatchMode`) inside reporting grids.
-- For date selections, always use PrimeVue `DatePicker` (or `Calendar` depending on version) with `selectionMode="range"`.
+- Use OpenVue filtering utilities (`FilterMatchMode`) inside reporting grids.
+- For date selections, always use OpenVue `DatePicker` (or `Calendar` depending on version) with `selectionMode="range"`.
 - Use the `reportVTableAdapter.ts` utility for mapping BFF/GraphQL aggregate rows to UI-compatible tables.
 
 ## Development & Testing

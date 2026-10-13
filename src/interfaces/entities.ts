@@ -118,6 +118,7 @@ export type PrimeVueComponentType =
   | 'Address'
   | 'JsonList'
   | 'JsonCode'
+  | 'SensitivityMatrix'
   | 'BlockLayout'
 
 export type ActivityLogAction = 'create' | 'update' | 'delete'
@@ -227,6 +228,33 @@ export interface ListViewAction {
   recordScope?: ListViewActionRecordScope
 }
 
+/** What to do after a barcode scan finds record(s). */
+export type BarcodeScanMatchMode = 'open' | 'filter' | 'open-or-filter'
+
+/** Per-list barcode / HID wedge scan configuration. */
+export interface BarcodeScanSettings {
+  /** Show Scan input + Scan mode toggle. Omitted / false = off. */
+  enabled: boolean
+  /** Field matched with `_eq` (e.g. `id`, `barcode`). */
+  field: string
+  /** Default: `open-or-filter` (open when unique, filter when many). */
+  matchMode?: BarcodeScanMatchMode
+  /** Start with document key capture on. */
+  defaultScanModeOn?: boolean
+  /**
+   * After a unique match, patch these fields before open/filter.
+   * Tokens: `$NOW`, `$NULL`, `$SCAN` (scanned code).
+   */
+  setFields?: Record<string, unknown> | null
+  /**
+   * Optional field written from the Scan toolbar “Value” input.
+   * When set, the value input is shown at runtime.
+   */
+  updateField?: string | null
+  /** Confirm before applying setFields / updateField. */
+  confirmUpdate?: boolean
+}
+
 export interface DataTableSettings {
   columns: DataTableColumnConfig[]
   sort?: DataTableSortConfig | null
@@ -248,6 +276,8 @@ export interface DataTableSettings {
   inlineEditRefresh?: 'off' | 'row' | 'fields'
   /** Field names to merge when `inlineEditRefresh` is `fields`. */
   inlineEditRefreshFields?: string[]
+  /** Barcode / Scan mode settings for object lists and related DataTables. */
+  barcodeScan?: BarcodeScanSettings | null
 }
 
 export type RelatedTransferSourceMode = 'tree' | 'table' | 'list'

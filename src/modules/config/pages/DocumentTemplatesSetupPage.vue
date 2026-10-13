@@ -7,8 +7,8 @@ export default {
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import { formatLocalizedDateTime } from '@/core/dateFormatting'
 import { useTranslation } from '@/core/translation'
 import type { DocTemplateListItem } from '@/interfaces'

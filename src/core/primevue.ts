@@ -1,20 +1,20 @@
 import type { Component } from 'vue'
 import type { PrimeVueComponentType } from '@/interfaces/entities'
-import AutoComplete from 'primevue/autocomplete'
-import Calendar from 'primevue/calendar'
-import Checkbox from 'primevue/checkbox'
-import DataTable from 'primevue/datatable'
-import DatePicker from 'primevue/datepicker'
-import Dropdown from 'primevue/dropdown'
-import Select from 'primevue/select'
-import InputNumber from 'primevue/inputnumber'
-import InputText from 'primevue/inputtext'
-import MultiSelect from 'primevue/multiselect'
-import Password from 'primevue/password'
-import RadioButton from 'primevue/radiobutton'
-import SelectButton from 'primevue/selectbutton'
-import Textarea from 'primevue/textarea'
-import ToggleSwitch from 'primevue/toggleswitch'
+import AutoComplete from 'openvue/autocomplete'
+import Calendar from 'openvue/calendar'
+import Checkbox from 'openvue/checkbox'
+import DataTable from 'openvue/datatable'
+import DatePicker from 'openvue/datepicker'
+import Dropdown from 'openvue/dropdown'
+import Select from 'openvue/select'
+import InputNumber from 'openvue/inputnumber'
+import InputText from 'openvue/inputtext'
+import MultiSelect from 'openvue/multiselect'
+import Password from 'openvue/password'
+import RadioButton from 'openvue/radiobutton'
+import SelectButton from 'openvue/selectbutton'
+import Textarea from 'openvue/textarea'
+import ToggleSwitch from 'openvue/toggleswitch'
 import CrmHtmlEditor from '@/core/ui-kit/CrmHtmlEditor.vue'
 
 const PRIME_VUE_COMPONENT_MAP: Record<PrimeVueComponentType, Component> = {
@@ -56,6 +56,8 @@ const PRIME_VUE_COMPONENT_MAP: Record<PrimeVueComponentType, Component> = {
   // JSON list / raw editors are rendered by FormRenderer directly.
   JsonList: undefined as unknown as Component,
   JsonCode: undefined as unknown as Component,
+  // Sensitivity matrix is rendered by FormRenderer directly.
+  SensitivityMatrix: undefined as unknown as Component,
   // BlockLayout is a designer reference only — never resolved as a PrimeVue component.
   BlockLayout: undefined as unknown as Component,
 }

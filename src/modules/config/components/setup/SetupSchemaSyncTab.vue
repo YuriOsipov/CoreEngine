@@ -6,8 +6,8 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import { featureFlags } from '@/core/graphql/featureFlags'
 import {
   fetchEntitySyncStatesFromGraphQL,

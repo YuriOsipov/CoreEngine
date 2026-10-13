@@ -8,9 +8,9 @@ export default {
 import { Dropdown as FloatingDropdown } from 'floating-vue'
 import type { RouteLocationRaw } from 'vue-router'
 import { RouterLink } from 'vue-router'
-import Button from 'primevue/button'
-import Column from 'primevue/column'
-import DataTable from 'primevue/datatable'
+import Button from 'openvue/button'
+import Column from 'openvue/column'
+import DataTable from 'openvue/datatable'
 import CompactRecordTooltip from '@/modules/entities/components/CompactRecordTooltip.vue'
 import CrmHtmlCell from '@/core/ui-kit/CrmHtmlCell.vue'
 import { isHtmlEditorColumn } from '@/core/fieldHelpers'
@@ -195,8 +195,8 @@ function handleEditButton(
     :paginator="paginator && !lazy"
     :rows="activeRowsPerPage"
     :custom-sort="isRowGroupingActive"
-    :sort-field="effectiveSortField"
-    :sort-order="effectiveSortOrder"
+    :sort-field="effectiveSortField ?? undefined"
+    :sort-order="effectiveSortOrder ?? undefined"
     :row-group-mode="isRowGroupingActive ? 'subheader' : undefined"
     :group-rows-by="activeGroupField ?? undefined"
     :expandable-row-groups="isRowGroupingActive && groupExpandable !== false"

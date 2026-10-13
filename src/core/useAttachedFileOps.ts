@@ -1,7 +1,7 @@
 import { reactive, ref } from 'vue'
 import type { Ref } from 'vue' // used for typed refs below
-import type { MenuItem } from 'primevue/menuitem'
-import { useToast } from 'primevue/usetoast'
+import type { MenuItem } from 'openvue/menuitem'
+import { useToast } from 'openvue/usetoast'
 import type { LayoutFieldMetadata } from '@/interfaces'
 import {
   bridgeCreateItem,

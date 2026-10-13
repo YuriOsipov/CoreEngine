@@ -6,8 +6,8 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
-import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import { formatLocalizedDateTime } from '@/core/dateFormatting'
 import { featureFlags } from '@/core/graphql/featureFlags'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
@@ -33,6 +33,9 @@ const { t } = useTranslation()
 function hintTooltip(value: string) {
   return { value, class: 'setup-task-hint-tooltip' }
 }
+
+const taskParamsHintDefault =
+  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }.'
 const confirm = useConfirm()
 const toast = useToast()
 
@@ -847,7 +850,7 @@ onMounted(() => {
                 :aria-label="t('common.hint', 'Hint')"
                 v-tooltip.bottom="hintTooltip(t(
                   'setup.tasks.paramsHint',
-                  'generate_slots: { \"range\": \"next_month\" }. verify_database: { \"entity\": \"optional\" }. send_notification: { \"flowKey\": \"notify\" }. maintain_recent_views: { \"retentionDays\": 90, \"maxPerUserCollection\": 200 }.',
+                  taskParamsHintDefault,
                 ))"
               />
             </span>

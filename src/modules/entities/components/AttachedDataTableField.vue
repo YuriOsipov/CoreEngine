@@ -6,7 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { useConfirm } from 'primevue/useconfirm'
+import { useConfirm } from 'openvue/useconfirm'
 import FilePreview from './FilePreview.vue'
 import type { LayoutFieldMetadata } from '@/interfaces'
 import {

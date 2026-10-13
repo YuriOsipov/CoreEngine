@@ -295,6 +295,13 @@ export interface LayoutGroup {
   collapsed?: boolean
   /** When true, field labels sit beside values (Salesforce-style). Default: stacked. */
   inlineLabels?: boolean
+  /**
+   * When set, the group is shown only if these record-value conditions match.
+   * Empty / omitted = always show.
+   */
+  showIf?: EntityRecordAutomationCondition[]
+  /** How to combine {@link showIf} conditions. Default: `and`. */
+  showIfLogic?: 'and' | 'or' | string
 }
 
 /** A layout tab containing its own field canvas. */
@@ -306,6 +313,13 @@ export interface LayoutSection {
   columns?: number
   groups: LayoutGroup[]
   sort?: number
+  /**
+   * When set, the tab is shown only if these record-value conditions match.
+   * Empty / omitted = always show.
+   */
+  showIf?: EntityRecordAutomationCondition[]
+  /** How to combine {@link showIf} conditions. Default: `and`. */
+  showIfLogic?: 'and' | 'or' | string
 }
 
 /**

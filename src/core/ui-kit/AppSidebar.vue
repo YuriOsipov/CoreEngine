@@ -8,9 +8,9 @@ export default {
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import type { MenuItem } from 'primevue/menuitem'
-import type Menu from 'primevue/menu'
-import type Popover from 'primevue/popover'
+import type { MenuItem } from 'openvue/menuitem'
+import type Menu from 'openvue/menu'
+import type Popover from 'openvue/popover'
 import {
   TRANSLATION_LANGUAGE_OPTIONS,
   getTranslationLanguage,

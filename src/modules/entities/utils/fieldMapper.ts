@@ -8,6 +8,7 @@ import {
   isJsonCodeFieldDefinition,
   isJsonListFieldDefinition,
 } from '@/core/jsonField'
+import { isSensitivityMatrixFieldDefinition } from '@/core/sensitivityField'
 import { isRepeaterFieldDefinition } from '@/core/repeaterField'
 import type { PaletteItem } from './fieldPalette'
 
@@ -119,6 +120,10 @@ export function mapFieldTypeToComponent(
 
   if (isAddressFieldDefinition(field)) {
     return 'Address'
+  }
+
+  if (isSensitivityMatrixFieldDefinition(field)) {
+    return 'SensitivityMatrix'
   }
 
   if (isJsonListFieldDefinition(field)) {

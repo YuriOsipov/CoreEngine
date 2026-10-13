@@ -38,6 +38,10 @@ import {
 } from '@/core/dateFormatting'
 import { FILES_ASSET_COLLECTION, isFilesAssetCollection, resolveFilesRelatedCollection } from '@/core/filesField'
 import { parseDynamicPicklistSource } from '@/core/dynamicPicklist'
+import {
+  defaultSensitivitySource,
+  parseSensitivitySource,
+} from '@/core/sensitivityField'
 import { isRolesAssetCollection } from '@/core/rolesField'
 import { isUsersAssetCollection } from '@/core/usersField'
 import {
@@ -1026,6 +1030,12 @@ export async function fetchFieldRuntimeMetadata(
       : []
   }
 
+  if (component === 'SensitivityMatrix') {
+    props.sensitivitySource =
+      parseSensitivitySource(definition.meta?.options?.sensitivitySource) ??
+      defaultSensitivitySource()
+  }
+
   const collectionFields = await getCachedCollectionFields(collection)
   const formula =
     resolveFieldFormula(
@@ -1078,6 +1088,7 @@ export async function fetchDataTableRuntimeMetadata(
   relatedLimit = 100,
   tableSettings?: DataTableSettings | null,
   relatedOffset = 0,
+  listFilter?: Record<string, unknown> | null,
 ): Promise<DataTableRuntime> {
   return fetchDataTableRuntime({
     collection: relatedCollection,
@@ -1086,6 +1097,7 @@ export async function fetchDataTableRuntimeMetadata(
     offset: relatedOffset,
     parentCollection: parentName,
     parentId,
+    listFilter,
     defaultColumnLimit: 6,
     previewLimitWithoutParent: 5,
     excludeHiddenFields: false,

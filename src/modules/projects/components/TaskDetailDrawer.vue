@@ -4,7 +4,7 @@ export default { name: 'TaskDetailDrawer' }
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
 import { bridgeReadItems } from '@/core/graphql/itemsBridge'
 import type {

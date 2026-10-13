@@ -13,12 +13,21 @@ import {
 import type { ActivityLogAction, ActivityLogSettings, FieldDefinition } from '@/interfaces'
 import { normalizeActivityLogSettings } from '@/interfaces'
 import { translateField } from '@/core/translation'
+import {
+  formatSensitivitySummary,
+  isSensitivityMatrixFieldDefinition,
+  normalizeSensitivityValue,
+} from '@/core/sensitivityField'
 import { formatUserLabel, formatDisplayValue } from '../utils/recordDisplay'
 import { getCachedCollectionFields, getCachedRelations } from './collectionSchema'
 
 export interface ActivityLogDeltaEntry {
   field: string
   label: string
+  /** Short text for the Changes column. */
+  previousPreview: string | null
+  valuePreview: string
+  /** Full value shown only when the row is expanded. */
   previousValue: string | null
   value: string
 }
@@ -105,10 +114,31 @@ function isUuidString(value: unknown): value is string {
   )
 }
 
+const PREVIEW_MAX_CHARS = 48
+
+function truncateDisplay(text: string, max = PREVIEW_MAX_CHARS): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= max) return trimmed
+  return `${trimmed.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+}
+
+function isComplexValue(value: unknown): boolean {
+  return Array.isArray(value) || (typeof value === 'object' && value !== null)
+}
+
+function formatComplexDetail(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 function formatFieldValue(
   field: string,
   value: unknown,
   context: FieldDisplayContext,
+  mode: 'preview' | 'detail' = 'detail',
 ): string {
   const definition = context.definitions.get(field)
   if (definition && isDateLikeField(definition)) {
@@ -120,7 +150,7 @@ function formatFieldValue(
     const formatted = format
       ? formatDateValue(value, format)
       : formatLocalizedDateTime(value)
-    if (formatted) return formatted
+    if (formatted) return mode === 'preview' ? truncateDisplay(formatted) : formatted
   }
 
   if (
@@ -128,7 +158,51 @@ function formatFieldValue(
     isUuidString(value)
   ) {
     const cached = context.userLabelCache.get(value)
-    if (cached) return cached
+    if (cached) return mode === 'preview' ? truncateDisplay(cached) : cached
+  }
+
+  if (definition && isSensitivityMatrixFieldDefinition(definition)) {
+    if (mode === 'preview') {
+      const payload = normalizeSensitivityValue(value)
+      const resultCount = payload.results.length
+      const noteCount = payload.notes.length
+      if (resultCount === 0 && noteCount === 0) return '—'
+      if (resultCount === 0) {
+        return noteCount === 1 ? '1 note' : `${noteCount} notes`
+      }
+      const resultLabel =
+        resultCount === 1 ? '1 result' : `${resultCount} results`
+      return noteCount > 0
+        ? `${resultLabel}, ${noteCount === 1 ? '1 note' : `${noteCount} notes`}`
+        : resultLabel
+    }
+    return formatSensitivitySummary(value, '—')
+  }
+
+  if (mode === 'preview') {
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '—'
+      if (value.some((item) => item && typeof item === 'object')) {
+        return formatDisplayValue(value, {
+          emptyValue: '—',
+          arrayDisplay: 'count-objects',
+        })
+      }
+      return truncateDisplay(
+        formatDisplayValue(value, { emptyValue: '—', arrayDisplay: 'list' }),
+      )
+    }
+    if (isComplexValue(value)) {
+      const keys = Object.keys(value as Record<string, unknown>)
+      return keys.length === 0 ? '—' : `${keys.length} field${keys.length === 1 ? '' : 's'}`
+    }
+    return truncateDisplay(
+      formatDisplayValue(value, { emptyValue: '—', arrayDisplay: 'list' }),
+    )
+  }
+
+  if (isComplexValue(value)) {
+    return formatComplexDetail(value)
   }
 
   return formatDisplayValue(value, { emptyValue: '—', arrayDisplay: 'list' })
@@ -227,14 +301,18 @@ function buildDeltaEntry(
   nextValue: unknown,
   context: FieldDisplayContext,
 ): ActivityLogDeltaEntry {
+  const hasPrevious = previousValue !== null && previousValue !== undefined
   return {
     field,
     label: context.labels[field] ?? field,
-    previousValue:
-      previousValue === null || previousValue === undefined
-        ? null
-        : formatFieldValue(field, previousValue, context),
-    value: formatFieldValue(field, nextValue, context),
+    previousPreview: hasPrevious
+      ? formatFieldValue(field, previousValue, context, 'preview')
+      : null,
+    valuePreview: formatFieldValue(field, nextValue, context, 'preview'),
+    previousValue: hasPrevious
+      ? formatFieldValue(field, previousValue, context, 'detail')
+      : null,
+    value: formatFieldValue(field, nextValue, context, 'detail'),
   }
 }
 
@@ -357,14 +435,14 @@ function createInitialFields(
 
 function formatDeltaSummary(entry: ActivityLogDeltaEntry): string {
   if (
-    entry.previousValue &&
-    entry.previousValue !== '—' &&
-    entry.previousValue !== entry.value
+    entry.previousPreview &&
+    entry.previousPreview !== '—' &&
+    entry.previousPreview !== entry.valuePreview
   ) {
-    return `${entry.label}: ${entry.previousValue} → ${entry.value}`
+    return `${entry.label}: ${entry.previousPreview} → ${entry.valuePreview}`
   }
 
-  return `${entry.label}: ${entry.value}`
+  return `${entry.label}: ${entry.valuePreview}`
 }
 
 function summarizeDeltas(deltas: ActivityLogDeltaEntry[]): string {
@@ -373,18 +451,16 @@ function summarizeDeltas(deltas: ActivityLogDeltaEntry[]): string {
     return formatDeltaSummary(deltas[0]!)
   }
 
-  return deltas
-    .slice(0, 3)
-    .map((entry) => entry.label)
-    .join(', ')
+  const labels = deltas.slice(0, 3).map((entry) => entry.label)
+  const remaining = deltas.length - labels.length
+  if (remaining > 0) {
+    return `${labels.join(', ')} +${remaining}`
+  }
+  return labels.join(', ')
 }
 
 function actionSummary(action: string, deltas: ActivityLogDeltaEntry[]): string {
   if (action === 'create') return ''
-
-  if (deltas.length === 1) {
-    return formatDeltaSummary(deltas[0]!)
-  }
 
   const deltaSummary = summarizeDeltas(deltas)
   if (deltaSummary) return deltaSummary

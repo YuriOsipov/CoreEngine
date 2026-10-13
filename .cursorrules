@@ -1,11 +1,11 @@
 # Vue 3 / Vite Modular Architecture Rules
 Project_Type = "Multi-purpose schema-driven platform (Helix)"
-Stack = ["Vue 3 (Composition API)", "PrimeVue", "Supabase + GraphQL BFF"]
+Stack = ["Vue 3 (Composition API)", "OpenVue", "Supabase + GraphQL BFF"]
 
 
 ## Tech Stack
 - Vue 3 Composition API (`<script setup>`), TypeScript, Vite
-- PrimeVue 4, Directus-compatible GraphQL BFF (crm-bff), vue-router 4
+- OpenVue (MIT PrimeVue 4 fork), Directus-compatible GraphQL BFF (crm-bff), vue-router 4
 - Always output strongly-typed code.
 
 ## Source Layout
@@ -20,10 +20,10 @@ src/
     └── config/    # Builder, form renderer, layout/filter/scheduler settings
 ```
 
-## PrimeVue Usage
-- Use PrimeVue components and utilities wherever they can replace hand-written HTML/CSS (dialogs, tables, buttons, menus, inputs, confirmations, tags, etc.).
-- **Do NOT import PrimeVue UI components manually** — `unplugin-vue-components` with `PrimeVueResolver` is configured in `vite.config.ts` and auto-imports them at build time.
-- Still import manually: composables (`useConfirm`, `useToast`), type-only imports (`MenuItem`, `TreeNodeDropEvent`), and plugins (`PrimeVue`, `ConfirmationService`).
+## OpenVue Usage
+- Use OpenVue components and utilities wherever they can replace hand-written HTML/CSS (dialogs, tables, buttons, menus, inputs, confirmations, tags, etc.).
+- **Do NOT import OpenVue UI components manually** — `unplugin-vue-components` with `PrimeVueResolver` (from `@openvue/auto-import-resolver`) is configured in `vite.config.ts` and auto-imports them at build time.
+- Still import manually: composables (`useConfirm`, `useToast` from `openvue/*`), type-only imports (`MenuItem`, `TreeNodeDropEvent`), and plugins (`PrimeVue` from `openvue/config`, `ConfirmationService`).
 
 ## Import Conventions
 - Cross-layer references **must** use `@/` aliases:
@@ -41,6 +41,6 @@ src/
 ## Rules
 - Never hardcode detail forms. Use a loop iterating through a dynamic JSON layout configuration.
 - Use 'vue-draggable-next' for layout modification canvas manipulation.
-- Map field strings safely into standard PrimeVue elements using <component :is="field.component" />.
+- Map field strings safely into standard OpenVue elements using <component :is="field.component" />.
 - Use or create not component specific functions in `@/core/…` folder
 - Always use the translate function t() instead of hardcoded string

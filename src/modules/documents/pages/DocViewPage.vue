@@ -7,7 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 import { generateDocumentPdfBlob } from '@docengine/editor'
 import '@docengine/editor/styles.css'
 import '@docengine/editor/themes/bridge.css'

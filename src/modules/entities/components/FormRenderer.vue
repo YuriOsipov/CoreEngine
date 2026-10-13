@@ -24,12 +24,18 @@ import ScheduleTemplateEditor from '@/core/ui-kit/ScheduleTemplateEditor.vue'
 import CrmAddressField from '@/core/ui-kit/CrmAddressField.vue'
 import CrmJsonListField from '@/core/ui-kit/CrmJsonListField.vue'
 import CrmJsonCodeField from '@/core/ui-kit/CrmJsonCodeField.vue'
+import CrmSensitivityMatrixField from '@/core/ui-kit/CrmSensitivityMatrixField.vue'
 import CrmDynamicPicklist from '@/core/ui-kit/CrmDynamicPicklist.vue'
 import {
   isDynamicPicklistSource,
   type DynamicPicklistSource,
 } from '@/core/dynamicPicklist'
 import type { JsonListColumn } from '@/core/jsonField'
+import {
+  defaultSensitivitySource,
+  parseSensitivitySource,
+  type SensitivitySource,
+} from '@/core/sensitivityField'
 import RelatedDataTableField from '@/modules/entities/components/RelatedDataTableField.vue'
 import M2ABlocksField from '@/modules/entities/components/M2ABlocksField.vue'
 import AttachedDataTableField from '@/modules/entities/components/AttachedDataTableField.vue'
@@ -55,6 +61,7 @@ import {
   isGroupInlineLabels,
   isJsonCodeField,
   isJsonListField,
+  isSensitivityMatrixField,
   isM2ABuilderField,
   isM2MMultiSelectField,
   isRelationPickerField,
@@ -66,6 +73,13 @@ import {
 } from '@/core/fieldHelpers'
 import { buildComponentProps } from '@/core/buildComponentProps'
 import { isEditableFormLayoutField } from '@/core/layoutFieldRules'
+import {
+  collectShowIfRootFields,
+  filterVisibleLayoutGroups,
+  filterVisibleLayoutSections,
+} from '@/core/recordConditionMatch'
+import { useShowIfEvalRecord } from '@/core/useShowIfEvalRecord'
+import { keysEqual } from '@/core/utils/object'
 
 const props = defineProps<{
   schema: EntityLayoutSchema
@@ -88,25 +102,52 @@ const runtimeMeta = useRuntimeFieldMetadata(() => props.schema.entity)
 const autoComplete = useAutoComplete(formState)
 
 const groupCollapsed = reactive<Record<string, boolean>>({})
-const activeSectionIndex = ref(0)
+const activeSectionId = ref<string | null>(null)
 
-const activeSection = computed(() => props.schema.sections[activeSectionIndex.value])
+const { evalRecord: showIfEvalRecord } = useShowIfEvalRecord(
+  () => props.schema,
+  formState,
+)
+
+const visibleSections = computed(() =>
+  filterVisibleLayoutSections(props.schema.sections, showIfEvalRecord.value),
+)
+
+const activeSectionIndex = computed(() => {
+  const sections = visibleSections.value
+  if (sections.length === 0) return 0
+  const byId = activeSectionId.value
+    ? sections.findIndex((section) => section.id === activeSectionId.value)
+    : -1
+  return byId >= 0 ? byId : 0
+})
+
+const activeSection = computed(() => visibleSections.value[activeSectionIndex.value])
+
+const visibleGroups = computed(() =>
+  activeSection.value
+    ? filterVisibleLayoutGroups(activeSection.value.groups, showIfEvalRecord.value)
+    : [],
+)
 
 const activeTabValue = computed({
   get: () => String(activeSectionIndex.value),
   set: (value: string | number) => {
     const index = Number(value)
-    if (Number.isFinite(index)) {
-      activeSectionIndex.value = index
-    }
+    if (!Number.isFinite(index)) return
+    activeSectionId.value = visibleSections.value[index]?.id ?? null
   },
 })
 
 watch(
-  () => props.schema.sections.length,
-  (sectionCount) => {
-    if (activeSectionIndex.value >= sectionCount) {
-      activeSectionIndex.value = 0
+  visibleSections,
+  (sections) => {
+    if (sections.length === 0) {
+      activeSectionId.value = null
+      return
+    }
+    if (!activeSectionId.value || !sections.some((section) => section.id === activeSectionId.value)) {
+      activeSectionId.value = sections[0]?.id ?? null
     }
   },
   { immediate: true },
@@ -168,6 +209,14 @@ function displayFieldValue(field: LayoutFieldMetadata): unknown {
 function dynamicChoiceSource(field: LayoutFieldMetadata): DynamicPicklistSource | null {
   const raw = runtimeMeta.runtimeFieldProps[field.field]?.choiceSource
   return isDynamicPicklistSource(raw) ? raw : null
+}
+
+function sensitivitySourceFor(field: LayoutFieldMetadata): SensitivitySource {
+  return (
+    parseSensitivitySource(
+      runtimeMeta.runtimeFieldProps[field.field]?.sensitivitySource,
+    ) ?? defaultSensitivitySource()
+  )
 }
 
 function fieldComponentProps(field: LayoutFieldMetadata): Record<string, unknown> {
@@ -265,11 +314,15 @@ async function syncFormState(fields: LayoutFieldMetadata[]): Promise<void> {
     }
   }
   const keys = new Set(fields.map((f) => f.field))
+  // Keep roots referenced by tab/group show-if (e.g. `item` for `item.result_type`)
+  // even when those fields are not on the edit canvas — otherwise every conditional
+  // tab is hidden and the dialog shows "No tabs in this layout yet."
+  const showIfRoots = collectShowIfRootFields(props.schema.sections)
   for (const key of Object.keys(next)) {
-    if (!keys.has(key)) {
-      delete next[key]
-      changed = true
-    }
+    if (keys.has(key)) continue
+    if (showIfRoots.some((root) => keysEqual(root, key))) continue
+    delete next[key]
+    changed = true
   }
   if (
     props.parentName &&
@@ -314,13 +367,13 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
 <template>
   <div class="flex flex-col gap-4">
     <Tabs
-      v-if="schema.sections.length > 0"
+      v-if="visibleSections.length > 0"
       v-model:value="activeTabValue"
       class="layout-tabs"
     >
-      <TabList v-if="schema.sections.length > 1">
+      <TabList v-if="visibleSections.length > 1">
         <Tab
-          v-for="(section, index) in schema.sections"
+          v-for="(section, index) in visibleSections"
           :key="section.id"
           :value="String(index)"
         >
@@ -334,7 +387,7 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
         </p>
 
         <Panel
-          v-for="group in activeSection.groups"
+          v-for="group in visibleGroups"
           :key="group.id"
           :header="group.title"
           toggleable
@@ -465,6 +518,21 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
                   "
                   @update:model-value="updateFormField(field.field, $event)"
                 />
+                <CrmSensitivityMatrixField
+                  v-else-if="isSensitivityMatrixField(field)"
+                  :input-id="field.field"
+                  :model-value="formState[field.field]"
+                  :sensitivity-source="sensitivitySourceFor(field)"
+                  :entity-collection="schema.entity"
+                  :source-record="formState"
+                  :readonly="readonly"
+                  :disabled="
+                    readonly ||
+                    readonlyFieldNames.has(field.field) ||
+                    Boolean(fieldComponentProps(field).disabled)
+                  "
+                  @update:model-value="updateFormField(field.field, $event)"
+                />
                 <CrmJsonListField
                   v-else-if="isJsonListField(field)"
                   :input-id="field.field"
@@ -547,7 +615,7 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
         </Panel>
 
         <p
-          v-if="activeSection.groups.length === 0"
+          v-if="visibleGroups.length === 0"
           class="m-0 text-surface-400 text-[0.9rem]"
         >
           {{ t('formRenderer.noGroups', 'No groups in this tab yet.') }}

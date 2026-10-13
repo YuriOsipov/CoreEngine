@@ -13,7 +13,7 @@ export default {
 <script setup lang="ts">
 
 import { computed, ref, toRef, watch } from 'vue'
-import { useToast } from 'primevue/usetoast'
+import { useToast } from 'openvue/usetoast'
 
 import EntityBuilderPanel from '../builder/EntityBuilderPanel.vue'
 

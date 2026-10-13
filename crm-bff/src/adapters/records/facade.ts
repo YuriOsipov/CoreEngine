@@ -41,6 +41,10 @@ import {
   applyRecordAutomations,
   attachAutomationToasts,
 } from '../../computed/applyRecordAutomations.js'
+import {
+  enforceCascadeRestore,
+  enforceSoftDeleteConstraints,
+} from './softDeleteConstraints.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
 export type { RecordsBackend } from './registry.js'
@@ -644,12 +648,29 @@ export async function updateRecord(
 export async function softDeleteRecord(
   entity: string,
   id: string,
+  visited: Set<string> = new Set(),
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
+  const recordId = String(id)
+  const visitKey = `${apiName}:${recordId}`
+  if (visited.has(visitKey)) {
+    const store = await resolveRecordsStore(apiName)
+    try {
+      return asObject(await store.findOne(apiName, recordId, null))
+    } catch {
+      return {}
+    }
+  }
+  visited.add(visitKey)
+
+  await enforceSoftDeleteConstraints(apiName, recordId, async (childEntity, childId) => {
+    await softDeleteRecord(childEntity, childId, visited)
+  })
+
   const store = await resolveRecordsStore(apiName)
   let existing: Record<string, unknown> | null = null
   try {
-    existing = await store.findOne(apiName, String(id), null)
+    existing = await store.findOne(apiName, recordId, null)
   } catch {
     existing = null
   }
@@ -659,7 +680,7 @@ export async function softDeleteRecord(
     existing,
     'delete',
   )
-  const deleted = await store.softDelete(apiName, id)
+  const deleted = await store.softDelete(apiName, recordId)
   await recomputeRollupsForChildChange(apiName, {
     before: existing,
     after: deleted,
@@ -678,20 +699,39 @@ function asObject(value: unknown): Record<string, unknown> {
 export async function restoreRecord(
   entity: string,
   id: string,
+  visited: Set<string> = new Set(),
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
+  const recordId = String(id)
+  const visitKey = `${apiName}:${recordId}`
+  if (visited.has(visitKey)) {
+    const store = await resolveRecordsStore(apiName)
+    try {
+      return asObject(await store.findOne(apiName, recordId, null))
+    } catch {
+      return {}
+    }
+  }
+  visited.add(visitKey)
+
   const store = await resolveRecordsStore(apiName)
   let existing: Record<string, unknown> | null = null
   try {
-    existing = await store.findOne(apiName, String(id), null)
+    existing = await store.findOne(apiName, recordId, null)
   } catch {
     existing = null
   }
-  const restored = await store.restore(apiName, id)
+  const restored = await store.restore(apiName, recordId)
   await recomputeRollupsForChildChange(apiName, {
     before: existing,
     after: restored,
   })
+
+  // After parent is live again, restore archived CASCADE children (depth-first).
+  await enforceCascadeRestore(apiName, recordId, async (childEntity, childId) => {
+    await restoreRecord(childEntity, childId, visited)
+  })
+
   return restored
 }
 

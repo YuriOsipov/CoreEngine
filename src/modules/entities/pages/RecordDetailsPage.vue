@@ -7,7 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { useConfirm } from 'primevue/useconfirm'
+import { useConfirm } from 'openvue/useconfirm'
 import FormRenderer from '../components/FormRenderer.vue'
 import FormRendererLight from '../components/FormRendererLight.vue'
 import RecordPageRenderer from '../components/RecordPageRenderer.vue'
@@ -499,13 +499,13 @@ function restoreCurrentRecord(): void {
 
 async function archiveCurrentRecordConfirmed(): Promise<void> {
   deleting.value = true
-  error.value = null
+  actionError.value = null
 
   try {
     await archiveObjectRecord(detailCollectionName.value, detailRecordId.value)
     await router.push(backRoute.value)
   } catch (err) {
-    error.value =
+    actionError.value =
       err instanceof Error
         ? err.message
         : t('datatable.deleteError', 'Failed to delete record.')
@@ -516,7 +516,7 @@ async function archiveCurrentRecordConfirmed(): Promise<void> {
 
 async function restoreCurrentRecordConfirmed(): Promise<void> {
   restoring.value = true
-  error.value = null
+  actionError.value = null
 
   try {
     const restored = await restoreObjectRecord(
@@ -525,7 +525,7 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
     )
     recordData.value = { ...recordData.value, ...restored, status: 'published' }
   } catch (err) {
-    error.value =
+    actionError.value =
       err instanceof Error
         ? err.message
         : t('datatable.restoreError', 'Failed to restore record.')

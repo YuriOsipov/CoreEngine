@@ -1,0 +1,9 @@
+{
+  "id": "pricing",
+  "label": "Pricing & promotions",
+  "description": "Catalog prices plus dated promotions that fill item_price.promo_price.",
+  "entitiesFile": "entities.json",
+  "rolesFile": "roles.json",
+  "layoutsFile": "layouts.json",
+  "recordsFile": "records.json"
+}

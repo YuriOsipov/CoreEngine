@@ -1,0 +1,134 @@
+{
+  "entities": [
+    {
+      "apiName": "patient",
+      "label": "Patient",
+      "icon": "personal_injury",
+      "group": "Clinic",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "date_of_birth",
+          "label": "Date of birth",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "phone",
+          "label": "Phone",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "email",
+          "label": "Email",
+          "type": "STRING",
+          "interface": "input"
+        }
+      ]
+    },
+    {
+      "apiName": "practitioner",
+      "label": "Practitioner",
+      "icon": "medical_services",
+      "group": "Clinic",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "specialty",
+          "label": "Specialty",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "phone",
+          "label": "Phone",
+          "type": "STRING",
+          "interface": "input"
+        }
+      ]
+    },
+    {
+      "apiName": "visit",
+      "label": "Visit",
+      "icon": "event_note",
+      "group": "Clinic",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "visit_date",
+          "label": "Visit date",
+          "type": "DATETIME",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "notes",
+          "label": "Notes",
+          "type": "STRING",
+          "interface": "textarea"
+        },
+        {
+          "apiName": "patient_id",
+          "label": "Patient",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "patient",
+          "isIndexed": true,
+          "relationMeta": { "on_delete": "RESTRICT" }
+        },
+        {
+          "apiName": "practitioner_id",
+          "label": "Practitioner",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "practitioner",
+          "isIndexed": true,
+          "relationMeta": { "on_delete": "SET NULL" }
+        }
+      ]
+    },
+    {
+      "apiName": "appointment",
+      "label": "Appointment",
+      "icon": "event",
+      "group": "Clinic",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "starts_at",
+          "label": "Starts at",
+          "type": "DATETIME",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "ends_at",
+          "label": "Ends at",
+          "type": "DATETIME",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "patient_id",
+          "label": "Patient",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "patient",
+          "isIndexed": true,
+          "relationMeta": { "on_delete": "RESTRICT" }
+        },
+        {
+          "apiName": "practitioner_id",
+          "label": "Practitioner",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "practitioner",
+          "isIndexed": true,
+          "relationMeta": { "on_delete": "SET NULL" }
+        }
+      ]
+    }
+  ]
+}

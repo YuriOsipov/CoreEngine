@@ -6,14 +6,20 @@ export default {
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useToast } from 'openvue/usetoast'
 import FormRenderer from './FormRenderer.vue'
-import type { EntityLayoutSchema } from '@/interfaces'
+import type { EntityLayoutSchema, FieldDefinition } from '@/interfaces'
 import { createObjectRecord } from '../services/recordDetails'
 import {
   createLayoutSchema,
   isCreateDialogField,
   buildDefaultDraft,
+  applyParentFieldDefaults,
+  collectDefaultFromParentSources,
+  enrichParentRecordForFieldDefaults,
+  resolveDefaultFromParentDefinitions,
 } from '@/core/entityLayoutUtils'
+import { getCachedCollectionFields } from '@/modules/entities/services/collectionSchema'
 import { resolvePreferredBlockLayoutForCurrentUser } from '@/core/resolvePreferredBlockLayout'
 import { buildWritableFormPayload } from '@/core/entityFormPayload'
 import {
@@ -38,8 +44,12 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
+const toast = useToast()
 const layoutSchema = ref<EntityLayoutSchema | null>(null)
 const formDraft = ref<Record<string, unknown>>({})
+const formRendererRef = ref<{ validateRequired: () => { valid: boolean; missingLabels: string[] } } | null>(
+  null,
+)
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -107,11 +117,33 @@ async function prepareDialog(): Promise<void> {
     }
 
     const createSchema = createLayoutSchema(schema)
-    formDraft.value = {
-      ...(await buildDefaultDraft(createSchema, collection)),
-      ...initialDefaults(),
-      ...parentDefaults(),
-    }
+    const definitions = await resolveDefaultFromParentDefinitions(
+      collection,
+      (await getCachedCollectionFields(collection)) as unknown as FieldDefinition[],
+    )
+    // Parent defaults only on create (this dialog), never on edit.
+    const parentForDefaults = await enrichParentRecordForFieldDefaults(
+      props.parentRecord,
+      {
+        parentCollection: props.parentCollection,
+        parentId: props.parentId,
+        sourceFields: collectDefaultFromParentSources(
+          definitions,
+          props.parentField,
+        ),
+      },
+    )
+    formDraft.value = applyParentFieldDefaults(
+      definitions,
+      parentForDefaults,
+      {
+        ...(await buildDefaultDraft(createSchema, collection)),
+        ...initialDefaults(),
+        ...parentDefaults(),
+      },
+      createSchema,
+      props.parentField,
+    )
     layoutSchema.value = createSchema
   } catch (err) {
     if (token !== loadToken) return
@@ -136,6 +168,19 @@ function updateVisible(visible: boolean): void {
 
 async function saveRecord(): Promise<void> {
   if (!editLayoutSchema.value) return
+
+  const validation = formRendererRef.value?.validateRequired()
+  if (validation && !validation.valid) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: t('formRenderer.missingRequiredFields', 'Required fields are missing: {fields}', {
+        fields: validation.missingLabels.join(', '),
+      }),
+      life: 5000,
+    })
+    return
+  }
 
   saving.value = true
   error.value = null
@@ -209,6 +254,7 @@ function parentDefaults(): Record<string, unknown> {
 
     <FormRenderer
       v-if="editLayoutSchema && !loading"
+      ref="formRendererRef"
       v-model="formDraft"
       :schema="editLayoutSchema"
       :parent-id="parentId"

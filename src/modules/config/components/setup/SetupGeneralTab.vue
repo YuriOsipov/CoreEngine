@@ -169,6 +169,23 @@ onMounted(async () => {
           </span>
         </span>
       </RouterLink>
+      <RouterLink
+        :to="{ name: 'setup-archived' }"
+        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
+      >
+        <i class="pi pi-inbox text-primary text-xl mt-1" aria-hidden="true" />
+        <span class="flex flex-col gap-1">
+          <span class="font-semibold">{{ t('setup.archived.title', 'Archived records') }}</span>
+          <span class="text-muted-color text-[0.8rem]">
+            {{
+              t(
+                'setup.archived.linkHint',
+                'Browse and restore soft-deleted records by object.',
+              )
+            }}
+          </span>
+        </span>
+      </RouterLink>
     </div>
   </section>
 </template>

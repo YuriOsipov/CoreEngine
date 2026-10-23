@@ -50,6 +50,10 @@ const tabs = computed(() => [
     label: t('setup.tasksTab', 'Tasks'),
     to: '/setup/tasks',
   },
+  {
+    label: t('setup.archivedTab', 'Archived records'),
+    to: '/setup/archived',
+  },
 ])
 
 function isTabActive(path: string): boolean {
@@ -76,6 +80,9 @@ function isTabActive(path: string): boolean {
   }
   if (path === '/setup/tasks') {
     return route.path.startsWith('/setup/tasks')
+  }
+  if (path === '/setup/archived') {
+    return route.path.startsWith('/setup/archived')
   }
   return route.path.startsWith('/setup/objects')
 }

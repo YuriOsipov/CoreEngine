@@ -58,7 +58,6 @@ const PROJECT_FIELDS = [
   'notes',
   'statuses',
   'lifecycle',
-  'status',
 ] as const
 
 const TASK_FIELDS = [
@@ -82,7 +81,6 @@ const TASK_FIELDS = [
   'depends_on',
   'is_milestone',
   'is_custom',
-  'sort',
 ] as const
 
 const TASK_ITEM_FIELDS = [
@@ -103,7 +101,6 @@ const TASK_ITEM_FIELDS = [
   'is_required',
   'item_status',
   'notes',
-  'sort',
 ] as const
 
 function mapProject(row: Record<string, unknown>): PmProjectRecord {
@@ -235,7 +232,7 @@ export async function listProjectTasks(projectId: string): Promise<PmTaskRecord[
   const rows = await bridgeReadItems(PM_STAGE_COLLECTION, {
     filter: { project: { _eq: projectId } },
     fields: [...TASK_FIELDS],
-    sort: ['sort', 'date_start', 'name'],
+    sort: ['date_start', 'name'],
     limit: 5000,
   })
   return rows.map(mapTask)
@@ -255,7 +252,7 @@ export async function createTask(payload: Record<string, unknown>): Promise<PmTa
   const scheduled = await initializeTaskSchedule(payload)
   const row = await bridgeCreateItem(
     PM_STAGE_COLLECTION,
-    { status: 'published', is_custom: true, ...scheduled },
+    { is_active: true, is_custom: true, ...scheduled },
     { fields: [...TASK_FIELDS] },
   )
   return mapTask(row)
@@ -269,7 +266,7 @@ export async function listTaskItems(taskId: string): Promise<PmTaskItemRecord[]>
   const rows = await bridgeReadItems(PM_STAGE_ITEM_COLLECTION, {
     filter: { stage: { _eq: taskId } },
     fields: [...TASK_ITEM_FIELDS],
-    sort: ['sort', 'name'],
+    sort: ['name'],
     limit: 500,
   })
   return rows.map(mapTaskItem)
@@ -304,7 +301,7 @@ export async function saveTaskItem(
   const resolvedBase = Number(basePrice ?? 0)
   const total = lineBaseTotal(resolvedBase, quantity)
   const body = {
-    status: 'published',
+    is_active: true,
     ...payload,
     quantity,
     base_price: resolvedBase,
@@ -393,7 +390,7 @@ export async function applyProjectTemplate(
     statuses,
     lifecycle: 'planned',
     progress: 0,
-    status: 'published',
+    is_active: true,
   })
 
   const projectId = String(projectRow.id)

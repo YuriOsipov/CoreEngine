@@ -2,16 +2,21 @@ import { randomUUID } from 'node:crypto'
 import { query } from '../../../../db/pool.js'
 import {
   coercePromotedValue,
+  loadPromotedFields,
+  quoteIdent,
   resolveRecordRelation,
   type CrmPromotedField,
   type CrmRecordRelation,
 } from '../../../../schema/crmStorage.js'
 import { formatUniqueViolationError } from '../../../../schema/uniqueGroups.js'
+import { loadM2ORelations } from '../../relations.js'
 import type { RecordsListParams, RecordsListResult } from '../../types.js'
 
 interface BusinessRecordRow {
   record_id: string
-  status: string
+  status?: string | null
+  is_deleted?: boolean | null
+  is_active?: boolean | null
   data: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -31,30 +36,114 @@ function projectFields(
   // relation paths in the same list are still used later by expandM2O.
   if (fields.some((field) => field === '*' || field === '*.*')) return row
   const out: Record<string, unknown> = {}
+  const keys = Object.keys(row)
   for (const field of fields) {
     const base = field.split(/[.:(]/)[0] ?? field
-    if (base in row) out[base] = row[base]
+    if (!base || base in out) continue
+    if (base in row) {
+      out[base] = row[base]
+      continue
+    }
+    const needle = normalizeFieldKey(base)
+    const match = keys.find((key) => normalizeFieldKey(key) === needle)
+    if (match && !(match in out)) out[match] = row[match]
   }
   if (!('id' in out) && 'id' in row) out.id = row.id
   return out
 }
 
+function readBool(value: unknown, fallback: boolean): boolean {
+  if (value === true || value === 1 || value === '1' || value === 'true') return true
+  if (value === false || value === 0 || value === '0' || value === 'false') return false
+  return fallback
+}
+
+function selectColumns(relation: CrmRecordRelation): string {
+  const cols = ['record_id']
+  if (relation.hasStatus) cols.push('status')
+  if (relation.hasDeleted) cols.push('is_deleted')
+  if (relation.hasActive) cols.push('is_active')
+  cols.push('data', 'created_at::text', 'updated_at::text')
+  return cols.join(', ')
+}
+
 function toPublicRecord(
   row: BusinessRecordRow,
+  relation: CrmRecordRelation,
   fields?: string[] | null,
 ): Record<string, unknown> {
   const data = asObject(row.data)
   const merged: Record<string, unknown> = {
     ...data,
     id: row.record_id,
-    status: row.status,
     date_created: data.date_created ?? row.created_at,
     date_updated: data.date_updated ?? row.updated_at,
   }
+  if (relation.hasStatus) merged.status = row.status ?? null
+  else delete merged.status
+  if (relation.hasDeleted) merged.is_deleted = row.is_deleted === true
+  else delete merged.is_deleted
+  if (relation.hasActive) merged.is_active = row.is_active !== false
+  else delete merged.is_active
   return projectFields(merged, fields)
 }
 
+function envelopeAssignments(
+  relation: CrmRecordRelation,
+  data: Record<string, unknown>,
+  existing?: BusinessRecordRow,
+): { columns: string[]; values: unknown[]; payload: Record<string, unknown> } {
+  const payload = { ...data }
+  delete payload.id
+  const columns: string[] = []
+  const values: unknown[] = []
+  if (relation.hasStatus) {
+    const next =
+      typeof payload.status === 'string' && payload.status.trim()
+        ? payload.status.trim()
+        : existing?.status || 'published'
+    columns.push('status')
+    values.push(next)
+    delete payload.status
+  }
+  if (relation.hasDeleted) {
+    columns.push('is_deleted')
+    values.push(
+      payload.is_deleted === undefined && existing
+        ? existing.is_deleted === true
+        : readBool(payload.is_deleted, false),
+    )
+    delete payload.is_deleted
+  }
+  if (relation.hasActive) {
+    columns.push('is_active')
+    values.push(
+      payload.is_active === undefined && existing
+        ? existing.is_active !== false
+        : readBool(payload.is_active, true),
+    )
+    delete payload.is_active
+  }
+  return { columns, values, payload }
+}
+
 type SqlFragment = { sql: string; params: unknown[] }
+
+const FILTER_COMPARISON_OPS = new Set([
+  '_eq',
+  '_neq',
+  '_in',
+  '_nin',
+  '_null',
+  '_nnull',
+  '_gt',
+  '_gte',
+  '_lt',
+  '_lte',
+  '_contains',
+  '_icontains',
+  '_starts_with',
+])
 
 function jsonFieldExpr(field: string): string {
   // Top-level scalar compare against jsonb text extraction.
@@ -65,10 +154,24 @@ function quoteLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`
 }
 
-function compileFilter(
+function isComparisonFilterValue(value: unknown): boolean {
+  if (value === null) return true
+  if (typeof value !== 'object' || Array.isArray(value)) return true
+  return Object.keys(value as Record<string, unknown>).some((key) =>
+    FILTER_COMPARISON_OPS.has(key),
+  )
+}
+
+/**
+ * Compile a Directus-style filter, including one-hop nested M2O paths such as
+ * `{ item: { item_group: { _eq: id } } }` or dotted keys `item.item_group`.
+ */
+async function compileFilter(
+  collection: string,
+  relation: CrmRecordRelation,
   filter: unknown,
   startIndex: number,
-): SqlFragment | null {
+): Promise<SqlFragment | null> {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return null
   const entries = Object.entries(filter as Record<string, unknown>)
   if (entries.length === 0) return null
@@ -90,7 +193,7 @@ function compileFilter(
     if ((key === '_and' || key === '_or') && Array.isArray(value)) {
       const childSql: string[] = []
       for (const child of value) {
-        const frag = compileFilter(child, index)
+        const frag = await compileFilter(collection, relation, child, index)
         if (!frag) continue
         childSql.push(`(${frag.sql})`)
         params.push(...frag.params)
@@ -103,17 +206,186 @@ function compileFilter(
       continue
     }
 
+    if (key.includes('.')) {
+      const [root, ...rest] = key.split('.').map((part) => part.trim()).filter(Boolean)
+      if (root && rest.length) {
+        consume(
+          await compileM2ORelationFilter(
+            collection,
+            relation,
+            root,
+            { [rest.join('.')]: value },
+            index,
+          ),
+        )
+      }
+      continue
+    }
+
     if (key === 'id') {
       consume(compileComparison('record_id', value, index, false))
       continue
     }
 
-    if (key === 'status') {
-      consume(compileComparison('status', value, index, false))
+    if (key === 'status' || key === 'is_deleted' || key === 'is_active') {
+      consume(compileComparison(key, value, index, false))
+      continue
+    }
+
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      !isComparisonFilterValue(value)
+    ) {
+      consume(
+        await compileM2ORelationFilter(
+          collection,
+          relation,
+          key,
+          value as Record<string, unknown>,
+          index,
+        ),
+      )
+      continue
+    }
+
+    const promoted = findPromotedField(relation, key)
+    if (promoted) {
+      consume(compileComparison(quoteIdent(promoted.apiName), value, index, false))
       continue
     }
 
     consume(compileComparison(key, value, index, true))
+  }
+
+  if (!parts.length) return null
+  return { sql: parts.join(' AND '), params }
+}
+
+async function compileM2ORelationFilter(
+  collection: string,
+  parentRelation: CrmRecordRelation,
+  fieldApiName: string,
+  nestedFilter: Record<string, unknown>,
+  startIndex: number,
+): Promise<SqlFragment | null> {
+  const m2oRels = await loadM2ORelations(collection)
+  const m2o = m2oRels.find(
+    (rel) => normalizeFieldKey(rel.fieldApiName) === normalizeFieldKey(fieldApiName),
+  )
+  if (!m2o) return null
+
+  const relatedRelation = await resolveRecordRelation(m2o.relatedEntityApiName)
+  const fkExpr = parentFkExpr(parentRelation, m2o.fieldApiName)
+  const entityFilter = relatedRelation.needsEntityFilter
+    ? ` AND r.entity_api_name = ${quoteLiteral(m2o.relatedEntityApiName)}`
+    : ''
+
+  const inner = await compileAliasedFilter(
+    m2o.relatedEntityApiName,
+    relatedRelation,
+    nestedFilter,
+    startIndex,
+    'r',
+  )
+  if (!inner) return null
+
+  return {
+    sql:
+      `EXISTS (SELECT 1 FROM ${relatedRelation.relationSql} r ` +
+      `WHERE r.record_id::text = (${fkExpr})::text${entityFilter} AND (${inner.sql}))`,
+    params: inner.params,
+  }
+}
+
+/** Filter clauses scoped to a related-table alias (for EXISTS subqueries). */
+async function compileAliasedFilter(
+  _collection: string,
+  relation: CrmRecordRelation,
+  filter: unknown,
+  startIndex: number,
+  alias: string,
+): Promise<SqlFragment | null> {
+  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return null
+  const entries = Object.entries(filter as Record<string, unknown>)
+  if (entries.length === 0) return null
+
+  const parts: string[] = []
+  const params: unknown[] = []
+  let index = startIndex
+
+  const consume = (frag: SqlFragment | null): void => {
+    if (!frag) return
+    parts.push(frag.sql)
+    params.push(...frag.params)
+    index += frag.params.length
+  }
+
+  for (const [key, value] of entries) {
+    if ((key === '_and' || key === '_or') && Array.isArray(value)) {
+      const childSql: string[] = []
+      for (const child of value) {
+        const frag = await compileAliasedFilter(
+          _collection,
+          relation,
+          child,
+          index,
+          alias,
+        )
+        if (!frag) continue
+        childSql.push(`(${frag.sql})`)
+        params.push(...frag.params)
+        index += frag.params.length
+      }
+      if (childSql.length) {
+        const joiner = key === '_or' ? ' OR ' : ' AND '
+        parts.push(`(${childSql.join(joiner)})`)
+      }
+      continue
+    }
+
+    // One-hop tree filters only need scalar compares on the related row
+    // (e.g. item_group._eq). Deeper relation nesting is handled at the root.
+    if (key === 'id') {
+      consume(compileComparison(`${alias}.record_id`, value, index, false))
+      continue
+    }
+    if (key === 'status' && relation.hasStatus) {
+      consume(compileComparison(`${alias}.status`, value, index, false))
+      continue
+    }
+    if (key === 'is_deleted' && relation.hasDeleted) {
+      consume(compileComparison(`${alias}.is_deleted`, value, index, false))
+      continue
+    }
+    if (key === 'is_active' && relation.hasActive) {
+      consume(compileComparison(`${alias}.is_active`, value, index, false))
+      continue
+    }
+
+    const fieldName = key.includes('.') ? (key.split('.')[0] ?? key) : key
+    const promoted = findPromotedField(relation, fieldName)
+    if (promoted) {
+      consume(
+        compileComparison(
+          `${alias}.${quoteIdent(promoted.apiName)}`,
+          value,
+          index,
+          false,
+        ),
+      )
+      continue
+    }
+
+    consume(
+      compileComparison(
+        `${alias}.data->>${quoteLiteral(fieldName)}`,
+        value,
+        index,
+        false,
+      ),
+    )
   }
 
   if (!parts.length) return null
@@ -208,30 +480,249 @@ function compileComparison(
   return { sql: parts.join(' AND '), params }
 }
 
-function compileSort(sort?: string[] | null): string {
+function normalizeFieldKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function findPromotedField(
+  relation: CrmRecordRelation,
+  fieldApiName: string,
+): CrmPromotedField | undefined {
+  const needle = normalizeFieldKey(fieldApiName)
+  return relation.promoted.find((field) => normalizeFieldKey(field.apiName) === needle)
+}
+
+function isNumericSortField(field: CrmPromotedField): boolean {
+  const pg = field.pgType.toLowerCase()
+  if (
+    pg.includes('int') ||
+    pg.includes('double') ||
+    pg.includes('real') ||
+    pg.includes('numeric') ||
+    pg.includes('decimal') ||
+    pg === 'money'
+  ) {
+    return true
+  }
+  const ft = field.fieldType.toUpperCase()
+  return (
+    ft === 'INTEGER' ||
+    ft === 'FLOAT' ||
+    ft === 'DECIMAL' ||
+    ft === 'BIGINTEGER'
+  )
+}
+
+/** Numbers / dates / booleans must not be ORDER BY …::text (lexicographic). */
+function isNativeSortField(field: CrmPromotedField): boolean {
+  if (isNumericSortField(field)) return true
+  const pg = field.pgType.toLowerCase()
+  return (
+    pg === 'boolean' ||
+    pg === 'date' ||
+    pg.includes('timestamp') ||
+    pg.includes('time')
+  )
+}
+
+function promotedSortExpr(promoted: CrmPromotedField, alias?: string): string {
+  const col = alias
+    ? `${alias}.${quoteIdent(promoted.apiName)}`
+    : quoteIdent(promoted.apiName)
+  if (promoted.pgType === 'jsonb') return `${col}::text`
+  if (isNativeSortField(promoted)) return col
+  return `${col}::text`
+}
+
+function jsonbSortExpr(
+  fieldApiName: string,
+  typeHint?: CrmPromotedField | null,
+  alias?: string,
+): string {
+  const dataCol = alias ? `${alias}.data` : 'data'
+  const textExpr = `${dataCol}->>${quoteLiteral(fieldApiName)}`
+  if (!typeHint) return textExpr
+  if (isNumericSortField(typeHint)) {
+    return `NULLIF(${textExpr}, '')::numeric`
+  }
+  if (typeHint.pgType === 'boolean') return `(${textExpr})::boolean`
+  if (typeHint.pgType === 'date') return `(${textExpr})::date`
+  if (typeHint.pgType.toLowerCase().includes('timestamp')) {
+    return `(${textExpr})::timestamptz`
+  }
+  return textExpr
+}
+
+/** FK scalar on the current list row (promoted column preferred). */
+function parentFkExpr(relation: CrmRecordRelation, fieldApiName: string): string {
+  const promoted = findPromotedField(relation, fieldApiName)
+  if (promoted) return quoteIdent(promoted.apiName)
+  return jsonFieldExpr(fieldApiName)
+}
+
+/** Related-row sort expression (promoted column or jsonb path). */
+function relatedSortExpr(
+  relatedAlias: string,
+  relatedRelation: CrmRecordRelation,
+  relatedField: string,
+): string {
+  const root = relatedField.split('.')[0] ?? relatedField
+  if (root === 'id') return `${relatedAlias}.record_id`
+  if (root === 'status' && relatedRelation.hasStatus) return `${relatedAlias}.status`
+  if (root === 'is_deleted' && relatedRelation.hasDeleted) {
+    return `${relatedAlias}.is_deleted`
+  }
+  if (root === 'is_active' && relatedRelation.hasActive) return `${relatedAlias}.is_active`
+  if (root === 'date_created' || root === 'created_at') {
+    return `${relatedAlias}.created_at`
+  }
+  if (root === 'date_updated' || root === 'updated_at') {
+    return `${relatedAlias}.updated_at`
+  }
+  const promoted = findPromotedField(relatedRelation, root)
+  if (promoted) return promotedSortExpr(promoted, relatedAlias)
+  return jsonbSortExpr(root, null, relatedAlias)
+}
+
+/** Extract `{{field}}` root field names from a display template. */
+function displayTemplateFields(template: string | null | undefined): string[] {
+  if (!template) return []
+  const fields: string[] = []
+  for (const match of template.matchAll(/\{\{([\s\S]*?)\}\}/g)) {
+    const token = (match[1] ?? '').trim()
+    const root = token.split('.')[0]?.trim()
+    if (root && !fields.includes(root)) fields.push(root)
+  }
+  return fields
+}
+
+/**
+ * Sort by a related M2O label via correlated subquery.
+ * UI sends paths like `group.name`; bare `group` sorts by the related entity's
+ * Display Template fields (authoritative label), falling back to name/title/label.
+ */
+async function m2oSortSubquery(
+  parentRelation: CrmRecordRelation,
+  fkField: string,
+  relatedEntityApiName: string,
+  relatedField: string | null,
+): Promise<string | null> {
+  const relatedRelation = await resolveRecordRelation(relatedEntityApiName)
+  const fkExpr = parentFkExpr(parentRelation, fkField)
+  const entityFilter = relatedRelation.needsEntityFilter
+    ? ` AND r.entity_api_name = ${quoteLiteral(relatedEntityApiName)}`
+    : ''
+
+  // Bare M2O (no explicit nested field): sort by the related entity's Display
+  // Template so the sort matches the rendered label (e.g. `{{description}}`),
+  // not a raw `name` code column.
+  const templateFields = relatedField ? [] : displayTemplateFields(relatedRelation.displayTemplate)
+  const labelFields = relatedField
+    ? [relatedField]
+    : [...templateFields, 'name', 'title', 'label']
+
+  const exprs = labelFields.map((field) => relatedSortExpr('r', relatedRelation, field))
+  const orderExpr = relatedField
+    ? exprs[0]
+    : `COALESCE(${[...exprs, 'r.record_id::text'].join(', ')})`
+
+  return `(SELECT ${orderExpr}
+    FROM ${relatedRelation.relationSql} r
+    WHERE r.record_id::text = (${fkExpr})::text${entityFilter}
+    LIMIT 1)`
+}
+
+async function compileSort(
+  collection: string,
+  relation: CrmRecordRelation,
+  sort?: string[] | null,
+): Promise<string> {
   if (!sort?.length) return 'updated_at DESC'
+
+  const m2oRels = await loadM2ORelations(collection)
+  const m2oByField = new Map(
+    m2oRels.map((rel) => [normalizeFieldKey(rel.fieldApiName), rel] as const),
+  )
+
+  // Jsonb storage has no promoted columns; still need registry types for numeric ORDER BY.
+  let jsonbTypeByField: Map<string, CrmPromotedField> | null = null
+  const jsonbFieldType = async (
+    fieldApiName: string,
+  ): Promise<CrmPromotedField | undefined> => {
+    if (relation.storage !== 'jsonb') return undefined
+    if (!jsonbTypeByField) {
+      const fields = await loadPromotedFields(collection)
+      jsonbTypeByField = new Map(
+        fields.map((field) => [normalizeFieldKey(field.apiName), field] as const),
+      )
+    }
+    return jsonbTypeByField.get(normalizeFieldKey(fieldApiName))
+  }
+
   const clauses: string[] = []
   for (const entry of sort) {
     const desc = entry.startsWith('-')
     const field = desc ? entry.slice(1) : entry
+    const dir = desc ? 'DESC' : 'ASC'
     if (!field) continue
+
     if (field === 'id') {
-      clauses.push(`record_id ${desc ? 'DESC' : 'ASC'}`)
+      clauses.push(`record_id ${dir}`)
       continue
     }
-    if (field === 'status') {
-      clauses.push(`status ${desc ? 'DESC' : 'ASC'}`)
+    if (field === 'status' || field === 'is_deleted' || field === 'is_active') {
+      clauses.push(`${field} ${dir}`)
       continue
     }
     if (field === 'date_updated' || field === 'updated_at') {
-      clauses.push(`updated_at ${desc ? 'DESC' : 'ASC'}`)
+      clauses.push(`updated_at ${dir}`)
       continue
     }
     if (field === 'date_created' || field === 'created_at') {
-      clauses.push(`created_at ${desc ? 'DESC' : 'ASC'}`)
+      clauses.push(`created_at ${dir}`)
       continue
     }
-    clauses.push(`data->>${quoteLiteral(field)} ${desc ? 'DESC' : 'ASC'}`)
+
+    const dot = field.indexOf('.')
+    if (dot > 0) {
+      const root = field.slice(0, dot)
+      const nested = field.slice(dot + 1)
+      const m2o = m2oByField.get(normalizeFieldKey(root))
+      if (m2o && nested) {
+        const sub = await m2oSortSubquery(
+          relation,
+          m2o.fieldApiName,
+          m2o.relatedEntityApiName,
+          nested,
+        )
+        if (sub) {
+          clauses.push(`${sub} ${dir} NULLS LAST`)
+          continue
+        }
+      }
+    } else {
+      const m2o = m2oByField.get(normalizeFieldKey(field))
+      if (m2o) {
+        const sub = await m2oSortSubquery(
+          relation,
+          m2o.fieldApiName,
+          m2o.relatedEntityApiName,
+          null,
+        )
+        if (sub) {
+          clauses.push(`${sub} ${dir} NULLS LAST`)
+          continue
+        }
+      }
+    }
+
+    const promoted = findPromotedField(relation, field)
+    if (promoted) {
+      clauses.push(`${promotedSortExpr(promoted)} ${dir} NULLS LAST`)
+      continue
+    }
+    const typeHint = await jsonbFieldType(field)
+    clauses.push(`${jsonbSortExpr(field, typeHint)} ${dir} NULLS LAST`)
   }
   return clauses.length ? clauses.join(', ') : 'updated_at DESC'
 }
@@ -293,10 +784,11 @@ export async function postgresFindMany(
   let next = base.next
 
   if (!params.includeDeleted) {
-    where.push(`status <> 'archived'`)
+    if (relation.hasDeleted) where.push(`is_deleted IS NOT TRUE`)
+    else if (relation.hasStatus) where.push(`status <> 'archived'`)
   }
 
-  const filterFrag = compileFilter(params.filter, next)
+  const filterFrag = await compileFilter(collection, relation, params.filter, next)
   if (filterFrag) {
     where.push(`(${filterFrag.sql})`)
     sqlParams.push(...filterFrag.params)
@@ -312,7 +804,7 @@ export async function postgresFindMany(
   const whereSql = where.length ? where.join(' AND ') : 'TRUE'
   const limit = params.limit ?? 50
   const offset = params.offset ?? 0
-  const orderSql = compileSort(params.sort)
+  const orderSql = await compileSort(collection, relation, params.sort)
 
   const countRows = await query<{ count: string }>(
     `SELECT count(*)::text AS count
@@ -322,7 +814,7 @@ export async function postgresFindMany(
   )
 
   const rows = await query<BusinessRecordRow>(
-    `SELECT record_id, status, data, created_at::text, updated_at::text
+    `SELECT ${selectColumns(relation)}
      FROM ${relation.relationSql}
      WHERE ${whereSql}
      ORDER BY ${orderSql}
@@ -332,7 +824,7 @@ export async function postgresFindMany(
 
   // LIMIT NULL means all rows in Postgres.
   return {
-    nodes: rows.map((row) => toPublicRecord(row, params.fields)),
+    nodes: rows.map((row) => toPublicRecord(row, relation, params.fields)),
     totalCount: Number(countRows[0]?.count ?? 0),
   }
 }
@@ -348,7 +840,7 @@ export async function postgresFindOne(
   const sqlParams = [...base.sqlParams, id]
 
   const rows = await query<BusinessRecordRow>(
-    `SELECT record_id, status, data, created_at::text, updated_at::text
+    `SELECT ${selectColumns(relation)}
      FROM ${relation.relationSql}
      WHERE ${where.join(' AND ')}
      LIMIT 1`,
@@ -356,7 +848,7 @@ export async function postgresFindOne(
   )
   const row = rows[0]
   if (!row) throw new Error(`Record not found: ${collection}/${id}`)
-  return toPublicRecord(row, fields)
+  return toPublicRecord(row, relation, fields)
 }
 
 export async function postgresCreate(
@@ -366,39 +858,34 @@ export async function postgresCreate(
 ): Promise<Record<string, unknown>> {
   const relation = await resolveRecordRelation(collection)
   const recordId = data.id == null || data.id === '' ? randomUUID() : String(data.id)
-  const status =
-    typeof data.status === 'string' && data.status.trim()
-      ? data.status.trim()
-      : 'published'
-  const payload = { ...data }
-  delete payload.id
-  delete payload.status
-
-  if (relation.storage === 'typed') {
-    const promoted = promotedWriteFragments(relation.promoted, payload, 4)
-    const colSql = ['record_id', 'status', 'data', ...promoted.columns].join(', ')
-    const valSql = [
-      '$1',
-      '$2',
-      '$3::jsonb',
-      ...promoted.placeholders,
-    ].join(', ')
-    await runWrite(() =>
-      query(
-        `INSERT INTO ${relation.relationSql} (${colSql})
-         VALUES (${valSql})`,
-        [recordId, status, JSON.stringify(payload), ...promoted.values],
-      ),
-    )
-  } else {
-    await runWrite(() =>
-      query(
-        `INSERT INTO public.business_records (entity_api_name, record_id, status, data)
-         VALUES ($1, $2, $3, $4::jsonb)`,
-        [collection, recordId, status, JSON.stringify(payload)],
-      ),
-    )
-  }
+  const envelope = envelopeAssignments(relation, data)
+  const leadColumns = relation.storage === 'typed' ? ['record_id'] : ['entity_api_name', 'record_id']
+  const leadValues = relation.storage === 'typed' ? [recordId] : [collection, recordId]
+  const dataIndex = leadValues.length + 1
+  const promoted = promotedWriteFragments(
+    relation.promoted,
+    envelope.payload,
+    dataIndex + 1 + envelope.values.length,
+  )
+  const columns = [
+    ...leadColumns,
+    'data',
+    ...envelope.columns,
+    ...promoted.columns,
+  ]
+  const placeholders = [
+    ...leadValues.map((_, index) => `$${index + 1}`),
+    `$${dataIndex}::jsonb`,
+    ...envelope.values.map((_, index) => `$${dataIndex + 1 + index}`),
+    ...promoted.placeholders,
+  ]
+  await runWrite(() =>
+    query(
+      `INSERT INTO ${relation.relationSql} (${columns.join(', ')})
+       VALUES (${placeholders.join(', ')})`,
+      [...leadValues, JSON.stringify(envelope.payload), ...envelope.values, ...promoted.values],
+    ),
+  )
 
   return postgresFindOne(collection, recordId, fields)
 }
@@ -415,7 +902,7 @@ export async function postgresUpdate(
   const findParams = [...base.sqlParams, id]
 
   const existing = await query<BusinessRecordRow>(
-    `SELECT record_id, status, data, created_at::text, updated_at::text
+    `SELECT ${selectColumns(relation)}
      FROM ${relation.relationSql}
      WHERE ${findWhere.join(' AND ')}
      LIMIT 1`,
@@ -426,39 +913,32 @@ export async function postgresUpdate(
 
   const current = asObject(row.data)
   const merged = { ...current, ...data }
-  delete merged.id
-  const status =
-    typeof data.status === 'string' && data.status.trim()
-      ? data.status.trim()
-      : row.status
-  delete merged.status
-
-  if (relation.storage === 'typed') {
-    const promoted = promotedWriteFragments(relation.promoted, merged, 3)
-    const setParts = [
-      'status = $1',
-      'data = $2::jsonb',
-      'updated_at = now()',
-      ...promoted.columns.map((col, i) => `${col} = ${promoted.placeholders[i]}`),
-    ]
-    await runWrite(() =>
-      query(
-        `UPDATE ${relation.relationSql}
-         SET ${setParts.join(', ')}
-         WHERE record_id = $${promoted.next}`,
-        [status, JSON.stringify(merged), ...promoted.values, id],
-      ),
-    )
-  } else {
-    await runWrite(() =>
-      query(
-        `UPDATE public.business_records
-         SET status = $3, data = $4::jsonb, updated_at = now()
-         WHERE entity_api_name = $1 AND record_id = $2`,
-        [collection, id, status, JSON.stringify(merged)],
-      ),
-    )
-  }
+  const envelope = envelopeAssignments(relation, merged, row)
+  const promoted = promotedWriteFragments(
+    relation.promoted,
+    envelope.payload,
+    2 + envelope.values.length,
+  )
+  const setParts = [
+    'data = $1::jsonb',
+    ...envelope.columns.map((col, index) => `${col} = $${index + 2}`),
+    'updated_at = now()',
+    ...promoted.columns.map((col, index) => `${col} = ${promoted.placeholders[index]}`),
+  ]
+  const idIndex = promoted.next
+  const whereSql =
+    relation.storage === 'typed'
+      ? `record_id = $${idIndex}`
+      : `entity_api_name = $${idIndex} AND record_id = $${idIndex + 1}`
+  const whereParams = relation.storage === 'typed' ? [id] : [collection, id]
+  await runWrite(() =>
+    query(
+      `UPDATE ${relation.relationSql}
+       SET ${setParts.join(', ')}
+       WHERE ${whereSql}`,
+      [JSON.stringify(envelope.payload), ...envelope.values, ...promoted.values, ...whereParams],
+    ),
+  )
 
   return postgresFindOne(collection, id, fields)
 }
@@ -467,14 +947,20 @@ export async function postgresSoftDelete(
   collection: string,
   id: string,
 ): Promise<Record<string, unknown>> {
-  return postgresUpdate(collection, id, { status: 'archived' })
+  const relation = await resolveRecordRelation(collection)
+  if (relation.hasDeleted) return postgresUpdate(collection, id, { is_deleted: true })
+  if (relation.hasStatus) return postgresUpdate(collection, id, { status: 'archived' })
+  throw new Error(`Archive is not supported on "${collection}"`)
 }
 
 export async function postgresRestore(
   collection: string,
   id: string,
 ): Promise<Record<string, unknown>> {
-  return postgresUpdate(collection, id, { status: 'published' })
+  const relation = await resolveRecordRelation(collection)
+  if (relation.hasDeleted) return postgresUpdate(collection, id, { is_deleted: false })
+  if (relation.hasStatus) return postgresUpdate(collection, id, { status: 'published' })
+  throw new Error(`Restore is not supported on "${collection}"`)
 }
 
 export async function postgresHardDelete(
@@ -497,7 +983,7 @@ export async function postgresHardDelete(
 /** SQL expression to read a groupable field (special columns or JSONB scalar). */
 function groupExpr(field: string): string {
   if (field === 'id') return 'record_id'
-  if (field === 'status') return 'status'
+  if (field === 'status' || field === 'is_deleted' || field === 'is_active') return field
   if (field === 'date_created' || field === 'created_at') return 'created_at::text'
   if (field === 'date_updated' || field === 'updated_at') return 'updated_at::text'
   return `data->>${quoteLiteral(field)}`
@@ -509,7 +995,9 @@ function aggregateExpr(fn: string, field: string): string {
   if (lower === 'count') {
     if (!field || field === '*') return 'count(*)'
     if (field === 'id') return 'count(record_id)'
-    if (field === 'status') return 'count(status)'
+    if (field === 'status' || field === 'is_deleted' || field === 'is_active') {
+      return `count(${field})`
+    }
     return `count(data->>${quoteLiteral(field)})`
   }
   const numeric = `NULLIF(data->>${quoteLiteral(field)}, '')::numeric`
@@ -538,9 +1026,16 @@ export async function postgresAggregate(
 ): Promise<Record<string, unknown>[]> {
   const relation = await resolveRecordRelation(collection)
   const base = buildEntityWhere(relation, collection)
-  const where = [...base.where, `status <> 'archived'`]
+  const where = [...base.where]
+  if (relation.hasDeleted) where.push(`is_deleted IS NOT TRUE`)
+  else if (relation.hasStatus) where.push(`status <> 'archived'`)
   const sqlParams = [...base.sqlParams]
-  const filterFrag = compileFilter(options.filter, base.next)
+  const filterFrag = await compileFilter(
+    collection,
+    relation,
+    options.filter,
+    base.next,
+  )
   if (filterFrag) {
     where.push(`(${filterFrag.sql})`)
     sqlParams.push(...filterFrag.params)

@@ -10,6 +10,9 @@ import {
 } from '@/core/jsonField'
 import { isSensitivityMatrixFieldDefinition } from '@/core/sensitivityField'
 import { isRepeaterFieldDefinition } from '@/core/repeaterField'
+import { isSystemAuditUserFieldName } from '@/core/layoutFieldRules'
+import { USERS_ASSET_COLLECTION } from '@/core/usersField'
+import { keysEqual } from '@/core/utils/object'
 import type { PaletteItem } from './fieldPalette'
 
 function fieldHasRollupCompute(field: FieldDefinition): boolean {
@@ -79,7 +82,8 @@ function mapInterfaceToComponent(
   }
 
   if (i.includes('currency') || i.includes('number') || i.includes('numeric') || i.includes('slider')) {
-    return typeComponent === 'InputNumber' ? 'InputNumber' : null
+    // Currency must stay numeric even if registry type was mis-mapped.
+    return 'InputNumber'
   }
 
   if (i.includes('calculated') || i.includes('formula') || i.includes('computed')) {
@@ -243,9 +247,23 @@ export function findRelationForField(
   field: FieldDefinition,
   relations: RelationDefinition[],
 ): RelationDefinition | undefined {
-  return relations.find(
-    (r) => r.collection === field.collection && r.field === field.field,
+  const found = relations.find(
+    (r) =>
+      keysEqual(r.collection, field.collection) &&
+      keysEqual(r.field, field.field),
   )
+  if (found) return found
+  // Registry seeds audit FKs without relation rows; BFF synthesizes M2O → users
+  // on read — mirror that here so list/table columns expand to names.
+  if (isSystemAuditUserFieldName(field.field)) {
+    return {
+      collection: field.collection,
+      field: field.field,
+      related_collection: USERS_ASSET_COLLECTION,
+      meta: { kind: 'M2O' },
+    }
+  }
+  return undefined
 }
 
 export function buildPaletteItemFromField(

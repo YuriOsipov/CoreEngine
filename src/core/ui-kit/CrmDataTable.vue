@@ -63,6 +63,7 @@ import { usesPrimaryKeyRecordLink, resolveAutoRecordLinkField } from '@/modules/
 import type { EntityLayoutSchema, LayoutFieldChildLookup } from '@/interfaces/config'
 import type {
   DataTableGroupConfig,
+  DataTableNumberDisplayOptions,
   DataTableSettings,
   PrimeVueComponentType,
 } from '@/interfaces/entities'
@@ -72,6 +73,7 @@ import { isNestedFieldPath, resolveNestedCellValue } from '@/core/dataTableField
 import {
   extractTemplateFields,
   formatDisplayValue,
+  formatNumberDisplayValue,
   relatedRecordFallbackLabel,
   resolvePrimaryKeyRecordLabel,
   templateReferencesParent,
@@ -94,6 +96,7 @@ export interface CrmDataTableColumn {
   relatedCollection?: string
   template?: string
   format?: string
+  numberDisplay?: DataTableNumberDisplayOptions | null
   autoRecordId?: boolean
   recordLink?: boolean
   valueCollection?: string
@@ -127,6 +130,11 @@ const props = withDefaults(
     parentName?: string
     parentCollection?: string
     parentRecord?: Record<string, unknown>
+    /**
+     * When false, parentId/parentName still prefill create/edit but do not
+     * filter displayed rows (e.g. ObjectList tree mode already filters server-side).
+     */
+    filterRowsByParent?: boolean
     sortableColumns?: boolean
     reorderableColumns?: boolean
     defaultSortField?: string | null
@@ -155,10 +163,10 @@ const props = withDefaults(
     showEditRecordAction?: boolean
     /** Show View in the row ⋮ menu (default true). */
     showViewRecordAction?: boolean
-    /** Enable PrimeVue row selection (list master/detail). */
-    selectionMode?: 'single' | null
-    /** Currently selected row when selectionMode is set. */
-    selection?: Record<string, unknown> | null
+    /** Enable PrimeVue row selection (list master/detail or multi-select). */
+    selectionMode?: 'single' | 'multiple' | null
+    /** Currently selected row(s) when selectionMode is set. */
+    selection?: Record<string, unknown> | Record<string, unknown>[] | null
     /**
      * After inline cell save, re-fetch row so automation/formula fields update.
      * Default off.
@@ -199,12 +207,15 @@ const props = withDefaults(
     selection: null,
     inlineEditRefresh: 'off',
     inlineEditRefreshFields: () => [],
+    filterRowsByParent: true,
   },
 )
 
 const emit = defineEmits<{
   'update:rows': [rows: Record<string, unknown>[]]
-  'update:selection': [row: Record<string, unknown> | null]
+  'update:selection': [
+    row: Record<string, unknown> | Record<string, unknown>[] | null,
+  ]
   'page-size-change': [pageSize: number]
   'load-more': [payload: { offset: number; limit: number }]
   'sort-change': [payload: { field: string | null; order: 1 | -1 | null; sortKey: string | null }]
@@ -230,6 +241,7 @@ const route = useRoute()
 const DETAIL_ROUTE_NAMES = new Set(['record-details', 'related-record-details', 'deep-record-details'])
 const filteredRows = computed(() => {
   if (
+    props.filterRowsByParent === false ||
     props.parentId === undefined ||
     props.parentId === null ||
     !props.parentName
@@ -243,6 +255,8 @@ const filteredRows = computed(() => {
 })
 const localColumns = ref<CrmDataTableColumn[]>([...props.columns])
 const columnLayoutKey = ref(0)
+/** User-resized column widths (px), keyed by column field/header. */
+const columnWidthOverrides = ref<Record<string, string>>({})
 const sortField = ref<string | null>(props.defaultSortField ?? null)
 const sortOrder = ref<1 | -1 | null>(props.defaultSortOrder ?? null)
 const scrollPanel = ref<HTMLElement | null>(null)
@@ -264,6 +278,9 @@ const editDialogVisible = ref(false)
 const editLoading = ref(false)
 const editLayoutSchema = ref<EntityLayoutSchema | null>(null)
 const editDraft = ref<Record<string, unknown>>({})
+const editFormRendererRef = ref<{
+  validateRequired: () => { valid: boolean; missingLabels: string[] }
+} | null>(null)
 const editRecordId = ref<string | null>(null)
 const editOriginalRow = ref<Record<string, unknown> | null>(null)
 const editOriginalRecord = ref<Record<string, unknown> | null>(null)
@@ -276,12 +293,15 @@ const managedCollection = computed(() => props.collection.trim() || null)
 const managedCollectionLabel = useTranslatedCollection(() => managedCollection.value ?? '')
 const managedPrimaryKey = computed(() => props.primaryKey || 'id')
 const tableSelection = computed({
-  get: () => props.selection ?? null,
-  set: (row: Record<string, unknown> | null) => {
+  get: () => props.selection ?? (props.selectionMode === 'multiple' ? [] : null),
+  set: (row: Record<string, unknown> | Record<string, unknown>[] | null) => {
     emit('update:selection', row)
   },
 })
-const isSelectionEnabled = computed(() => props.selectionMode === 'single')
+const isSelectionEnabled = computed(
+  () => props.selectionMode === 'single' || props.selectionMode === 'multiple',
+)
+const isMultipleSelection = computed(() => props.selectionMode === 'multiple')
 
 function handleRowSelect(event: unknown): void {
   const data = (event as { data?: Record<string, unknown> } | null)?.data
@@ -289,6 +309,7 @@ function handleRowSelect(event: unknown): void {
 }
 
 function handleRowUnselect(): void {
+  if (props.selectionMode === 'multiple') return
   emit('update:selection', null)
 }
 
@@ -317,6 +338,7 @@ watch(
   },
   { immediate: true },
 )
+
 let loadingMoreHideTimer: number | null = null
 const displayedColumns = computed<CrmDataTableColumn[]>(() => {
   const collection = managedCollection.value
@@ -497,22 +519,41 @@ const effectiveSortField = computed(() => sortField.value ?? undefined)
 
 const effectiveSortOrder = computed(() => sortOrder.value ?? undefined)
 
+/** Client-side sort for non-lazy tables (related lists); lazy pages sort on the server. */
+const useClientColumnSort = computed(() => !props.lazy)
+
 const tableRows = computed(() => {
   const rows = [...filteredRows.value]
-  if (!isRowGroupingActive.value) return rows
 
-  const groupField = activeGroupField.value
-  if (!groupField) return rows
+  if (isRowGroupingActive.value) {
+    const groupField = activeGroupField.value
+    if (!groupField) return rows
 
-  const secondaryField = sortField.value
-  const secondaryOrder = (sortOrder.value ?? 1) as 1 | -1
+    const secondaryField = sortField.value
+    const secondaryOrder = (sortOrder.value ?? 1) as 1 | -1
 
-  rows.sort((left, right) => {
-    const groupCompare = compareRowsByField(left, right, groupField, 1)
-    if (groupCompare !== 0) return groupCompare
-    if (!secondaryField || secondaryField === groupField) return 0
-    return compareRowsByField(left, right, secondaryField, secondaryOrder)
-  })
+    rows.sort((left, right) => {
+      const groupCompare = compareRowsByField(left, right, groupField, 1)
+      if (groupCompare !== 0) return groupCompare
+      if (!secondaryField || secondaryField === groupField) return 0
+      return compareRowsByField(left, right, secondaryField, secondaryOrder)
+    })
+
+    return rows
+  }
+
+  // Default OpenVue sort compares raw cell values; M2O cells are { id, label }
+  // objects, so related-list header clicks must sort by display label instead.
+  if (
+    useClientColumnSort.value &&
+    sortField.value &&
+    sortOrder.value != null &&
+    sortOrder.value !== 0
+  ) {
+    const field = sortField.value
+    const order = (sortOrder.value === -1 ? -1 : 1) as 1 | -1
+    rows.sort((left, right) => compareRowsByField(left, right, field, order))
+  }
 
   return rows
 })
@@ -587,25 +628,6 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () =>
-    [
-      managedCollection.value,
-      displayedColumns.value.map((column) => column.field).join('\0'),
-    ] as const,
-  ([collection, fieldKey]) => {
-    if (!collection?.trim() || !fieldKey) {
-      childLookupByField.value = {}
-      return
-    }
-    void loadInlineChildLookupSettings(
-      collection,
-      fieldKey.split('\0').filter(Boolean),
-    )
-  },
-  { immediate: true },
-)
-
 let childLookupSettingsLoadKey = ''
 
 async function loadInlineChildLookupSettings(
@@ -631,6 +653,25 @@ async function loadInlineChildLookupSettings(
     }
   }
 }
+
+watch(
+  () =>
+    [
+      managedCollection.value,
+      displayedColumns.value.map((column) => column.field).join('\0'),
+    ] as const,
+  ([collection, fieldKey]) => {
+    if (!collection?.trim() || !fieldKey) {
+      childLookupByField.value = {}
+      return
+    }
+    void loadInlineChildLookupSettings(
+      collection,
+      fieldKey.split('\0').filter(Boolean),
+    )
+  },
+  { immediate: true },
+)
 
 function resolveInlineColumn(
   column: CrmDataTableColumn,
@@ -888,6 +929,7 @@ function resolveColumnKey(column: CrmDataTableColumn): string {
 /** PrimeVue horizontal scroll: minWidth keeps columns from squeezing. */
 function columnMinWidth(column: CrmDataTableColumn): string {
   if (column.autoRecordId) return '6rem'
+  if (isNumericColumn(column)) return numericColumnWidth(column)
   if (column.format?.trim() || isDateLikeColumn(column)) return '12rem'
   if (column.relatedCollection || column.recordLink) return '12rem'
   if (column.component === 'Repeater') return '14rem'
@@ -900,16 +942,36 @@ function columnMinWidth(column: CrmDataTableColumn): string {
   return '8rem'
 }
 
+function numericColumnWidth(column: CrmDataTableColumn): string {
+  const display = column.numberDisplay
+  const hasAffix = Boolean(
+    (typeof display?.prefix === 'string' && display.prefix.trim()) ||
+      (typeof display?.suffix === 'string' && display.suffix.trim()),
+  )
+  return hasAffix ? '9rem' : '7rem'
+}
+
 function isDateLikeColumn(column: CrmDataTableColumn): boolean {
   return column.component === 'DatePicker' || column.component === 'Calendar'
 }
 
 function isNumericColumn(column: CrmDataTableColumn): boolean {
-  return column.component === 'InputNumber'
+  // Currency / Number display options (suffix, decimals) must right-align even
+  // when component metadata is missing or not InputNumber.
+  return column.component === 'InputNumber' || Boolean(column.numberDisplay)
 }
 
 function columnStyle(column: CrmDataTableColumn): Record<string, string> {
-  const style: Record<string, string> = { minWidth: columnMinWidth(column) }
+  const key = resolveColumnKey(column)
+  const override = columnWidthOverrides.value[key]
+  // Floor stays at the type default — never pin minWidth to the last resize,
+  // or columns can only grow (PrimeVue won't shrink below minWidth).
+  const style: Record<string, string> = {
+    minWidth: columnMinWidth(column),
+  }
+  if (override) {
+    style.width = override
+  }
   if (isNumericColumn(column)) {
     style.textAlign = 'right'
   }
@@ -1326,6 +1388,86 @@ function applyColumnOrder(ordered: CrmDataTableColumn[]): void {
   localColumns.value = dataColumns
 }
 
+function columnWidthsStorageKey(collection: string): string {
+  return `helix.datatable.columnWidths.${collection}`
+}
+
+function loadColumnWidthOverrides(collection: string | null): void {
+  if (!collection || typeof window === 'undefined') {
+    columnWidthOverrides.value = {}
+    return
+  }
+  try {
+    const raw = window.localStorage.getItem(columnWidthsStorageKey(collection))
+    if (!raw) {
+      columnWidthOverrides.value = {}
+      return
+    }
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      columnWidthOverrides.value = {}
+      return
+    }
+    const next: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' && /^\d+(\.\d+)?px$/.test(value)) {
+        next[key] = value
+      } else if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        next[key] = `${Math.round(value)}px`
+      }
+    }
+    columnWidthOverrides.value = next
+  } catch {
+    columnWidthOverrides.value = {}
+  }
+}
+
+function persistColumnWidthOverrides(): void {
+  const collection = managedCollection.value
+  if (!collection || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      columnWidthsStorageKey(collection),
+      JSON.stringify(columnWidthOverrides.value),
+    )
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
+watch(
+  managedCollection,
+  (collection) => {
+    loadColumnWidthOverrides(collection)
+  },
+  { immediate: true },
+)
+
+function handleColumnResizeEnd(event: {
+  element?: HTMLElement | null
+}): void {
+  const th = event.element
+  const row = th?.parentElement
+  if (!th || !row) return
+
+  const headers = Array.from(row.children) as HTMLElement[]
+  const dataStart = isMultipleSelection.value ? 1 : 0
+  const dataColumns = displayedColumns.value
+  const next = { ...columnWidthOverrides.value }
+
+  for (let i = 0; i < dataColumns.length; i += 1) {
+    const header = headers[dataStart + i]
+    const column = dataColumns[i]
+    if (!header || !column) continue
+    const width = Math.round(header.getBoundingClientRect().width)
+    if (width < 40) continue
+    next[resolveColumnKey(column)] = `${width}px`
+  }
+
+  columnWidthOverrides.value = next
+  persistColumnWidthOverrides()
+}
+
 function handleColumnReorder(event: unknown): void {
   const { dragIndex, dropIndex } = (event ?? {}) as {
     dragIndex?: number
@@ -1347,25 +1489,29 @@ function handleColumnReorder(event: unknown): void {
   columnLayoutKey.value += 1
 }
 
+function coerceSortOrder(value: unknown): 1 | -1 | null {
+  if (value === 1 || value === -1) return value
+  if (value === '1') return 1
+  if (value === '-1') return -1
+  const numeric = Number(value)
+  if (numeric === 1 || numeric === -1) return numeric
+  return null
+}
+
 function handleSort(event: unknown): void {
   const payload = (event ?? {}) as {
     sortField?: string | ((item: unknown) => string)
-    sortOrder?: number | null
+    sortOrder?: number | string | null
   }
   sortField.value =
     typeof payload.sortField === 'string' ? payload.sortField : null
-  sortOrder.value =
-    payload.sortOrder === 1 || payload.sortOrder === -1
-      ? payload.sortOrder
-      : null
+  sortOrder.value = coerceSortOrder(payload.sortOrder)
 
-  if (props.lazy) {
-    emit('sort-change', {
-      field: sortField.value,
-      order: sortOrder.value,
-      sortKey: sortField.value ? resolveSortKey(sortField.value) : null,
-    })
-  }
+  emit('sort-change', {
+    field: sortField.value,
+    order: sortOrder.value,
+    sortKey: sortField.value ? resolveSortKey(sortField.value) : null,
+  })
 }
 
 function resolveSortKey(fieldName: string): string {
@@ -1373,11 +1519,17 @@ function resolveSortKey(fieldName: string): string {
   if (column?.field && isNestedFieldPath(column.field)) {
     return column.field
   }
-  if (column?.relatedCollection && column.template) {
-    const templateFields = extractTemplateFields(column.template)
+  if (column?.relatedCollection) {
+    const templateFields = column.template
+      ? extractTemplateFields(column.template)
+      : []
     if (templateFields.length > 0) {
       return `${fieldName}.${templateFields[0]}`
     }
+    // M2O without an explicit column template: send the bare field so the
+    // server sorts by the related entity's Display Template (authoritative
+    // label), not a guessed `name` column.
+    return fieldName
   }
   return fieldName
 }
@@ -1550,6 +1702,19 @@ async function saveEditDialog(): Promise<void> {
     !editRecordId.value ||
     !editOriginalRecord.value
   ) {
+    return
+  }
+
+  const validation = editFormRendererRef.value?.validateRequired()
+  if (validation && !validation.valid) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: t('formRenderer.missingRequiredFields', 'Required fields are missing: {fields}', {
+        fields: validation.missingLabels.join(', '),
+      }),
+      life: 5000,
+    })
     return
   }
 
@@ -1730,7 +1895,7 @@ async function restoreRecordConfirmed(
         (candidate) => String(candidate[managedPrimaryKey.value] ?? '') !== id,
       ),
     )
-    emit('record-restored', { ...row, ...restored, status: 'published' })
+    emit('record-restored', { ...row, ...restored, is_deleted: false })
   } catch (err) {
     actionError.value =
       err instanceof Error
@@ -1906,12 +2071,18 @@ function choiceMappedValue(column: CrmDataTableColumn, value: unknown): unknown 
 function syncM2OCellLabels(): void {
   for (const row of props.rows) {
     for (const column of displayedColumns.value) {
-      if (column.autoRecordId || !column.relatedCollection) continue
+      if (column.autoRecordId) continue
 
       const rawValue = isNestedFieldPath(column.field)
         ? resolveNestedCellValue(row, column.field)
         : resolveValue(row, column.field)
       const cell = m2oCellValue(rawValue)
+      const relatedCollection =
+        column.relatedCollection?.trim() ||
+        cell?.relatedCollection?.trim() ||
+        ''
+      if (!relatedCollection) continue
+
       const id = cell?.id ?? m2oId(rawValue)
       if (id === null) continue
       if (
@@ -1922,7 +2093,10 @@ function syncM2OCellLabels(): void {
         continue
       }
 
-      void loadM2OCellLabel(column, id)
+      void loadM2OCellLabel(
+        { ...column, relatedCollection, template: column.template },
+        id,
+      )
     }
   }
 }
@@ -1933,7 +2107,9 @@ async function loadM2OCellLabel(
 ): Promise<void> {
   if (!column.relatedCollection) return
   const key = m2oCellLabelKey(column, id)
-  if (m2oCellLabels[key] || m2oCellLabelRequests.has(key)) return
+  const cached = m2oCellLabels[key]
+  // Never treat a raw FK/id as a finished Display Template label.
+  if ((cached && cached !== String(id)) || m2oCellLabelRequests.has(key)) return
 
   m2oCellLabelRequests.add(key)
   try {
@@ -1942,7 +2118,7 @@ async function loadM2OCellLabel(
       id,
       column.template,
     )
-    if (option?.label) {
+    if (option?.label && option.label !== String(id)) {
       m2oCellLabels[key] = option.label
     }
   } finally {
@@ -2014,24 +2190,38 @@ function resolveCellValue(
   }
 
   const value = resolveScalarCellValue(row, column)
-  const isM2OColumn = Boolean(column.relatedCollection)
+  const cell = m2oCellValue(value)
+  const relatedCollection =
+    column.relatedCollection?.trim() ||
+    cell?.relatedCollection?.trim() ||
+    ''
+  const isM2OColumn = Boolean(relatedCollection)
 
   if (!isM2OColumn) {
     return value
   }
 
-  const cell = m2oCellValue(value)
+  const resolvedColumn = {
+    ...column,
+    relatedCollection,
+  } satisfies CrmDataTableColumn
   const id = cell?.id ?? m2oId(value)
   if (id === null) return value
-  const cachedLabel = m2oCellLabels[m2oCellLabelKey(column, id)]
+  const cachedLabel = m2oCellLabels[m2oCellLabelKey(resolvedColumn, id)]
+  const cachedIsDisplayLabel = Boolean(cachedLabel && cachedLabel !== String(id))
 
   if (cell) {
+    const inlineLabel =
+      templateReferencesParent(column.template) ? undefined : cell.label
+    const label =
+      (cachedIsDisplayLabel ? cachedLabel : undefined) ??
+      (inlineLabel && inlineLabel !== String(id) ? inlineLabel : undefined) ??
+      (cachedLabel && cachedLabel !== String(id) ? cachedLabel : undefined) ??
+      String(id)
     return {
       ...cell,
-      label:
-        cachedLabel ??
-        (templateReferencesParent(column.template) ? undefined : cell.label) ??
-        String(id),
+      relatedCollection,
+      label,
     } satisfies M2OCellValue
   }
 
@@ -2039,9 +2229,9 @@ function resolveCellValue(
     __crmValueType: 'm2o',
     id,
     label:
-      m2oCellLabels[m2oCellLabelKey(column, id)] ??
+      (cachedIsDisplayLabel ? cachedLabel : undefined) ??
       relatedRecordFallbackLabel(value, id),
-    relatedCollection: column.relatedCollection,
+    relatedCollection,
   } satisfies M2OCellValue
 }
 
@@ -2078,6 +2268,8 @@ function formatValue(value: unknown, column?: CrmDataTableColumn): string {
     const plain = plainTextFromHtml(value)
     return plain || '-'
   }
+  const numberLabel = formatNumberDisplayValue(value, column?.numberDisplay)
+  if (numberLabel !== null) return numberLabel
   return formatDisplayValue(value, {
     arrayDisplay: 'count',
     itemLabel: (count) =>
@@ -2104,6 +2296,7 @@ function canShowM2OTooltip(
 }
 
 function canLinkM2OCell(column: CrmDataTableColumn, value: unknown): boolean {
+  if (!props.recordLinksEnabled) return false
   return canShowM2OTooltip(column, value)
 }
 
@@ -2181,10 +2374,28 @@ function formatGroupHeader(row: Record<string, unknown>): string {
   return formatValue(value, column ?? { field, header: field })
 }
 
+/** Coerce InputNumber / currency cell values (often decimal strings from GraphQL). */
+function coerceSortNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'boolean') return value ? 1 : 0
+  if (typeof value === 'string') {
+    const raw = value.trim().replace(/,/g, '')
+    if (!raw) return null
+    const numeric = Number(raw)
+    return Number.isFinite(numeric) ? numeric : null
+  }
+  return null
+}
+
 function sortableValue(value: unknown, column?: CrmDataTableColumn): string | number {
   const cell = m2oCellValue(value)
   if (cell?.label) return cell.label.toLowerCase()
   if (value === null || value === undefined) return ''
+  // Related-list client sort: decimals often arrive as strings ("536.50" vs "53.25").
+  if (column && (isNumericColumn(column) || column.numberDisplay)) {
+    const numeric = coerceSortNumber(value)
+    return numeric === null ? '' : numeric
+  }
   if (typeof value === 'number') return value
   if (typeof value === 'boolean') return value ? 1 : 0
   if (value instanceof Date) return value.getTime()
@@ -2220,6 +2431,17 @@ function compareRowsByField(
 
   const leftKey = sortableValue(leftValue, column)
   const rightKey = sortableValue(rightValue, column)
+
+  // Empty / invalid numeric cells sort after real values in both directions.
+  if (leftKey === '' && rightKey === '') return 0
+  if (leftKey === '') return 1
+  if (rightKey === '') return -1
+
+  if (typeof leftKey === 'number' && typeof rightKey === 'number') {
+    if (leftKey < rightKey) return -1 * order
+    if (leftKey > rightKey) return 1 * order
+    return 0
+  }
 
   if (leftKey < rightKey) return -1 * order
   if (leftKey > rightKey) return 1 * order
@@ -2284,6 +2506,7 @@ function compareRowsByField(
         :active-rows-per-page="activeRowsPerPage"
         :is-compact="isCompact"
         :is-selection-enabled="isSelectionEnabled"
+        :is-multiple-selection="isMultipleSelection"
         :selection="tableSelection"
         :expanded-row-groups="expandedRowGroups"
         :is-row-grouping-active="isRowGroupingActive"
@@ -2293,6 +2516,7 @@ function compareRowsByField(
         :effective-sort-order="effectiveSortOrder"
         :sortable-columns="sortableColumns"
         :reorderable-columns="reorderableColumns"
+        :resizable-columns="true"
         :row-draggable="rowDraggable"
         :row-drag-disabled="rowDragDisabled"
         :can-drag-rows="canDragRows"
@@ -2313,6 +2537,7 @@ function compareRowsByField(
         @update:expanded-row-groups="expandedRowGroups = $event"
         @sort="handleSort"
         @column-reorder="handleColumnReorder"
+        @column-resize-end="handleColumnResizeEnd"
         @row-select="handleRowSelect"
         @row-unselect="handleRowUnselect"
         @edit-request="handleEditRequest"
@@ -2413,6 +2638,7 @@ function compareRowsByField(
 
       <FormRenderer
         v-if="editLayoutSchema && !editLoading"
+        ref="editFormRendererRef"
         v-model="editDraft"
         :schema="editLayoutSchema"
         :parent-id="parentId"

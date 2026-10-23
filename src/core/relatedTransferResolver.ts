@@ -1,4 +1,7 @@
-import { readPath } from '@/core/utils/object'
+import { normalizeKey, readPath } from '@/core/utils/object'
+
+/** Scalar values copied off source M2O objects before display flattening. */
+export const SOURCE_NESTED_VALUES_KEY = '__crmSourceNested'
 
 export interface RelatedTransferResolveContext {
   parentRecord?: Record<string, unknown>
@@ -67,7 +70,29 @@ function resolveToken(
   }
 
   const record = source === 'parent' ? context.parentRecord : context.sourceRecord
-  return readPath(record, path)
+  const direct = readPath(record, path)
+  if (direct !== undefined) return direct
+  if (source === 'source') return readStashedSourcePath(record, path)
+  return undefined
+}
+
+function readStashedSourcePath(
+  record: Record<string, unknown> | undefined,
+  path: string,
+): unknown {
+  if (!record) return undefined
+  const stashed = record[SOURCE_NESTED_VALUES_KEY]
+  if (!stashed || typeof stashed !== 'object' || Array.isArray(stashed)) return undefined
+
+  const bag = stashed as Record<string, unknown>
+  if (Object.prototype.hasOwnProperty.call(bag, path)) return bag[path]
+
+  const normalized = path.split('.').map((part) => normalizeKey(part)).join('.')
+  for (const [key, value] of Object.entries(bag)) {
+    const candidate = key.split('.').map((part) => normalizeKey(part)).join('.')
+    if (candidate === normalized) return value
+  }
+  return undefined
 }
 
 /** Coerce M2O/relation objects to a scalar id for GraphQL filter operands. */

@@ -3,6 +3,7 @@ import type {
   LayoutFieldChildLookup,
 } from '@/interfaces'
 import {
+  childLookupFilterTokensUnresolved,
   resolveChildLookupExtraFilter,
   resolveChildLookupFilterContext,
 } from '@/core/childLookupParentContext'
@@ -13,7 +14,10 @@ import {
 } from '@/core/childLookupOptions'
 import { getCachedCollectionFields } from '@/modules/entities/services/collectionSchema'
 import { readRelatedTransferItems } from '@/modules/entities/services/relatedTransfer'
-import { scalarId } from '@/modules/entities/utils/recordDisplay'
+import {
+  extractRelationFieldId,
+  scalarId,
+} from '@/modules/entities/utils/recordDisplay'
 
 export interface ChildLookupFetchContext {
   entityCollection?: string
@@ -73,13 +77,13 @@ export async function loadChildLookupDefaultValue(
 
 export async function fetchChildLookupRows(
   lookup: LayoutFieldChildLookup,
-  source: string | number,
+  source: string | number | null,
   context: ChildLookupFetchContext,
 ): Promise<{
   rows: Record<string, unknown>[]
   valueField: string
 }> {
-  if (!lookup.collection || !lookup.childSourceField || !lookup.valueField) {
+  if (!isChildLookupQueryReady(lookup)) {
     return { rows: [], valueField: '' }
   }
 
@@ -94,17 +98,25 @@ export async function fetchChildLookupRows(
     entityParentField: lookup.parentField,
     sourcePrimaryKey: lookup.sourceField,
   })
+  // Dropping unresolved $parent.* clauses would match every Item Price for the
+  // source item and pick the first row (often Retail) instead of Account's group.
+  if (childLookupFilterTokensUnresolved(lookup.filter, filterContext)) {
+    const fields = await collectionFields(lookup.collection)
+    const valueField = fields
+      ? resolveFieldPath(fields, lookup.valueField)
+      : lookup.valueField
+    return { rows: [], valueField }
+  }
   const extraFilter = resolveChildLookupExtraFilter(lookup.filter, filterContext)
+  const sourceFilter = childSourceEqualityFilter(lookup, source)
 
   const fields = await collectionFields(lookup.collection)
   if (!fields) return { rows: [], valueField: '' }
 
   const valueField = resolveFieldPath(fields, lookup.valueField)
-  const childSourceField = resolveFieldPath(fields, lookup.childSourceField)
-  const filter = mergeFilters(
-    { [childSourceField]: { _eq: source } },
-    extraFilter,
-  )
+  const filter = mergeFilters(sourceFilter, extraFilter)
+  if (!filter) return { rows: [], valueField: '' }
+
   const rows = await readRelatedTransferItems(
     lookup.collection,
     {
@@ -127,7 +139,7 @@ const picklistOptionsCache = new Map<
 
 function picklistCacheKey(
   lookup: LayoutFieldChildLookup,
-  source: string | number,
+  source: string | number | null,
   context: ChildLookupFetchContext,
 ): string {
   return JSON.stringify([
@@ -145,10 +157,10 @@ function picklistCacheKey(
 
 export async function fetchChildLookupPicklistOptions(
   lookup: LayoutFieldChildLookup,
-  source: string | number,
+  source: string | number | null,
   context: ChildLookupFetchContext,
 ): Promise<PicklistOption[]> {
-  if (!lookup.collection || !lookup.childSourceField || !lookup.valueField) return []
+  if (!isChildLookupQueryReady(lookup)) return []
 
   const cacheKey = picklistCacheKey(lookup, source, context)
   const cached = picklistOptionsCache.get(cacheKey)
@@ -167,19 +179,20 @@ export async function fetchChildLookupPicklistOptions(
     entityParentField: lookup.parentField,
     sourcePrimaryKey: lookup.sourceField,
   })
+  if (childLookupFilterTokensUnresolved(lookup.filter, filterContext)) {
+    return []
+  }
   const extraFilter = resolveChildLookupExtraFilter(lookup.filter, filterContext)
+  const sourceFilter = childSourceEqualityFilter(lookup, source)
 
   const fields = await collectionFields(lookup.collection)
   if (!fields) return []
 
   const valueField = resolveFieldPath(fields, lookup.valueField)
   const labelMetadata = await lookupLabelMetadata(lookup.collection, fields, valueField, collectionFields)
-  const filter = mergeFilters(
-    {
-      [resolveFieldPath(fields, lookup.childSourceField)]: { _eq: source },
-    },
-    extraFilter,
-  )
+  const filter = mergeFilters(sourceFilter, extraFilter)
+  if (!filter) return []
+
   const rows = await readRelatedTransferItems(
     lookup.collection,
     {
@@ -208,9 +221,59 @@ export async function fetchChildLookupPicklistOptions(
   return options
 }
 
+/** Load a single picklist option by saved value (keeps edit forms showing current selection). */
+export async function fetchChildLookupOptionByValue(
+  lookup: LayoutFieldChildLookup,
+  value: string | number,
+): Promise<PicklistOption | null> {
+  if (!lookup.collection?.trim() || !lookup.valueField?.trim()) return null
+
+  const fields = await collectionFields(lookup.collection)
+  if (!fields) return null
+
+  const valueField = resolveFieldPath(fields, lookup.valueField)
+  const labelMetadata = await lookupLabelMetadata(
+    lookup.collection,
+    fields,
+    valueField,
+    collectionFields,
+  )
+  try {
+    const rows = await readRelatedTransferItems(lookup.collection, {
+      limit: 1,
+      fields: Array.from(
+        new Set([valueField, ...labelMetadata.requestFields].filter(Boolean)),
+      ) as never,
+      filter: {
+        [valueField]: { _eq: value },
+      },
+    })
+    const row = rows[0]
+    if (!row) return null
+    const resolved = scalarId(row[valueField]) ?? row[valueField]
+    if (resolved === undefined || resolved === null || resolved === '') return null
+    return {
+      value: resolved,
+      label: lookupOptionLabel(row, labelMetadata, resolved),
+    }
+  } catch {
+    return null
+  }
+}
+
+export function childLookupOptionMatchesValue(
+  optionValue: unknown,
+  currentValue: unknown,
+): boolean {
+  const left = extractRelationFieldId(optionValue) ?? scalarId(optionValue)
+  const right = extractRelationFieldId(currentValue) ?? scalarId(currentValue)
+  if (left === null || right === null) return false
+  return String(left) === String(right)
+}
+
 export async function resolveChildLookupScalarValue(
   lookup: LayoutFieldChildLookup,
-  source: string | number,
+  source: string | number | null,
   context: ChildLookupFetchContext & { sourceCollection?: string },
 ): Promise<unknown> {
   const { rows, valueField } = await fetchChildLookupRows(lookup, source, context)
@@ -218,7 +281,11 @@ export async function resolveChildLookupScalarValue(
     return scalarId(rows[0][valueField]) ?? rows[0][valueField]
   }
 
-  if (context.sourceCollection && lookup.defaultValueField) {
+  if (
+    source !== null &&
+    context.sourceCollection &&
+    lookup.defaultValueField
+  ) {
     const defaultValue = await loadChildLookupDefaultValue(
       lookup,
       source,
@@ -234,11 +301,29 @@ export async function resolveChildLookupScalarValue(
   return undefined
 }
 
+/** True when lookup-query settings are complete enough to run a list query. */
+export function isChildLookupQueryReady(lookup: LayoutFieldChildLookup): boolean {
+  if (!lookup.collection?.trim() || !lookup.valueField?.trim()) return false
+  if (lookup.childSourceField?.trim()) return true
+  const filter = lookup.filter
+  return Boolean(filter && typeof filter === 'object' && Object.keys(filter).length > 0)
+}
+
+function childSourceEqualityFilter(
+  lookup: LayoutFieldChildLookup,
+  source: string | number | null,
+): Record<string, unknown> | null {
+  const childSourceField = lookup.childSourceField?.trim()
+  if (!childSourceField || source === null) return null
+  return { [childSourceField]: { _eq: source } }
+}
+
 function mergeFilters(
-  first: Record<string, unknown>,
+  first: Record<string, unknown> | null,
   second: Record<string, unknown> | null,
-): Record<string, unknown> {
-  return second ? { _and: [first, second] } : first
+): Record<string, unknown> | null {
+  if (first && second) return { _and: [first, second] }
+  return first ?? second
 }
 
 async function collectionFields(collection: string): Promise<FieldDefinition[] | null> {

@@ -35,6 +35,7 @@ import {
 } from '@/modules/documents/services/docTemplateSnapshotService'
 import {
   buildDocSourceSamplePayload,
+  collectionSupportsItemGroupPriceTreeSample,
   DOC_SOURCE_SAMPLE_MAX_DEPTH,
   fieldMappingToEditorSpec,
   serializeFieldMappingForSave,
@@ -109,6 +110,9 @@ const mappingOpening = ref(false)
 /** Default on so Field Mapping shows `$payload.records[]` for list reports. */
 const listPayloadSample = ref(true)
 const listPayloadForced = computed(() => props.forceListPayloadSample === true)
+/** Virtual `item_group_tree*` at payload root for Tree mode list reports. */
+const treePayloadSample = ref(true)
+const treePayloadSampleAvailable = ref(false)
 const ioBusy = ref(false)
 const currentTemplateId = ref<string | null>(null)
 const testFillMode = ref(false)
@@ -175,6 +179,16 @@ async function waitForEditor(): Promise<void> {
   throw new Error(t('documents.editorNotReady', 'Document editor is not ready.'))
 }
 
+async function refreshTreePayloadSampleAvailability(): Promise<void> {
+  const collection = props.collection?.trim() || ''
+  if (!collection) {
+    treePayloadSampleAvailable.value = false
+    return
+  }
+  treePayloadSampleAvailable.value =
+    await collectionSupportsItemGroupPriceTreeSample(collection)
+}
+
 /** Same Source payload Field Mapping uses — so Database tab shows meta/records when checked. */
 async function resolveSourceSample(): Promise<Record<string, unknown>> {
   const useListSample = listPayloadForced.value || listPayloadSample.value
@@ -189,6 +203,7 @@ async function resolveSourceSample(): Promise<Record<string, unknown>> {
     filter: props.listSourceContext?.filter,
     filterConditions: props.listSourceContext?.filterConditions,
     parentCollection: props.listSourceContext?.parentCollection,
+    includeTreeSample: treePayloadSampleAvailable.value && treePayloadSample.value,
   })
 }
 
@@ -429,19 +444,27 @@ async function saveLayout(): Promise<void> {
       throw new Error(t('documents.saveTemplateError', 'Failed to save document template.'))
     }
 
+    currentTemplateId.value = String(saved.id)
+
     const savedName = String(saved.name ?? '').trim()
     if (savedName && savedName !== name) {
       templateName.value = savedName
-      throw new Error(
-        t(
+      await refreshSnapshots(currentTemplateId.value)
+      selectedSnapshotId.value = latestSnapshotId.value
+      emit('saved', currentTemplateId.value)
+      toast.add({
+        severity: 'warn',
+        summary: t('common.warning', 'Warning'),
+        detail: t(
           'documents.templateNameNotSaved',
           'Template content was saved, but the name could not be changed (field may be auto-numbered or read-only).',
         ),
-      )
+        life: 6000,
+      })
+      return
     }
     templateName.value = savedName || name
 
-    currentTemplateId.value = String(saved.id)
     await refreshSnapshots(currentTemplateId.value)
     selectedSnapshotId.value = latestSnapshotId.value
     emit('saved', currentTemplateId.value)
@@ -757,6 +780,7 @@ watch(
 watch(
   [
     listPayloadSample,
+    treePayloadSample,
     () => props.listSourceContext?.viewLabel,
     () => props.listSourceContext?.filter,
     () => props.listSourceContext?.filterConditions,
@@ -767,6 +791,14 @@ watch(
       // Editor may not be ready yet during first paint; loadTemplate will sync.
     })
   },
+)
+
+watch(
+  () => props.collection,
+  () => {
+    void refreshTreePayloadSampleAvailability()
+  },
+  { immediate: true },
 )
 
 onMounted(async () => {
@@ -1060,6 +1092,24 @@ defineExpose({
               :disabled="chromeBusy || testFillMode || listPayloadForced"
             />
             <span>{{ t('documents.listPayloadSample', 'List payload sample') }}</span>
+          </label>
+
+          <label
+            v-if="treePayloadSampleAvailable && (listPayloadForced || listPayloadSample)"
+            class="flex items-center gap-2 text-[0.8rem] text-surface-700 cursor-pointer whitespace-nowrap"
+            :title="
+              t(
+                'documents.treePayloadSampleHint',
+                'Add virtual item_group_tree / item_group_tree_rows / item_group_tree_sections for Tree mode list reports. Map group headers and nested prices from $payload.item_group_tree*.',
+              )
+            "
+          >
+            <Checkbox
+              v-model="treePayloadSample"
+              binary
+              :disabled="chromeBusy || testFillMode"
+            />
+            <span>{{ t('documents.treePayloadSample', 'Tree sample') }}</span>
           </label>
 
           <Button

@@ -27,6 +27,8 @@ const props = withDefaults(defineProps<{
   parentName?: string
   parentRecord?: Record<string, unknown>
   preferPicklist?: boolean
+  /** When true (edit), keep stored scalar on first hydrate. Create should leave false. */
+  preserveDraftOnHydrate?: boolean
   options?: Array<{ label: string; value: unknown }>
   disabled?: boolean
   inputId?: string
@@ -39,9 +41,13 @@ const props = withDefaults(defineProps<{
   max?: number
   minFractionDigits?: number
   maxFractionDigits?: number
+  /** Currency / number adornments from field runtime props. */
+  suffix?: string
+  prefix?: string
 }>(), {
   mode: 'auto',
   fluid: true,
+  preserveDraftOnHydrate: false,
 })
 
 const emit = defineEmits<{
@@ -71,6 +77,7 @@ const {
   parentName: toRef(props, 'parentName'),
   parentRecord: toRef(props, 'parentRecord'),
   preferPicklist: toRef(props, 'preferPicklist'),
+  preserveDraftOnHydrate: toRef(props, 'preserveDraftOnHydrate'),
   preloadedOptions: toRef(props, 'options'),
   onUpdate: (value) => emit('update:modelValue', value),
 })
@@ -106,6 +113,8 @@ const {
     :max="max"
     :min-fraction-digits="minFractionDigits ?? 0"
     :max-fraction-digits="maxFractionDigits ?? 5"
+    :prefix="prefix"
+    :suffix="suffix"
     :input-class="inputClass"
     :size="size"
     :fluid="fluid"

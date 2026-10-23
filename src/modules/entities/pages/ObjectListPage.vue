@@ -21,10 +21,13 @@ import {
   updateRecordFromBarcodeScan,
 } from '@/core/barcodeScan'
 import { useConfirm } from 'openvue/useconfirm'
+import type { MenuItem } from 'openvue/menuitem'
 import { SCHEDULE_TEMPLATE_COLLECTION } from '@/core/scheduleGeneration'
 import DataTableFilter from '@/core/ui-kit/DataTableFilter.vue'
 import ListFilterValuePanel from '@/core/ui-kit/ListFilterValuePanel.vue'
 import ObjectListDetailPanel from '../components/ObjectListDetailPanel.vue'
+import ObjectListFullPageDetail from '../components/ObjectListFullPageDetail.vue'
+import ObjectListCompactCardList from '../components/ObjectListCompactCardList.vue'
 import {
   listDetailSplitterStateKey,
   loadListDetailCollapsed,
@@ -36,10 +39,13 @@ import {
   isAutoCompleteFilterComponent,
   isSelectFilterComponent,
   isUserVisibleCondition,
+  mergeTreeGroupIntoListFilterMeta,
+  nestRelationFilter,
   resolveFilterConditionValue,
   seedRuntimeFilterValues,
   type ListFilterMetaBlock,
 } from '@/core/listFilterUtils'
+import { recordLabel } from '@/modules/entities/utils/recordDisplay'
 import { currentUserRole } from '@/core/currentUser'
 import {
   fetchObjectRecordsByIds,
@@ -96,8 +102,11 @@ import { useFavoriteContext } from '@/core/navigation/useFavoriteContext'
 import { useEntityPermissions } from '@/core/entityPermissions'
 import { recordDetailRoute } from '@/core/compactRecordRoutes'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
+import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
+import { applyBulkUpdateFilteredAction } from '../services/bulkUpdateFilteredAction'
 import { useToast } from 'openvue/usetoast'
+import { getPathValue, scalarId } from '../utils/recordDisplay'
 
 type ListLayout = 'table' | 'tree' | 'scheduler'
 
@@ -119,7 +128,47 @@ const showBarcodeScan = computed(() => isBarcodeScanEnabled(barcodeScanSettings.
 const {
   ready: permissionsReady,
   canRead: canReadCollection,
+  canCreate: canCreateCollection,
 } = useEntityPermissions(() => collectionName.value)
+const sideBySideCompactListRef = ref<{
+  openCreateDialog: () => void
+} | null>(null)
+const sideBySideActionsMenu = ref<{ toggle: (event: Event) => void } | null>(null)
+const sideBySideActionItems = computed((): MenuItem[] => {
+  const items: MenuItem[] = []
+  if (canCreateCollection.value) {
+    items.push({
+      label: t('common.new', 'New'),
+      icon: 'pi pi-plus',
+      command: () => sideBySideCompactListRef.value?.openCreateDialog(),
+    })
+  }
+  for (const action of listToolbarActions.value) {
+    items.push({
+      label: action.label,
+      icon: action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file',
+      disabled: listReportLoading.value || listBulkRunning.value,
+      command: () => {
+        void runListToolbarAction(action)
+      },
+    })
+  }
+  if (isScheduleTemplateCollection.value) {
+    items.push({
+      label: t('schedule.generate', 'Generate slots'),
+      icon: 'pi pi-calendar-plus',
+      command: () => {
+        slotGeneratorVisible.value = true
+      },
+    })
+  }
+  return items
+})
+const showSideBySideActionsMenu = computed(() => sideBySideActionItems.value.length > 0)
+
+function toggleSideBySideActionsMenu(event: Event): void {
+  sideBySideActionsMenu.value?.toggle(event)
+}
 const collectionLabel = useTranslatedCollection(() => collectionName.value)
 const routeFilterId = computed(() =>
   route.params.filter_id ? String(route.params.filter_id) : null,
@@ -132,10 +181,14 @@ const tableSettings = ref<DataTableSettings | null>(null)
 const treeSettings = ref<TreeTableSettings | null>(null)
 const schedulerSettings = ref<SchedulerSettings | null>(null)
 const listLayout = ref<ListLayout>('table')
-const showArchived = ref(false)
 const pinnedFilterId = ref<string | null>(null)
 const slotGeneratorVisible = ref(false)
 const selectedMasterRow = ref<Record<string, unknown> | null>(null)
+const selectedTreeGroupId = ref<string | number | null>(null)
+const selectedTreeGroupRecord = ref<Record<string, unknown> | null>(null)
+/** Selected tree group + nested child group ids (Hardware → includes Electronic). */
+const selectedTreeGroupSubtreeIds = ref<Array<string | number>>([])
+const treeGroupsRef = ref<{ refreshGroups?: () => Promise<void> } | null>(null)
 const detailCollapsed = ref(false)
 const pageListDetailPanel = ref<RecordPageListDetailPanel | null>(null)
 const listDetailRelatedFields = ref<LayoutFieldMetadata[]>([])
@@ -153,8 +206,22 @@ const isScheduleTemplateCollection = computed(
   () => collectionName.value === SCHEDULE_TEMPLATE_COLLECTION,
 )
 const listToolbarActions = computed(
-  () => tableSettings.value?.actions?.filter((action) => action.document?.templateId) ?? [],
+  () =>
+    tableSettings.value?.actions?.filter((action) => {
+      if (action.behavior === 'bulkUpdate') {
+        return Boolean(
+          action.bulkUpdate?.targetField?.trim()
+          && action.bulkUpdate?.sourcePath?.trim(),
+        )
+      }
+      return Boolean(action.document?.templateId)
+    }) ?? [],
 )
+const listBulkRunning = ref(false)
+const listBulkPromptVisible = ref(false)
+const listBulkPromptLabel = ref('')
+const listBulkPromptHeader = ref('')
+const pendingListBulkAction = ref<ListViewAction | null>(null)
 const draftFilterValues = ref<Record<string, unknown>>({})
 const appliedFilterValues = ref<Record<string, unknown>>({})
 let filterReloadTimer: ReturnType<typeof setTimeout> | null = null
@@ -187,10 +254,12 @@ onUnmounted(() => {
 const {
   runtime: objectList,
   loading,
+  loadingMore: loadingMoreRecords,
   refreshing: refreshingRecords,
   error,
   pageSize,
   crmDataTableProps,
+  hasMore: listHasMore,
   loadMore: loadMoreRecords,
   handlePageSizeChange,
   handleSortChange,
@@ -249,11 +318,81 @@ const detailPanelEnabled = computed(
 
 const usesPageListDetail = computed(() => Boolean(pageListDetailPanel.value?.enabled))
 
+/** Tree mode always stacks items above detail (horizontal splitter bar). */
+const listDetailOrientation = computed(() => {
+  if (listLayout.value === 'tree') return 'stacked'
+  return pageListDetailPanel.value?.orientation === 'sideBySide' ? 'sideBySide' : 'stacked'
+})
+
+/**
+ * Selected Item group + all nested child groups
+ * (Hardware → Electronic, Tools, …) for the related list, document report, and bulk.
+ */
+const treeGroupListFilter = computed<Record<string, unknown> | null>(() => {
+  if (listLayout.value !== 'tree') return null
+  const field = treeSettings.value?.main.groupField?.trim()
+  if (!field || selectedTreeGroupId.value == null) return null
+  const subtreeIds = selectedTreeGroupSubtreeIds.value
+  if (subtreeIds.length > 1) {
+    return nestRelationFilter(field, { _in: subtreeIds })
+  }
+  return nestRelationFilter(field, { _eq: selectedTreeGroupId.value })
+})
+
+/** @deprecated Same as {@link treeGroupListFilter} — kept for call sites. */
+const treeGroupBulkFilter = treeGroupListFilter
+
+const treeItemsReady = computed(
+  () => listLayout.value === 'tree' && selectedTreeGroupId.value != null,
+)
+
+const canDragTreeItems = computed(() => {
+  const field = treeSettings.value?.main.groupField?.trim() || ''
+  // Nested group FK paths are display/filter only — drag would need to update a related record.
+  return Boolean(
+    listLayout.value === 'tree' &&
+      field &&
+      !field.includes('.'),
+  )
+})
+
+const treeLayoutSplitterKey = computed(
+  () => `object-list-tree-layout:${collectionName.value || 'unknown'}`,
+)
+
+/** Side-by-side always shows the full Page Layout; stacked may use related lists. */
+const listDetailContentMode = computed(() =>
+  listDetailOrientation.value === 'sideBySide'
+  || pageListDetailPanel.value?.contentMode === 'fullPageLayout'
+    ? 'fullPageLayout'
+    : 'relatedLists',
+)
+
+const listDetailSplitterLayout = computed(() =>
+  listDetailOrientation.value === 'sideBySide' ? 'horizontal' : 'vertical',
+)
+
+const compactCardReloadToken = ref(0)
+const compactCardInvalidateId = ref<string | null>(null)
+const compactCardInvalidateToken = ref(0)
+
+const usesFullPageListDetail = computed(
+  () => usesPageListDetail.value && listDetailContentMode.value === 'fullPageLayout',
+)
+
 const isMasterDetailLayout = computed(
   () =>
     listLayout.value === 'table' &&
     detailPanelEnabled.value &&
     !detailCollapsed.value,
+)
+
+/** Tree/scheduler need a bounded viewport so inner panes can scroll. */
+const isFillHeightLayout = computed(
+  () =>
+    isMasterDetailLayout.value ||
+    listLayout.value === 'tree' ||
+    listLayout.value === 'scheduler',
 )
 
 const selectedParentId = computed(() => {
@@ -277,7 +416,10 @@ const detailPaneMinSize = computed(
 )
 const detailPaneSize = computed(() => Math.max(100 - masterPaneSize.value, 1))
 const splitterStateKey = computed(() =>
-  listDetailSplitterStateKey(collectionName.value || 'unknown'),
+  listDetailSplitterStateKey(
+    collectionName.value || 'unknown',
+    listDetailOrientation.value,
+  ),
 )
 
 const detailDefaultCollapsed = computed(
@@ -329,12 +471,19 @@ watch(
 
 function setDetailCollapsed(collapsed: boolean): void {
   detailCollapsed.value = collapsed
+  if (collapsed) {
+    selectedMasterRow.value = null
+  }
   saveListDetailCollapsed(collectionName.value, collapsed)
 }
 
-function toggleDetailCollapsed(): void {
-  setDetailCollapsed(!detailCollapsed.value)
-}
+const showDetailPanel = computed({
+  get: () => detailPanelEnabled.value && !detailCollapsed.value,
+  set: (show: boolean) => {
+    if (!detailPanelEnabled.value) return
+    setDetailCollapsed(!show)
+  },
+})
 
 function openDetailRelatedRecord(
   row: Record<string, unknown>,
@@ -570,6 +719,16 @@ async function resolveSelectedListView(
   const meta = await loadListViewTableMeta(collection, roleId)
   if (isStaleToken(token)) return
 
+  const pinned = await loadPinnedFilter(collection)
+  if (isStaleToken(token)) return
+
+  const resolvedPin = await resolvePinnedListViewId(collection, pinned)
+  if (isStaleToken(token)) return
+  if (resolvedPin && pinned && resolvedPin !== pinned) {
+    await savePinnedFilter(collection, resolvedPin)
+  }
+  pinnedFilterId.value = resolvedPin
+
   if (filterId === ALL_RECORDS_FILTER_ID) {
     selectedListFilter.value = ALL_RECORDS_FILTER
     tableSettings.value = await resolvePredefinedViewTableSettings(
@@ -612,15 +771,6 @@ async function resolveSelectedListView(
     tableSettings.value = listViewToTableSettings(matched, meta)
     return
   }
-
-  const pinned = await loadPinnedFilter(collection)
-  if (isStaleToken(token)) return
-
-  const resolvedPin = await resolvePinnedListViewId(collection, pinned)
-  if (resolvedPin && pinned && resolvedPin !== pinned) {
-    await savePinnedFilter(collection, resolvedPin)
-  }
-  pinnedFilterId.value = resolvedPin
 
   if (resolvedPin === ALL_RECORDS_FILTER_ID) {
     selectedListFilter.value = ALL_RECORDS_FILTER
@@ -746,15 +896,27 @@ async function fetchListRecords(
   settings: DataTableSettings,
   options: { limit: number; offset: number },
 ): Promise<ObjectRecordList> {
-  if (!isRecentlyViewedFilter.value) {
-    return fetchObjectRecords(
+  // Tree mode: no group selected → empty items (keep column metadata).
+  if (listLayout.value === 'tree' && selectedTreeGroupId.value == null) {
+    const empty = await fetchObjectRecords(
       collection,
       mergeRawListFilters(activeListFilter.value, barcodeListFilter.value),
       settings,
-      {
-        ...options,
-        archivedOnly: showArchived.value,
-      },
+      { ...options, limit: 0 },
+    )
+    return { ...empty, records: [], totalCount: 0 }
+  }
+
+  if (!isRecentlyViewedFilter.value) {
+    return fetchObjectRecords(
+      collection,
+      mergeRawListFilters(
+        activeListFilter.value,
+        barcodeListFilter.value,
+        treeGroupListFilter.value,
+      ),
+      settings,
+      options,
     )
   }
 
@@ -765,7 +927,31 @@ async function fetchListRecords(
     recent.totalCount,
     settings,
   )
-  const withColumns = withRecentViewColumns(result, recent.views)
+  let withColumns = withRecentViewColumns(result, recent.views)
+
+  if (treeGroupListFilter.value) {
+    const field = treeSettings.value?.main.groupField?.trim()
+    const allowed = new Set(
+      (selectedTreeGroupSubtreeIds.value.length
+        ? selectedTreeGroupSubtreeIds.value
+        : selectedTreeGroupId.value != null
+          ? [selectedTreeGroupId.value]
+          : []
+      ).map(String),
+    )
+    if (field && allowed.size > 0) {
+      const records = withColumns.records.filter((row) => {
+        const value = getPathValue(row, field) ?? row[field]
+        const id = scalarId(value)
+        return id != null && allowed.has(String(id))
+      })
+      withColumns = {
+        ...withColumns,
+        records,
+        totalCount: records.length,
+      }
+    }
+  }
 
   const sort = settings.sort
   if (sort?.field?.startsWith('__')) {
@@ -982,20 +1168,66 @@ async function handleBarcodeScanSubmit(payload: {
   await run()
 }
 
-function openTreeRecord(row: Record<string, unknown>): void {
-  const settings = treeSettings.value
-  if (!settings) return
-
-  const id = row[settings.main.primaryKey]
-  if (id === null || id === undefined) return
-
-  void router.push(
-    recordDetailRoute(
-      settings.main.collection || collectionName.value,
-      String(id),
-    ),
-  )
+function handleTreeGroupSelected(
+  payload: {
+    id: string | number
+    record: Record<string, unknown>
+    subtreeIds?: Array<string | number>
+  } | null,
+): void {
+  selectedTreeGroupId.value = payload?.id ?? null
+  selectedTreeGroupRecord.value = payload?.record ?? null
+  selectedTreeGroupSubtreeIds.value = payload
+    ? (payload.subtreeIds?.length ? [...payload.subtreeIds] : [payload.id])
+    : []
+  selectedMasterRow.value = null
+  if (!collectionName.value) return
+  void loadRecords(collectionName.value, { inPlace: Boolean(objectList.value) })
 }
+
+function handleTreeItemMoved(): void {
+  handleTreeItemsChanged()
+}
+
+function isSelfRefTreeLayout(): boolean {
+  const settings = treeSettings.value
+  if (!settings?.group.collection || !settings.main.collection) return false
+  return settings.group.collection === settings.main.collection
+}
+
+function handleTreeItemsChanged(): void {
+  if (!collectionName.value) return
+  void loadRecords(collectionName.value, { inPlace: true })
+  if (isSelfRefTreeLayout()) {
+    void treeGroupsRef.value?.refreshGroups?.()
+  }
+}
+
+function clearTreeGroupSelection(): void {
+  selectedTreeGroupId.value = null
+  selectedTreeGroupRecord.value = null
+  selectedTreeGroupSubtreeIds.value = []
+  selectedMasterRow.value = null
+}
+
+watch(listLayout, (layout, previous) => {
+  if (layout === 'tree') {
+    // Clear prior selection; CrmTreeTable auto-selects the first group and
+    // emits group-selected, which loads the right-panel items.
+    clearTreeGroupSelection()
+    return
+  }
+  if (previous === 'tree') {
+    clearTreeGroupSelection()
+    if (collectionName.value && objectList.value) {
+      void loadRecords(collectionName.value, { inPlace: true })
+    }
+  }
+})
+
+watch(collectionName, () => {
+  clearTreeGroupSelection()
+})
 
 function handleViewSelected(view: SavedListView | SavedListFilter | null): void {
   selectedListFilter.value = view
@@ -1030,9 +1262,9 @@ function handleViewSelected(view: SavedListView | SavedListFilter | null): void 
     }
 
     const effectiveId = view?.id ?? ALL_RECORDS_FILTER_ID
-    const currentId = routeFilterId.value ?? (routeFilterName.value ? null : ALL_RECORDS_FILTER_ID)
-
-    if (effectiveId === currentId) {
+    // Only skip navigation when the URL already has this view id.
+    // Bare `/object/:collection` must not be treated as All records.
+    if (routeFilterId.value === effectiveId) {
       void loadRecords(collectionName.value, { inPlace: true })
       return
     }
@@ -1061,13 +1293,8 @@ async function handlePinFilter(filterId: string | null): Promise<void> {
 function handleRefreshFilterValues(): void {
   if (!collectionName.value) return
 
+  compactCardReloadToken.value += 1
   syncInteractiveFilterValues()
-  void loadRecords(collectionName.value, { inPlace: true })
-}
-
-function toggleShowArchived(): void {
-  showArchived.value = !showArchived.value
-  if (!collectionName.value) return
   void loadRecords(collectionName.value, { inPlace: true })
 }
 
@@ -1114,10 +1341,24 @@ function resolveListReportFilter(): Record<string, unknown> | null {
   return buildListFilter(conditions, filter.logic)
 }
 
-async function resolveListActionRecordIds(action: ListViewAction): Promise<string[]> {
+/** Soft cap for bulk-update id resolution (matches BFF maxRecords default). */
+const LIST_BULK_UPDATE_MAX_RECORDS = 5000
+
+/**
+ * Ids for list toolbar actions.
+ * Tree mode uses the selected Item group + nested child groups (same as the list).
+ */
+async function resolveListActionRecordIds(
+  action: ListViewAction,
+  options: { limit?: number; includeTreeSubtree?: boolean } = {},
+): Promise<string[]> {
+  const limit = options.limit ?? DOC_LIST_REPORT_MAX_RECORDS
+  // Subtree is the default list filter; flag kept for callers that still pass it.
+  void options.includeTreeSubtree
+  const treeFilter = treeGroupListFilter.value
   const pk = objectList.value?.primaryKey ?? 'id'
   if (action.recordScope === 'visible') {
-    // Visible rows already reflect the last loaded (applied) filter.
+    // Visible rows already reflect the last loaded (applied) filter + tree subtree.
     syncInteractiveFilterValues()
     return (objectList.value?.rows ?? [])
       .map((row) => row[pk])
@@ -1127,21 +1368,56 @@ async function resolveListActionRecordIds(action: ListViewAction): Promise<strin
 
   if (isRecentlyViewedFilter.value) {
     const recent = await listRecentlyViewedRecordIds(collectionName.value, {
-      limit: DOC_LIST_REPORT_MAX_RECORDS,
+      limit,
       offset: 0,
     })
-    return recent.ids.map(String)
+    let ids = recent.ids.map(String)
+    if (treeFilter) {
+      const field = treeSettings.value?.main.groupField?.trim()
+      const groupIds = selectedTreeGroupSubtreeIds.value.length
+        ? selectedTreeGroupSubtreeIds.value
+        : selectedTreeGroupId.value != null
+          ? [selectedTreeGroupId.value]
+          : []
+      const allowed = new Set(groupIds.map(String))
+      if (field && allowed.size > 0) {
+        const list = await fetchObjectRecordsByIds(
+          collectionName.value,
+          ids,
+          ids.length,
+          tableSettings.value,
+        )
+        ids = list.records
+          .filter((row) => {
+            const value = getPathValue(row, field) ?? row[field]
+            const id = scalarId(value)
+            return id != null && allowed.has(String(id))
+          })
+          .map((row) => String(row[list.primaryKey]))
+          .filter(Boolean)
+      }
+    }
+    return ids
   }
 
-  const listFilter = resolveListReportFilter()
+  // Tree layout with no group selected → nested list is empty; do not expand to all rows.
+  if (listLayout.value === 'tree' && selectedTreeGroupId.value == null) {
+    return []
+  }
+
+  const listFilter =
+    mergeRawListFilters(
+      activeListFilter.value,
+      barcodeListFilter.value,
+      treeFilter,
+    ) ?? resolveListReportFilter()
   const list = await fetchObjectRecords(
     collectionName.value,
     listFilter,
     tableSettings.value,
     {
-      limit: DOC_LIST_REPORT_MAX_RECORDS,
+      limit,
       offset: 0,
-      archivedOnly: showArchived.value,
     },
   )
   return list.records
@@ -1150,8 +1426,131 @@ async function resolveListActionRecordIds(action: ListViewAction): Promise<strin
     .map(String)
 }
 
+function runListToolbarAction(action: ListViewAction): void {
+  if (action.behavior === 'bulkUpdate') {
+    openListBulkUpdatePrompt(action)
+    return
+  }
+  void runListDocumentAction(action)
+}
+
+function openListBulkUpdatePrompt(action: ListViewAction): void {
+  if (listBulkRunning.value || !collectionName.value) return
+  pendingListBulkAction.value = action
+  listBulkPromptHeader.value = action.label
+  listBulkPromptLabel.value =
+    action.bulkUpdate?.promptLabel?.trim()
+    || t('recordDetails.actionPromptMultiplier', 'Multiplier')
+  listBulkPromptVisible.value = true
+}
+
+function onListBulkPromptConfirm(multiplier: number): void {
+  const action = pendingListBulkAction.value
+  pendingListBulkAction.value = null
+  if (!action) return
+
+  if (action.bulkUpdate?.confirmBeforeRun === false) {
+    void runListBulkUpdateConfirmed(action, multiplier)
+    return
+  }
+
+  setTimeout(() => {
+    confirm.require({
+      message: t('recordDetails.confirmActionMessage', 'Run "{label}"?', {
+        label: action.label,
+      }),
+      header: t('recordDetails.confirmActionHeader', 'Confirm Action'),
+      rejectProps: {
+        label: t('common.cancel', 'Cancel'),
+        severity: 'secondary',
+        text: true,
+      },
+      acceptProps: {
+        label: t('recordDetails.runAction', 'Run'),
+      },
+      accept: () => {
+        void runListBulkUpdateConfirmed(action, multiplier)
+      },
+    })
+  }, 0)
+}
+
+async function runListBulkUpdateConfirmed(
+  action: ListViewAction,
+  multiplier: number,
+): Promise<void> {
+  if (!collectionName.value || listBulkRunning.value) return
+  listBulkRunning.value = true
+  try {
+    if (listLayout.value === 'tree' && selectedTreeGroupId.value == null) {
+      toast.add({
+        severity: 'warn',
+        summary: t('common.warning', 'Warning'),
+        detail: t(
+          'tableSettings.listBulkSelectTreeGroup',
+          'Select a tree group to update its nested list.',
+        ),
+        life: 4000,
+      })
+      return
+    }
+
+    // Always resolve ids with the same filter stack as the nested list
+    // (list filter + barcode + selected tree group) so Tree mode is respected.
+    const recordIds = await resolveListActionRecordIds(action, {
+      limit: LIST_BULK_UPDATE_MAX_RECORDS,
+      includeTreeSubtree: true,
+    })
+    if (recordIds.length === 0) {
+      toast.add({
+        severity: 'warn',
+        summary: t('common.warning', 'Warning'),
+        detail: t(
+          'tableSettings.listBulkNoRecords',
+          'No records match the current filter.',
+        ),
+        life: 4000,
+      })
+      return
+    }
+
+    const result = await applyBulkUpdateFilteredAction(
+      action,
+      collectionName.value,
+      multiplier,
+      { recordIds, filter: null },
+    )
+    const successMessage =
+      action.bulkUpdate?.successMessage?.trim()
+      || t(
+        'recordDetails.bulkUpdateRelatedCompletedCount',
+        'Updated {updated} record(s); skipped {skipped}.',
+        { updated: result.updatedCount, skipped: result.skippedCount },
+      )
+    toast.add({
+      severity: 'success',
+      summary: t('common.success', 'Success'),
+      detail: successMessage,
+      life: 4000,
+    })
+    void loadRecords(collectionName.value, { inPlace: true })
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        err instanceof Error
+          ? err.message
+          : t('recordDetails.actionFailed', 'Action failed.'),
+      life: 6000,
+    })
+  } finally {
+    listBulkRunning.value = false
+  }
+}
+
 async function runListDocumentAction(action: ListViewAction): Promise<void> {
-  const templateId = action.document.templateId?.trim()
+  const templateId = action.document?.templateId?.trim()
   if (!templateId || !collectionName.value || listReportLoading.value) return
 
   listReportLoading.value = true
@@ -1169,11 +1568,45 @@ async function runListDocumentAction(action: ListViewAction): Promise<void> {
 
     listReportTemplateId.value = templateId
     listReportRecordIds.value = ids
-    listReportViewMode.value = action.document.viewMode === 'html' ? 'html' : 'pdf'
+    listReportViewMode.value = action.document?.viewMode === 'html' ? 'html' : 'pdf'
     const reportConditions = resolveListReportConditions()
-    listReportFilter.value = reportConditions?.length
+    let filterMeta: ListFilterMetaBlock = reportConditions?.length
       ? await buildListFilterMetaBlock(collectionName.value, reportConditions)
       : {}
+    const treeGroupField = treeSettings.value?.main.groupField?.trim() || ''
+    const isTreeMode =
+      listLayout.value === 'tree' && selectedTreeGroupId.value != null
+    if (treeGroupField) {
+      if (isTreeMode) {
+        // Tree mode: selected Groups node → meta.filter Group / Item group.
+        const labelField = treeSettings.value?.group.labelField?.trim() || 'name'
+        const groupLabel = selectedTreeGroupRecord.value
+          ? recordLabel(selectedTreeGroupRecord.value, labelField)
+          : String(selectedTreeGroupId.value)
+        filterMeta = await mergeTreeGroupIntoListFilterMeta(filterMeta, {
+          collection: collectionName.value,
+          groupField: treeGroupField,
+          groupLabel,
+          fallbackLabel: String(selectedTreeGroupId.value),
+        })
+      } else {
+        // Table mode: Item group must be null — report includes the full filtered list.
+        filterMeta = await mergeTreeGroupIntoListFilterMeta(filterMeta, {
+          collection: collectionName.value,
+          groupField: treeGroupField,
+          clear: true,
+        })
+      }
+    }
+    // Always force both common keys empty in table mode (mapping may use either label).
+    if (!isTreeMode) {
+      filterMeta = {
+        ...filterMeta,
+        Group: null,
+        'Item group': null,
+      }
+    }
+    listReportFilter.value = filterMeta
     listReportViewLabel.value = action.label
     listReportVisible.value = true
   } catch (err) {
@@ -1199,9 +1632,16 @@ async function loadPageListDetail(collection: string): Promise<void> {
     const panel = pageLayout?.listDetailPanel ?? null
     if (panel?.enabled) {
       pageListDetailPanel.value = panel
-      const content = await resolveRecordPageListDetailContent(collection, pageLayout)
-      listDetailRelatedFields.value = content.fields
-      listDetailActions.value = content.actions
+      const useFullPage =
+        panel.orientation === 'sideBySide' || panel.contentMode === 'fullPageLayout'
+      if (useFullPage) {
+        listDetailRelatedFields.value = []
+        listDetailActions.value = []
+      } else {
+        const content = await resolveRecordPageListDetailContent(collection, pageLayout)
+        listDetailRelatedFields.value = content.fields
+        listDetailActions.value = content.actions
+      }
     } else {
       pageListDetailPanel.value = null
       listDetailRelatedFields.value = []
@@ -1218,6 +1658,49 @@ async function loadPageListDetail(collection: string): Promise<void> {
   } finally {
     listDetailLoading.value = false
   }
+}
+
+function patchSelectedMasterRow(record: Record<string, unknown>): void {
+  if (!objectList.value || !selectedMasterRow.value) return
+  const pk = objectList.value.primaryKey
+  const selectedId = selectedMasterRow.value[pk]
+  const nextId = record[pk] ?? selectedId
+  if (
+    selectedId === null
+    || selectedId === undefined
+    || nextId === null
+    || nextId === undefined
+  ) {
+    return
+  }
+  if (String(selectedId) !== String(nextId) && record[pk] !== undefined) {
+    return
+  }
+  const id = String(selectedId)
+  selectedMasterRow.value = { ...selectedMasterRow.value, ...record }
+  const rows = objectList.value.rows
+  const index = rows.findIndex((row) => String(row[pk] ?? '') === String(selectedId))
+  if (index >= 0) {
+    const nextRows = rows.slice()
+    nextRows[index] = { ...rows[index], ...record }
+    objectList.value = { ...objectList.value, rows: nextRows }
+  }
+  compactCardInvalidateId.value = id
+  compactCardInvalidateToken.value += 1
+}
+
+function clearSelectedMasterRowAfterDelete(id: string | number): void {
+  if (!objectList.value) {
+    selectedMasterRow.value = null
+    return
+  }
+  const pk = objectList.value.primaryKey
+  objectList.value = {
+    ...objectList.value,
+    rows: objectList.value.rows.filter((row) => String(row[pk] ?? '') !== String(id)),
+  }
+  selectedMasterRow.value = null
+  void loadRecords(collectionName.value, { inPlace: true })
 }
 
 async function loadDefaultTableSettingsWithMeta(
@@ -1277,9 +1760,9 @@ function syncListLayoutWithAvailableSettings(): void {
 <template>
   <main
     class="app-shell"
-    :class="{ 'app-shell--master-detail': isMasterDetailLayout }"
+    :class="{ 'app-shell--master-detail': isFillHeightLayout }"
   >
-    <header class="app-header" :class="{ 'app-header--master-detail': isMasterDetailLayout }">
+    <header class="app-header" :class="{ 'app-header--master-detail': isFillHeightLayout }">
       <div class="app-header__row">
         <div class="flex-1 min-w-0">
           <RouterLink to="/" class="nav-link">
@@ -1330,7 +1813,7 @@ function syncListLayoutWithAvailableSettings(): void {
     <section
       class="workspace-pane min-h-0"
       :class="
-        isMasterDetailLayout
+        isFillHeightLayout
           ? 'workspace-pane--master-detail overflow-hidden'
           : 'overflow-visible'
       "
@@ -1372,19 +1855,120 @@ function syncListLayoutWithAvailableSettings(): void {
         <div
           v-if="listLayout === 'table' && detailPanelEnabled && !detailCollapsed"
           class="object-list-master-detail"
+          :class="{
+            'object-list-master-detail--side-by-side': listDetailOrientation === 'sideBySide',
+          }"
         >
           <Splitter
-            layout="vertical"
+            :layout="listDetailSplitterLayout"
             :state-key="splitterStateKey"
             state-storage="local"
             class="object-list-master-detail__splitter"
           >
             <SplitterPanel
               :size="masterPaneSize"
-              :min-size="25"
+              :min-size="listDetailOrientation === 'sideBySide' ? 18 : 25"
               class="object-list-master-detail__master"
             >
+              <ObjectListCompactCardList
+                v-if="listDetailOrientation === 'sideBySide'"
+                ref="sideBySideCompactListRef"
+                v-model:selection="selectedMasterRow"
+                :collection="objectList.collection"
+                :primary-key="objectList.primaryKey"
+                :rows="objectList.rows"
+                :loading="refreshingRecords || loading"
+                :has-more="listHasMore"
+                :loading-more="loadingMoreRecords"
+                :total-records="objectList.totalCount"
+                :show-new-button="false"
+                :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
+                :reload-token="compactCardReloadToken"
+                :invalidate-record-id="compactCardInvalidateId"
+                :invalidate-token="compactCardInvalidateToken"
+                @load-more="loadMoreRecords"
+                @refreshed="handleRefreshFilterValues"
+              >
+                <template #toolbar>
+                  <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                    <DataTableFilter
+                      class="flex-shrink-0"
+                      :collection="collectionName"
+                      :selected-filter-id="selectedListFilter?.id"
+                      :pinned-filter-id="pinnedFilterId"
+                      :show-builder="false"
+                      @view-selected="handleViewSelected"
+                      @pin-filter="handlePinFilter"
+                    />
+                    <ListFilterValuePanel
+                      v-if="showFilterValuePanel"
+                      v-model="draftFilterValues"
+                      class="flex-1 min-w-0"
+                      :collection="collectionName"
+                      :conditions="visibleFilterConditions"
+                      @values-change="scheduleDraftFilterReload"
+                    />
+                    <CrmBarcodeScanToolbar
+                      v-if="showBarcodeScan"
+                      ref="barcodeToolbarRefDetail"
+                      v-model:scan-mode="barcodeScanModeOn"
+                      hide-toggle
+                      class="w-full basis-full"
+                      :settings="barcodeScanSettings"
+                      :busy="barcodeScanBusy"
+                      @submit="handleBarcodeScanSubmit"
+                      @clear-filter="clearBarcodeListFilter"
+                    />
+                  </div>
+                </template>
+                <template #toolbar-actions>
+                  <CrmBarcodeScanToolbar
+                    v-if="showBarcodeScan"
+                    v-model:scan-mode="barcodeScanModeOn"
+                    toggle-only
+                    :settings="barcodeScanSettings"
+                    :busy="barcodeScanBusy"
+                  />
+                  <div class="flex items-center gap-2">
+                    <ToggleSwitch
+                      v-model="showDetailPanel"
+                      input-id="object-list-show-detail-master"
+                    />
+                    <label for="object-list-show-detail-master" class="text-[0.85rem] whitespace-nowrap">
+                      {{ t('objectList.showDetail', 'Show detail') }}
+                    </label>
+                  </div>
+                  <Button
+                    type="button"
+                    icon="pi pi-refresh"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :loading="refreshingRecords"
+                    :aria-label="t('common.refresh', 'Refresh')"
+                    v-tooltip.bottom="t('common.refresh', 'Refresh')"
+                    @click="handleRefreshFilterValues"
+                  />
+                  <Button
+                    v-if="showSideBySideActionsMenu"
+                    type="button"
+                    icon="pi pi-chevron-down"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :aria-label="t('objectList.moreActions', 'More actions')"
+                    :aria-haspopup="true"
+                    @click="toggleSideBySideActionsMenu"
+                  />
+                  <Menu
+                    ref="sideBySideActionsMenu"
+                    :model="sideBySideActionItems"
+                    popup
+                  />
+                </template>
+              </ObjectListCompactCardList>
               <CrmDataTable
+                v-else
                 v-bind="crmDataTableProps"
                 v-model:selection="selectedMasterRow"
                 selection-mode="single"
@@ -1394,7 +1978,7 @@ function syncListLayoutWithAvailableSettings(): void {
                 :collection="objectList.collection"
                 :primary-key="objectList.primaryKey"
                 :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
-                :show-new-button="!showArchived"
+                show-new-button
                 show-delete-button
                 :loading="refreshingRecords"
                 @view-record="openRecord"
@@ -1448,11 +2032,11 @@ function syncListLayoutWithAvailableSettings(): void {
                     v-for="action in listToolbarActions"
                     :key="action.id"
                     :label="action.label"
-                    icon="pi pi-file"
+                    :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
                     size="small"
                     severity="secondary"
-                    :loading="listReportLoading"
-                    @click="runListDocumentAction(action)"
+                    :loading="listReportLoading || listBulkRunning"
+                    @click="runListToolbarAction(action)"
                   />
                   <Button
                     v-if="isScheduleTemplateCollection"
@@ -1462,26 +2046,15 @@ function syncListLayoutWithAvailableSettings(): void {
                     severity="secondary"
                     @click="slotGeneratorVisible = true"
                   />
-                  <Button
-                    :label="
-                      showArchived
-                        ? t('objectList.hideArchived', 'Hide archived')
-                        : t('objectList.showArchived', 'Show archived')
-                    "
-                    :icon="showArchived ? 'pi pi-inbox' : 'pi pi-folder-open'"
-                    size="small"
-                    severity="secondary"
-                    :outlined="!showArchived"
-                    @click="toggleShowArchived"
-                  />
-                  <Button
-                    :label="t('objectList.hideDetail', 'Hide detail')"
-                    icon="pi pi-chevron-down"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    @click="toggleDetailCollapsed"
-                  />
+                  <div class="flex items-center gap-2">
+                    <ToggleSwitch
+                      v-model="showDetailPanel"
+                      input-id="object-list-show-detail-master-table"
+                    />
+                    <label for="object-list-show-detail-master-table" class="text-[0.85rem] whitespace-nowrap">
+                      {{ t('objectList.showDetail', 'Show detail') }}
+                    </label>
+                  </div>
                   <Button
                     :label="t('common.refresh', 'Refresh')"
                     icon="pi pi-refresh"
@@ -1498,8 +2071,15 @@ function syncListLayoutWithAvailableSettings(): void {
               :min-size="detailPaneMinSize"
               class="object-list-master-detail__detail"
             >
+              <ObjectListFullPageDetail
+                v-if="detailPanelEnabled && usesFullPageListDetail"
+                :collection="collectionName"
+                :parent-id="selectedParentId"
+                @record-updated="patchSelectedMasterRow"
+                @record-deleted="clearSelectedMasterRowAfterDelete"
+              />
               <ObjectListDetailPanel
-                v-if="detailPanelEnabled"
+                v-else-if="detailPanelEnabled"
                 :collection="collectionName"
                 :related-fields="usesPageListDetail ? listDetailRelatedFields : undefined"
                 :detail-actions="usesPageListDetail ? listDetailActions : undefined"
@@ -1517,15 +2097,13 @@ function syncListLayoutWithAvailableSettings(): void {
         <CrmDataTable
           v-else-if="listLayout === 'table'"
           v-bind="crmDataTableProps"
-          v-model:selection="selectedMasterRow"
-          :selection-mode="detailPanelEnabled ? 'single' : null"
           :record-link-field="tableSettings?.recordLinkField ?? null"
           :inline-edit-refresh="tableSettings?.inlineEditRefresh ?? 'off'"
           :inline-edit-refresh-fields="tableSettings?.inlineEditRefreshFields ?? []"
           :collection="objectList.collection"
           :primary-key="objectList.primaryKey"
           :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
-          :show-new-button="!showArchived"
+          show-new-button
           show-delete-button
           :loading="refreshingRecords"
           @view-record="openRecord"
@@ -1579,11 +2157,11 @@ function syncListLayoutWithAvailableSettings(): void {
               v-for="action in listToolbarActions"
               :key="action.id"
               :label="action.label"
-              icon="pi pi-file"
+              :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
               size="small"
               severity="secondary"
-              :loading="listReportLoading"
-              @click="runListDocumentAction(action)"
+              :loading="listReportLoading || listBulkRunning"
+              @click="runListToolbarAction(action)"
             />
             <Button
               v-if="isScheduleTemplateCollection"
@@ -1593,27 +2171,18 @@ function syncListLayoutWithAvailableSettings(): void {
               severity="secondary"
               @click="slotGeneratorVisible = true"
             />
-            <Button
-              :label="
-                showArchived
-                  ? t('objectList.hideArchived', 'Hide archived')
-                  : t('objectList.showArchived', 'Show archived')
-              "
-              :icon="showArchived ? 'pi pi-inbox' : 'pi pi-folder-open'"
-              size="small"
-              severity="secondary"
-              :outlined="!showArchived"
-              @click="toggleShowArchived"
-            />
-            <Button
+            <div
               v-if="detailPanelEnabled"
-              :label="t('objectList.showDetail', 'Show detail')"
-              icon="pi pi-chevron-up"
-              size="small"
-              severity="secondary"
-              outlined
-              @click="toggleDetailCollapsed"
-            />
+              class="flex items-center gap-2"
+            >
+              <ToggleSwitch
+                v-model="showDetailPanel"
+                input-id="object-list-show-detail"
+              />
+              <label for="object-list-show-detail" class="text-[0.85rem] whitespace-nowrap">
+                {{ t('objectList.showDetail', 'Show detail') }}
+              </label>
+            </div>
             <Button
               :label="t('common.refresh', 'Refresh')"
               icon="pi pi-refresh"
@@ -1623,15 +2192,251 @@ function syncListLayoutWithAvailableSettings(): void {
             />
           </template>
         </CrmDataTable>
-        <CrmTreeTable
+        <div
           v-else-if="listLayout === 'tree' && treeSettings"
-          :settings="treeSettings"
-          :filter="activeListFilter"
-          mode="browse"
-          @item-selected="openTreeRecord"
-        />
+          class="object-list-tree-layout"
+        >
+          <Splitter
+            :state-key="treeLayoutSplitterKey"
+            state-storage="local"
+            class="object-list-tree-layout__splitter"
+          >
+            <SplitterPanel
+              :size="28"
+              :min-size="16"
+              class="object-list-tree-layout__groups"
+            >
+              <CrmTreeTable
+                ref="treeGroupsRef"
+                class="object-list-tree"
+                groups-only
+                :settings="treeSettings"
+                mode="browse"
+                @group-selected="handleTreeGroupSelected"
+                @item-moved="handleTreeItemMoved"
+              />
+            </SplitterPanel>
+            <SplitterPanel
+              :size="72"
+              :min-size="30"
+              class="object-list-tree-layout__items"
+            >
+              <p
+                v-if="!treeItemsReady"
+                class="text-muted-color text-[0.85rem] m-0 p-3"
+              >
+                {{ t('treeTable.selectGroup', 'Select a group.') }}
+              </p>
+              <div
+                v-else-if="detailPanelEnabled && !detailCollapsed"
+                class="object-list-master-detail"
+              >
+                <Splitter
+                  layout="vertical"
+                  :state-key="splitterStateKey"
+                  state-storage="local"
+                  class="object-list-master-detail__splitter"
+                >
+                  <SplitterPanel
+                    :size="masterPaneSize"
+                    :min-size="25"
+                    class="object-list-master-detail__master"
+                  >
+                    <CrmDataTable
+                      v-bind="crmDataTableProps"
+                      v-model:selection="selectedMasterRow"
+                      selection-mode="single"
+                      :record-link-field="tableSettings?.recordLinkField ?? null"
+                      :inline-edit-refresh="tableSettings?.inlineEditRefresh ?? 'off'"
+                      :inline-edit-refresh-fields="tableSettings?.inlineEditRefreshFields ?? []"
+                      :collection="objectList.collection"
+                      :primary-key="objectList.primaryKey"
+                      :parent-name="treeSettings.main.groupField"
+                      :parent-id="selectedTreeGroupId ?? undefined"
+                      :parent-collection="treeSettings.group.collection"
+                      :parent-record="selectedTreeGroupRecord ?? undefined"
+                      :filter-rows-by-parent="false"
+                      :empty-message="t('treeTable.noItemsForGroup', 'No items for selected group.')"
+                      show-new-button
+                      show-delete-button
+                      :loading="refreshingRecords"
+                      :row-draggable="canDragTreeItems"
+                      @view-record="openRecord"
+                      @update:rows="updateRows"
+                      @page-size-change="handlePageSizeChange"
+                      @load-more="loadMoreRecords"
+                      @sort-change="handleSortChange"
+                      @record-restored="handleTreeItemsChanged"
+                      @record-created="handleTreeItemsChanged"
+                      @record-deleted="handleTreeItemsChanged"
+                    >
+                      <template #toolbar>
+                        <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                          <DataTableFilter
+                            class="flex-shrink-0"
+                            :collection="collectionName"
+                            :selected-filter-id="selectedListFilter?.id"
+                            :pinned-filter-id="pinnedFilterId"
+                            :show-builder="false"
+                            @view-selected="handleViewSelected"
+                            @pin-filter="handlePinFilter"
+                          />
+                          <ListFilterValuePanel
+                            v-if="showFilterValuePanel"
+                            v-model="draftFilterValues"
+                            class="flex-1 min-w-0"
+                            :collection="collectionName"
+                            :conditions="visibleFilterConditions"
+                            @values-change="scheduleDraftFilterReload"
+                          />
+                        </div>
+                      </template>
+                      <template #toolbar-actions>
+                        <Button
+                          v-for="action in listToolbarActions"
+                          :key="action.id"
+                          :label="action.label"
+                          :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
+                          size="small"
+                          severity="secondary"
+                          :loading="listReportLoading || listBulkRunning"
+                          @click="runListToolbarAction(action)"
+                        />
+                        <div
+                          v-if="detailPanelEnabled"
+                          class="flex items-center gap-2"
+                        >
+                          <ToggleSwitch
+                            v-model="showDetailPanel"
+                            input-id="object-list-show-detail-tree"
+                          />
+                          <label for="object-list-show-detail-tree" class="text-[0.85rem] whitespace-nowrap">
+                            {{ t('objectList.showDetail', 'Show detail') }}
+                          </label>
+                        </div>
+                        <Button
+                          :label="t('common.refresh', 'Refresh')"
+                          icon="pi pi-refresh"
+                          size="small"
+                          :loading="refreshingRecords"
+                          @click="handleRefreshFilterValues"
+                        />
+                      </template>
+                    </CrmDataTable>
+                  </SplitterPanel>
+                  <SplitterPanel
+                    :size="detailPaneSize"
+                    :min-size="detailPaneMinSize"
+                    class="object-list-master-detail__detail"
+                  >
+                    <ObjectListFullPageDetail
+                      v-if="detailPanelEnabled && usesFullPageListDetail"
+                      :collection="collectionName"
+                      :parent-id="selectedParentId"
+                      @record-updated="patchSelectedMasterRow"
+                      @record-deleted="clearSelectedMasterRowAfterDelete"
+                    />
+                    <ObjectListDetailPanel
+                      v-else-if="detailPanelEnabled"
+                      :collection="collectionName"
+                      :related-fields="usesPageListDetail ? listDetailRelatedFields : undefined"
+                      :detail-actions="usesPageListDetail ? listDetailActions : undefined"
+                      :detail-panel="usesPageListDetail ? null : legacyDetailPanelConfig"
+                      :loading="usesPageListDetail ? listDetailLoading : undefined"
+                      :load-error="usesPageListDetail ? listDetailLoadError : undefined"
+                      :parent-id="selectedParentId"
+                      :parent-record="selectedMasterRow"
+                      @view-record="openDetailRelatedRecord"
+                    />
+                  </SplitterPanel>
+                </Splitter>
+              </div>
+              <CrmDataTable
+                v-else
+                v-bind="crmDataTableProps"
+                :record-link-field="tableSettings?.recordLinkField ?? null"
+                :inline-edit-refresh="tableSettings?.inlineEditRefresh ?? 'off'"
+                :inline-edit-refresh-fields="tableSettings?.inlineEditRefreshFields ?? []"
+                :collection="objectList.collection"
+                :primary-key="objectList.primaryKey"
+                :parent-name="treeSettings.main.groupField"
+                :parent-id="selectedTreeGroupId ?? undefined"
+                :parent-collection="treeSettings.group.collection"
+                :parent-record="selectedTreeGroupRecord ?? undefined"
+                :filter-rows-by-parent="false"
+                :empty-message="t('treeTable.noItemsForGroup', 'No items for selected group.')"
+                show-new-button
+                show-delete-button
+                :loading="refreshingRecords"
+                :row-draggable="canDragTreeItems"
+                @view-record="openRecord"
+                @update:rows="updateRows"
+                @page-size-change="handlePageSizeChange"
+                @load-more="loadMoreRecords"
+                @sort-change="handleSortChange"
+                @record-restored="handleTreeItemsChanged"
+                @record-created="handleTreeItemsChanged"
+                @record-deleted="handleTreeItemsChanged"
+              >
+                <template #toolbar>
+                  <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                    <DataTableFilter
+                      class="flex-shrink-0"
+                      :collection="collectionName"
+                      :selected-filter-id="selectedListFilter?.id"
+                      :pinned-filter-id="pinnedFilterId"
+                      :show-builder="false"
+                      @view-selected="handleViewSelected"
+                      @pin-filter="handlePinFilter"
+                    />
+                    <ListFilterValuePanel
+                      v-if="showFilterValuePanel"
+                      v-model="draftFilterValues"
+                      class="flex-1 min-w-0"
+                      :collection="collectionName"
+                      :conditions="visibleFilterConditions"
+                      @values-change="scheduleDraftFilterReload"
+                    />
+                  </div>
+                </template>
+                <template #toolbar-actions>
+                  <Button
+                    v-for="action in listToolbarActions"
+                    :key="action.id"
+                    :label="action.label"
+                    :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
+                    size="small"
+                    severity="secondary"
+                    :loading="listReportLoading || listBulkRunning"
+                    @click="runListToolbarAction(action)"
+                  />
+                  <div
+                    v-if="detailPanelEnabled"
+                    class="flex items-center gap-2"
+                  >
+                    <ToggleSwitch
+                      v-model="showDetailPanel"
+                      input-id="object-list-show-detail-tree-table"
+                    />
+                    <label for="object-list-show-detail-tree-table" class="text-[0.85rem] whitespace-nowrap">
+                      {{ t('objectList.showDetail', 'Show detail') }}
+                    </label>
+                  </div>
+                  <Button
+                    :label="t('common.refresh', 'Refresh')"
+                    icon="pi pi-refresh"
+                    size="small"
+                    :loading="refreshingRecords"
+                    @click="handleRefreshFilterValues"
+                  />
+                </template>
+              </CrmDataTable>
+            </SplitterPanel>
+          </Splitter>
+        </div>
         <CrmScheduler
           v-else-if="listLayout === 'scheduler' && schedulerSettings"
+          class="object-list-scheduler"
           :settings="schedulerSettings"
         />
         <Message
@@ -1668,6 +2473,13 @@ function syncListLayoutWithAvailableSettings(): void {
       :filter="listReportFilter"
       :view-label="listReportViewLabel"
     />
+
+    <ActionNumberPromptDialog
+      v-model:visible="listBulkPromptVisible"
+      :header="listBulkPromptHeader"
+      :label="listBulkPromptLabel"
+      @confirm="onListBulkPromptConfirm"
+    />
   </main>
 </template>
 
@@ -1692,6 +2504,76 @@ function syncListLayoutWithAvailableSettings(): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.workspace-pane--master-detail :deep(.object-list-tree-layout),
+.workspace-pane--master-detail :deep(.object-list-tree),
+.workspace-pane--master-detail :deep(.object-list-scheduler) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.object-list-tree-layout {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.object-list-tree-layout__splitter {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: none;
+  background: transparent;
+}
+
+.object-list-tree-layout__splitter :deep(.p-splitter) {
+  height: 100%;
+  min-height: 0;
+}
+
+.object-list-tree-layout__splitter :deep(.p-splitter-panel) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.object-list-tree-layout__groups,
+.object-list-tree-layout__items {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.object-list-tree-layout__items :deep(.crm-data-table-wrap) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.object-list-tree-layout__items :deep(.crm-data-table__toolbar) {
+  flex: 0 0 auto;
+}
+
+.object-list-tree-layout__items :deep(.crm-data-table__scroll-panel) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.object-list-tree-layout__items .object-list-master-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
 }
 
 .object-list-master-detail {
@@ -1728,6 +2610,12 @@ function syncListLayoutWithAvailableSettings(): void {
   overflow: hidden;
 }
 
+.object-list-master-detail--side-by-side .object-list-master-detail__master,
+.object-list-master-detail--side-by-side .object-list-master-detail__detail {
+  min-width: 0;
+  width: 100%;
+}
+
 .object-list-master-detail__master :deep(.crm-data-table-wrap) {
   display: flex;
   flex: 1 1 auto;
@@ -1745,7 +2633,14 @@ function syncListLayoutWithAvailableSettings(): void {
   min-height: 0;
 }
 
-.object-list-master-detail__detail :deep(.object-list-detail-panel) {
+.object-list-master-detail__detail :deep(.object-list-detail-panel),
+.object-list-master-detail__detail :deep(.object-list-full-page-detail) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.object-list-master-detail__master :deep(.object-list-compact-cards) {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;

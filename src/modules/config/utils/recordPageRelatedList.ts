@@ -94,6 +94,7 @@ export async function resolveRelatedListDataTableField(
     const { fields } = await resolveRecordPageListDetailContent(
       parentCollection,
       pageLayout,
+      { respectRelatedListsSource: false },
     )
     for (const field of fields) {
       const hit = consider(field)
@@ -184,10 +185,13 @@ function pushUniqueField(
 /**
  * Related lists for the object-list Detail panel: every Related List / Files component
  * plus related fields from Detail Block Layouts placed on the Page Layout.
+ * When `listDetailPanel.relatedListsSource` is `block`, only related fields from the
+ * selected Block Layout Setting are used (unless `respectRelatedListsSource` is false).
  */
 export async function resolveRecordPageListDetailContent(
   collection: string,
   pageLayout: RecordPageLayoutSchema | null | undefined,
+  options?: { respectRelatedListsSource?: boolean },
 ): Promise<{ fields: LayoutFieldMetadata[]; actions: EntityAction[] }> {
   if (!pageLayout) return { fields: [], actions: [] }
 
@@ -195,6 +199,7 @@ export async function resolveRecordPageListDetailContent(
   const seen = new Set<string>()
   const blockLayoutCache: Record<string, EntityLayoutSchema | null> = {}
   let actions: EntityAction[] = []
+  const respectRelatedListsSource = options?.respectRelatedListsSource !== false
 
   async function loadBlock(layoutId: string | null | undefined): Promise<EntityLayoutSchema | null> {
     const id = layoutId?.trim()
@@ -215,6 +220,27 @@ export async function resolveRecordPageListDetailContent(
     if (defaultSchema?.actions?.length) {
       actions = defaultSchema.actions
     }
+  }
+
+  const source =
+    respectRelatedListsSource && pageLayout.listDetailPanel?.relatedListsSource === 'block'
+      ? 'block'
+      : 'all'
+
+  if (source === 'block') {
+    const blockLayoutId = pageLayout.listDetailPanel?.relatedListsBlockId?.trim() || null
+    if (!blockLayoutId) return { fields, actions }
+
+    const schema = await loadBlock(blockLayoutId)
+    if (!schema) return { fields, actions }
+
+    if (!actions.length && schema.actions?.length) {
+      actions = schema.actions
+    }
+    for (const field of listBlockLayoutRelatedListFields(schema)) {
+      pushUniqueField(fields, seen, field)
+    }
+    return { fields, actions }
   }
 
   const components: RecordPageComponent[] = []

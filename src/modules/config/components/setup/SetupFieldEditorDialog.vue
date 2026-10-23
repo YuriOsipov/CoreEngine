@@ -91,10 +91,14 @@ const form = reactive({
   onDelete: 'RESTRICT' as 'CASCADE' | 'SET NULL' | 'RESTRICT',
   applyDdl: true,
   defaultValue: null as string | number | boolean | null,
+  /** `item.base_price` path (or legacy bare name) copied on create when source M2O / parent is set. */
+  defaultFromParent: '',
   choices: [] as ChoiceRow[],
   dateFormat: 'short',
   dateFormatCustom: '',
   currencySuffix: '',
+  /** NUMERIC Size (precision); Decimals = scale. */
+  numericPrecision: 18,
   decimalPlaces: 2,
   jsonColumns: [] as JsonColumnRow[],
   picklistMode: 'static' as 'static' | 'dynamic',
@@ -122,6 +126,8 @@ const childLookupFieldOptions = ref<Array<{ label: string; value: string }>>([])
 const childFieldsLoading = ref(false)
 const relatedChildEntityOptions = ref<Array<{ label: string; value: string }>>([])
 const relatedChildrenLoading = ref(false)
+const parentDefaultFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const parentDefaultFieldsLoading = ref(false)
 const apiNameTouched = ref(false)
 /** Literal child-record filters for live rollups (e.g. status = Draft). */
 const rollupFilterPairs = ref<FilterPair[]>([])
@@ -486,9 +492,22 @@ const isPicklist = computed(
   () => normalizeFieldInterface(form.interface) === 'select-dropdown',
 )
 const isCurrency = computed(() => form.interface === 'currency')
+const isFloatStorage = computed(() => storageType.value === 'FLOAT')
 const isDateLike = computed(
   () => storageType.value === 'DATE' || storageType.value === 'DATETIME',
 )
+
+function clampNumericPrecision(raw: unknown): number {
+  const n = Math.trunc(Number(raw))
+  if (!Number.isFinite(n)) return 18
+  return Math.min(38, Math.max(1, n))
+}
+
+function clampNumericScale(raw: unknown, precision: number): number {
+  const n = Math.trunc(Number(raw))
+  if (!Number.isFinite(n)) return Math.min(2, precision)
+  return Math.min(precision, Math.max(0, n))
+}
 const showDefaultValue = computed(
   () =>
     !form.isLookup &&
@@ -1157,6 +1176,121 @@ async function loadChildFields(childEntity: string | null): Promise<void> {
   }
 }
 
+function isCompatibleParentDefaultType(
+  parentFieldType: string,
+  targetType: string,
+): boolean {
+  const parent = parentFieldType.toUpperCase()
+  const target = targetType.toUpperCase()
+  if (target === 'DATE' || target === 'DATETIME' || target === 'TIMESTAMP') {
+    return parent === 'DATE' || parent === 'DATETIME' || parent === 'TIMESTAMP'
+  }
+  if (
+    target === 'INTEGER' ||
+    target === 'BIGINTEGER' ||
+    target === 'FLOAT' ||
+    target === 'DECIMAL'
+  ) {
+    return (
+      parent === 'INTEGER' ||
+      parent === 'BIGINTEGER' ||
+      parent === 'FLOAT' ||
+      parent === 'DECIMAL'
+    )
+  }
+  if (target === 'BOOLEAN') return parent === 'BOOLEAN'
+  if (target === 'UUID') return parent === 'UUID'
+  if (parent === 'JSON' || parent === 'ALIAS' || parent === 'UUID') return false
+  return true
+}
+
+async function loadParentDefaultFieldOptions(): Promise<void> {
+  if (!showDefaultValue.value) {
+    parentDefaultFieldOptions.value = []
+    return
+  }
+  const collection = props.collection?.trim()
+  if (!collection) {
+    parentDefaultFieldOptions.value = []
+    return
+  }
+
+  parentDefaultFieldsLoading.value = true
+  try {
+    const { relations } = await fetchEntityFieldsAndRelations(collection)
+    const m2oParents = relations.filter(
+      (relation) =>
+        relation.kind === 'M2O' &&
+        Boolean(relation.relatedEntityApiName?.trim()),
+    )
+    const entityLabel = new Map(
+      props.entityOptions.map((opt) => [opt.value, opt.label]),
+    )
+    const options: Array<{ label: string; value: string }> = []
+    const seenValues = new Set<string>()
+    const targetType = storageType.value
+
+    for (const relation of m2oParents) {
+      const related = relation.relatedEntityApiName!.trim()
+      const relationField = relation.fieldApiName?.trim()
+      if (!relationField) continue
+      const parentLabel = entityLabel.get(related) || related
+      const { fields, relations: parentRelations } =
+        await fetchEntityFieldsAndRelations(related)
+      const relationFields = new Set(
+        parentRelations
+          .filter((item) => item.kind === 'M2O' || item.kind === 'M2M')
+          .map((item) => item.fieldApiName),
+      )
+
+      for (const field of fields) {
+        if (!field.apiName || field.apiName === 'id') continue
+        if (relationFields.has(field.apiName)) continue
+        if (field.relationKind === 'M2O' || field.relationKind === 'M2M') continue
+        if (!isCompatibleParentDefaultType(field.type, targetType)) continue
+        // Path includes the child M2O field so Item.base_price ≠ Opportunity.base_price
+        // and runtime can copy when that M2O is selected (not only related-list parent).
+        const value = `${relationField}.${field.apiName}`
+        if (seenValues.has(value)) continue
+        seenValues.add(value)
+        options.push({
+          label: `${parentLabel} (${relationField}) · ${field.label} (${field.apiName})`,
+          value,
+        })
+      }
+    }
+
+    let selected = form.defaultFromParent.trim()
+    // Upgrade legacy bare field names (e.g. `base_price`) to `item.base_price` when unique.
+    if (selected && !selected.includes('.')) {
+      const matches = options.filter((option) => {
+        const fieldPart = option.value.split('.').pop() ?? ''
+        return fieldPart === selected
+      })
+      if (matches.length === 1) {
+        selected = matches[0].value
+        form.defaultFromParent = selected
+      }
+    }
+    if (selected && !options.some((option) => option.value === selected)) {
+      options.unshift({ label: selected, value: selected })
+    }
+
+    parentDefaultFieldOptions.value = options.sort((a, b) =>
+      a.label.localeCompare(b.label),
+    )
+  } catch {
+    parentDefaultFieldOptions.value = form.defaultFromParent.trim()
+      ? [{
+          label: form.defaultFromParent.trim(),
+          value: form.defaultFromParent.trim(),
+        }]
+      : []
+  } finally {
+    parentDefaultFieldsLoading.value = false
+  }
+}
+
 function resetFromProps(): void {
   apiNameTouched.value = props.mode === 'edit'
   if (props.mode === 'edit' && props.field) {
@@ -1233,6 +1367,10 @@ function resetFromProps(): void {
     form.sort = props.field.sort
     form.applyDdl = true
     form.defaultValue = readDefaultFromOptions(options)
+    form.defaultFromParent =
+      typeof options.defaultFromParent === 'string'
+        ? options.defaultFromParent.trim()
+        : ''
     form.choices = parseChoices(options)
     const choiceSource = parseDynamicPicklistSource(options.choiceSource)
     form.picklistMode = choiceSource ? 'dynamic' : 'static'
@@ -1285,7 +1423,7 @@ function resetFromProps(): void {
       form.interface = 'select-dropdown'
     }
     if (
-      (options.suffix || options.currency || options.decimalPlaces != null) &&
+      (options.suffix || options.currency) &&
       storageType.value === 'FLOAT' &&
       !String(form.interface).toLowerCase().includes('currency')
     ) {
@@ -1308,10 +1446,11 @@ function resetFromProps(): void {
       form.dateFormatCustom = format
     }
     form.currencySuffix = String(options.suffix ?? options.currency ?? '')
-    form.decimalPlaces = Number(
-      options.decimalPlaces ?? options.minFractionDigits ?? 2,
+    form.numericPrecision = clampNumericPrecision(options.precision ?? 18)
+    form.decimalPlaces = clampNumericScale(
+      options.scale ?? options.decimalPlaces ?? options.minFractionDigits ?? 2,
+      form.numericPrecision,
     )
-    if (!Number.isFinite(form.decimalPlaces)) form.decimalPlaces = 2
     form.jsonColumns = parseJsonColumns(options)
     ensureInterfaceValid()
     if (form.picklistMode === 'dynamic') {
@@ -1329,6 +1468,7 @@ function resetFromProps(): void {
     }
     void loadRelatedChildEntities()
     void loadChildFields(form.rollupChildEntity)
+    void loadParentDefaultFieldOptions()
     void resetChildLookupFromStored()
     return
   }
@@ -1350,6 +1490,7 @@ function resetFromProps(): void {
   form.onDelete = 'RESTRICT'
   form.applyDdl = true
   form.defaultValue = null
+  form.defaultFromParent = ''
   form.choices = []
   form.picklistMode = 'static'
   form.dynamicRelationField = ''
@@ -1368,6 +1509,7 @@ function resetFromProps(): void {
   form.dateFormat = 'short'
   form.dateFormatCustom = ''
   form.currencySuffix = ''
+  form.numericPrecision = 18
   form.decimalPlaces = 2
   form.jsonColumns = []
   form.formulaTemplate = ''
@@ -1383,6 +1525,8 @@ function resetFromProps(): void {
   childFieldOptions.value = []
   childLookupFieldOptions.value = []
   relatedChildEntityOptions.value = []
+  parentDefaultFieldOptions.value = []
+  void loadParentDefaultFieldOptions()
   void resetChildLookupFromStored()
 }
 
@@ -1476,14 +1620,20 @@ function buildOptionsAndDisplay(): {
     }
   }
 
-  if (isCurrency.value) {
-    if (form.currencySuffix.trim()) {
-      options.suffix = form.currencySuffix.trim()
-    }
-    const places = Math.min(6, Math.max(0, Math.trunc(Number(form.decimalPlaces) || 0)))
-    options.decimalPlaces = places
-    options.minFractionDigits = places
-    options.maxFractionDigits = places
+  if (isFloatStorage.value) {
+    const precision = clampNumericPrecision(form.numericPrecision)
+    const scale = clampNumericScale(form.decimalPlaces, precision)
+    form.numericPrecision = precision
+    form.decimalPlaces = scale
+    options.precision = precision
+    options.scale = scale
+    options.decimalPlaces = scale
+    options.minFractionDigits = scale
+    options.maxFractionDigits = scale
+  }
+
+  if (isCurrency.value && form.currencySuffix.trim()) {
+    options.suffix = form.currencySuffix.trim()
   }
 
   if (isDateLike.value) {
@@ -1499,6 +1649,10 @@ function buildOptionsAndDisplay(): {
     const coerced = coerceDefaultValue(form.defaultValue, storageType.value)
     if (coerced !== undefined) {
       options.default = coerced
+    }
+    const fromParent = form.defaultFromParent.trim()
+    if (fromParent) {
+      options.defaultFromParent = fromParent
     }
   }
 
@@ -1628,6 +1782,15 @@ watch(
     if (previous && previous !== child) {
       rollupFilterPairs.value = []
     }
+  },
+)
+
+watch(
+  () =>
+    [props.visible, props.collection, storageType.value, showDefaultValue.value] as const,
+  ([visible]) => {
+    if (!visible) return
+    void loadParentDefaultFieldOptions()
   },
 )
 
@@ -2408,15 +2571,23 @@ function submit(): void {
       </div>
 
       <div
-        v-if="isCurrency"
-        class="setup-field-editor__currency grid gap-3"
+        v-if="isFloatStorage"
+        class="setup-field-editor__numeric grid gap-3"
       >
         <div class="flex flex-col gap-1 min-w-0">
-          <label>{{ t('setup.fields.currencySuffix', 'Currency suffix') }}</label>
-          <InputText
-            v-model="form.currencySuffix"
+          <label>{{ t('setup.fields.numericSize', 'Size') }}</label>
+          <InputNumber
+            v-model="form.numericPrecision"
             class="w-full"
-            placeholder="₴ / USD / €"
+            :min="1"
+            :max="38"
+            show-buttons
+            @update:model-value="
+              form.decimalPlaces = clampNumericScale(
+                form.decimalPlaces,
+                clampNumericPrecision($event),
+              )
+            "
           />
         </div>
         <div class="flex flex-col gap-1 min-w-0">
@@ -2425,10 +2596,22 @@ function submit(): void {
             v-model="form.decimalPlaces"
             class="w-full"
             :min="0"
-            :max="6"
+            :max="clampNumericPrecision(form.numericPrecision)"
             show-buttons
           />
         </div>
+      </div>
+
+      <div
+        v-if="isCurrency"
+        class="setup-field-editor__currency flex flex-col gap-1"
+      >
+        <label>{{ t('setup.fields.currencySuffix', 'Currency suffix') }}</label>
+        <InputText
+          v-model="form.currencySuffix"
+          class="w-full"
+          placeholder="₴ / USD / €"
+        />
       </div>
 
       <div
@@ -2475,6 +2658,41 @@ function submit(): void {
           autocomplete="off"
           @update:model-value="form.defaultValue = $event ?? null"
         />
+      </div>
+
+      <div
+        v-if="showDefaultValue"
+        class="flex flex-col gap-1"
+      >
+        <label>{{ t('setup.fields.defaultFromParent', 'Default from parent field') }}</label>
+        <Select
+          :model-value="form.defaultFromParent || null"
+          :options="parentDefaultFieldOptions"
+          option-label="label"
+          option-value="value"
+          show-clear
+          filter
+          class="w-full"
+          :loading="parentDefaultFieldsLoading"
+          :placeholder="t('setup.fields.defaultValueNone', 'None')"
+          :empty-message="
+            t(
+              'setup.fields.defaultFromParentEmpty',
+              'No matching fields on related (M2O) parents.',
+            )
+          "
+          @update:model-value="
+            form.defaultFromParent = typeof $event === 'string' ? $event : ''
+          "
+        />
+        <p class="m-0 text-sm text-muted-color">
+          {{
+            t(
+              'setup.fields.defaultFromParentHint',
+              'Create only (not on edit). Copies from the related-list parent, or from a selected M2O (e.g. Item → Base price) when that lookup is set.',
+            )
+          }}
+        </p>
       </div>
 
       <div class="flex flex-wrap gap-x-4 gap-y-2">
@@ -2638,11 +2856,11 @@ function submit(): void {
   max-width: 100%;
 }
 
-.setup-field-editor__currency {
-  grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 9rem);
+.setup-field-editor__numeric {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
-.setup-field-editor__currency :deep(.p-inputnumber) {
+.setup-field-editor__numeric :deep(.p-inputnumber) {
   width: 100%;
 }
 

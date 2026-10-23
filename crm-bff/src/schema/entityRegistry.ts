@@ -82,6 +82,9 @@ interface SystemFieldSeed {
   isIndexed?: boolean
 }
 
+/** Schedule templates keep Status (published / draft / archived) for slot generation. */
+const SCHEDULE_TEMPLATE_API_NAME = 'crm_schedule_template'
+
 const SYSTEM_FIELDS: SystemFieldSeed[] = [
   {
     apiName: 'id',
@@ -104,22 +107,23 @@ const SYSTEM_FIELDS: SystemFieldSeed[] = [
     isIndexed: true,
   },
   {
-    apiName: 'status',
-    label: 'Status',
-    fieldType: 'STRING',
-    interface: 'select-dropdown',
-    readonly: false,
-    hidden: false,
+    apiName: 'is_deleted',
+    label: 'Is Deleted',
+    fieldType: 'BOOLEAN',
+    interface: 'boolean',
+    readonly: true,
+    hidden: true,
     sort: 10,
+    isIndexed: true,
   },
   {
-    apiName: 'sort',
-    label: 'Sort',
-    fieldType: 'INTEGER',
-    interface: 'input',
+    apiName: 'is_active',
+    label: 'Is Active',
+    fieldType: 'BOOLEAN',
+    interface: 'boolean',
     readonly: false,
     hidden: false,
-    sort: 20,
+    sort: 15,
   },
   {
     apiName: 'user_created',
@@ -181,11 +185,30 @@ const JUNCTION_SYSTEM_FIELDS: SystemFieldSeed[] = [
   },
 ]
 
+/** Status stays only on schedule templates. */
+const STATUS_FIELD: SystemFieldSeed = {
+  apiName: 'status',
+  label: 'Status',
+  fieldType: 'STRING',
+  interface: 'select-dropdown',
+  readonly: false,
+  hidden: false,
+  sort: 10,
+}
+
+/**
+ * Objects whose `name` is user-authored (not auto-numbered / not read-only).
+ * Doc templates and value sets are titled by admins in Setup.
+ */
+const MANUAL_NAME_ENTITIES = new Set(['doc_template', 'doc_value_set'])
+
 /** System api_names stripped from legacy junctions (replaced by lean profile). */
 const JUNCTION_STRIP_SYSTEM_FIELDS = [
   'name',
   'status',
   'sort',
+  'is_deleted',
+  'is_active',
   'user_created',
   'user_updated',
   'date_created',
@@ -201,6 +224,24 @@ function statusFieldOptions(): Record<string, unknown> {
     ],
     default: 'published',
   }
+}
+
+function booleanFieldOptions(defaultValue: boolean): Record<string, unknown> {
+  return { default: defaultValue }
+}
+
+function systemFieldsFor(
+  apiName: string,
+  profile: 'full' | 'junction',
+): SystemFieldSeed[] {
+  if (profile === 'junction') return JUNCTION_SYSTEM_FIELDS
+  if (apiName === SCHEDULE_TEMPLATE_API_NAME) {
+    return [
+      ...SYSTEM_FIELDS.filter((field) => field.apiName !== 'is_deleted'),
+      STATUS_FIELD,
+    ]
+  }
+  return SYSTEM_FIELDS
 }
 
 function nameFieldOptions(): Record<string, unknown> {
@@ -227,17 +268,24 @@ function mapEntityRow(row: Record<string, unknown>): RegistryEntityRow {
 
 async function seedSystemFields(
   entityId: string,
+  apiName: string,
   profile: 'full' | 'junction' = 'full',
 ): Promise<void> {
-  const fields = profile === 'junction' ? JUNCTION_SYSTEM_FIELDS : SYSTEM_FIELDS
+  const fields = systemFieldsFor(apiName, profile)
+  const manualName = MANUAL_NAME_ENTITIES.has(apiName)
   for (const field of fields) {
     const options =
       field.apiName === 'status'
         ? statusFieldOptions()
-        : field.apiName === 'name'
-          ? nameFieldOptions()
-          : {}
+        : field.apiName === 'is_deleted'
+          ? booleanFieldOptions(false)
+          : field.apiName === 'is_active'
+            ? booleanFieldOptions(true)
+            : field.apiName === 'name' && !manualName
+              ? nameFieldOptions()
+              : {}
     const isName = field.apiName === 'name'
+    const readonly = isName && manualName ? false : field.readonly
     const inserted = await query<{ id: string }>(
       isName
         ? `INSERT INTO public.fields (
@@ -252,7 +300,9 @@ async function seedSystemFields(
            ON CONFLICT (entity_id, api_name) DO UPDATE SET
              label = COALESCE(NULLIF(BTRIM(public.fields.label), ''), EXCLUDED.label),
              is_system = true,
+             readonly = EXCLUDED.readonly,
              options = CASE
+               WHEN $12::boolean THEN EXCLUDED.options
                WHEN public.fields.options IS NOT NULL
                  AND public.fields.options <> '{}'::jsonb
                THEN public.fields.options
@@ -271,21 +321,36 @@ async function seedSystemFields(
            )
            ON CONFLICT (entity_id, api_name) DO NOTHING
            RETURNING id::text AS id`,
-      [
-        entityId,
-        field.apiName,
-        field.label,
-        field.fieldType,
-        field.interface,
-        JSON.stringify(options),
-        field.readonly,
-        field.hidden,
-        field.sort,
-        Boolean(field.isUnique),
-        Boolean(field.isIndexed || field.isUnique),
-      ],
+      isName
+        ? [
+            entityId,
+            field.apiName,
+            field.label,
+            field.fieldType,
+            field.interface,
+            JSON.stringify(options),
+            readonly,
+            field.hidden,
+            field.sort,
+            Boolean(field.isUnique),
+            Boolean(field.isIndexed || field.isUnique),
+            manualName,
+          ]
+        : [
+            entityId,
+            field.apiName,
+            field.label,
+            field.fieldType,
+            field.interface,
+            JSON.stringify(options),
+            readonly,
+            field.hidden,
+            field.sort,
+            Boolean(field.isUnique),
+            Boolean(field.isIndexed || field.isUnique),
+          ],
     )
-    if (isName) {
+    if (isName && !manualName) {
       const fieldId =
         inserted[0]?.id ??
         (
@@ -397,7 +462,7 @@ export async function createRegistryEntity(
     const row = restored[0]
     if (!row) throw new Error('Failed to restore object')
 
-    await seedSystemFields(String(row.id), profile)
+    await seedSystemFields(String(row.id), apiName, profile)
     if (profile === 'junction') {
       await ensureLeanJunctionEntity(apiName, {
         applyDdl: options?.applyDdl !== false,
@@ -443,7 +508,7 @@ export async function createRegistryEntity(
   const row = inserted[0]
   if (!row) throw new Error('Failed to create object')
 
-  await seedSystemFields(String(row.id), profile)
+  await seedSystemFields(String(row.id), apiName, profile)
 
   clearCrmStorageCache()
   clearComputedFieldMetaCache()
@@ -460,6 +525,31 @@ export async function createRegistryEntity(
   }
 
   return mapEntityRow(row)
+}
+
+/**
+ * Ensure `name` is user-editable (no auto-number) for document-engine objects.
+ * Safe to call on every documents pack apply.
+ */
+export async function ensureUserEditableNameField(
+  entityApiName: string,
+): Promise<void> {
+  const apiName = normalizeApiName(entityApiName)
+  if (!MANUAL_NAME_ENTITIES.has(apiName)) return
+
+  await query(
+    `UPDATE public.fields f
+     SET readonly = false,
+         options = '{}'::jsonb,
+         updated_at = now()
+     FROM public.entities e
+     WHERE e.id = f.entity_id
+       AND e.api_name = $1
+       AND e.deleted_at IS NULL
+       AND f.api_name = 'name'`,
+    [apiName],
+  )
+  clearComputedFieldMetaCache()
 }
 
 /**
@@ -511,7 +601,7 @@ export async function deleteRegistryEntity(entityApiName: string): Promise<boole
 
 /**
  * Lean M2M junction: keep Id + created_at (+ FK fields). Drop legacy system
- * columns like name/status/sort/audit that were seeded for normal objects.
+ * columns like name/status/sort/is_deleted/audit that were seeded for normal objects.
  */
 export async function ensureLeanJunctionEntity(
   entityApiName: string,
@@ -530,7 +620,7 @@ export async function ensureLeanJunctionEntity(
   const entity = entities[0]
   if (!entity) return
 
-  await seedSystemFields(entity.id, 'junction')
+  await seedSystemFields(entity.id, apiName, 'junction')
 
   await query(
     `DELETE FROM public.fields

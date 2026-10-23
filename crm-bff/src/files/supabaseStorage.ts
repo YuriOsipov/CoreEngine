@@ -6,8 +6,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../..')
 
 loadEnv({ path: resolve(repoRoot, '.env') })
-loadEnv({ path: resolve(repoRoot, 'supabase/.env') })
-loadEnv({ path: resolve(__dirname, '../.env') })
+loadEnv({ path: resolve(repoRoot, 'supabase/.env'), override: true })
+loadEnv({ path: resolve(__dirname, '../../.env') })
 
 const DEFAULT_BUCKET = 'crm-files'
 

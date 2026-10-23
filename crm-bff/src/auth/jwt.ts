@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../..')
 loadEnv({ path: resolve(repoRoot, '.env') })
-loadEnv({ path: resolve(repoRoot, 'supabase/.env') })
-loadEnv({ path: resolve(__dirname, '../.env') })
+loadEnv({ path: resolve(repoRoot, 'supabase/.env'), override: true })
+loadEnv({ path: resolve(__dirname, '../../.env') })
 
 export const BFF_JWT_ISS = 'crm-bff'
 export const ACCESS_TTL_SEC = 15 * 60

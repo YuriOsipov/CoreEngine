@@ -8,10 +8,17 @@ export default {
 import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import FormRenderer from '../components/FormRenderer.vue'
 import FormRendererLight from '../components/FormRendererLight.vue'
 import RecordPageRenderer from '../components/RecordPageRenderer.vue'
-import type { EntityAction, EntityLayoutSchema, RecordPageComponent, RecordPageLayoutSchema } from '@/interfaces'
+import type {
+  EntityAction,
+  EntityLayoutSchema,
+  LayoutFieldMetadata,
+  RecordPageComponent,
+  RecordPageLayoutSchema,
+} from '@/interfaces'
 import { loadEntityLayoutById } from '@/modules/config/services/layoutSettings'
 import { resolvePreferredBlockLayoutForCurrentUser } from '@/core/resolvePreferredBlockLayout'
 import {
@@ -23,6 +30,7 @@ import {
   updateObjectRecord,
 } from '../services/recordDetails'
 import { applyCloneRelatedAction } from '../services/cloneRelatedFromSource'
+import { applyBulkUpdateRelatedAction } from '../services/bulkUpdateRelatedAction'
 import { trackRecentRecordView } from '@/modules/dashboard/services/recentRecords'
 import {
   useTranslation,
@@ -38,6 +46,7 @@ import { prepareEntityFormDraft } from '@/core/entityFormValues'
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
+import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import ApplyTemplateDialog from '@/modules/projects/components/ApplyTemplateDialog.vue'
 import AppHeaderUtilities from '@/core/ui-kit/AppHeaderUtilities.vue'
 import {
@@ -54,6 +63,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const confirm = useConfirm()
+const toast = useToast()
 const { t } = useTranslation()
 // Parse collection/id pairs from the current URL for arbitrary nesting depth.
 // e.g. /object/patient/2/visit/47/lab_result/5
@@ -129,6 +139,9 @@ const recordData = ref<Record<string, unknown>>({})
 const deleting = ref(false)
 const restoring = ref(false)
 const editDraft = ref<Record<string, unknown>>({})
+const editFormRendererRef = ref<{
+  validateRequired: () => { valid: boolean; missingLabels: string[] }
+} | null>(null)
 const editOriginalRecord = ref<Record<string, unknown> | null>(null)
 const editDialogVisible = ref(false)
 const editSaving = ref(false)
@@ -147,9 +160,14 @@ const fillTemplateId = ref('')
 const fillDocValueId = ref<string | null>(null)
 const fillExportMode = ref<'html' | 'pdf'>('pdf')
 const fillAttachFile = ref(true)
+const numberPromptVisible = ref(false)
+const numberPromptLabel = ref('')
+const numberPromptHeader = ref('')
+const pendingBulkAction = ref<EntityAction | null>(null)
 const editError = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const pathSaving = ref(false)
 const applyTemplateVisible = ref(false)
 let loadToken = 0
 const detailActions = ref<EntityAction[]>([])
@@ -415,6 +433,19 @@ function closeEditDialog(): void {
 async function saveEditDialog(): Promise<void> {
   if (!editLayoutSchema.value || !editOriginalRecord.value) return
 
+  const validation = editFormRendererRef.value?.validateRequired()
+  if (validation && !validation.valid) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: t('formRenderer.missingRequiredFields', 'Required fields are missing: {fields}', {
+        fields: validation.missingLabels.join(', '),
+      }),
+      life: 5000,
+    })
+    return
+  }
+
   editSaving.value = true
   editError.value = null
 
@@ -523,7 +554,7 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
       detailCollectionName.value,
       detailRecordId.value,
     )
-    recordData.value = { ...recordData.value, ...restored, status: 'published' }
+    recordData.value = { ...recordData.value, ...restored, is_deleted: false }
   } catch (err) {
     actionError.value =
       err instanceof Error
@@ -534,6 +565,69 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
   }
 }
 
+function confirmBeforeRunForAction(action: EntityAction): boolean {
+  if (action.behavior === 'cloneRelated') {
+    return action.cloneRelated?.confirmBeforeRun !== false
+  }
+  if (action.behavior === 'bulkUpdateRelated') {
+    return action.bulkUpdateRelated?.confirmBeforeRun !== false
+  }
+  return action.flow?.confirmBeforeRun !== false
+}
+
+function openBulkUpdatePrompt(action: EntityAction): void {
+  pendingBulkAction.value = action
+  numberPromptHeader.value = action.label
+  numberPromptLabel.value =
+    action.bulkUpdateRelated?.promptLabel?.trim()
+    || t('recordDetails.actionPromptMultiplier', 'Multiplier')
+  numberPromptVisible.value = true
+}
+
+function confirmOrRunBulkUpdate(action: EntityAction, multiplier: number): void {
+  if (!confirmBeforeRunForAction(action)) {
+    void runEntityActionConfirmed(action, multiplier)
+    return
+  }
+
+  setTimeout(() => {
+    confirm.require({
+      message: t('recordDetails.confirmActionMessage', 'Run "{label}"?', {
+        label: action.label,
+      }),
+      header: t('recordDetails.confirmActionHeader', 'Confirm Action'),
+      rejectProps: {
+        label: t('common.cancel', 'Cancel'),
+        severity: 'secondary',
+        text: true,
+      },
+      acceptProps: {
+        label: t('recordDetails.runAction', 'Run'),
+      },
+      accept: () => {
+        void runEntityActionConfirmed(action, multiplier)
+      },
+    })
+  }, 0)
+}
+
+function startBulkUpdateRelated(action: EntityAction): void {
+  const promptLabel = action.bulkUpdateRelated?.promptLabel?.trim() ?? ''
+  if (!promptLabel) {
+    // No prompt configured — skip number dialog; {{prompt}} unused formulas ignore this.
+    confirmOrRunBulkUpdate(action, 0)
+    return
+  }
+  openBulkUpdatePrompt(action)
+}
+
+function onNumberPromptConfirm(multiplier: number): void {
+  const action = pendingBulkAction.value
+  pendingBulkAction.value = null
+  if (!action) return
+  confirmOrRunBulkUpdate(action, multiplier)
+}
+
 function runEntityAction(action: EntityAction): void {
   if (actionRunning.value[action.id]) return
 
@@ -542,12 +636,12 @@ function runEntityAction(action: EntityAction): void {
     return
   }
 
-  const confirmBeforeRun =
-    action.behavior === 'cloneRelated'
-      ? action.cloneRelated?.confirmBeforeRun !== false
-      : action.flow?.confirmBeforeRun !== false
+  if (action.behavior === 'bulkUpdateRelated') {
+    startBulkUpdateRelated(action)
+    return
+  }
 
-  if (!confirmBeforeRun) {
+  if (!confirmBeforeRunForAction(action)) {
     void runEntityActionConfirmed(action)
     return
   }
@@ -728,7 +822,10 @@ function onRuntimeTemplateSelected(templateId: string): void {
   navigateToDocumentFill(templateId)
 }
 
-async function runEntityActionConfirmed(action: EntityAction): Promise<void> {
+async function runEntityActionConfirmed(
+  action: EntityAction,
+  multiplier?: number,
+): Promise<void> {
   if (actionRunning.value[action.id]) return
 
   actionRunning.value = { ...actionRunning.value, [action.id]: true }
@@ -751,6 +848,46 @@ async function runEntityActionConfirmed(action: EntityAction): Promise<void> {
       if (action.cloneRelated?.refreshRecordAfterRun !== false) {
         await loadRecordDetails(detailCollectionName.value, detailRecordId.value)
       }
+    } else if (action.behavior === 'bulkUpdateRelated') {
+      if (multiplier == null || !Number.isFinite(multiplier)) {
+        throw new Error(
+          t('recordDetails.actionPromptRequired', 'Enter a numeric value to continue.'),
+        )
+      }
+      const result = await applyBulkUpdateRelatedAction(
+        action,
+        detailCollectionName.value,
+        detailRecordId.value,
+        multiplier,
+      )
+      const created = result.createdCount ?? 0
+      const successMessage =
+        action.bulkUpdateRelated?.successMessage?.trim()
+        || (created > 0
+          ? t(
+            'recordDetails.bulkUpdateRelatedCompletedCountWithCreate',
+            'Created {created}, updated {updated}; skipped {skipped}.',
+            {
+              created,
+              updated: result.updatedCount,
+              skipped: result.skippedCount,
+            },
+          )
+          : t(
+            'recordDetails.bulkUpdateRelatedCompletedCount',
+            'Updated {updated} record(s); skipped {skipped}.',
+            { updated: result.updatedCount, skipped: result.skippedCount },
+          ))
+      actionMessage.value = successMessage
+      toast.add({
+        severity: 'success',
+        summary: t('common.success', 'Success'),
+        detail: successMessage,
+        life: 4000,
+      })
+      if (action.bulkUpdateRelated?.refreshRecordAfterRun !== false) {
+        await loadRecordDetails(detailCollectionName.value, detailRecordId.value)
+      }
     } else {
       await triggerFlowAction(
         action,
@@ -768,12 +905,21 @@ async function runEntityActionConfirmed(action: EntityAction): Promise<void> {
       }
     }
   } catch (err) {
-    actionError.value =
+    const message =
       err instanceof Error
         ? err.message
         : t('recordDetails.failedRunAction', 'Failed to run "{label}".', {
           label: action.label,
         })
+    actionError.value = message
+    if (action.behavior === 'bulkUpdateRelated') {
+      toast.add({
+        severity: 'error',
+        summary: t('common.error', 'Error'),
+        detail: message,
+        life: 5000,
+      })
+    }
   } finally {
     actionRunning.value = { ...actionRunning.value, [action.id]: false }
   }
@@ -783,6 +929,105 @@ async function handleBlocksSaved(payload: { field: string; value: unknown }): Pr
   recordData.value = {
     ...recordData.value,
     [payload.field]: payload.value,
+  }
+}
+
+/** Path stage/outcome fields may live only on the Page Layout, not the Block Layout. */
+function pathLayoutExtraFields(): LayoutFieldMetadata[] {
+  if (!pageLayoutSchema.value) return []
+  const fields: LayoutFieldMetadata[] = []
+  const seen = new Set<string>()
+  for (const region of pageLayoutSchema.value.regions) {
+    walkPageComponents(region.components, (component) => {
+      if (component.type !== 'path') return
+      for (const key of [component.field, component.terminalField]) {
+        const field = typeof key === 'string' ? key.trim() : ''
+        if (!field || seen.has(field)) continue
+        seen.add(field)
+        fields.push({
+          id: `path_extra_${field}`,
+          field,
+          label: field,
+          component: 'Select',
+          span: 6,
+        })
+      }
+    })
+  }
+  return fields
+}
+
+async function handlePathChange(payload: {
+  updates: Record<string, unknown>
+}): Promise<void> {
+  if (
+    pathSaving.value
+    || loading.value
+    || deleting.value
+    || restoring.value
+    || isArchivedRecord.value
+    || !canUpdateRecord.value
+  ) {
+    return
+  }
+
+  const updates = payload.updates
+  if (!updates || typeof updates !== 'object') return
+
+  const changed: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(updates)) {
+    const field = key.trim()
+    if (!field) continue
+    const current = recordData.value[field]
+    const same =
+      (current === null || current === undefined || current === '')
+      && (value === null || value === undefined || value === '')
+        ? true
+        : String(current ?? '') === String(value ?? '')
+    if (!same) changed[field] = value
+  }
+  if (Object.keys(changed).length === 0) return
+
+  pathSaving.value = true
+  try {
+    await updateObjectRecord(
+      detailCollectionName.value,
+      detailRecordId.value,
+      changed,
+    )
+    // Re-fetch with layout fields so System (user_updated / date_updated) and
+    // expanded relations stay complete — update payloads omit nested audit users.
+    // Merge `changed` afterward: Path stage/outcome may not be on the Block Layout,
+    // so a layout-only re-fetch would drop them and undo Closed Status in the UI.
+    if (layoutSchema.value) {
+      const refreshed = await fetchObjectRecordForEdit(
+        detailCollectionName.value,
+        detailRecordId.value,
+        layoutSchema.value,
+        pathLayoutExtraFields(),
+      )
+      recordData.value = { ...refreshed, ...changed }
+    } else {
+      recordData.value = { ...recordData.value, ...changed }
+    }
+    toast.add({
+      severity: 'success',
+      summary: t('common.success', 'Success'),
+      detail: t('recordPage.path.stageChanged', 'Stage changed successfully.'),
+      life: 3000,
+    })
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        err instanceof Error
+          ? err.message
+          : t('recordPage.path.saveError', 'Failed to update stage.'),
+      life: 5000,
+    })
+  } finally {
+    pathSaving.value = false
   }
 }
 
@@ -972,10 +1217,12 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
           :m2a-editable="true"
           :actions="detailActions"
           :action-running="actionRunning"
-          :actions-disabled="loading || deleting || restoring || !layoutSchema"
+          :actions-disabled="loading || deleting || restoring || pathSaving || !layoutSchema"
           :deleting="deleting || restoring"
           :record-archived="isArchivedRecord"
+          :path-saving="pathSaving"
           @blocks-saved="handleBlocksSaved"
+          @path-change="handlePathChange"
           @related-changed="handleRelatedChanged"
           @run-action="runEntityAction"
           @edit-record="openEditDialog"
@@ -1015,6 +1262,7 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
 
       <FormRenderer
         v-if="editLayoutSchema"
+        ref="editFormRendererRef"
         v-model="editDraft"
         :schema="editLayoutSchema"
         :parent-id="detailRecordId"
@@ -1070,6 +1318,13 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
       :doc-value-id="fillDocValueId"
       :export-mode="fillExportMode"
       :attach-file="fillAttachFile"
+    />
+
+    <ActionNumberPromptDialog
+      v-model:visible="numberPromptVisible"
+      :header="numberPromptHeader"
+      :label="numberPromptLabel"
+      @confirm="onNumberPromptConfirm"
     />
   </main>
 </template>

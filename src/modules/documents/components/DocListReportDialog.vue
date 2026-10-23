@@ -100,8 +100,8 @@ async function renderHtmlPreview(doc: Record<string, unknown>): Promise<void> {
 
 async function renderPdfPreview(doc: Record<string, unknown>): Promise<void> {
   clearPreview()
+  // Do not pass template name as `title` — DocEngine injects pageSetup.title into the PDF body.
   const blob = await generateDocumentPdfBlob(doc as never, {
-    title: documentName.value || 'document',
     download: false,
   })
   pdfUrl.value = URL.createObjectURL(blob)
@@ -149,14 +149,21 @@ async function loadReport(): Promise<void> {
       },
     )
 
+    // Include fieldsExport.sections so HTML/PDF clone once per
+    // `$payload.item_group_tree_rows` instance (Group + `$children` table).
     const doc = {
       time: populated.time,
       blocks: populated.blocks,
       fieldSchemas: populated.fieldSchemas,
       pageSetup: populated.pageSetup,
+      ...(populated.sections ? { sections: populated.sections } : {}),
+      ...(populated.repeatableSectionInstances
+        ? { repeatableSectionInstances: populated.repeatableSectionInstances }
+        : {}),
     }
     populatedDoc.value = doc
 
+    await Promise.resolve()
     if (mode.value === 'pdf') {
       await renderPdfPreview(doc)
     } else {
@@ -245,6 +252,9 @@ watch(
       props.templateId,
       props.viewMode,
       props.recordIds.join(','),
+      // Reload when table/tree filter meta changes (e.g. Item group null in table mode).
+      JSON.stringify(props.filter ?? null),
+      props.viewLabel ?? '',
     ] as const,
   ([visible]) => {
     if (!visible) {
@@ -267,15 +277,23 @@ onBeforeUnmount(() => {
     v-model:visible="dialogVisible"
     modal
     maximizable
+    class="doc-list-report-dialog"
     :header="documentName || t('documents.listReport', 'List report')"
-    :style="{ width: 'min(1100px, 96vw)' }"
-    :content-style="{ minHeight: '60vh' }"
+    :style="{ width: 'min(1100px, 96vw)', height: '90vh' }"
+    :content-style="{
+      display: 'flex',
+      flexDirection: 'column',
+      flex: '1 1 auto',
+      minHeight: 0,
+      overflow: 'hidden',
+      padding: '0.75rem',
+    }"
   >
     <Message
       v-if="truncated"
       severity="warn"
       :closable="false"
-      class="mb-3"
+      class="mb-2 shrink-0"
     >
       {{
         t(
@@ -290,12 +308,12 @@ onBeforeUnmount(() => {
       v-if="error"
       severity="error"
       :closable="false"
-      class="mb-3"
+      class="mb-2 shrink-0"
     >
       {{ error }}
     </Message>
 
-    <div class="relative min-h-[50vh]">
+    <div class="doc-list-report-dialog__preview relative min-h-0 flex-1 overflow-hidden">
       <div
         v-if="loading"
         class="page-loading absolute inset-0 z-10 bg-surface-0/80"
@@ -307,13 +325,13 @@ onBeforeUnmount(() => {
       <div
         v-if="mode === 'html'"
         ref="previewHost"
-        class="doc-view-preview preview-modal__body preview-modal__body--html min-h-[50vh]"
+        class="doc-list-report-preview preview-modal__body preview-modal__body--html absolute inset-0"
       />
 
       <iframe
         v-else-if="pdfUrl"
         :src="pdfUrl"
-        class="min-h-[50vh] w-full rounded-lg border border-surface-200 bg-surface-0"
+        class="doc-list-report-dialog__pdf absolute inset-0 h-full w-full rounded-lg border border-surface-200 bg-surface-0"
         :title="documentName"
       />
     </div>
@@ -351,3 +369,50 @@ onBeforeUnmount(() => {
     </template>
   </Dialog>
 </template>
+
+<style scoped>
+/* PrimeVue Dialog: pin header/footer; let PDF/HTML preview fill remaining height (incl. maximized). */
+:deep(.doc-list-report-dialog.p-dialog),
+:deep(.p-dialog.doc-list-report-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 95vh;
+}
+
+:deep(.doc-list-report-dialog.p-dialog-maximized),
+:deep(.p-dialog.doc-list-report-dialog.p-dialog-maximized) {
+  max-height: 100vh;
+  height: 100vh !important;
+}
+
+:deep(.doc-list-report-dialog .p-dialog-header),
+:deep(.doc-list-report-dialog .p-dialog-footer) {
+  flex-shrink: 0;
+}
+
+:deep(.doc-list-report-dialog .p-dialog-content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-list-report-dialog__preview {
+  /* Give the absolute iframe/html host a real height from flex layout. */
+  min-height: 12rem;
+}
+
+.doc-list-report-preview.preview-modal__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.doc-list-report-preview .preview-modal__html {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+</style>

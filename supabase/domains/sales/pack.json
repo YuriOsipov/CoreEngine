@@ -1,0 +1,9 @@
+{
+  "id": "sales",
+  "label": "Sales portal",
+  "description": "Minimum Sales starter: accounts, contacts, opportunities, quotes.",
+  "entitiesFile": "entities.json",
+  "rolesFile": "roles.json",
+  "layoutsFile": "layouts.json",
+  "recordsFile": "records.json"
+}

@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --clear-screen=false --exclude \"./tmp/**/*\" --exclude \"./scripts/**/*\" src/index.ts",
+    "dev:stable": "tsx src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "registry:import-layouts": "node --env-file=.env --env-file=supabase/.env ./scripts/import-layout-settings.mjs"

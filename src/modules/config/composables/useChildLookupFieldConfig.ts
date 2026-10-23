@@ -116,18 +116,35 @@ export function useChildLookupFieldConfig(options: {
   const filteredCollectionOptions = computed(() => {
     const source = sourceCollection.value
     const valueCollection = relatedEntityOf() ?? ''
-    if (!source) return []
-    return collectionOptions.value.filter(
-      (collection) =>
-        !keysEqual(collection.value, collectionOf()) &&
-        childCollectionHasRelationTo(relationDefinitions.value, collection.value, source) &&
-        (!valueCollection ||
-          childCollectionHasRelationTo(
-            relationDefinitions.value,
-            collection.value,
-            valueCollection,
-          )),
-    )
+    const bridgeOptions = !source
+      ? []
+      : collectionOptions.value.filter(
+          (collection) =>
+            !keysEqual(collection.value, collectionOf()) &&
+            !keysEqual(collection.value, valueCollection) &&
+            childCollectionHasRelationTo(relationDefinitions.value, collection.value, source) &&
+            (!valueCollection ||
+              childCollectionHasRelationTo(
+                relationDefinitions.value,
+                collection.value,
+                valueCollection,
+              )),
+        )
+
+    // M2O picklists may query the related entity directly and filter via Lookup filter
+    // (e.g. variant where variant_type = $parent.variant_type).
+    if (isM2OOf() && valueCollection) {
+      const relatedOption =
+        collectionOptions.value.find((collection) =>
+          keysEqual(collection.value, valueCollection),
+        ) ?? {
+          label: humanizeFieldName(valueCollection),
+          value: valueCollection,
+        }
+      return [relatedOption, ...bridgeOptions]
+    }
+
+    return bridgeOptions
   })
 
   const childFieldOptions = computed<FieldOption[]>(() =>
@@ -372,6 +389,27 @@ export function useChildLookupFieldConfig(options: {
       relationDefinitions.value.length > 0
         ? relationDefinitions.value
         : ((await getCachedRelations()) as RelationDefinition[])
+
+    // Direct related-entity mode: child collection is the M2O target itself.
+    if (valueCollection && keysEqual(settings.collection, valueCollection)) {
+      const childDefs = await getCachedCollectionFields(settings.collection)
+      const primaryKey =
+        childDefs.find((field) => field.schema?.is_primary_key)?.field ?? 'id'
+      const preferredParent =
+        settings.parentField ||
+        (inferredSourceName &&
+        parentRelationOptions.value.some((item) => item.field === inferredSourceName)
+          ? inferredSourceName
+          : parentRelationOptions.value[0]?.field ?? '')
+      return {
+        ...settings,
+        sourceField: inferredSourceName || settings.sourceField,
+        childSourceField: '',
+        valueField: settings.valueField || primaryKey,
+        parentField: preferredParent,
+      }
+    }
+
     const childRelations = relations.filter((relation) =>
       keysEqual(relationManyCollection(relation), settings.collection),
     )
@@ -535,9 +573,17 @@ export function useChildLookupFieldConfig(options: {
       return
     }
     const base = emptySettings(sourceFieldOptions.value[0]?.value ?? '')
-    draft.value = isM2OOf()
-      ? await inferSettings(base)
-      : await inferNonM2OSettings(base)
+    if (isM2OOf()) {
+      // Prefer direct related-entity mode so Lookup filter can scope the picklist
+      // (e.g. Variants filtered by Item.variant_type) without a bridge table.
+      const related = relatedEntityOf() ?? ''
+      draft.value = await inferSettings({
+        ...base,
+        collection: related || base.collection,
+      })
+    } else {
+      draft.value = await inferNonM2OSettings(base)
+    }
     await Promise.all([loadChildFields(), loadSourceFields(), loadParentFields()])
   }
 

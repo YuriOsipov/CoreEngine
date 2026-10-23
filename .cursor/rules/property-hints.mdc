@@ -1,0 +1,32 @@
+---
+description: Property descriptions use (i) tooltip icons in config builders
+globs: src/modules/config/**/*
+alwaysApply: false
+---
+
+# Property descriptions → (i) icons
+
+In config builders and designers (`RecordPageBuilder`, `DataTableSettingsDesigner`, `FormBuilder`, etc.):
+
+- Do **not** place long help copy as muted paragraphs under property fields or section titles.
+- Put the description on an `(i)` hint button beside the label/title, shown via `v-tooltip` on hover/focus.
+- Keep status/preview lines (e.g. “Will show 2 related lists…”, empty-state messages, deprecation warnings) as visible text — those are not property descriptions.
+- Match existing hint styling (circular `i` button + tooltip class). Prefer the local pattern already used in the file (`record-page-hint`, `table-settings-hint`, `layout-selector-hint`).
+- All hint strings go through `t()`. Use `:aria-label="t('common.moreInfo', 'More information')"`.
+
+```vue
+<!-- ❌ BAD -->
+<label>{{ t('…', 'Label') }}</label>
+<p class="text-muted-color">{{ t('…Hint', 'Long explanation…') }}</p>
+
+<!-- ✅ GOOD -->
+<label class="inline-flex items-center gap-1">
+  {{ t('…', 'Label') }}
+  <button
+    type="button"
+    class="record-page-hint"
+    v-tooltip.bottom="hintTooltip(t('…Hint', 'Long explanation…'))"
+    :aria-label="t('common.moreInfo', 'More information')"
+  />
+</label>
+```

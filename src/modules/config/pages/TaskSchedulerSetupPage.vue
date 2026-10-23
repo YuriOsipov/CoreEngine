@@ -35,7 +35,7 @@ function hintTooltip(value: string) {
 }
 
 const taskParamsHintDefault =
-  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }.'
+  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}.'
 const confirm = useConfirm()
 const toast = useToast()
 
@@ -72,6 +72,10 @@ const JOB_TYPES = [
   {
     id: 'maintain_recent_views',
     params: { retentionDays: 90, maxPerUserCollection: 200 },
+  },
+  {
+    id: 'sync_promo_prices',
+    params: {},
   },
 ] as const
 
@@ -215,6 +219,9 @@ function jobTypeLabel(jobType: string): string {
   }
   if (jobType === 'maintain_recent_views') {
     return t('setup.tasks.jobMaintainRecentViews', 'Maintain recently viewed')
+  }
+  if (jobType === 'sync_promo_prices') {
+    return t('setup.tasks.jobSyncPromoPrices', 'Sync promo prices')
   }
   return jobType
 }

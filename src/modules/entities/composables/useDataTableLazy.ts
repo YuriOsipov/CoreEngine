@@ -14,7 +14,7 @@ export interface DataTableLoadMorePayload {
 }
 
 export interface UseDataTableLazyOptions {
-  settings: Ref<DataTableSettings | null>
+  settings: Ref<DataTableSettings | null> | ComputedRef<DataTableSettings | null>
   fetchFn: (params: {
     limit: number
     offset: number
@@ -70,9 +70,8 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     recordLinkField: options.settings.value?.recordLinkField ?? null,
   }))
 
-  function resolveFetchSettings(): DataTableSettings | null {
-    const base = options.settings.value
-    if (!base) return null
+  function resolveFetchSettings(): DataTableSettings {
+    const base = options.settings.value ?? { columns: [] }
     if (activeSort.value) {
       return { ...base, sort: activeSort.value }
     }
@@ -94,8 +93,6 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
 
     try {
       const settings = resolveFetchSettings()
-      if (!settings) return
-
       const result = await options.fetchFn({
         limit: pageSize.value,
         offset: 0,
@@ -171,10 +168,11 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
   }
 
   function handleSortChange(payload: DataTableSortChangePayload): void {
+    const order =
+      payload.order === 1 || payload.order === -1 ? payload.order : null
+    const sortKey = payload.sortKey?.trim() || payload.field?.trim() || null
     activeSort.value =
-      payload.sortKey && payload.order
-        ? { field: payload.sortKey, order: payload.order }
-        : null
+      sortKey && order ? { field: sortKey, order } : null
     void reload(true)
   }
 

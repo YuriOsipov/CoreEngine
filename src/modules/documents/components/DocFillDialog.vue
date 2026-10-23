@@ -365,8 +365,16 @@ function onDialogVisible(value: boolean): void {
     :visible="visible"
     modal
     maximizable
+    class="doc-fill-dialog"
     :style="{ width: '95vw', height: '95vh' }"
-    :content-style="{ display: 'flex', flexDirection: 'column', minHeight: 0, padding: '0.75rem' }"
+    :content-style="{
+      display: 'flex',
+      flexDirection: 'column',
+      flex: '1 1 auto',
+      minHeight: 0,
+      overflow: 'hidden',
+      padding: '0.75rem',
+    }"
     :closable="!saving"
     :close-on-escape="false"
     @update:visible="onDialogVisible"
@@ -587,6 +595,27 @@ function onDialogVisible(value: boolean): void {
 </template>
 
 <style scoped>
+/* PrimeVue Dialog: pin header/footer, let body flex and scroll inside children. */
+:deep(.doc-fill-dialog.p-dialog),
+:deep(.p-dialog.doc-fill-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 95vh;
+}
+
+:deep(.doc-fill-dialog .p-dialog-header),
+:deep(.doc-fill-dialog .p-dialog-footer) {
+  flex-shrink: 0;
+}
+
+:deep(.doc-fill-dialog .p-dialog-content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 :deep(.doc-editor-host) {
   min-height: 0;
 }
@@ -597,4 +626,42 @@ function onDialogVisible(value: boolean): void {
   overflow: hidden;
 }
 
+/*
+ * Fill mode (no design panels): DocEngine only enables editor scroll under `.page > …`.
+ * Helix hosts the editor in a dialog, so mirror that scroll contract here.
+ */
+:deep(.design-shell:not(.design-shell--active)) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:deep(.design-shell:not(.design-shell--active) .design-panel--center) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:deep(.design-shell:not(.design-shell--active) .design-panel__editor-scroll) {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.doc-fill-preview.preview-modal__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.doc-fill-preview .preview-modal__html {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 </style>

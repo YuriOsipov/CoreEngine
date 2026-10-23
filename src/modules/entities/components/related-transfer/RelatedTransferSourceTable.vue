@@ -14,6 +14,7 @@ const props = defineProps<{
   submitting: boolean
   addLabel: string
   sourceDisplayValue: (item: Record<string, unknown>, field: string) => string
+  isNumericSourceField: (field: string) => boolean
   sourceValue: (row: Record<string, unknown> | undefined, field: string) => string | number | null
 }>()
 
@@ -26,6 +27,11 @@ function isAddDisabled(item: Record<string, unknown>): boolean {
   return props.existingDuplicateValues.has(
     String(props.sourceValue(item, props.sourcePrimaryKey) ?? ''),
   ) || props.submitting
+}
+
+function numericCellStyle(field: string): Record<string, string> | undefined {
+  if (!props.isNumericSourceField(field)) return undefined
+  return { textAlign: 'right' }
 }
 </script>
 
@@ -46,11 +52,25 @@ function isAddDisabled(item: Record<string, unknown>): boolean {
       v-for="column in columns"
       :key="column.field"
       :field="column.field"
-      :header="column.header"
       sortable
+      :header-style="numericCellStyle(column.field)"
+      :body-style="numericCellStyle(column.field)"
     >
+      <template #header>
+        <span
+          class="block w-full"
+          :class="isNumericSourceField(column.field) ? 'text-right tabular-nums' : undefined"
+        >
+          {{ column.header }}
+        </span>
+      </template>
       <template #body="{ data }">
-        {{ sourceDisplayValue(data, column.field) }}
+        <span
+          class="block w-full truncate"
+          :class="isNumericSourceField(column.field) ? 'text-right tabular-nums' : undefined"
+        >
+          {{ sourceDisplayValue(data, column.field) }}
+        </span>
       </template>
     </Column>
     <Column header="" style="width: 5rem">

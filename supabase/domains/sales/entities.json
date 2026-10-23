@@ -1,0 +1,175 @@
+{
+  "entities": [
+    {
+      "apiName": "account",
+      "label": "Account",
+      "icon": "business",
+      "group": "Sales",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "industry",
+          "label": "Industry",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "website",
+          "label": "Website",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "phone",
+          "label": "Phone",
+          "type": "STRING",
+          "interface": "input"
+        }
+      ]
+    },
+    {
+      "apiName": "contact",
+      "label": "Contact",
+      "icon": "person",
+      "group": "Sales",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "email",
+          "label": "Email",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "phone",
+          "label": "Phone",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "account_id",
+          "label": "Account",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "account",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "account"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "opportunity",
+      "label": "Opportunity",
+      "icon": "trending_up",
+      "group": "Sales",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "amount",
+          "label": "Amount",
+          "type": "FLOAT",
+          "interface": "input"
+        },
+        {
+          "apiName": "close_date",
+          "label": "Close date",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "stage",
+          "label": "Stage",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Prospecting",
+                "value": "prospecting"
+              },
+              {
+                "text": "Qualified",
+                "value": "qualified"
+              },
+              {
+                "text": "Proposal",
+                "value": "proposal"
+              }
+            ],
+            "default": "prospecting"
+          }
+        },
+        {
+          "apiName": "outcome",
+          "label": "Outcome",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Won",
+                "value": "won"
+              },
+              {
+                "text": "Lost",
+                "value": "lost"
+              },
+              {
+                "text": "Cancelled",
+                "value": "cancelled"
+              }
+            ]
+          }
+        },
+        {
+          "apiName": "account_id",
+          "label": "Account",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "account",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "account"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "quote",
+      "label": "Quote",
+      "icon": "request_quote",
+      "group": "Sales",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "total",
+          "label": "Total",
+          "type": "FLOAT",
+          "interface": "input"
+        },
+        {
+          "apiName": "valid_until",
+          "label": "Valid until",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "opportunity_id",
+          "label": "Opportunity",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "opportunity",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "opportunity"
+          }
+        }
+      ]
+    }
+  ]
+}

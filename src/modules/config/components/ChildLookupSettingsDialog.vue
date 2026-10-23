@@ -130,11 +130,13 @@ const showLookupQuery = computed(
           <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
             {{ t('formBuilder.childLookupSourceRelationField', 'Child source field') }}
             <Select
-              :model-value="settings.childSourceField"
+              :model-value="settings.childSourceField || null"
               :options="childFieldOptions"
               option-label="label"
               option-value="value"
+              :placeholder="t('formBuilder.childLookupSourceRelationOptional', 'Optional when using Lookup filter')"
               :loading="childFieldsLoading"
+              show-clear
               filter
               fluid
               @update:model-value="emit('update:settings', { childSourceField: String($event ?? '') })"

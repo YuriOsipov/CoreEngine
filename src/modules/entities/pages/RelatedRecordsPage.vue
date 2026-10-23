@@ -9,7 +9,8 @@ import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
-import RelatedTransferField from '../components/RelatedTransferField.vue'
+import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
+import BatchInsertDialog from '../components/BatchInsertDialog.vue'
 import ObjectListDetailPanel from '../components/ObjectListDetailPanel.vue'
 import DataTableSettingsDesigner from '@/modules/config/components/DataTableSettingsDesigner.vue'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
@@ -23,11 +24,14 @@ import {
   saveTableSettings,
 } from '../services/tableSettings'
 import { resolveRecordPageLayoutForCurrentUser } from '@/modules/config/services/recordPageSettings'
+import { resolvePreferredBlockLayoutForCurrentUser } from '@/core/resolvePreferredBlockLayout'
 import {
   resolveRecordPageListDetailContent,
   resolveRelatedListDataTableField,
 } from '@/modules/config/utils/recordPageRelatedList'
 import { fetchObjectRecord } from '../services/recordDetails'
+import { useEntityRecordActions } from '../composables/useEntityRecordActions'
+import { keysEqual } from '@/core/utils/object'
 import type {
   DataTableSettings,
   EntityAction,
@@ -74,6 +78,7 @@ const batchInsertVisible = ref(false)
 const batchInsertSettings = ref<RelatedTransferSettings | null>(null)
 const batchInsertLabel = ref('')
 const parentRecord = ref<Record<string, unknown>>({})
+const parentDisplayLabel = ref('')
 
 const selectedMasterRow = ref<Record<string, unknown> | null>(null)
 const detailCollapsed = ref(false)
@@ -91,6 +96,36 @@ const listReportViewLabel = ref<string | null>(null)
 const listToolbarActions = computed(
   () => tableSettings.value?.actions?.filter((action) => action.document?.templateId) ?? [],
 )
+const parentBulkActions = ref<EntityAction[]>([])
+const parentBulkToolbarActions = computed(() =>
+  parentBulkActions.value.filter((action) =>
+    action.behavior === 'bulkUpdateRelated'
+    && keysEqual(
+      action.bulkUpdateRelated?.relatedCollection ?? '',
+      relatedCollectionName.value,
+    ),
+  ),
+)
+
+const {
+  actionRunning,
+  numberPromptVisible,
+  numberPromptLabel,
+  numberPromptHeader,
+  runEntityAction,
+  onNumberPromptConfirm,
+} = useEntityRecordActions({
+  collection: () => collectionName.value,
+  recordId: () => recordId.value,
+  record: () => parentRecord.value,
+  onRefresh: async () => {
+    const collection = collectionName.value
+    const id = recordId.value
+    const related = relatedCollectionName.value
+    if (!collection || !id || !related) return
+    await loadRelatedRecords(collection, id, related)
+  },
+})
 
 const { setFavoriteContext, clearFavoriteContext } = useFavoriteContext()
 
@@ -99,16 +134,20 @@ watchEffect(() => {
   const id = recordId.value
   const related = relatedCollectionName.value
   const record = parentRecord.value
-  if (!collection || !id || !related || !Object.keys(record).length) return
+  if (!collection || !id || !Object.keys(record).length) {
+    parentDisplayLabel.value = ''
+    return
+  }
 
-  fetchCollectionDisplayTemplate(collection).then((template) => {
+  void fetchCollectionDisplayTemplate(collection).then((template) => {
     const parentName = template
       ? renderTemplateLabel(template, record)
-      : (String(record.id ?? id))
+      : String(record.id ?? id)
+    parentDisplayLabel.value = parentName || String(id)
 
-    const label = `${collectionLabel.value} · ${parentName} · ${relatedCollectionLabel.value}`
+    if (!related) return
     setFavoriteContext({
-      defaultLabel: label,
+      defaultLabel: `${collectionLabel.value} · ${parentDisplayLabel.value} · ${relatedCollectionLabel.value}`,
       target: {
         kind: 'url',
         href: `/object/${collection}/${id}/${related}`,
@@ -118,6 +157,18 @@ watchEffect(() => {
   })
 })
 onUnmounted(clearFavoriteContext)
+
+const backLinkLabel = computed(() => {
+  const label = parentDisplayLabel.value
+  if (!label) return ''
+  return t('relatedRecords.backToLabel', 'Back to {label}', { label })
+})
+
+const relatedSubtitle = computed(() => {
+  const label = parentDisplayLabel.value
+  if (!label) return ''
+  return t('relatedRecords.subtitle', 'Related records for {label}.', { label })
+})
 
 const {
   runtime: relatedRuntime,
@@ -163,6 +214,7 @@ const detailPanelEnabled = computed(
 const showToolbarActions = computed(
   () =>
     listToolbarActions.value.length > 0 ||
+    parentBulkToolbarActions.value.length > 0 ||
     Boolean(batchInsertSettings.value) ||
     detailPanelEnabled.value,
 )
@@ -260,12 +312,19 @@ watch(
 
 function setDetailCollapsed(collapsed: boolean): void {
   detailCollapsed.value = collapsed
+  if (collapsed) {
+    selectedMasterRow.value = null
+  }
   saveListDetailCollapsed(relatedCollectionName.value, collapsed)
 }
 
-function toggleDetailCollapsed(): void {
-  setDetailCollapsed(!detailCollapsed.value)
-}
+const showDetailPanel = computed({
+  get: () => detailPanelEnabled.value && !detailCollapsed.value,
+  set: (show: boolean) => {
+    if (!detailPanelEnabled.value) return
+    setDetailCollapsed(!show)
+  },
+})
 
 async function loadPageListDetail(relatedCollection: string): Promise<void> {
   listDetailLoading.value = true
@@ -310,17 +369,22 @@ async function loadRelatedRecords(
   listDetailRelatedFields.value = []
   listDetailActions.value = []
   listDetailLoadError.value = null
+  parentBulkActions.value = []
 
   try {
-    const [[dataTableField, record]] = await Promise.all([
+    const [[dataTableField, record, preferredParentLayout]] = await Promise.all([
       Promise.all([
         resolveRelatedListDataTableField(collection, relatedCollection),
         fetchObjectRecord(collection, id),
+        resolvePreferredBlockLayoutForCurrentUser(collection),
       ]),
       loadPageListDetail(relatedCollection),
     ])
     if (isStaleToken(token)) return
     parentRecord.value = record
+    parentBulkActions.value = (preferredParentLayout.blockLayout?.actions ?? []).filter(
+      (action) => action.behavior === 'bulkUpdateRelated',
+    )
 
     const parentDataTable = dataTableField?.dataTable
       ? normalizeTableSettings(dataTableField.dataTable)
@@ -508,17 +572,14 @@ async function handleBatchSubmitted(): Promise<void> {
       <div class="app-header__row">
         <div>
           <RouterLink
+            v-if="backLinkLabel"
             :to="`/object/${collectionName}/${recordId}`"
             class="nav-link"
           >
-            {{ t('relatedRecords.backToRecord', 'Back to {collection} record', { collection: collectionLabel }) }}
+            {{ backLinkLabel }}
           </RouterLink>
           <h1>{{ relatedCollectionLabel }}</h1>
-          <p>
-            {{ t('relatedRecords.subtitle', 'Related records for `{path}`.', {
-              path: `/object/${collectionName}/${recordId}/${relatedCollectionName}`,
-            }) }}
-          </p>
+          <p v-if="relatedSubtitle">{{ relatedSubtitle }}</p>
         </div>
         <RouterLink
           :to="{
@@ -655,8 +716,16 @@ async function handleBatchSubmitted(): Promise<void> {
               >
                 <template #toolbar-actions>
                   <Button
+                    v-for="action in parentBulkToolbarActions"
+                    :key="`bulk-${action.id}`"
+                    :label="action.label"
+                    size="small"
+                    :loading="actionRunning[action.id]"
+                    @click="runEntityAction(action)"
+                  />
+                  <Button
                     v-for="action in listToolbarActions"
-                    :key="action.id"
+                    :key="`doc-${action.id}`"
                     :label="action.label"
                     icon="pi pi-file"
                     size="small"
@@ -671,14 +740,15 @@ async function handleBatchSubmitted(): Promise<void> {
                     outlined
                     @click="batchInsertVisible = true"
                   />
-                  <Button
-                    :label="t('objectList.hideDetail', 'Hide detail')"
-                    icon="pi pi-chevron-down"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    @click="toggleDetailCollapsed"
-                  />
+                  <div class="flex items-center gap-2">
+                    <ToggleSwitch
+                      v-model="showDetailPanel"
+                      input-id="related-list-show-detail-master"
+                    />
+                    <label for="related-list-show-detail-master" class="text-[0.85rem] whitespace-nowrap">
+                      {{ t('objectList.showDetail', 'Show detail') }}
+                    </label>
+                  </div>
                 </template>
               </CrmDataTable>
             </SplitterPanel>
@@ -706,8 +776,6 @@ async function handleBatchSubmitted(): Promise<void> {
         <CrmDataTable
           v-else
           v-bind="crmDataTableProps"
-          v-model:selection="selectedMasterRow"
-          :selection-mode="detailPanelEnabled ? 'single' : null"
           :record-link-field="tableSettings?.recordLinkField ?? null"
           :collection="relatedCollectionName"
           primary-key="id"
@@ -723,6 +791,14 @@ async function handleBatchSubmitted(): Promise<void> {
           @sort-change="handleSortChange"
         >
           <template v-if="showToolbarActions" #toolbar-actions>
+            <Button
+              v-for="action in parentBulkToolbarActions"
+              :key="`bulk-${action.id}`"
+              :label="action.label"
+              size="small"
+              :loading="actionRunning[action.id]"
+              @click="runEntityAction(action)"
+            />
             <Button
               v-for="action in listToolbarActions"
               :key="action.id"
@@ -740,15 +816,18 @@ async function handleBatchSubmitted(): Promise<void> {
               outlined
               @click="batchInsertVisible = true"
             />
-            <Button
+            <div
               v-if="detailPanelEnabled"
-              :label="t('objectList.showDetail', 'Show detail')"
-              icon="pi pi-chevron-up"
-              size="small"
-              severity="secondary"
-              outlined
-              @click="toggleDetailCollapsed"
-            />
+              class="flex items-center gap-2"
+            >
+              <ToggleSwitch
+                v-model="showDetailPanel"
+                input-id="related-list-show-detail"
+              />
+              <label for="related-list-show-detail" class="text-[0.85rem] whitespace-nowrap">
+                {{ t('objectList.showDetail', 'Show detail') }}
+              </label>
+            </div>
           </template>
         </CrmDataTable>
         <p
@@ -760,25 +839,17 @@ async function handleBatchSubmitted(): Promise<void> {
       </template>
     </section>
 
-    <Dialog
-      v-if="batchInsertSettings"
+    <BatchInsertDialog
       v-model:visible="batchInsertVisible"
-      modal
-      :header="t('relatedTransfer.batchInsertHeader', 'Batch insert {label}', { label: batchInsertLabel })"
-      :style="{ width: 'min(1500px, 98vw)', maxHeight: '96vh' }"
-      :content-style="{ maxHeight: 'calc(96vh - 5rem)', overflow: 'hidden' }"
-    >
-      <RelatedTransferField
-        :settings="batchInsertSettings"
-        :label="batchInsertLabel"
-        :parent-record="parentRecord"
-        :parent-collection="collectionName"
-        :parent-id="recordId"
-        :target-parent-field="relatedRuntime?.parentName ?? ''"
-        :current-target-rows="relatedRuntime?.rows ?? []"
-        @submitted="handleBatchSubmitted"
-      />
-    </Dialog>
+      :settings="batchInsertSettings"
+      :label="batchInsertLabel"
+      :parent-record="parentRecord"
+      :parent-collection="collectionName"
+      :parent-id="recordId"
+      :target-parent-field="relatedRuntime?.parentName ?? ''"
+      :current-target-rows="relatedRuntime?.rows ?? []"
+      @submitted="handleBatchSubmitted"
+    />
 
     <DocListReportDialog
       v-model:visible="listReportVisible"
@@ -788,6 +859,13 @@ async function handleBatchSubmitted(): Promise<void> {
       :view-mode="listReportViewMode"
       :parent="parentRecord"
       :view-label="listReportViewLabel"
+    />
+
+    <ActionNumberPromptDialog
+      v-model:visible="numberPromptVisible"
+      :header="numberPromptHeader"
+      :label="numberPromptLabel"
+      @confirm="onNumberPromptConfirm"
     />
   </main>
 </template>

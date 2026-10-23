@@ -33,7 +33,6 @@ const LIST_FIELDS = [
   'output_format',
   'hide_empty',
   DOC_ARCHIVED_FIELD,
-  'sort',
   'date_created',
   'date_updated',
   'user_created.first_name',
@@ -61,7 +60,6 @@ const SAVE_RETURN_FIELDS = [
   DOC_TEMPLATE_BODY_FIELD,
   'field_mapping',
   DOC_ARCHIVED_FIELD,
-  'sort',
 ] as const
 
 function formatUserName(
@@ -104,7 +102,7 @@ export async function loadDocTemplateListItems(
       scope === 'runtime' ? { is_active: { _neq: false } } : {},
     ),
     fields: [...LIST_FIELDS],
-    sort: ['sort', 'name'],
+    sort: ['name'],
     limit: -1,
   })) as unknown as DocTemplateRecord[]
 
@@ -121,7 +119,7 @@ export async function loadAllDocTemplateListItems(
   const records = (await bridgeReadItems(DOC_TEMPLATE_COLLECTION, {
     filter: andFilters(notArchivedFilter(), accessFilter),
     fields: [...LIST_FIELDS],
-    sort: ['collection', 'sort', 'name'],
+    sort: ['collection', 'name'],
     limit: -1,
   })) as unknown as DocTemplateRecord[]
 

@@ -2,6 +2,27 @@ import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
 import { keysEqual } from '@/core/utils/object'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
 import { isUsersAssetCollection } from '@/core/usersField'
+import {
+  ITEM_GROUP_TREE_KEY,
+  ITEM_GROUP_TREE_ROWS_KEY,
+  ITEM_GROUP_TREE_SECTIONS_KEY,
+  buildItemGroupPriceTreeSample,
+  collectionSupportsItemGroupPriceTreeSample,
+  resolveItemGroupPriceTreeOptionsFromContext,
+} from '@/core/itemGroupPriceTree'
+
+export { collectionSupportsItemGroupPriceTreeSample }
+
+/** Remove synthetic tree keys so list samples can re-attach them at payload root. */
+export function stripItemGroupTreeKeysFromSample(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...payload }
+  delete next[ITEM_GROUP_TREE_KEY]
+  delete next[ITEM_GROUP_TREE_ROWS_KEY]
+  delete next[ITEM_GROUP_TREE_SECTIONS_KEY]
+  return next
+}
 import type { RelationDefinition } from '@/interfaces'
 import {
   getCachedCollectionFields,
@@ -356,5 +377,89 @@ export async function buildDocSourceSamplePayload(
   }
   const payload = await buildCollectionSample(collection, sampleOptions)
   await appendRelatedCollectionSamples(collection, payload, sampleOptions)
+  await attachItemGroupPriceTreeSample(collection, payload, {
+    maxDepth,
+    branchMaxDepth: maxDepth,
+  })
+
   return payload
+}
+
+/**
+ * Attach `item_group_tree*` when Tree settings resolve for this document collection
+ * (related child tree, or Tree layout on the list collection itself).
+ * Price/group row shapes come from schema samples — no pack collection/field names.
+ */
+export async function attachItemGroupPriceTreeSample(
+  docCollection: string,
+  payload: Record<string, unknown>,
+  options: { maxDepth?: number; branchMaxDepth?: number } = {},
+): Promise<boolean> {
+  let resolved
+  try {
+    resolved = await resolveItemGroupPriceTreeOptionsFromContext(docCollection)
+  } catch {
+    return false
+  }
+
+  const priceCollection = resolved.itemPriceCollection?.trim()
+  const groupCollection = resolved.groupCollection?.trim()
+  const groupParentField = resolved.groupParentField?.trim()
+  const groupLabelField = resolved.groupLabelField?.trim() || 'name'
+  const itemGroupFieldPath = resolved.itemGroupFieldPath?.trim()
+  if (!priceCollection || !groupCollection || !groupParentField || !itemGroupFieldPath) {
+    return false
+  }
+
+  const branchMaxDepth = options.branchMaxDepth ?? options.maxDepth ?? DOC_SOURCE_SAMPLE_MAX_DEPTH
+  const sampleDepth = Math.max(1, Math.min(2, branchMaxDepth))
+  const exclude = extendExcludedCollections(
+    {
+      maxDepth: sampleDepth,
+      branchMaxDepth,
+      visited: new Set<string>(),
+    },
+    docCollection,
+  )
+
+  const [priceRow, groupRow, parentGroupRow] = await Promise.all([
+    buildCollectionSample(priceCollection, {
+      maxDepth: sampleDepth,
+      branchMaxDepth,
+      visited: new Set<string>(),
+      excludeRelatedCollections: exclude,
+    }),
+    buildCollectionSample(groupCollection, {
+      maxDepth: 1,
+      branchMaxDepth,
+      visited: new Set<string>(),
+      excludeRelatedCollections: exclude,
+    }),
+    buildCollectionSample(groupCollection, {
+      maxDepth: 1,
+      branchMaxDepth,
+      visited: new Set<string>(),
+      excludeRelatedCollections: exclude,
+    }),
+  ])
+
+  // Distinct ids so parent/child nodes do not collapse in the sample tree.
+  if (parentGroupRow.id == null) parentGroupRow.id = 'sample-parent-group'
+  if (groupRow.id == null || String(groupRow.id) === String(parentGroupRow.id)) {
+    groupRow.id = 'sample-group'
+  }
+  groupRow[groupParentField] = parentGroupRow.id
+
+  const treeSample = buildItemGroupPriceTreeSample({
+    priceRow,
+    groupRow,
+    parentGroupRow,
+    groupParentField,
+    groupLabelField,
+    itemGroupFieldPath,
+  })
+  payload[ITEM_GROUP_TREE_KEY] = treeSample.tree
+  payload[ITEM_GROUP_TREE_ROWS_KEY] = treeSample.rows
+  payload[ITEM_GROUP_TREE_SECTIONS_KEY] = treeSample.sections
+  return true
 }

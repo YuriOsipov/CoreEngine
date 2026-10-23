@@ -16,7 +16,9 @@ import {
   loadM2ARelations,
   loadM2ORelations,
   loadO2MRelations,
+  readRecordField,
   splitRelationFields,
+  writeRecordField,
 } from './relations.js'
 import {
   applyM2ANestedWrites,
@@ -45,11 +47,52 @@ import {
   enforceCascadeRestore,
   enforceSoftDeleteConstraints,
 } from './softDeleteConstraints.js'
+import { loadPromotedFields } from '../../schema/crmStorage.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
 export type { RecordsBackend } from './registry.js'
 export type { RecordsListParams, RecordsListResult, RecordsStore } from './types.js'
 export { clearRecordRelationsCache } from './relations.js'
+
+export type RecordWriteOptions = {
+  /** Authenticated actor (`backend_user_id`) for Created By / Last Modified By. */
+  actorUserId?: string | null
+}
+
+function stripClientAuditUserFields(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!('user_created' in data) && !('user_updated' in data)) return data
+  const next: Record<string, unknown> = { ...data }
+  delete next.user_created
+  delete next.user_updated
+  return next
+}
+
+/** Stamp Created By / Last Modified By from the authenticated actor (server-owned). */
+async function stampAuditUsers(
+  entityApiName: string,
+  data: Record<string, unknown>,
+  mode: 'create' | 'update',
+  actorUserId?: string | null,
+): Promise<Record<string, unknown>> {
+  const actor =
+    typeof actorUserId === 'string' && actorUserId.trim()
+      ? actorUserId.trim()
+      : ''
+  if (!actor) return data
+
+  const promoted = await loadPromotedFields(entityApiName)
+  const names = new Set(promoted.map((field) => field.apiName))
+  const next: Record<string, unknown> = { ...data }
+  if (mode === 'create') {
+    if (names.has('user_created')) next.user_created = actor
+    if (names.has('user_updated')) next.user_updated = actor
+  } else if (names.has('user_updated')) {
+    next.user_updated = actor
+  }
+  return next
+}
 
 /**
  * Expand single-level (and, via recursion, deeper) M2O relations for records.
@@ -75,11 +118,14 @@ async function expandM2O(
 
     const idSet = new Set<string>()
     for (const node of nodes) {
-      const fk = fkIdFromValue(node[field])
+      const fk = fkIdFromValue(readRecordField(node, field))
       if (fk) idSet.add(fk)
     }
+    // No readable FKs on this page — leave existing values alone.
+    // Writing null here wiped self-FK trees (e.g. item_group.parent) when
+    // nested fields like parent.id were requested but scalars lived only on
+    // promoted columns / were missing from the projected row.
     if (!idSet.size) {
-      for (const node of nodes) node[field] = null
       continue
     }
 
@@ -101,14 +147,14 @@ async function expandM2O(
     }
 
     for (const node of nodes) {
-      const fk = fkIdFromValue(node[field])
+      const fk = fkIdFromValue(readRecordField(node, field))
       if (!fk) {
-        node[field] = null
+        writeRecordField(node, field, null)
         continue
       }
       // Keep scalar FK when related row is missing so callers can still resolve
       // (common for file assets not yet registered in public.files).
-      node[field] = byId.get(fk) ?? fk
+      writeRecordField(node, field, byId.get(fk) ?? fk)
     }
   }
 
@@ -550,10 +596,12 @@ export async function createRecord(
   entity: string,
   data: Record<string, unknown>,
   fields?: string[] | null,
+  options?: RecordWriteOptions,
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  const strippedRollups = await stripRollupWrites(apiName, data)
+  const withoutClientAudit = stripClientAuditUserFields(data)
+  const strippedRollups = await stripRollupWrites(apiName, withoutClientAudit)
   const stripped = await stripAutoNumberWrites(apiName, strippedRollups)
   const withFormulas = await applyFormulasOnWrite(apiName, stripped, null)
   const autoNumberFields = await loadAutoNumberFields(apiName)
@@ -570,8 +618,14 @@ export async function createRecord(
     )
     const m2a = await peelM2AAliasFields(apiName, automationResult.patch)
     const o2m = await peelO2MAliasFields(apiName, m2a.parentData)
+    const parentData = await stampAuditUsers(
+      apiName,
+      o2m.parentData,
+      'create',
+      options?.actorUserId,
+    )
     try {
-      const created = await store.create(apiName, o2m.parentData, null)
+      const created = await store.create(apiName, parentData, null)
       const parentId = created.id == null ? null : String(created.id)
       if (!parentId) throw new Error(`createRecord("${apiName}"): missing id`)
       await applyM2ANestedWrites(apiName, parentId, m2a.nested)
@@ -614,6 +668,7 @@ export async function updateRecord(
   id: string,
   data: Record<string, unknown>,
   fields?: string[] | null,
+  options?: RecordWriteOptions,
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
@@ -623,7 +678,8 @@ export async function updateRecord(
   } catch {
     existing = null
   }
-  const strippedRollups = await stripRollupWrites(apiName, data)
+  const withoutClientAudit = stripClientAuditUserFields(data)
+  const strippedRollups = await stripRollupWrites(apiName, withoutClientAudit)
   const stripped = await stripAutoNumberWrites(apiName, strippedRollups)
   const withFormulas = await applyFormulasOnWrite(apiName, stripped, existing)
   const automationResult = await applyRecordAutomations(
@@ -634,7 +690,13 @@ export async function updateRecord(
   )
   const m2a = await peelM2AAliasFields(apiName, automationResult.patch)
   const o2m = await peelO2MAliasFields(apiName, m2a.parentData)
-  const updated = await store.update(apiName, id, o2m.parentData, null)
+  const parentData = await stampAuditUsers(
+    apiName,
+    o2m.parentData,
+    'update',
+    options?.actorUserId,
+  )
+  const updated = await store.update(apiName, id, parentData, null)
   await applyM2ANestedWrites(apiName, String(id), m2a.nested)
   await applyO2MNestedWrites(apiName, String(id), o2m.nested)
   await recomputeRollupsForChildChange(apiName, {
@@ -649,6 +711,7 @@ export async function softDeleteRecord(
   entity: string,
   id: string,
   visited: Set<string> = new Set(),
+  options?: RecordWriteOptions,
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
   const recordId = String(id)
@@ -664,7 +727,7 @@ export async function softDeleteRecord(
   visited.add(visitKey)
 
   await enforceSoftDeleteConstraints(apiName, recordId, async (childEntity, childId) => {
-    await softDeleteRecord(childEntity, childId, visited)
+    await softDeleteRecord(childEntity, childId, visited, options)
   })
 
   const store = await resolveRecordsStore(apiName)
@@ -680,7 +743,19 @@ export async function softDeleteRecord(
     existing,
     'delete',
   )
-  const deleted = await store.softDelete(apiName, recordId)
+  // Stamp Last Modified By / date so archived lists can show who/when deleted.
+  // Schedule templates keep Status; every other object archives with is_deleted.
+  let archivePatch: Record<string, unknown> =
+    apiName === 'crm_schedule_template'
+      ? { status: 'archived', date_updated: new Date().toISOString() }
+      : { is_deleted: true, date_updated: new Date().toISOString() }
+  archivePatch = await stampAuditUsers(
+    apiName,
+    archivePatch,
+    'update',
+    options?.actorUserId,
+  )
+  const deleted = await store.update(apiName, recordId, archivePatch, null)
   await recomputeRollupsForChildChange(apiName, {
     before: existing,
     after: deleted,

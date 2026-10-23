@@ -838,8 +838,8 @@ export async function fetchRelatedCollectionOptionById(
   }
 
   const allFields = await getCachedFields()
-  const relatedFields = allFields.filter(
-    (f) => f.collection === relatedCollection,
+  const relatedFields = allFields.filter((f) =>
+    keysEqual(f.collection, relatedCollection),
   )
   const resolvedTemplate =
     template?.trim() ||
@@ -865,6 +865,9 @@ export async function fetchRelatedCollectionOptionById(
       template: useTemplate ? resolvedTemplate : undefined,
       displayField,
     })
+
+    // Prefer Display Template / name over echoing the raw FK id.
+    if (!label || label === String(id)) return null
 
     return {
       value: row.id as string | number,
@@ -896,7 +899,10 @@ export async function fetchCollectionDisplayTemplate(
   collection: string,
 ): Promise<string | undefined> {
   const collections = await getCachedCollections()
-  const template = collections.find((item) => item.collection === collection)?.meta?.display_template
+  const template = collections.find((item) =>
+    keysEqual(item.collection, collection) ||
+    Boolean(item.schema?.name && keysEqual(item.schema.name, collection)),
+  )?.meta?.display_template
 
   return typeof template === 'string' && template.trim()
     ? template.trim()
@@ -975,7 +981,8 @@ export async function fetchFieldRuntimeMetadata(
     const iface = String(definition.meta?.interface || '').toLowerCase()
     const suffix = options.suffix ?? options.currency
     const prefix = options.prefix
-    const placesRaw = options.decimalPlaces ?? options.minFractionDigits
+    const placesRaw =
+      options.scale ?? options.decimalPlaces ?? options.minFractionDigits
     const places =
       typeof placesRaw === 'number'
         ? placesRaw
@@ -990,10 +997,14 @@ export async function fetchFieldRuntimeMetadata(
       props.prefix = prefix.trim()
     }
     if (Number.isFinite(places)) {
-      const n = Math.min(6, Math.max(0, Math.trunc(places)))
+      const n = Math.min(38, Math.max(0, Math.trunc(places)))
       props.minFractionDigits = n
       props.maxFractionDigits = n
-    } else if (iface.includes('currency') || definition.type === 'float' || definition.type === 'decimal') {
+    } else if (
+      iface.includes('currency') ||
+      definition.type === 'float' ||
+      definition.type === 'decimal'
+    ) {
       props.minFractionDigits = 2
       props.maxFractionDigits = 2
     }

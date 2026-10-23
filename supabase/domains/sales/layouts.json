@@ -1,0 +1,172 @@
+{
+  "layouts": [
+    {
+      "entityApiName": "account",
+      "groupKey": "form",
+      "payload": {
+        "fields": [
+          "name",
+          "industry",
+          "website",
+          "phone"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "account",
+      "groupKey": "list",
+      "payload": {
+        "sort": [
+          "name"
+        ],
+        "columns": [
+          "name",
+          "industry",
+          "phone"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "contact",
+      "groupKey": "form",
+      "payload": {
+        "fields": [
+          "name",
+          "email",
+          "phone",
+          "account_id"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "contact",
+      "groupKey": "list",
+      "payload": {
+        "sort": [
+          "name"
+        ],
+        "columns": [
+          "name",
+          "email",
+          "phone",
+          "account_id"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "form",
+      "payload": {
+        "fields": [
+          "name",
+          "stage",
+          "outcome",
+          "amount",
+          "close_date",
+          "account_id"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "list",
+      "payload": {
+        "sort": [
+          "-close_date"
+        ],
+        "columns": [
+          "name",
+          "stage",
+          "outcome",
+          "amount",
+          "close_date",
+          "account_id"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "RecordPage",
+      "subGroup": "full",
+      "payload": {
+        "name": "Default",
+        "entity": "opportunity",
+        "version": 1,
+        "pageLayoutId": null,
+        "sidebarEnabled": true,
+        "mainSize": 50,
+        "listDetailPanel": null,
+        "regions": [
+          {
+            "id": "region_header",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_highlights",
+                "type": "highlights",
+                "label": "Highlights",
+                "visibleActionButtons": 5,
+                "actionLayoutId": null
+              },
+              {
+                "id": "cmp_path",
+                "type": "path",
+                "label": "Path",
+                "field": "stage",
+                "terminalField": "outcome",
+                "successTerminalValues": ["won"]
+              }
+            ]
+          },
+          {
+            "id": "region_main",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_detail",
+                "type": "detail",
+                "label": "Record Detail",
+                "pageLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_sidebar",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ]
+      }
+    },
+    {
+      "entityApiName": "quote",
+      "groupKey": "form",
+      "payload": {
+        "fields": [
+          "name",
+          "total",
+          "valid_until",
+          "opportunity_id"        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "quote",
+      "groupKey": "list",
+      "payload": {
+        "sort": [
+          "-valid_until"
+        ],
+        "columns": [
+          "name",
+          "total",
+          "valid_until",
+          "opportunity_id"        ]
+      },
+      "subGroup": "default"
+    }
+  ]
+}

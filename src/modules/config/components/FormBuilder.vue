@@ -13,10 +13,12 @@ import type {
   EntityAction,
   EntityLayoutSchema,
   EntityRecordAutomationCondition,
+  FieldDefinition,
   LayoutFieldMetadata,
   LayoutGroup,
   LayoutSection,
   CloneRelatedFromSettings,
+  RelationDefinition,
 } from '@/interfaces'
 import type { PaletteItem } from '@/modules/entities/utils/fieldPalette'
 import PaletteSkeleton from './PaletteSkeleton.vue'
@@ -47,6 +49,9 @@ import { isDateComponent } from '@/core/dateFormatting'
 import {
   buildLivePalette,
   buildRelatedObjectPalette,
+  getCachedCollectionFields,
+  getCachedRelations,
+  listUserCollections,
 } from '@/modules/entities/services/collectionSchema'
 import { DIALOG_SORTABLE_ATTRS } from '../utils/dialogSortable'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
@@ -55,6 +60,8 @@ import {
   DEFAULT_DOC_ENGINE_SETTINGS,
   normalizeDocEngineSettings,
 } from '@/interfaces/documents'
+import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
+import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 
 const props = withDefaults(
   defineProps<{
@@ -209,6 +216,10 @@ const ACTION_BEHAVIOR_OPTIONS = computed(() => [
     label: t('formBuilder.actionBehaviorCloneRelated', 'Clone structure'),
     value: 'cloneRelated',
   },
+  {
+    label: t('formBuilder.actionBehaviorBulkUpdateRelated', 'Bulk update related'),
+    value: 'bulkUpdateRelated',
+  },
 ])
 const DOCUMENT_VIEW_MODE_OPTIONS = computed(() => [
   { label: t('formBuilder.documentViewHtml', 'HTML preview'), value: 'html' },
@@ -350,6 +361,14 @@ const visiblePaletteSections = computed(() =>
   paletteSections.value
     .map((section) => {
       const matched = section.items.filter(matchesPaletteQuery)
+      // Custom blocks stay draggable after a drop so the same block can be placed again.
+      if (section.id === 'custom') {
+        return {
+          ...section,
+          assigned: [] as PaletteItem[],
+          available: matched,
+        }
+      }
       return {
         ...section,
         assigned: matched.filter((item) => assignedFieldKeys.value.has(item.fieldKey)),
@@ -449,12 +468,6 @@ const selectedGroup = computed(
     null,
 )
 
-const selectedFieldParentGroup = computed(
-  () =>
-    activeSection.value.groups.find((group) => group.id === selectedFieldGroupId.value) ??
-    null,
-)
-
 const selectedTab = computed(
   () =>
     props.modelValue.sections.find((section) => section.id === selectedTabId.value) ??
@@ -474,6 +487,9 @@ const isDocumentAction = computed(
 const isCloneRelatedAction = computed(
   () => selectedAction.value?.behavior === 'cloneRelated',
 )
+const isBulkUpdateRelatedAction = computed(
+  () => selectedAction.value?.behavior === 'bulkUpdateRelated',
+)
 const actionCloneRelatedSettings = computed<CloneRelatedFromSettings>(() => ({
   children: selectedAction.value?.cloneRelated?.children ?? [],
 }))
@@ -482,6 +498,260 @@ const actionCloneRelatedSummary = computed(() => {
   if (!count) return ''
   return t('formBuilder.cloneRelatedFromSummary', '{count} child pair(s)', { count })
 })
+
+const bulkRelatedCollectionOptions = computed(() => {
+  const seen = new Set<string>()
+  const options: Array<{ label: string; value: string }> = []
+  for (const item of allRelatedObjectItems.value) {
+    const value = String(item.relatedCollection ?? '').trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    options.push({
+      label: item.label ? `${item.label} (${value})` : value,
+      value,
+    })
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label))
+})
+
+const bulkRelatedFields = ref<FieldDefinition[]>([])
+const bulkSourceNestedFields = ref<FieldDefinition[]>([])
+const bulkSourceCollectionFields = ref<FieldDefinition[]>([])
+const bulkRelationDefinitions = ref<RelationDefinition[]>([])
+const bulkUserCollectionOptions = ref<Array<{ label: string; value: string }>>([])
+
+const isBulkUpsertMode = computed(() =>
+  Boolean(selectedAction.value?.bulkUpdateRelated?.sourceCollection?.trim()),
+)
+
+function isNumericFieldDefinition(field: FieldDefinition): boolean {
+  const type = String(field.type ?? '').toLowerCase()
+  if (
+    type.includes('int')
+    || type.includes('float')
+    || type.includes('decimal')
+    || type.includes('numeric')
+    || type === 'number'
+    || type === 'biginteger'
+    || type === 'double'
+    || type === 'real'
+    || type === 'money'
+  ) {
+    return true
+  }
+  const iface = String(field.meta?.interface ?? '').toLowerCase()
+  return (
+    iface.includes('input-number')
+    || iface.includes('input-decimal')
+    || iface.includes('input-float')
+    || iface.includes('currency')
+    || iface.includes('slider')
+    || iface.includes('numeric')
+  )
+}
+
+function fieldOptionLabel(field: FieldDefinition): string {
+  const translated = field.meta?.translations?.find((entry) => entry.translation?.trim())
+    ?.translation
+  return translated?.trim() || field.field
+}
+
+const DEFAULT_BULK_FORMULA = '{{source}} * {{prompt}}'
+const BULK_FORMULA_PRESETS = computed(() => [
+  {
+    label: t('formBuilder.bulkFormulaPresetMultiply', '× Prompt'),
+    value: '{{source}} * {{prompt}}',
+  },
+  {
+    label: t('formBuilder.bulkFormulaPresetPercentOff', 'Discount %'),
+    value: '{{source}} * (1 - {{prompt}} / 100)',
+  },
+])
+
+const bulkTargetFieldOptions = computed(() => {
+  const numeric = bulkRelatedFields.value
+    .filter((field) => isNumericFieldDefinition(field) && !field.schema?.is_primary_key)
+    .map((field) => ({
+      label: fieldOptionLabel(field),
+      value: field.field,
+    }))
+  if (numeric.length > 0) return numeric
+  // Fallback when custom fields use a non-standard type (still exclude PK / relations).
+  return bulkRelatedFields.value
+    .filter((field) => {
+      if (field.schema?.is_primary_key) return false
+      const related = selectedAction.value?.bulkUpdateRelated?.relatedCollection?.trim() ?? ''
+      if (
+        related
+        && isFieldM2O(related, field.field, bulkRelatedFields.value, bulkRelationDefinitions.value)
+      ) {
+        return false
+      }
+      return true
+    })
+    .map((field) => ({
+      label: fieldOptionLabel(field),
+      value: field.field,
+    }))
+})
+
+function resolveBulkFormulaDisplay(raw: string | undefined): string {
+  const trimmed = raw?.trim() ?? ''
+  if (!trimmed || trimmed === 'multiply') return DEFAULT_BULK_FORMULA
+  if (trimmed === 'percentOff') return '{{source}} * (1 - {{prompt}} / 100)'
+  return trimmed
+}
+
+const bulkFormulaPreview = computed(() => {
+  const target =
+    selectedAction.value?.bulkUpdateRelated?.targetField?.trim()
+    || t('formBuilder.bulkFormulaTargetPlaceholder', 'target')
+  const expression = resolveBulkFormulaDisplay(
+    selectedAction.value?.bulkUpdateRelated?.formula,
+  )
+  return `${target} = ${expression}`
+})
+
+const bulkSourceM2oOptions = computed(() => {
+  const related =
+    selectedAction.value?.bulkUpdateRelated?.relatedCollection?.trim() ?? ''
+  if (!related) return [] as Array<{ label: string; value: string }>
+  return bulkRelatedFields.value
+    .filter((field) =>
+      isFieldM2O(related, field.field, bulkRelatedFields.value, bulkRelationDefinitions.value),
+    )
+    .map((field) => ({
+      label: fieldOptionLabel(field),
+      value: field.field,
+    }))
+})
+
+const bulkSourceNestedFieldOptions = computed(() =>
+  bulkSourceNestedFields.value
+    .filter((field) => isNumericFieldDefinition(field) && !field.schema?.is_primary_key)
+    .map((field) => ({
+      label: fieldOptionLabel(field),
+      value: field.field,
+    })),
+)
+
+const bulkSourceCollectionFieldOptions = computed(() =>
+  bulkSourceCollectionFields.value
+    .filter((field) => isNumericFieldDefinition(field) && !field.schema?.is_primary_key)
+    .map((field) => ({
+      label: fieldOptionLabel(field),
+      value: field.field,
+    })),
+)
+
+/** M2O fields on related that point at the configured source collection. */
+const bulkSourceLinkFieldOptions = computed(() => {
+  const related =
+    selectedAction.value?.bulkUpdateRelated?.relatedCollection?.trim() ?? ''
+  const source =
+    selectedAction.value?.bulkUpdateRelated?.sourceCollection?.trim() ?? ''
+  if (!related || !source) return [] as Array<{ label: string; value: string }>
+  return bulkRelatedFields.value
+    .filter((field) => {
+      if (
+        !isFieldM2O(related, field.field, bulkRelatedFields.value, bulkRelationDefinitions.value)
+      ) {
+        return false
+      }
+      const target = relatedCollectionForCollectionField(
+        bulkRelationDefinitions.value,
+        related,
+        field.field,
+      )
+      return String(target ?? '').trim().toLowerCase() === source.toLowerCase()
+    })
+    .map((field) => ({
+      label: fieldOptionLabel(field),
+      value: field.field,
+    }))
+})
+
+async function ensureBulkRelationsLoaded(): Promise<void> {
+  if (bulkRelationDefinitions.value.length) return
+  try {
+    bulkRelationDefinitions.value = (await getCachedRelations()) as RelationDefinition[]
+  } catch {
+    bulkRelationDefinitions.value = []
+  }
+}
+
+async function ensureBulkUserCollectionsLoaded(): Promise<void> {
+  if (bulkUserCollectionOptions.value.length) return
+  try {
+    const cols = await listUserCollections()
+    bulkUserCollectionOptions.value = cols.map((col) => ({
+      label: col.label ? `${col.label} (${col.value})` : col.value,
+      value: col.value,
+    }))
+  } catch {
+    bulkUserCollectionOptions.value = []
+  }
+}
+
+async function loadBulkSourceCollectionFields(sourceCollection: string): Promise<void> {
+  const collection = sourceCollection.trim()
+  if (!collection) {
+    bulkSourceCollectionFields.value = []
+    return
+  }
+  try {
+    bulkSourceCollectionFields.value = await getCachedCollectionFields(collection)
+  } catch {
+    bulkSourceCollectionFields.value = []
+  }
+}
+
+async function loadBulkRelatedFields(relatedCollection: string): Promise<void> {
+  const collection = relatedCollection.trim()
+  if (!collection) {
+    bulkRelatedFields.value = []
+    bulkSourceNestedFields.value = []
+    return
+  }
+  await ensureBulkRelationsLoaded()
+  try {
+    bulkRelatedFields.value = await getCachedCollectionFields(collection)
+  } catch {
+    bulkRelatedFields.value = []
+  }
+  const bulk = selectedAction.value?.bulkUpdateRelated
+  const sourceCollection = bulk?.sourceCollection?.trim() ?? ''
+  if (sourceCollection) {
+    await loadBulkSourceCollectionFields(sourceCollection)
+    bulkSourceNestedFields.value = []
+    return
+  }
+  const sourcePath = bulk?.sourcePath?.trim() ?? ''
+  const [m2o] = sourcePath.split('.')
+  if (m2o) await loadBulkSourceNestedFields(collection, m2o)
+  else bulkSourceNestedFields.value = []
+}
+
+async function loadBulkSourceNestedFields(
+  relatedCollection: string,
+  m2oField: string,
+): Promise<void> {
+  await ensureBulkRelationsLoaded()
+  const nestedCollection = relatedCollectionForCollectionField(
+    bulkRelationDefinitions.value,
+    relatedCollection,
+    m2oField,
+  )
+  if (!nestedCollection) {
+    bulkSourceNestedFields.value = []
+    return
+  }
+  try {
+    bulkSourceNestedFields.value = await getCachedCollectionFields(nestedCollection)
+  } catch {
+    bulkSourceNestedFields.value = []
+  }
+}
 
 async function loadDocTemplateOptionsForBuilder(): Promise<void> {
   if (!collectionName.value) {
@@ -676,14 +946,6 @@ const configGroupShowIfLogic = computed({
   },
 })
 
-const configFieldGroupInlineLabels = computed({
-  get: () => selectedFieldParentGroup.value?.inlineLabels ?? true,
-  set: (inlineLabels: boolean) => {
-    if (!selectedFieldGroupId.value) return
-    updateGroup(selectedFieldGroupId.value, { inlineLabels })
-  },
-})
-
 const configTabTitle = computed({
   get: () => selectedTab.value?.title ?? '',
   set: (title: string) => {
@@ -746,6 +1008,7 @@ const configActionDisplayType = computed({
         flow: undefined,
         payload: undefined,
         cloneRelated: undefined,
+        bulkUpdateRelated: undefined,
       })
       void loadDocTemplateOptionsForBuilder()
       return
@@ -765,6 +1028,35 @@ const configActionDisplayType = computed({
         flow: undefined,
         payload: undefined,
         document: undefined,
+        bulkUpdateRelated: undefined,
+      })
+      return
+    }
+
+    if (selectedAction.value?.behavior === 'bulkUpdateRelated') {
+      updateSelectedAction({
+        displayType,
+        behavior: 'bulkUpdateRelated',
+        bulkUpdateRelated: selectedAction.value.bulkUpdateRelated ?? {
+          relatedCollection: '',
+          targetField: '',
+          sourcePath: '',
+          sourceCollection: undefined,
+          sourceLinkField: undefined,
+          activeSourcesOnly: undefined,
+          formula: DEFAULT_BULK_FORMULA,
+          promptLabel: '',
+          confirmBeforeRun: true,
+          successMessage: t(
+            'formBuilder.bulkUpdateRelatedCompleted',
+            'Related records updated.',
+          ),
+          refreshRecordAfterRun: true,
+        },
+        flow: undefined,
+        payload: undefined,
+        document: undefined,
+        cloneRelated: undefined,
       })
       return
     }
@@ -788,17 +1080,22 @@ const configActionDisplayType = computed({
       },
       document: undefined,
       cloneRelated: undefined,
+      bulkUpdateRelated: undefined,
     })
   },
 })
 const configActionBehavior = computed({
-  get: () =>
-    selectedAction.value?.behavior === 'cloneRelated' ? 'cloneRelated' : 'flow',
-  set: (behavior: 'flow' | 'cloneRelated') => {
+  get: () => {
+    const behavior = selectedAction.value?.behavior
+    if (behavior === 'cloneRelated' || behavior === 'bulkUpdateRelated') return behavior
+    return 'flow'
+  },
+  set: (behavior: 'flow' | 'cloneRelated' | 'bulkUpdateRelated') => {
+    const displayType =
+      selectedAction.value?.displayType === 'detailLink' ? 'detailLink' : 'detailButton'
     if (behavior === 'cloneRelated') {
       updateSelectedAction({
-        displayType:
-          selectedAction.value?.displayType === 'detailLink' ? 'detailLink' : 'detailButton',
+        displayType,
         behavior: 'cloneRelated',
         cloneRelated: selectedAction.value?.cloneRelated ?? {
           children: [],
@@ -810,22 +1107,58 @@ const configActionBehavior = computed({
         flow: undefined,
         payload: undefined,
         document: undefined,
+        bulkUpdateRelated: undefined,
       })
       return
     }
+    if (behavior === 'bulkUpdateRelated') {
+      updateSelectedAction({
+        displayType,
+        behavior: 'bulkUpdateRelated',
+        bulkUpdateRelated: selectedAction.value?.bulkUpdateRelated ?? {
+          relatedCollection: '',
+          targetField: '',
+          sourcePath: '',
+          sourceCollection: undefined,
+          sourceLinkField: undefined,
+          activeSourcesOnly: undefined,
+          formula: DEFAULT_BULK_FORMULA,
+          promptLabel: '',
+          confirmBeforeRun: true,
+          successMessage: t(
+            'formBuilder.bulkUpdateRelatedCompleted',
+            'Related records updated.',
+          ),
+          refreshRecordAfterRun: true,
+        },
+        flow: undefined,
+        payload: undefined,
+        document: undefined,
+        cloneRelated: undefined,
+      })
+      void loadBulkRelatedFields(
+        selectedAction.value?.bulkUpdateRelated?.relatedCollection ?? '',
+      )
+      return
+    }
     updateSelectedAction({
-      displayType:
-        selectedAction.value?.displayType === 'detailLink' ? 'detailLink' : 'detailButton',
+      displayType,
       behavior: 'flow',
       flow: {
         webhook: selectedAction.value?.flow?.webhook ?? '',
         method: 'POST',
-        confirmBeforeRun: selectedAction.value?.cloneRelated?.confirmBeforeRun ?? true,
+        confirmBeforeRun:
+          selectedAction.value?.cloneRelated?.confirmBeforeRun
+          ?? selectedAction.value?.bulkUpdateRelated?.confirmBeforeRun
+          ?? true,
         successMessage:
           selectedAction.value?.cloneRelated?.successMessage
+          ?? selectedAction.value?.bulkUpdateRelated?.successMessage
           ?? t('formBuilder.actionCompleted', 'Action completed.'),
         refreshRecordAfterRun:
-          selectedAction.value?.cloneRelated?.refreshRecordAfterRun ?? true,
+          selectedAction.value?.cloneRelated?.refreshRecordAfterRun
+          ?? selectedAction.value?.bulkUpdateRelated?.refreshRecordAfterRun
+          ?? true,
       },
       payload: {
         includeCollection: true,
@@ -833,6 +1166,7 @@ const configActionBehavior = computed({
         includeRecord: false,
       },
       cloneRelated: undefined,
+      bulkUpdateRelated: undefined,
       document: undefined,
     })
   },
@@ -1210,9 +1544,186 @@ function updateSelectedActionCloneRelated(
   })
 }
 
+function updateSelectedActionBulkUpdateRelated(
+  patch: Partial<NonNullable<EntityAction['bulkUpdateRelated']>>,
+): void {
+  if (!selectedAction.value) return
+  const current = selectedAction.value.bulkUpdateRelated
+  const nextSourceCollection =
+    patch.sourceCollection !== undefined
+      ? String(patch.sourceCollection ?? '').trim()
+      : (current?.sourceCollection?.trim() ?? '')
+  const nextSourceLinkField =
+    patch.sourceLinkField !== undefined
+      ? String(patch.sourceLinkField ?? '').trim()
+      : (current?.sourceLinkField?.trim() ?? '')
+  const nextActiveSourcesOnly =
+    patch.activeSourcesOnly !== undefined
+      ? patch.activeSourcesOnly !== false
+      : current?.activeSourcesOnly !== false
+
+  updateSelectedAction({
+    behavior: 'bulkUpdateRelated',
+    bulkUpdateRelated: {
+      relatedCollection: current?.relatedCollection ?? '',
+      targetField: current?.targetField ?? '',
+      sourcePath: current?.sourcePath ?? '',
+      formula: resolveBulkFormulaDisplay(current?.formula),
+      promptLabel: current?.promptLabel ?? '',
+      confirmBeforeRun: current?.confirmBeforeRun ?? true,
+      successMessage:
+        current?.successMessage
+        ?? t('formBuilder.bulkUpdateRelatedCompleted', 'Related records updated.'),
+      refreshRecordAfterRun: current?.refreshRecordAfterRun ?? true,
+      ...patch,
+      ...(nextSourceCollection
+        ? {
+            sourceCollection: nextSourceCollection,
+            sourceLinkField: nextSourceLinkField,
+            activeSourcesOnly: nextActiveSourcesOnly,
+          }
+        : {
+            sourceCollection: undefined,
+            sourceLinkField: undefined,
+            activeSourcesOnly: undefined,
+          }),
+    },
+  })
+}
+
 function saveActionCloneRelatedSettings(settings: CloneRelatedFromSettings): void {
   updateSelectedActionCloneRelated({ children: settings.children ?? [] })
 }
+
+const configActionBulkRelatedCollection = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.relatedCollection ?? '',
+  set: (relatedCollection: string) => {
+    updateSelectedActionBulkUpdateRelated({
+      relatedCollection,
+      targetField: '',
+      sourcePath: '',
+      sourceLinkField: '',
+    })
+    void loadBulkRelatedFields(relatedCollection)
+  },
+})
+const configActionBulkSourceCollection = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.sourceCollection ?? '',
+  set: (sourceCollection: string | null | undefined) => {
+    const next = String(sourceCollection ?? '').trim()
+    updateSelectedActionBulkUpdateRelated({
+      sourceCollection: next || undefined,
+      sourceLinkField: '',
+      sourcePath: '',
+      activeSourcesOnly: next ? true : undefined,
+    })
+    void loadBulkSourceCollectionFields(next)
+  },
+})
+const configActionBulkSourceLinkField = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.sourceLinkField ?? '',
+  set: (sourceLinkField: string) => {
+    updateSelectedActionBulkUpdateRelated({ sourceLinkField })
+  },
+})
+const configActionBulkActiveSourcesOnly = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.activeSourcesOnly !== false,
+  set: (activeSourcesOnly: boolean) => {
+    updateSelectedActionBulkUpdateRelated({ activeSourcesOnly })
+  },
+})
+const configActionBulkTargetField = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.targetField ?? '',
+  set: (targetField: string) => {
+    updateSelectedActionBulkUpdateRelated({ targetField })
+  },
+})
+const configActionBulkSourceM2o = computed({
+  get: () => {
+    const path = selectedAction.value?.bulkUpdateRelated?.sourcePath ?? ''
+    return path.split('.')[0] ?? ''
+  },
+  set: (m2oField: string) => {
+    const related = configActionBulkRelatedCollection.value
+    updateSelectedActionBulkUpdateRelated({
+      sourcePath: m2oField ? `${m2oField}.` : '',
+    })
+    void loadBulkSourceNestedFields(related, m2oField)
+  },
+})
+const configActionBulkSourceNested = computed({
+  get: () => {
+    const path = selectedAction.value?.bulkUpdateRelated?.sourcePath ?? ''
+    const parts = path.split('.')
+    return parts.length > 1 ? parts.slice(1).join('.') : ''
+  },
+  set: (nestedField: string) => {
+    const m2o = configActionBulkSourceM2o.value
+    updateSelectedActionBulkUpdateRelated({
+      sourcePath: m2o && nestedField ? `${m2o}.${nestedField}` : m2o ? `${m2o}.` : '',
+    })
+  },
+})
+const configActionBulkSourceField = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.sourcePath ?? '',
+  set: (sourcePath: string) => {
+    updateSelectedActionBulkUpdateRelated({ sourcePath })
+  },
+})
+const configActionBulkFormula = computed({
+  get: () =>
+    resolveBulkFormulaDisplay(selectedAction.value?.bulkUpdateRelated?.formula),
+  set: (formula: string) => {
+    updateSelectedActionBulkUpdateRelated({
+      formula: formula.trim() || DEFAULT_BULK_FORMULA,
+    })
+  },
+})
+const configActionBulkPromptLabel = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.promptLabel ?? '',
+  set: (promptLabel: string) => {
+    updateSelectedActionBulkUpdateRelated({ promptLabel })
+  },
+})
+
+function applyBulkFormulaPreset(formula: string): void {
+  updateSelectedActionBulkUpdateRelated({ formula })
+}
+const configActionBulkConfirm = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.confirmBeforeRun ?? true,
+  set: (confirmBeforeRun: boolean) => {
+    updateSelectedActionBulkUpdateRelated({ confirmBeforeRun })
+  },
+})
+const configActionBulkSuccessMessage = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.successMessage ?? '',
+  set: (successMessage: string) => {
+    updateSelectedActionBulkUpdateRelated({ successMessage })
+  },
+})
+const configActionBulkRefresh = computed({
+  get: () => selectedAction.value?.bulkUpdateRelated?.refreshRecordAfterRun ?? true,
+  set: (refreshRecordAfterRun: boolean) => {
+    updateSelectedActionBulkUpdateRelated({ refreshRecordAfterRun })
+  },
+})
+
+watch(
+  () =>
+    [
+      selectedAction.value?.id,
+      selectedAction.value?.behavior,
+      selectedAction.value?.bulkUpdateRelated?.relatedCollection,
+      selectedAction.value?.bulkUpdateRelated?.sourceCollection,
+    ] as const,
+  ([, behavior, relatedCollection, sourceCollection]) => {
+    if (behavior === 'bulkUpdateRelated') {
+      void ensureBulkUserCollectionsLoaded()
+      void loadBulkRelatedFields(relatedCollection ?? '')
+      if (sourceCollection) void loadBulkSourceCollectionFields(sourceCollection)
+    }
+  },
+)
 
 function slugifyActionName(value: string): string {
   const slug = value
@@ -1300,12 +1811,21 @@ function patchGroups(
   })
 }
 
+/** Second and later copies of a custom block need their own field key. */
+function canvasFieldKey(item: PaletteItem): string {
+  if (item.fieldType !== 'custom' || !assignedFieldKeys.value.has(item.fieldKey)) {
+    return item.fieldKey
+  }
+  return `${item.fieldKey}_${generateFieldId()}`
+}
+
 function clonePaletteItem(item: PaletteItem): LayoutFieldMetadata {
   const id = generateFieldId()
+  const fieldKey = canvasFieldKey(item)
   if (item.component === 'BlockLayout' || item.paletteKind === 'blockLayout') {
     return {
       id,
-      field: item.fieldKey,
+      field: fieldKey,
       label: item.label,
       component: 'BlockLayout',
       span: 12,
@@ -1314,7 +1834,7 @@ function clonePaletteItem(item: PaletteItem): LayoutFieldMetadata {
   }
   return {
     id,
-    field: item.fieldKey,
+    field: fieldKey,
     label: item.label,
     component: item.component,
     span: ['DataTable', 'CrmTreeTable', 'CrmScheduler', 'CrmActivityLog', 'CrmDocEngine', 'Files', 'M2ABuilder'].includes(item.component)
@@ -2409,6 +2929,259 @@ function hintTooltip(value: string) {
           </div>
         </template>
 
+        <template v-else-if="isBulkUpdateRelatedAction">
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-behavior-bulk" class="text-[0.85rem] font-medium">
+              {{ t('formBuilder.actionBehavior', 'Behavior') }}
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-behavior-bulk"
+              v-model="configActionBehavior"
+              :options="ACTION_BEHAVIOR_OPTIONS"
+              option-label="label"
+              option-value="value"
+              fluid
+            />
+          </div>
+          <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+            {{ t('formBuilder.bulkUpdateRelated', 'Bulk update related') }}
+            <button
+              type="button"
+              class="property-hint"
+              v-tooltip.bottom="hintTooltip(t('formBuilder.bulkUpdateRelatedHint', 'Prompt for a number, then set Target field from Source path + formula. Optionally pick a Source collection to create missing related rows (upsert) before updating.'))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </label>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-bulk-related" class="text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkRelatedCollection', 'Related collection') }}
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-related"
+              v-model="configActionBulkRelatedCollection"
+              :options="bulkRelatedCollectionOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkRelatedCollectionPlaceholder', 'Select related collection')"
+              filter
+              fluid
+            />
+          </div>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-bulk-source-collection" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkSourceCollection', 'Source collection') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkSourceCollectionHint', 'Optional. When set, loads rows from this collection and upserts related records for the current parent (e.g. Item → Item price). Leave empty to only update existing related rows.'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-source-collection"
+              v-model="configActionBulkSourceCollection"
+              :options="bulkUserCollectionOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkSourceCollectionPlaceholder', 'None (update existing only)')"
+              show-clear
+              filter
+              fluid
+            />
+          </div>
+          <div
+            v-if="isBulkUpsertMode"
+            class="flex flex-col gap-[0.35rem]"
+          >
+            <label for="action-bulk-source-link" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkSourceLinkField', 'Source link field') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkSourceLinkFieldHint', 'M2O on the related collection that points at the source (e.g. item on item_price).'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-source-link"
+              v-model="configActionBulkSourceLinkField"
+              :options="bulkSourceLinkFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkSourceLinkFieldPlaceholder', 'Select link field')"
+              :disabled="!configActionBulkRelatedCollection"
+              filter
+              fluid
+            />
+          </div>
+          <div
+            v-if="isBulkUpsertMode"
+            class="properties-switch"
+          >
+            <span class="inline-flex items-center gap-1">
+              {{ t('formBuilder.bulkActiveSourcesOnly', 'Active sources only') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkActiveSourcesOnlyHint', 'When on, only source records with is_active = true are included.'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <ToggleSwitch v-model="configActionBulkActiveSourcesOnly" />
+          </div>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-bulk-target" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkTargetField', 'Target field') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkTargetFieldHint', 'Numeric field on the related collection to update (e.g. new_price).'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-target"
+              v-model="configActionBulkTargetField"
+              :options="bulkTargetFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkTargetFieldPlaceholder', 'Select target field')"
+              :disabled="!configActionBulkRelatedCollection"
+              filter
+              fluid
+            />
+          </div>
+          <div
+            v-if="isBulkUpsertMode"
+            class="flex flex-col gap-[0.35rem]"
+          >
+            <label for="action-bulk-source-field" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkSourcePath', 'Source path') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkSourcePathUpsertHint', 'Numeric field on the source collection (e.g. base_price on Item).'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-source-field"
+              v-model="configActionBulkSourceField"
+              :options="bulkSourceCollectionFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkSourceFieldPlaceholder', 'Select source field')"
+              :disabled="!configActionBulkSourceCollection"
+              filter
+              fluid
+            />
+          </div>
+          <div
+            v-else
+            class="flex flex-col gap-[0.35rem]"
+          >
+            <label for="action-bulk-source-m2o" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkSourcePath', 'Source path') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkSourcePathHint', 'Related M2O field and nested numeric field (e.g. item → base_price → item.base_price).'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-source-m2o"
+              v-model="configActionBulkSourceM2o"
+              :options="bulkSourceM2oOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkSourceM2oPlaceholder', 'Related M2O field')"
+              :disabled="!configActionBulkRelatedCollection"
+              filter
+              fluid
+            />
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-bulk-source-nested"
+              v-model="configActionBulkSourceNested"
+              :options="bulkSourceNestedFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.bulkSourceNestedPlaceholder', 'Nested numeric field')"
+              :disabled="!configActionBulkSourceM2o"
+              filter
+              fluid
+            />
+          </div>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-bulk-formula" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkFormula', 'Formula') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.bulkFormulaHint', 'Custom arithmetic using {{source}} (from Source path) and {{prompt}} (user input). Example: {{source}} * (1 - {{prompt}} / 100)'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <InputText
+              id="action-bulk-formula"
+              v-model="configActionBulkFormula"
+              :placeholder="t('formBuilder.bulkFormulaPlaceholder', '{{source}} * (1 - {{prompt}} / 100)')"
+              fluid
+            />
+            <div class="flex flex-wrap gap-1">
+              <Button
+                v-for="preset in BULK_FORMULA_PRESETS"
+                :key="preset.value"
+                :label="preset.label"
+                size="small"
+                text
+                type="button"
+                @click="applyBulkFormulaPreset(preset.value)"
+              />
+            </div>
+            <code class="m-0 rounded border border-surface-200 bg-surface-50 px-2 py-1.5 text-[0.8rem] text-surface-700 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200">
+              {{ bulkFormulaPreview }}
+            </code>
+          </div>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-bulk-prompt" class="text-[0.85rem] font-medium">
+              {{ t('formBuilder.bulkPromptLabel', 'Prompt label') }}
+            </label>
+            <InputText
+              id="action-bulk-prompt"
+              v-model="configActionBulkPromptLabel"
+              :placeholder="t('formBuilder.bulkPromptLabelPlaceholder', 'Multiplier')"
+              fluid
+            />
+          </div>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-bulk-success" class="text-[0.85rem] font-medium">
+              {{ t('formBuilder.successMessage', 'Success message') }}
+            </label>
+            <InputText
+              id="action-bulk-success"
+              v-model="configActionBulkSuccessMessage"
+              fluid
+            />
+          </div>
+          <div class="properties-switch">
+            <span>{{ t('formBuilder.confirmBeforeRun', 'Confirm before running') }}</span>
+            <ToggleSwitch v-model="configActionBulkConfirm" />
+          </div>
+          <div class="properties-switch">
+            <span>{{ t('formBuilder.refreshAfterBulkUpdate', 'Refresh after bulk update') }}</span>
+            <ToggleSwitch v-model="configActionBulkRefresh" />
+          </div>
+        </template>
+
         <template v-else>
         <div class="flex flex-col gap-[0.35rem]">
           <label for="action-behavior-flow" class="text-[0.85rem] font-medium">
@@ -2626,26 +3399,6 @@ function hintTooltip(value: string) {
             option-label="label"
             option-value="value"
             fluid
-          />
-        </div>
-        <div
-          v-if="selectedFieldParentGroup && !isBlockLayoutField(selectedField)"
-          class="flex flex-col gap-[0.35rem]"
-        >
-          <div class="properties-switch">
-            <label for="field-inline-labels">
-              {{ t('formBuilder.inlineLabels', 'Inline labels') }}
-            </label>
-            <ToggleSwitch
-              id="field-inline-labels"
-              v-model="configFieldGroupInlineLabels"
-            />
-          </div>
-          <button
-            type="button"
-            class="property-hint"
-            v-tooltip.bottom="hintTooltip(t('formBuilder.inlineLabelsHint', 'Show labels beside values on wide screens; stack above values on small screens.'))"
-            :aria-label="t('formBuilder.inlineLabelsHint', 'Show labels beside values on wide screens; stack above values on small screens.')"
           />
         </div>
         <div

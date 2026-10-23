@@ -96,10 +96,25 @@ export async function listRecordActivities(options: {
   recordId: string
   actions?: string[] | null
   limit?: number
-}): Promise<AuditActivityRow[]> {
+  offset?: number
+}): Promise<{ nodes: AuditActivityRow[]; totalCount: number }> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 500)
+  const offset = Math.max(options.offset ?? 0, 0)
   const actions =
     options.actions?.filter((action) => typeof action === 'string' && action.trim()) ?? []
+
+  const countRows = await query<{ total: string }>(
+    `SELECT COUNT(*)::text AS total
+     FROM public.activities a
+     WHERE a.entity_api_name = $1
+       AND a.record_id = $2
+       AND (
+         cardinality($3::text[]) = 0
+         OR a.action = ANY($3::text[])
+       )`,
+    [options.entityApiName, options.recordId, actions],
+  )
+  const totalCount = Number(countRows[0]?.total ?? 0)
 
   const rows = await query<{
     id: string
@@ -135,28 +150,32 @@ export async function listRecordActivities(options: {
          OR a.action = ANY($3::text[])
        )
      ORDER BY a.created_at DESC, a.id DESC
-     LIMIT $4`,
+     LIMIT $4 OFFSET $5`,
     [
       options.entityApiName,
       options.recordId,
       actions,
       limit,
+      offset,
     ],
   )
 
-  return rows.map((row) => ({
-    id: row.id,
-    entityApiName: row.entity_api_name,
-    recordId: row.record_id,
-    action: row.action,
-    userId: row.user_id,
-    comment: row.comment,
-    createdAt:
-      row.created_at instanceof Date
-        ? row.created_at.toISOString()
-        : String(row.created_at),
-    revisionIds: Array.isArray(row.revision_ids) ? row.revision_ids : [],
-  }))
+  return {
+    nodes: rows.map((row) => ({
+      id: row.id,
+      entityApiName: row.entity_api_name,
+      recordId: row.record_id,
+      action: row.action,
+      userId: row.user_id,
+      comment: row.comment,
+      createdAt:
+        row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : String(row.created_at),
+      revisionIds: Array.isArray(row.revision_ids) ? row.revision_ids : [],
+    })),
+    totalCount: Number.isFinite(totalCount) ? totalCount : 0,
+  }
 }
 
 export async function listRecordRevisions(options: {

@@ -115,6 +115,16 @@ function valuesEqualLoose(left: unknown, right: unknown): boolean {
   return String(left) === String(right)
 }
 
+/** Round to nearest integer, or to `digits` decimal places when provided. */
+function roundNumber(value: unknown, digits: unknown = 0): number | null {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  const d = Math.trunc(Number(digits))
+  if (!Number.isFinite(d) || d <= 0) return Math.round(n)
+  const factor = 10 ** Math.min(d, 15)
+  return Math.round(n * factor) / factor
+}
+
 /** First row where row[key] equals value (loose coerce). */
 export function findRowByKey(
   list: unknown,
@@ -208,7 +218,7 @@ export function parseExpression(
       }
       if (op === 'CEIL') return Math.ceil(Number(valueA))
       if (op === 'FLOOR') return Math.floor(Number(valueA))
-      if (op === 'ROUND') return Math.round(Number(valueA))
+      if (op === 'ROUND') return roundNumber(valueA)
       if (op === 'EXP') return Math.exp(Number(valueA))
       if (op === 'LOG') return Math.log(Number(valueA))
       if (op === 'MAX' && Array.isArray(valueA)) {
@@ -240,6 +250,7 @@ export function parseExpression(
       if (op === 'MULTIPLY') return Number(valueA) * Number(valueB)
       if (op === 'DIVIDE') return Number(valueA) / Number(valueB)
       if (op === 'REMAINDER') return Number(valueA) % Number(valueB)
+      if (op === 'ROUND') return roundNumber(valueA, valueB)
       if (op === 'DATE_ADD_DAYS') {
         const base =
           valueA instanceof Date ? new Date(valueA.getTime()) : new Date(String(valueA ?? ''))

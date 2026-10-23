@@ -30,6 +30,11 @@ export type CrmDataTableGridColumn = {
   valueCollection?: string
   inlineEditable?: boolean
   childLookup?: LayoutFieldChildLookup | null
+  numberDisplay?: {
+    prefix?: string
+    suffix?: string
+    decimalPlaces?: number
+  } | null
 }
 
 export type CrmDataTableEditRequest = {
@@ -50,7 +55,8 @@ const props = defineProps<{
   activeRowsPerPage: number
   isCompact?: boolean
   isSelectionEnabled?: boolean
-  selection: Record<string, unknown> | null
+  isMultipleSelection?: boolean
+  selection: Record<string, unknown> | Record<string, unknown>[] | null
   expandedRowGroups: unknown[]
   isRowGroupingActive?: boolean
   groupExpandable?: boolean
@@ -59,6 +65,7 @@ const props = defineProps<{
   effectiveSortOrder?: 1 | -1 | null
   sortableColumns?: boolean
   reorderableColumns?: boolean
+  resizableColumns?: boolean
   rowDraggable?: boolean
   rowDragDisabled?: boolean
   canDragRows?: boolean
@@ -87,10 +94,11 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'update:selection': [row: Record<string, unknown> | null]
+  'update:selection': [row: Record<string, unknown> | Record<string, unknown>[] | null]
   'update:expandedRowGroups': [groups: unknown[]]
   sort: [event: unknown]
   'column-reorder': [event: unknown]
+  'column-resize-end': [event: { element?: HTMLElement | null; delta?: number }]
   'row-select': [event: unknown]
   'row-unselect': [event: unknown]
   'edit-request': [payload: CrmDataTableEditRequest]
@@ -179,7 +187,9 @@ function handleEditButton(
     :selection="selection"
     :value="tableRows"
     :data-key="managedPrimaryKey"
-    :selection-mode="isSelectionEnabled ? 'single' : undefined"
+    :selection-mode="
+      isMultipleSelection ? 'multiple' : isSelectionEnabled ? 'single' : undefined
+    "
     :meta-key-selection="false"
     :loading="loading"
     scrollable
@@ -194,24 +204,35 @@ function handleEditButton(
     :lazy="lazy"
     :paginator="paginator && !lazy"
     :rows="activeRowsPerPage"
-    :custom-sort="isRowGroupingActive"
+    :custom-sort="isRowGroupingActive || !lazy"
     :sort-field="effectiveSortField ?? undefined"
     :sort-order="effectiveSortOrder ?? undefined"
     :row-group-mode="isRowGroupingActive ? 'subheader' : undefined"
     :group-rows-by="activeGroupField ?? undefined"
     :expandable-row-groups="isRowGroupingActive && groupExpandable !== false"
     :reorderable-columns="reorderableColumns"
+    :resizable-columns="resizableColumns"
+    column-resize-mode="expand"
     table-style="min-width: 100%"
     @update:expanded-row-groups="emit('update:expandedRowGroups', $event)"
     @update:selection="emit('update:selection', $event)"
     @sort="emit('sort', $event)"
     @column-reorder="emit('column-reorder', $event)"
+    @column-resize-end="emit('column-resize-end', $event)"
     @row-select="emit('row-select', $event)"
     @row-unselect="emit('row-unselect', $event)"
   >
     <template v-if="isRowGroupingActive" #groupheader="{ data }">
       <span class="crm-data-table__group-header-label">{{ formatGroupHeader(data) }}</span>
     </template>
+    <Column
+      v-if="isMultipleSelection"
+      selection-mode="multiple"
+      column-key="row-selection"
+      :reorderable-column="false"
+      header-style="width: 3rem"
+      style="width: 3rem"
+    />
     <Column
       v-for="column in displayedColumns"
       :key="resolveColumnKey(column)"
@@ -222,6 +243,7 @@ function handleEditButton(
       :reorderable-column="!column.autoRecordId"
       :align="isNumericColumn?.(column) ? 'right' : undefined"
       :align-header="isNumericColumn?.(column) ? 'right' : undefined"
+      :header-style="columnStyle(column)"
       :style="columnStyle(column)"
     >
       <template #body="{ data }">
@@ -336,7 +358,7 @@ function handleEditButton(
       column-key="actions"
       :reorderable-column="false"
       header=""
-      style="width: 3.5rem; min-width: 3.5rem"
+      style="min-width: 6.5rem; width: auto"
     >
       <template #body="{ data }">
         <slot name="actions" :row="data" />
@@ -377,7 +399,17 @@ function handleEditButton(
   cursor: pointer;
 }
 
-.crm-data-table :deep(.p-datatable-thead > tr > th),
+.crm-data-table :deep(.p-datatable-thead > tr > th) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crm-data-table :deep(.p-datatable-column-resizer) {
+  cursor: col-resize;
+  width: 0.5rem;
+}
+
 .crm-data-table :deep(.p-datatable-tbody > tr > td) {
   white-space: nowrap;
 }
@@ -388,6 +420,7 @@ function handleEditButton(
   gap: 0.2rem;
   min-height: 1.65rem;
   min-width: 0;
+  position: relative;
   width: 100%;
 }
 
@@ -396,12 +429,7 @@ function handleEditButton(
 }
 
 .crm-data-table__cell--numeric .crm-data-table__cell-text {
-  flex: 1;
   text-align: right;
-}
-
-.crm-data-table__cell--numeric.crm-data-table__cell--editable .crm-data-table__cell-edit {
-  margin-inline-start: 0;
 }
 
 .crm-data-table__cell-text {
@@ -413,8 +441,9 @@ function handleEditButton(
 .crm-data-table__cell--editable {
   border-radius: 4px;
   cursor: pointer;
+  /* Room for absolute pencil so values keep the same alignment as read-only. */
   margin: -0.15rem -0.2rem;
-  padding: 0.15rem 0.2rem;
+  padding: 0.15rem 1.75rem 0.15rem 0.2rem;
 }
 
 .crm-data-table__cell--editable:hover {
@@ -425,9 +454,12 @@ function handleEditButton(
 .crm-data-table__cell-edit {
   flex-shrink: 0;
   height: 1.5rem;
-  margin-inline-start: auto;
   opacity: 0;
   padding: 0;
+  position: absolute;
+  right: 0.1rem;
+  top: 50%;
+  transform: translateY(-50%);
   width: 1.5rem;
 }
 

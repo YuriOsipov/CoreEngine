@@ -50,7 +50,7 @@ const props = withDefaults(
   }>(),
   {
     allowCreate: true,
-    showClear: false,
+    showClear: true,
   },
 )
 
@@ -87,8 +87,6 @@ const createOption = computed<CreateOption | null>(() => {
     createNew: true,
   }
 })
-
-const canCreate = computed(() => createOption.value !== null)
 
 /** Drop props that fight create-new / search behavior when passed via field metadata. */
 const autoCompleteAttrs = computed(() => {
@@ -223,72 +221,58 @@ function isSelectOption(value: unknown): value is SelectOption {
 </script>
 
 <template>
-  <div class="crm-autocomplete flex w-full items-stretch gap-1">
-    <div class="crm-autocomplete__input relative min-w-0 flex-1">
-      <AutoComplete
-        v-bind="autoCompleteAttrs"
-        class="min-w-0 w-full"
-        :class="{ 'crm-autocomplete__field--clearable': showClear && modelValue }"
-        :model-value="modelValue"
-        :suggestions="suggestions"
-        :option-label="optionLabel"
-        :placeholder="placeholder"
-        :disabled="disabled"
-        append-to="body"
-        :complete-on-focus="true"
-        :force-selection="true"
-        :show-empty-message="true"
-        :show-clear="false"
-        @update:model-value="updateModelValue"
-        @complete="searchOptions"
-        @dropdown-click="handleDropdownClick"
-        @show="handleOverlayShow"
-        @hide="handleOverlayHide"
-        @clear="clearValue"
-      >
-        <template #option="{ option }">
-          <span
-            v-if="isCreateOption(option)"
-            class="font-bold text-teal-700"
-            @mousedown.prevent="openCreateDialog"
-          >
-            {{ option.label }}
-          </span>
-          <span v-else>{{ option.label }}</span>
-        </template>
-        <template #empty>
-          <span class="text-muted-color block p-2">
-            {{ t('autoComplete.noResults', 'No results found') }}
-          </span>
-        </template>
-      </AutoComplete>
-      <Button
-        v-if="showClear && modelValue"
-        type="button"
-        icon="pi pi-times"
-        text
-        rounded
-        severity="secondary"
-        size="small"
-        class="crm-autocomplete__clear"
-        :disabled="disabled"
-        :aria-label="t('autoComplete.clear', 'Clear')"
-        :title="t('autoComplete.clear', 'Clear')"
-        @mousedown.prevent.stop="clearValue"
-        @click.stop="clearValue"
-      />
-    </div>
-
-    <Button
-      v-if="canCreate"
-      type="button"
-      icon="pi pi-plus"
-      severity="secondary"
-      outlined
+  <div class="crm-autocomplete relative w-full min-w-0">
+    <AutoComplete
+      v-bind="autoCompleteAttrs"
+      class="min-w-0 w-full"
+      :class="{ 'crm-autocomplete__field--clearable': showClear && modelValue }"
+      :model-value="modelValue"
+      :suggestions="suggestions"
+      :option-label="optionLabel"
+      :placeholder="placeholder"
       :disabled="disabled"
-      :aria-label="createOption?.label"
-      :title="createOption?.label"
-      @click="openCreateDialog"
+      append-to="body"
+      :complete-on-focus="true"
+      :force-selection="true"
+      :show-empty-message="true"
+      :show-clear="false"
+      @update:model-value="updateModelValue"
+      @complete="searchOptions"
+      @dropdown-click="handleDropdownClick"
+      @show="handleOverlayShow"
+      @hide="handleOverlayHide"
+      @clear="clearValue"
+    >
+      <template #option="{ option }">
+        <span
+          v-if="isCreateOption(option)"
+          class="font-bold text-teal-700"
+          @mousedown.prevent="openCreateDialog"
+        >
+          {{ option.label }}
+        </span>
+        <span v-else>{{ option.label }}</span>
+      </template>
+      <template #empty>
+        <span class="text-muted-color block p-2">
+          {{ t('autoComplete.noResults', 'No results found') }}
+        </span>
+      </template>
+    </AutoComplete>
+    <Button
+      v-if="showClear && modelValue"
+      type="button"
+      icon="pi pi-times"
+      text
+      rounded
+      severity="secondary"
+      size="small"
+      class="crm-autocomplete__clear"
+      :disabled="disabled"
+      :aria-label="t('autoComplete.clear', 'Clear')"
+      :title="t('autoComplete.clear', 'Clear')"
+      @mousedown.prevent.stop="clearValue"
+      @click.stop="clearValue"
     />
 
     <RecordCreateDialog

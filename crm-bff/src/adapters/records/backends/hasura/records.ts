@@ -390,9 +390,13 @@ function compileWhere(
   if (compiled) parts.push(compiled)
 
   if (!includeDeleted) {
-    const statusField = effectiveStatusField(config, types)
-    if (statusField) {
-      parts.push({ [statusField]: { _neq: 'archived' } })
+    if ('is_deleted' in types) {
+      parts.push({ is_deleted: { _eq: false } })
+    } else {
+      const statusField = effectiveStatusField(config, types)
+      if (statusField) {
+        parts.push({ [statusField]: { _neq: 'archived' } })
+      }
     }
   }
 
@@ -832,7 +836,13 @@ export async function hasuraCreate(
     if (!isIntGqlType(idType)) payload[config.idField] = randomUUID()
     else delete payload[config.idField]
   }
-  if (statusField && payload[statusField] == null) {
+  if ('is_deleted' in types && payload.is_deleted == null) {
+    payload.is_deleted = false
+  }
+  if ('is_active' in types && payload.is_active == null) {
+    payload.is_active = true
+  }
+  if (statusField && !('is_deleted' in types) && payload[statusField] == null) {
     payload[statusField] = 'published'
   }
   const mutation = `insert_${config.root}_one`
@@ -895,9 +905,12 @@ export async function hasuraSoftDelete(
 ): Promise<Record<string, unknown>> {
   const config = await resolveHasuraConfig(collection)
   const types = await loadHasuraFieldTypes(config)
+  if ('is_deleted' in types) {
+    return hasuraUpdate(collection, id, { is_deleted: true })
+  }
   const statusField = effectiveStatusField(config, types)
   if (!statusField) {
-    // Lean junctions (no status): unlink by removing the row.
+    // Lean junctions (no archive column): unlink by removing the row.
     let existing: Record<string, unknown> = { id }
     try {
       existing = await hasuraFindOne(collection, id, null)
@@ -916,11 +929,12 @@ export async function hasuraRestore(
 ): Promise<Record<string, unknown>> {
   const config = await resolveHasuraConfig(collection)
   const types = await loadHasuraFieldTypes(config)
+  if ('is_deleted' in types) {
+    return hasuraUpdate(collection, id, { is_deleted: false })
+  }
   const statusField = effectiveStatusField(config, types)
   if (!statusField) {
-    throw new Error(
-      `Hasura restore requires statusField on "${collection}" (or set backend_config.hasura.statusField)`,
-    )
+    throw new Error(`Hasura restore is not supported on "${collection}"`)
   }
   return hasuraUpdate(collection, id, { [statusField]: 'published' })
 }

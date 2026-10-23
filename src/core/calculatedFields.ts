@@ -1,6 +1,7 @@
 import type { FieldDefinition } from '@/interfaces'
 import {
   evaluateComputedTemplate,
+  extractTemplateFieldPaths,
   extractTemplateFieldRefs,
 } from '@/core/computedTemplate'
 import {
@@ -212,6 +213,39 @@ export function collectFormulaDependencies(
     }
   }
   return Array.from(deps)
+}
+
+/**
+ * GraphQL/select paths needed to evaluate formulas on list rows, including
+ * nested M2O leaves (`item.base_price`) and their relation ids.
+ */
+export function collectFormulaRequestPaths(
+  formulas: Record<string, string>,
+): string[] {
+  const paths = new Set<string>()
+  for (const formula of Object.values(formulas)) {
+    for (const path of extractTemplateFieldPaths(formula)) {
+      paths.add(path)
+      const segments = path.split('.')
+      if (segments.length > 1) {
+        paths.add(`${segments[0]}.id`)
+      }
+    }
+  }
+  return Array.from(paths)
+}
+
+/** Resolve explicit/inferred formulas for every non-relation field on a collection. */
+export function resolveCollectionFormulas(
+  fields: FieldDefinition[],
+): Record<string, string> {
+  const fieldNames = fields.map((item) => item.field)
+  const formulas: Record<string, string> = {}
+  for (const definition of fields) {
+    const formula = resolveFieldFormula(definition, fieldNames)
+    if (formula) formulas[definition.field] = formula
+  }
+  return formulas
 }
 
 export function isFormulaInputPresent(record: Record<string, unknown>, ref: string): boolean {

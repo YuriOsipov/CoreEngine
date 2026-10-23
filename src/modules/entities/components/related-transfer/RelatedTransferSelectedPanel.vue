@@ -20,7 +20,7 @@ const props = defineProps<{
   pendingLabel: string
   currentLabel: string
   selectLookupPlaceholder: string
-  formatTransferValue: (value: unknown) => string
+  formatFieldValue: (field: string, value: unknown) => string
   rowValue: (row: TransferRow, field: string) => unknown
   isEditablePendingField: (row: TransferRow, field: string) => boolean
   isNumericTargetField: (field: string) => boolean
@@ -47,8 +47,15 @@ function isNumericColumn(field: string): boolean {
 /** Keep header/body/footer widths in sync for scrollable DataTable. */
 function columnWidthStyle(field: string): string | undefined {
   if (props.childLookupSettingsForField(field)) return 'width: 12rem; min-width: 12rem'
-  if (isNumericColumn(field)) return 'width: 7rem; min-width: 7rem'
-  return undefined
+  if (!isNumericColumn(field)) return undefined
+  const header = props.targetColumns.find((column) => column.field === field)?.header || field
+  const rem = Math.min(16, Math.max(9, Math.ceil(header.length * 0.65 + 3)))
+  return `width: ${rem}rem; min-width: ${rem}rem`
+}
+
+function numericCellStyle(field: string): Record<string, string> | undefined {
+  if (!isNumericColumn(field)) return undefined
+  return { textAlign: 'right' }
 }
 
 function quantityModelValue(row: TransferRow, field: string): number {
@@ -63,7 +70,7 @@ function quantityModelValue(row: TransferRow, field: string): number {
     class="border border-surface-200 rounded-lg p-3 bg-surface-0 min-h-0 overflow-hidden"
     :style="selectedPanelStyle"
   >
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex items-center justify-between mb-3 shrink-0">
       <h3 class="m-0 text-sm">{{ selectedTitle }}</h3>
       <Tag
         :value="String(pendingCount)"
@@ -71,6 +78,7 @@ function quantityModelValue(row: TransferRow, field: string): number {
       />
     </div>
 
+    <div class="related-transfer-selected-host">
     <DataTable
       :value="selectedRows"
       size="small"
@@ -84,14 +92,19 @@ function quantityModelValue(row: TransferRow, field: string): number {
       <Column
         v-for="(column, colIndex) in targetColumns"
         :key="column.field"
-        :header="column.header"
+        :header-style="numericCellStyle(column.field)"
+        :body-style="numericCellStyle(column.field)"
+        :footer-style="numericCellStyle(column.field)"
         :style="columnWidthStyle(column.field)"
-        :pt="{
-          headerCell: { class: isNumericColumn(column.field) ? 'text-right' : 'text-left' },
-          bodyCell: { class: isNumericColumn(column.field) ? 'text-right' : 'text-left' },
-          footerCell: { class: isNumericColumn(column.field) ? 'text-right' : 'text-left' },
-        }"
       >
+        <template #header>
+          <span
+            class="block w-full"
+            :class="isNumericColumn(column.field) ? 'text-right tabular-nums' : undefined"
+          >
+            {{ column.header }}
+          </span>
+        </template>
         <template #body="{ data }">
           <CrmChildLookupField
             v-if="isChildLookupPendingField(data, column.field)"
@@ -127,18 +140,18 @@ function quantityModelValue(row: TransferRow, field: string): number {
           />
           <span
             v-else
-            class="block truncate"
-            :class="isNumericColumn(column.field) ? 'tabular-nums' : undefined"
+            class="block w-full truncate"
+            :class="isNumericColumn(column.field) ? 'text-right tabular-nums' : undefined"
           >
-            {{ formatTransferValue(rowValue(data, column.field)) }}
+            {{ formatFieldValue(column.field, rowValue(data, column.field)) }}
           </span>
         </template>
         <template v-if="hasAnyTotal" #footer>
           <span
             v-if="selectedColumnTotals[column.field] !== undefined"
-            class="font-semibold text-primary-700 tabular-nums"
+            class="block w-full font-semibold text-primary-700 tabular-nums text-right"
           >
-            {{ formatTransferValue(selectedColumnTotals[column.field]) }}
+            {{ formatFieldValue(column.field, selectedColumnTotals[column.field]) }}
           </span>
           <span
             v-else-if="colIndex === 0"
@@ -172,19 +185,43 @@ function quantityModelValue(row: TransferRow, field: string): number {
         <template v-if="hasAnyTotal" #footer />
       </Column>
     </DataTable>
+    </div>
   </section>
 </template>
 
 <style scoped>
+.related-transfer-selected-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.related-transfer-selected-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
 .related-transfer-selected-table :deep(.p-datatable-table) {
   table-layout: fixed;
   width: 100%;
+}
+
+.related-transfer-selected-table :deep(th[style*='text-align: right']),
+.related-transfer-selected-table :deep(td[style*='text-align: right']) {
+  text-align: right !important;
 }
 
 .related-transfer-selected-table :deep(.p-datatable-thead > tr > th),
 .related-transfer-selected-table :deep(.p-datatable-tbody > tr > td),
 .related-transfer-selected-table :deep(.p-datatable-tfoot > tr > td) {
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .related-transfer-selected-table :deep(.related-transfer-lookup) {

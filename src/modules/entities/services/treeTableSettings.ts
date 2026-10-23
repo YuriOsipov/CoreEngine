@@ -153,6 +153,7 @@ export function normalizeTreeTableSettings(
         main.labelFields,
         main.labelField ?? settings?.itemLabelField,
       ),
+      sort: normalizeMainSort(main.sort),
     },
     destination: {
       collection: destination.collection ?? '',
@@ -171,6 +172,17 @@ function normalizeLabelFields(
 
   if (fields.length > 0) return fields
   return [fallback || 'name']
+}
+
+function normalizeMainSort(
+  sort: unknown,
+): TreeTableSettings['main']['sort'] {
+  if (!sort || typeof sort !== 'object') return null
+  const record = sort as { field?: unknown; order?: unknown }
+  const field = typeof record.field === 'string' ? record.field.trim() : ''
+  if (!field) return null
+  const order = record.order === -1 ? -1 : 1
+  return { field, order }
 }
 
 function parseTreeTableBody(record: TreeTableSettingRecord | null): TreeTableSettings | null {

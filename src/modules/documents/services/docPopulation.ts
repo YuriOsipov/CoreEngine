@@ -2,7 +2,9 @@ import {
   applyDocumentValues,
   buildTemplateExport,
   isDocExport,
+  isSectionInstanceArray,
   normalizeDocumentValues,
+  stripValuesFromBlocks,
 } from '@docengine/editor'
 import type { DocTemplateRecord } from '@/interfaces'
 import {
@@ -12,15 +14,19 @@ import {
   fetchDocMappingPayload,
   type DocListFilterMetaBlock,
 } from '@/modules/documents/services/docFieldMapping'
-import { buildDocSourceSamplePayload } from '@/modules/documents/services/docSourceSamplePayload'
-import { buildListFilterMetaBlock } from '@/core/listFilterUtils'
+import {
+  attachItemGroupPriceTreeSample,
+  buildDocSourceSamplePayload,
+  stripItemGroupTreeKeysFromSample,
+} from '@/modules/documents/services/docSourceSamplePayload'
+import {
+  buildListFilterMetaBlock,
+  mergeTreeGroupIntoListFilterMeta,
+} from '@/core/listFilterUtils'
 import type { ListFilterCondition } from '@/modules/config/services/listFilterSettings'
+import { loadTreeTableSettings } from '@/modules/entities/services/treeTableSettings'
 
 export type { DocListFilterMetaBlock }
-
-const SAMPLE_FILTER_META: DocListFilterMetaBlock = {
-  Status: 'Sample',
-}
 
 export interface PopulatedEditorDocument {
   time: number
@@ -28,6 +34,14 @@ export interface PopulatedEditorDocument {
   fieldSchemas: Record<string, unknown>
   pageSetup: Record<string, unknown>
   fieldsExport: Record<string, unknown>
+  /**
+   * `fieldsExport.sections` — required by HTML/PDF preview so array-sourced
+   * sections (`$payload.item_group_tree_rows`) clone once per group instance.
+   * Without this, preview only shows the first mapped group.
+   */
+  sections?: Record<string, unknown>
+  /** Same arrays keyed for PDF multipage / HTML `resolvePreviewRepeatPlan`. */
+  repeatableSectionInstances?: Record<string, unknown[]>
 }
 
 export interface RenderableDocPreview {
@@ -35,12 +49,43 @@ export interface RenderableDocPreview {
   blocks: unknown[]
   fieldSchemas: Record<string, unknown>
   pageSetup: Record<string, unknown>
+  sections?: Record<string, unknown>
+  repeatableSectionInstances?: Record<string, unknown[]>
+}
+
+/**
+ * Attach section instance arrays from a FieldsExport so DocEngine preview/PDF
+ * can expand `_source: $payload.item_group_tree_rows` (Group + `$children` table)
+ * once per row — matching Field Mapping designer.
+ */
+export function previewExtrasFromFieldsExport(
+  fieldsExport: Record<string, unknown> | null | undefined,
+): Pick<PopulatedEditorDocument, 'sections' | 'repeatableSectionInstances'> {
+  const raw = fieldsExport?.sections
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {}
+  }
+  const sections = raw as Record<string, unknown>
+  const repeatableSectionInstances: Record<string, unknown[]> = {}
+  for (const [name, value] of Object.entries(sections)) {
+    if (isSectionInstanceArray(value) && value.length > 0) {
+      repeatableSectionInstances[name] = value as unknown[]
+    }
+  }
+  return {
+    sections,
+    ...(Object.keys(repeatableSectionInstances).length > 0
+      ? { repeatableSectionInstances }
+      : {}),
+  }
 }
 
 function templateShapeFromBody(body: Record<string, unknown>): {
   blocks: unknown[]
   fieldSchemas: Record<string, unknown>
 } {
+  // Always strip design-time field values (Apply to editor / sample fill).
+  // Otherwise list reports keep stale sample text like "Product" / "test".
   if (body.kind === 'document') {
     const exported = buildTemplateExport(body as never) as {
       blocks?: unknown[]
@@ -52,10 +97,12 @@ function templateShapeFromBody(body: Record<string, unknown>): {
     }
   }
 
-  return {
-    blocks: (body.blocks as unknown[]) ?? [],
-    fieldSchemas: (body.fieldSchemas as Record<string, unknown>) ?? {},
-  }
+  const fieldSchemas = (body.fieldSchemas as Record<string, unknown>) ?? {}
+  const blocks = stripValuesFromBlocks(
+    ((body.blocks as unknown[]) ?? []) as never,
+    fieldSchemas as never,
+  )
+  return { blocks, fieldSchemas }
 }
 
 /** Structure plus saved field values, ready for HTML preview. */
@@ -125,6 +172,7 @@ export async function buildPopulatedDocument(
       fieldSchemas: merged.fieldSchemas as Record<string, unknown>,
       pageSetup,
       fieldsExport: savedValues,
+      ...previewExtrasFromFieldsExport(savedValues),
     }
   }
 
@@ -151,12 +199,14 @@ export async function buildPopulatedDocument(
     mappingTemplate,
   )
 
+  const fieldsExport = mapped.fieldsExport as unknown as Record<string, unknown>
   return {
     time: Date.now(),
     blocks: mapped.blocks as unknown[],
     fieldSchemas: mapped.fieldSchemas as Record<string, unknown>,
     pageSetup,
-    fieldsExport: mapped.fieldsExport as unknown as Record<string, unknown>,
+    fieldsExport,
+    ...previewExtrasFromFieldsExport(fieldsExport),
   }
 }
 
@@ -202,12 +252,14 @@ export async function buildPopulatedDocumentFromList(
     mappingTemplate,
   )
 
+  const fieldsExport = mapped.fieldsExport as unknown as Record<string, unknown>
   return {
     time: Date.now(),
     blocks: mapped.blocks as unknown[],
     fieldSchemas: mapped.fieldSchemas as Record<string, unknown>,
     pageSetup,
-    fieldsExport: mapped.fieldsExport as unknown as Record<string, unknown>,
+    fieldsExport,
+    ...previewExtrasFromFieldsExport(fieldsExport),
   }
 }
 
@@ -221,11 +273,18 @@ export async function buildDocListSourceSamplePayload(
     filterConditions?: ListFilterCondition[] | null
     /** When set (related-list designer), sample includes `meta.parent` instead of `meta.filter`. */
     parentCollection?: string | null
+    /**
+     * When true (default), attach virtual `item_group_tree*` at payload root for Tree mode
+     * Field Mapping (`$payload.item_group_tree`, `_rows`, `_sections`).
+     */
+    includeTreeSample?: boolean
   } = {},
 ): Promise<Record<string, unknown>> {
-  const row = await buildDocSourceSamplePayload(collection, {
+  const rawRow = await buildDocSourceSamplePayload(collection, {
     maxDepth: options.maxDepth,
   })
+  // Tree keys belong at list payload root, not on each record sample.
+  const row = stripItemGroupTreeKeysFromSample(rawRow)
 
   const parentCollection = options.parentCollection?.trim() || ''
   if (parentCollection) {
@@ -252,12 +311,30 @@ export async function buildDocListSourceSamplePayload(
   ) {
     filter = await buildListFilterMetaBlock(collection, options.filterConditions)
   }
-  // Keep an illustrative key only when the current view has no filter criteria.
+  // Only List layout Filter conditions (via list-action Template) populate meta.filter.
+  // No placeholder keys when designing from Document Templates or an unfiltered view.
   if (!filter || Object.keys(filter).length === 0) {
-    filter = SAMPLE_FILTER_META
+    filter = {}
   }
 
-  return {
+  // Tree sample on: show Group sample key. Off / table-mode design: Group is null.
+  try {
+    const tree = await loadTreeTableSettings(collection)
+    const groupField = tree?.main?.groupField?.trim() || ''
+    if (groupField) {
+      filter = await mergeTreeGroupIntoListFilterMeta(filter, {
+        collection,
+        groupField,
+        ...(options.includeTreeSample !== false
+          ? { groupLabel: 'Sample', fallbackLabel: 'Sample' }
+          : { clear: true }),
+      })
+    }
+  } catch {
+    // Collection may have no Tree layout.
+  }
+
+  const payload: Record<string, unknown> = {
     records: [row],
     meta: {
       collection,
@@ -267,4 +344,12 @@ export async function buildDocListSourceSamplePayload(
       viewLabel: options.viewLabel?.trim() || 'Sample list',
     },
   }
+
+  if (options.includeTreeSample !== false) {
+    await attachItemGroupPriceTreeSample(collection, payload, {
+      maxDepth: options.maxDepth,
+    })
+  }
+
+  return payload
 }

@@ -1,6 +1,9 @@
 import type { FieldDefinition, RelationDefinition } from '@/interfaces'
 import { readPath } from '@/core/utils/object'
-import { getCachedRelations } from '@/modules/entities/services/collectionSchema'
+import {
+  fetchCollectionDisplayTemplate,
+  getCachedRelations,
+} from '@/modules/entities/services/collectionSchema'
 import {
   extractTemplateFields,
   formatDisplayValue,
@@ -79,12 +82,13 @@ export async function lookupLabelMetadata(
     }
   }
 
-  const template = fieldDisplayTemplate(definition)
-  const templateFields = template ? extractTemplateFields(template) : []
+  const fieldTemplate = fieldDisplayTemplate(definition)
   const relatedCollection = await relationCollectionForField(lookupCollection, resolvedRoot, fields)
 
   if (relatedCollection) {
     const relatedFields = await collectionFields(relatedCollection)
+    const template = fieldTemplate
+    const templateFields = template ? extractTemplateFields(template) : []
     const displayField = relatedRecordDisplayField(relatedFields ?? [])
     const nestedFields = templateFields.length > 0 ? templateFields : [displayField]
     return {
@@ -98,10 +102,19 @@ export async function lookupLabelMetadata(
     }
   }
 
+  // Direct related-entity picklist (valueField is typically PK): use collection Display Template.
+  const collectionTemplate = fieldTemplate
+    || (await fetchCollectionDisplayTemplate(lookupCollection))
+  const templateFields = collectionTemplate ? extractTemplateFields(collectionTemplate) : []
+  const displayField = relatedRecordDisplayField(fields ?? [])
+  const isPrimaryKey = Boolean(definition?.schema?.is_primary_key) || keysEqual(resolvedRoot, 'id')
+
   return {
-    field: resolvedRoot,
-    template,
-    requestFields: [resolvedRoot, ...templateFields],
+    field: collectionTemplate || !isPrimaryKey ? resolvedRoot : displayField,
+    template: collectionTemplate,
+    requestFields: Array.from(
+      new Set([resolvedRoot, displayField, ...templateFields].filter(Boolean)),
+    ),
   }
 }
 

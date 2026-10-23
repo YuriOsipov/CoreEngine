@@ -86,8 +86,9 @@ async function renderHtmlPreview(doc: Record<string, unknown>): Promise<void> {
 
 async function renderPdfPreview(doc: Record<string, unknown>): Promise<void> {
   clearPreview()
+  // Do not pass template name as `title` — DocEngine injects pageSetup.title into the PDF body.
+  // Designer "PDF title" on pageSetup is used when set; otherwise no document title band.
   const blob = await generateDocumentPdfBlob(doc as never, {
-    title: documentName.value || 'document',
     download: false,
   })
   pdfUrl.value = URL.createObjectURL(blob)
@@ -144,6 +145,10 @@ async function loadDocumentView(): Promise<void> {
       blocks: populated.blocks,
       fieldSchemas: populated.fieldSchemas,
       pageSetup: populated.pageSetup,
+      ...(populated.sections ? { sections: populated.sections } : {}),
+      ...(populated.repeatableSectionInstances
+        ? { repeatableSectionInstances: populated.repeatableSectionInstances }
+        : {}),
     }
 
     if (
@@ -273,4 +278,16 @@ onBeforeUnmount(() => {
   min-height: calc(100vh - 8rem);
 }
 
+.doc-view-preview.preview-modal__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.doc-view-preview .preview-modal__html {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 </style>

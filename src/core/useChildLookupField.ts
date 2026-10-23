@@ -1,6 +1,8 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import type { LayoutFieldChildLookup, LayoutFieldMetadata } from '@/interfaces'
 import {
+  childLookupOptionMatchesValue,
+  fetchChildLookupOptionByValue,
   fetchChildLookupPicklistOptions,
   resolveChildLookupScalarValue,
   resolveChildLookupSourceId,
@@ -8,6 +10,7 @@ import {
 import { getCachedCollectionFields, getCachedRelations } from '@/modules/entities/services/collectionSchema'
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 import { collectSourceTokenFields } from '@/modules/entities/utils/relatedTransferFilters'
+import { extractRelationFieldId, scalarId } from '@/modules/entities/utils/recordDisplay'
 
 export type ChildLookupFieldMode = 'picklist' | 'value' | 'auto'
 
@@ -27,6 +30,12 @@ export interface UseChildLookupFieldOptions {
   parentRecord?: Ref<Record<string, unknown> | undefined>
   preferPicklist?: Ref<boolean | undefined>
   preloadedOptions?: Ref<Array<{ label: string; value: unknown }> | undefined>
+  /**
+   * Edit forms only: keep a stored scalar on first hydrate.
+   * Create forms must always refresh when Item (source) changes — otherwise
+   * Price/Main price keep a prior Item's value after clear/reselect.
+   */
+  preserveDraftOnHydrate?: Ref<boolean | undefined>
   onUpdate: (value: unknown) => void
 }
 
@@ -38,6 +47,9 @@ function buildSourceRecordDependency(
   const fields = new Set<string>()
   if (settings?.sourceField) {
     fields.add(settings.sourceField)
+  }
+  if (settings?.parentField) {
+    fields.add(settings.parentField)
   }
   if (sourceIdField) {
     fields.add(sourceIdField)
@@ -65,6 +77,7 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
   const fetchedOptions = ref<Array<{ label: string; value: unknown }>>([])
   const fieldIsM2O = ref<boolean | undefined>(undefined)
   const lastSyncedSourceValue = ref<string | number | null>(null)
+  const lastSyncedPicklistContext = ref<string | null>(null)
 
   const sourceValue = computed(() =>
     resolveChildLookupSourceId(
@@ -147,6 +160,8 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
       options.sourceIdField?.value ?? '',
       resolvedMode.value,
       options.preloadedOptions?.value,
+      // Re-seed when the stored value arrives after the first options fetch.
+      extractRelationFieldId(options.modelValue.value) ?? scalarId(options.modelValue.value),
     ] as const,
     () => {
       void syncFieldState()
@@ -171,18 +186,60 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
 
   async function syncFieldState(): Promise<void> {
     const lookup = options.settings.value
-    if (!lookup?.collection) {
+    if (!lookup?.collection || !lookup.valueField) {
       loadKey.value = ''
       fetchedOptions.value = []
       return
     }
 
+    const requiresSourcePin = Boolean(lookup.childSourceField?.trim())
     if (sourceValue.value === null) {
-      loadKey.value = ''
-      fetchedOptions.value = []
-      lastSyncedSourceValue.value = null
-      clearValue()
-      return
+      // Value mode (Price / Main price): always clear when Source field (Item) is
+      // empty. Filter-only configs used to keep the stale price whenever the
+      // Opportunity parent was still present — Item clear left Price at 26.63.
+      if (resolvedMode.value === 'value') {
+        loadKey.value = ''
+        fetchedOptions.value = []
+        const hadSource = lastSyncedSourceValue.value !== null
+        lastSyncedSourceValue.value = null
+        lastSyncedPicklistContext.value = null
+        if (hadSource || !isEmptyLookupValue(options.modelValue.value)) {
+          clearValue()
+        }
+        return
+      }
+
+      if (requiresSourcePin) {
+        loadKey.value = ''
+        fetchedOptions.value = []
+        lastSyncedSourceValue.value = null
+        lastSyncedPicklistContext.value = null
+        // Picklist: keep stored option visible until a new source is chosen (edit forms).
+        void seedStoredPicklistOption(lookup)
+        return
+      }
+
+      // Picklist filter-only mode may still resolve options from $parent.* alone.
+      const parentField = lookup.parentField?.trim()
+      const parentFromRecord = parentField
+        ? options.sourceRecord.value[parentField]
+        : undefined
+      const hasParent =
+        options.parentId?.value !== undefined &&
+        options.parentId?.value !== null &&
+        options.parentId?.value !== ''
+      const hasParentOnRecord =
+        parentFromRecord !== undefined &&
+        parentFromRecord !== null &&
+        parentFromRecord !== ''
+      if (!hasParent && !hasParentOnRecord) {
+        loadKey.value = ''
+        fetchedOptions.value = []
+        lastSyncedSourceValue.value = null
+        lastSyncedPicklistContext.value = null
+        void seedStoredPicklistOption(lookup)
+        return
+      }
     }
 
     const key = JSON.stringify([
@@ -198,14 +255,23 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
       resolvedMode.value,
       options.preloadedOptions?.value,
     ])
-    if (loadKey.value === key) return
+    if (loadKey.value === key) {
+      // Same filter context — only make sure a late-arriving stored value has an option.
+      if (resolvedMode.value === 'picklist') {
+        const seeded = await ensureCurrentPicklistOption(lookup, fetchedOptions.value)
+        if (seeded !== fetchedOptions.value) {
+          fetchedOptions.value = seeded
+        }
+      }
+      return
+    }
     loadKey.value = key
     loading.value = true
 
     try {
       if (resolvedMode.value === 'picklist') {
         await syncPicklistState(lookup, sourceValue.value, key)
-      } else {
+      } else if (sourceValue.value !== null) {
         await syncValueState(lookup, sourceValue.value, key)
       }
     } finally {
@@ -217,42 +283,99 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
 
   async function syncPicklistState(
     lookup: LayoutFieldChildLookup,
-    source: string | number,
+    source: string | number | null,
     key: string,
   ): Promise<void> {
+    const picklistContext = JSON.stringify([
+      source,
+      lookup.parentField ?? '',
+      options.parentId?.value ?? '',
+      sourceRecordDependency.value,
+    ])
+    const contextChanged =
+      lastSyncedPicklistContext.value !== null &&
+      lastSyncedPicklistContext.value !== picklistContext
+
     if (options.preloadedOptions?.value !== undefined) {
-      const nextOptions = options.preloadedOptions.value
+      const nextOptions = await ensureCurrentPicklistOption(
+        lookup,
+        options.preloadedOptions.value,
+      )
       if (loadKey.value !== key) return
-      if (!nextOptions.some((option) => option.value === options.modelValue.value)) {
-        const defaultValue = await resolveChildLookupScalarValue(lookup, source, fetchContext.value)
-        if (
-          loadKey.value === key &&
-          defaultValue !== undefined &&
-          nextOptions.some((option) => option.value === defaultValue)
-        ) {
-          updateValue(defaultValue)
-        } else if (loadKey.value === key) {
-          clearValue()
-        }
+      await reconcilePicklistSelection(lookup, source, nextOptions, contextChanged, key)
+      if (loadKey.value === key) {
+        lastSyncedPicklistContext.value = picklistContext
       }
       return
     }
 
-    const nextOptions = await fetchChildLookupPicklistOptions(lookup, source, fetchContext.value)
+    const fetched = await fetchChildLookupPicklistOptions(lookup, source, fetchContext.value)
+    if (loadKey.value !== key) return
+    const nextOptions = await ensureCurrentPicklistOption(lookup, fetched)
     if (loadKey.value !== key) return
     fetchedOptions.value = nextOptions
-    if (!nextOptions.some((option) => option.value === options.modelValue.value)) {
-      const defaultValue = await resolveChildLookupScalarValue(lookup, source, fetchContext.value)
-      if (
-        loadKey.value === key &&
-        defaultValue !== undefined &&
-        nextOptions.some((option) => option.value === defaultValue)
-      ) {
-        updateValue(defaultValue)
-      } else if (loadKey.value === key) {
-        clearValue()
-      }
+    await reconcilePicklistSelection(lookup, source, nextOptions, contextChanged, key)
+    if (loadKey.value === key) {
+      lastSyncedPicklistContext.value = picklistContext
     }
+  }
+
+  async function seedStoredPicklistOption(
+    lookup: LayoutFieldChildLookup,
+  ): Promise<void> {
+    if (resolvedMode.value !== 'picklist') return
+    const seeded = await ensureCurrentPicklistOption(lookup, [])
+    if (seeded.length > 0) {
+      fetchedOptions.value = seeded
+    }
+  }
+
+  async function ensureCurrentPicklistOption(
+    lookup: LayoutFieldChildLookup,
+    optionsList: Array<{ label: string; value: unknown }>,
+  ): Promise<Array<{ label: string; value: unknown }>> {
+    const current = options.modelValue.value
+    if (isEmptyLookupValue(current)) return optionsList
+    if (optionsList.some((option) => childLookupOptionMatchesValue(option.value, current))) {
+      return optionsList
+    }
+
+    const currentId = extractRelationFieldId(current) ?? scalarId(current)
+    if (currentId === null) return optionsList
+
+    const ensured = await fetchChildLookupOptionByValue(lookup, currentId)
+    if (!ensured) {
+      // Keep Select able to bind the stored id even if label fetch fails.
+      return [{ value: currentId, label: String(currentId) }, ...optionsList]
+    }
+    return [ensured, ...optionsList]
+  }
+
+  async function reconcilePicklistSelection(
+    lookup: LayoutFieldChildLookup,
+    source: string | number | null,
+    nextOptions: Array<{ label: string; value: unknown }>,
+    contextChanged: boolean,
+    key: string,
+  ): Promise<void> {
+    const current = options.modelValue.value
+    if (nextOptions.some((option) => childLookupOptionMatchesValue(option.value, current))) {
+      return
+    }
+
+    // Initial open: never wipe a stored value — option ensure already ran above.
+    if (!contextChanged) return
+
+    const defaultValue = await resolveChildLookupScalarValue(lookup, source, fetchContext.value)
+    if (loadKey.value !== key) return
+    if (
+      defaultValue !== undefined &&
+      nextOptions.some((option) => childLookupOptionMatchesValue(option.value, defaultValue))
+    ) {
+      updateValue(defaultValue)
+      return
+    }
+    clearValue()
   }
 
   async function syncValueState(
@@ -260,22 +383,31 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
     source: string | number,
     key: string,
   ): Promise<void> {
-    const hadPreviousSource = lastSyncedSourceValue.value !== null
+    const previousSource = lastSyncedSourceValue.value
     const sourceChanged =
-      hadPreviousSource && source !== lastSyncedSourceValue.value
+      previousSource === null || String(previousSource) !== String(source)
+    // Edit open only: keep stored Price until the user changes Item.
+    // Create must always write — leftover values look like "hydration" and stick
+    // (Price stayed 26.63 while Main price / Base price refreshed).
+    const preserveDraft =
+      Boolean(options.preserveDraftOnHydrate?.value) &&
+      previousSource === null &&
+      !isEmptyLookupValue(options.modelValue.value)
     const resolved = await resolveChildLookupScalarValue(lookup, source, fetchContext.value)
     if (loadKey.value !== key) return
 
     lastSyncedSourceValue.value = source
 
     if (resolved !== undefined) {
-      if (sourceChanged || isEmptyLookupValue(options.modelValue.value)) {
+      if (!preserveDraft && sourceChanged) {
+        updateValue(resolved)
+      } else if (!preserveDraft && isEmptyLookupValue(options.modelValue.value)) {
         updateValue(resolved)
       }
       return
     }
 
-    if (sourceChanged) {
+    if (!preserveDraft && sourceChanged) {
       clearValue()
     }
   }

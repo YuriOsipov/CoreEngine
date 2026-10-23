@@ -118,7 +118,7 @@ function confirmDeleteLayout(): void {
 
 <template>
   <div class="role-scoped-layout-selector flex flex-col gap-2 mt-0">
-    <div class="flex items-end flex-wrap justify-start gap-2.5">
+    <div class="flex items-end flex-nowrap justify-start gap-2.5">
       <div
         v-if="mode === 'single' && !setupMode"
         class="flex flex-col gap-[0.3rem]"
@@ -179,7 +179,7 @@ function confirmDeleteLayout(): void {
 
       <div
         v-if="mode === 'single'"
-        class="ml-auto flex flex-wrap items-center gap-1.5 pb-[1px]"
+        class="ml-auto flex flex-nowrap items-center gap-1.5 pb-[1px] shrink-0"
       >
         <Button
           v-if="!setupMode"

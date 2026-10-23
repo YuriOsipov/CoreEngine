@@ -1,9 +1,11 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import type { EntityAction } from '@/interfaces'
 import { triggerFlowAction } from '@/modules/entities/services/recordDetails'
 import { applyCloneRelatedAction } from '@/modules/entities/services/cloneRelatedFromSource'
+import { applyBulkUpdateRelatedAction } from '@/modules/entities/services/bulkUpdateRelatedAction'
 import {
   loadDocTemplateByIdForCurrentUser,
   loadPublishedDocTemplateOptions,
@@ -20,6 +22,7 @@ export function useEntityRecordActions(options: {
 }) {
   const router = useRouter()
   const confirm = useConfirm()
+  const toast = useToast()
   const { t } = useTranslation()
 
   const actionRunning = ref<Record<string, boolean>>({})
@@ -40,8 +43,69 @@ export function useEntityRecordActions(options: {
   const fillExportMode = ref<DocEngineExportMode>('pdf')
   const fillAttachFile = ref(true)
 
+  const numberPromptVisible = ref(false)
+  const numberPromptLabel = ref('')
+  const numberPromptHeader = ref('')
+  const pendingBulkAction = ref<EntityAction | null>(null)
+
   const collection = computed(() => options.collection())
   const recordId = computed(() => options.recordId())
+
+  function confirmBeforeRunForAction(action: EntityAction): boolean {
+    if (action.behavior === 'cloneRelated') {
+      return action.cloneRelated?.confirmBeforeRun !== false
+    }
+    if (action.behavior === 'bulkUpdateRelated') {
+      return action.bulkUpdateRelated?.confirmBeforeRun !== false
+    }
+    return action.flow?.confirmBeforeRun !== false
+  }
+
+  function openBulkUpdatePrompt(action: EntityAction): void {
+    pendingBulkAction.value = action
+    numberPromptHeader.value = action.label
+    numberPromptLabel.value =
+      action.bulkUpdateRelated?.promptLabel?.trim()
+      || t('recordDetails.actionPromptMultiplier', 'Multiplier')
+    numberPromptVisible.value = true
+  }
+
+  function startBulkUpdateRelated(action: EntityAction): void {
+    const promptLabel = action.bulkUpdateRelated?.promptLabel?.trim() ?? ''
+    if (!promptLabel) {
+      // No prompt configured — skip number dialog; {{prompt}} unused formulas ignore this.
+      confirmOrRunBulkUpdate(action, 0)
+      return
+    }
+    openBulkUpdatePrompt(action)
+  }
+
+  function confirmOrRunBulkUpdate(action: EntityAction, multiplier: number): void {
+    if (!confirmBeforeRunForAction(action)) {
+      void runEntityActionConfirmed(action, multiplier)
+      return
+    }
+
+    setTimeout(() => {
+      confirm.require({
+        message: t('recordDetails.confirmActionMessage', 'Run "{label}"?', {
+          label: action.label,
+        }),
+        header: t('recordDetails.confirmActionHeader', 'Confirm Action'),
+        rejectProps: {
+          label: t('common.cancel', 'Cancel'),
+          severity: 'secondary',
+          text: true,
+        },
+        acceptProps: {
+          label: t('recordDetails.runAction', 'Run'),
+        },
+        accept: () => {
+          void runEntityActionConfirmed(action, multiplier)
+        },
+      })
+    }, 0)
+  }
 
   function runEntityAction(action: EntityAction): void {
     if (actionRunning.value[action.id]) return
@@ -52,12 +116,12 @@ export function useEntityRecordActions(options: {
       return
     }
 
-    const confirmBeforeRun =
-      action.behavior === 'cloneRelated'
-        ? action.cloneRelated?.confirmBeforeRun !== false
-        : action.flow?.confirmBeforeRun !== false
+    if (action.behavior === 'bulkUpdateRelated') {
+      startBulkUpdateRelated(action)
+      return
+    }
 
-    if (!confirmBeforeRun) {
+    if (!confirmBeforeRunForAction(action)) {
       void runEntityActionConfirmed(action)
       return
     }
@@ -81,6 +145,13 @@ export function useEntityRecordActions(options: {
         },
       })
     }, 0)
+  }
+
+  function onNumberPromptConfirm(multiplier: number): void {
+    const action = pendingBulkAction.value
+    pendingBulkAction.value = null
+    if (!action) return
+    confirmOrRunBulkUpdate(action, multiplier)
   }
 
   function openDocumentFill(
@@ -232,7 +303,10 @@ export function useEntityRecordActions(options: {
     openDocumentFill(templateId)
   }
 
-  async function runEntityActionConfirmed(action: EntityAction): Promise<void> {
+  async function runEntityActionConfirmed(
+    action: EntityAction,
+    multiplier?: number,
+  ): Promise<void> {
     if (actionRunning.value[action.id]) return
 
     actionRunning.value = { ...actionRunning.value, [action.id]: true }
@@ -250,6 +324,46 @@ export function useEntityRecordActions(options: {
         if (action.cloneRelated?.refreshRecordAfterRun !== false) {
           await options.onRefresh?.()
         }
+      } else if (action.behavior === 'bulkUpdateRelated') {
+        if (multiplier == null || !Number.isFinite(multiplier)) {
+          throw new Error(
+            t('recordDetails.actionPromptRequired', 'Enter a numeric value to continue.'),
+          )
+        }
+        const result = await applyBulkUpdateRelatedAction(
+          action,
+          collection.value,
+          recordId.value,
+          multiplier,
+        )
+        const created = result.createdCount ?? 0
+        const successMessage =
+          action.bulkUpdateRelated?.successMessage?.trim()
+          || (created > 0
+            ? t(
+              'recordDetails.bulkUpdateRelatedCompletedCountWithCreate',
+              'Created {created}, updated {updated}; skipped {skipped}.',
+              {
+                created,
+                updated: result.updatedCount,
+                skipped: result.skippedCount,
+              },
+            )
+            : t(
+              'recordDetails.bulkUpdateRelatedCompletedCount',
+              'Updated {updated} record(s); skipped {skipped}.',
+              { updated: result.updatedCount, skipped: result.skippedCount },
+            ))
+        actionMessage.value = successMessage
+        toast.add({
+          severity: 'success',
+          summary: t('common.success', 'Success'),
+          detail: successMessage,
+          life: 4000,
+        })
+        if (action.bulkUpdateRelated?.refreshRecordAfterRun !== false) {
+          await options.onRefresh?.()
+        }
       } else {
         await triggerFlowAction(
           action,
@@ -265,10 +379,19 @@ export function useEntityRecordActions(options: {
         }
       }
     } catch (err) {
-      actionError.value =
+      const message =
         err instanceof Error
           ? err.message
           : t('recordDetails.actionFailed', 'Action failed.')
+      actionError.value = message
+      if (action.behavior === 'bulkUpdateRelated') {
+        toast.add({
+          severity: 'error',
+          summary: t('common.error', 'Error'),
+          detail: message,
+          life: 5000,
+        })
+      }
     } finally {
       actionRunning.value = { ...actionRunning.value, [action.id]: false }
     }
@@ -289,7 +412,11 @@ export function useEntityRecordActions(options: {
     fillDocValueId,
     fillExportMode,
     fillAttachFile,
+    numberPromptVisible,
+    numberPromptLabel,
+    numberPromptHeader,
     runEntityAction,
+    onNumberPromptConfirm,
     onExistingDocumentSelected,
     onNewDocumentFromList,
     onRuntimeTemplateSelected,

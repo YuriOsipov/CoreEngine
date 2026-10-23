@@ -66,6 +66,19 @@ export function compactRelatedListRoute(
   }
 }
 
+export function recordActivityLogRoute(
+  collection: string,
+  id: string | number,
+): RouteLocationRaw {
+  return {
+    name: 'record-activity-log',
+    params: {
+      collection,
+      id: String(id),
+    },
+  }
+}
+
 export function compactRelatedListHref(
   collection: string,
   id: string | number,

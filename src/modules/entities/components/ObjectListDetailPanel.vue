@@ -10,6 +10,7 @@ import RelatedListFieldHost from '@/modules/entities/components/RelatedListField
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
+import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import { useEntityRecordActions } from '@/modules/entities/composables/useEntityRecordActions'
 import type { EntityAction, LayoutFieldMetadata, ListViewDetailPanel } from '@/interfaces'
 import { loadEntityLayoutById } from '@/modules/config/services/layoutSettings'
@@ -67,7 +68,11 @@ const {
   fillDocValueId,
   fillExportMode,
   fillAttachFile,
+  numberPromptVisible,
+  numberPromptLabel,
+  numberPromptHeader,
   runEntityAction,
+  onNumberPromptConfirm,
   onExistingDocumentSelected,
   onNewDocumentFromList,
   onRuntimeTemplateSelected,
@@ -376,6 +381,13 @@ function emitViewRecord(row: Record<string, unknown>, relatedCollection: string)
       :doc-value-id="fillDocValueId"
       :export-mode="fillExportMode"
       :attach-file="fillAttachFile"
+    />
+
+    <ActionNumberPromptDialog
+      v-model:visible="numberPromptVisible"
+      :header="numberPromptHeader"
+      :label="numberPromptLabel"
+      @confirm="onNumberPromptConfirm"
     />
   </div>
 </template>

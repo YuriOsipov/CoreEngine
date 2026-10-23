@@ -7,9 +7,10 @@ export default {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { TreeTableSettings } from '@/interfaces'
-import type { FieldDefinition } from '@/interfaces'
+import type { FieldDefinition, RelationDefinition } from '@/interfaces'
 import {
   getCachedCollectionFields,
+  getCachedRelations,
   listUserCollections,
 } from '@/modules/entities/services/collectionSchema'
 import {
@@ -18,7 +19,15 @@ import {
   saveTreeTableSettings,
 } from '@/modules/entities/services/treeTableSettings'
 import { useTranslation } from '@/core/translation'
-import { fieldSelectOptions } from '@/core/fieldOptions'
+import { fieldSelectOptions, type FieldOption } from '@/core/fieldOptions'
+import {
+  keysEqual,
+  relatedCollectionForCollectionField,
+} from '@/core/relationHelpers'
+import {
+  isFieldM2O,
+  resolveCollectionKey,
+} from '@/modules/entities/utils/relatedTransferSchema'
 
 const props = defineProps<{
   modelValue: TreeTableSettings
@@ -34,6 +43,8 @@ const emit = defineEmits<{
 const collections = ref<Array<{ label: string; value: string }>>([])
 const groupFields = ref<FieldDefinition[]>([])
 const itemFields = ref<FieldDefinition[]>([])
+const itemNestedFieldsByCollection = ref<Record<string, FieldDefinition[]>>({})
+const relationDefinitions = ref<RelationDefinition[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -53,6 +64,15 @@ const settings = computed(() => {
 })
 const groupFieldOptions = computed(() => fieldSelectOptions(groupFields.value))
 const itemFieldOptions = computed(() => fieldSelectOptions(itemFields.value))
+/** Direct + one-hop M2O paths that point at the configured group collection. */
+const mainGroupFieldOptions = computed(() =>
+  m2oFieldOptionsForCollection(
+    settings.value.main.collection,
+    itemFields.value,
+    settings.value.group.collection,
+    itemNestedFieldsByCollection.value,
+  ),
+)
 const optionalGroupParentOptions = computed(() => [
   { label: t('treeSettings.noHierarchy', 'No hierarchy'), value: '' },
   ...groupFieldOptions.value,
@@ -67,17 +87,21 @@ watch(
 )
 
 watch(
-  () => settings.value.main.collection,
-  async (collection) => {
-    await loadCollectionFields(collection, itemFields)
+  () => [
+    settings.value.main.collection,
+    relationDefinitions.value.length,
+  ],
+  async ([collection]) => {
+    await loadMainFieldsWithNested(String(collection ?? ''))
     if (collection && !props.builderManaged) {
-      await syncSavedSettings(collection)
+      await syncSavedSettings(String(collection))
     }
   },
   { immediate: true },
 )
 
 void loadCollections()
+void loadRelations()
 
 async function loadCollections(): Promise<void> {
   loading.value = true
@@ -91,6 +115,14 @@ async function loadCollections(): Promise<void> {
         : t('treeSettings.loadCollectionsError', 'Failed to load collections.')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRelations(): Promise<void> {
+  try {
+    relationDefinitions.value = await getCachedRelations() as RelationDefinition[]
+  } catch {
+    relationDefinitions.value = []
   }
 }
 
@@ -118,6 +150,90 @@ async function loadCollectionFields(
   } catch {
     target.value = []
   }
+}
+
+async function loadMainFieldsWithNested(collection: string): Promise<void> {
+  if (!collection) {
+    itemFields.value = []
+    itemNestedFieldsByCollection.value = {}
+    return
+  }
+
+  try {
+    const resolved = await resolveCollectionKey(collection)
+    itemFields.value = await getCachedCollectionFields(resolved)
+    const relatedCollections = itemFields.value
+      .map((field) => relatedCollectionOf(resolved, field))
+      .filter(Boolean)
+    const nestedEntries = await Promise.all(
+      Array.from(new Set(relatedCollections)).map(async (relatedCollection) => [
+        relatedCollection,
+        await getCachedCollectionFields(await resolveCollectionKey(relatedCollection)),
+      ] as const),
+    )
+    itemNestedFieldsByCollection.value = Object.fromEntries(nestedEntries)
+  } catch {
+    itemFields.value = []
+    itemNestedFieldsByCollection.value = {}
+  }
+}
+
+function relatedCollectionOf(collection: string, field: FieldDefinition): string {
+  return relatedCollectionForCollectionField(
+    relationDefinitions.value,
+    collection,
+    field.field,
+  ) || field.schema?.foreign_key_table || ''
+}
+
+function m2oFieldsPointingAt(
+  collection: string,
+  fields: FieldDefinition[],
+  targetCollection: string,
+): FieldDefinition[] {
+  if (!collection || !targetCollection) return []
+  return fields.filter((field) => {
+    if (!isFieldM2O(collection, field.field, fields, relationDefinitions.value)) {
+      return false
+    }
+    return keysEqual(relatedCollectionOf(collection, field), targetCollection)
+  })
+}
+
+/** Direct and one-hop M2O fields whose related collection is `targetCollection`. */
+function m2oFieldOptionsForCollection(
+  collection: string,
+  fields: FieldDefinition[],
+  targetCollection: string,
+  nestedFieldsByCollection: Record<string, FieldDefinition[]> = {},
+): FieldOption[] {
+  if (!collection || !targetCollection) return []
+
+  const direct = fieldSelectOptions(m2oFieldsPointingAt(collection, fields, targetCollection))
+  const nested = fields.flatMap((field) => {
+    if (!isFieldM2O(collection, field.field, fields, relationDefinitions.value)) {
+      return []
+    }
+    const relatedCollection = relatedCollectionOf(collection, field)
+    if (!relatedCollection || keysEqual(relatedCollection, targetCollection)) {
+      return []
+    }
+    const [base] = fieldSelectOptions([field])
+    if (!base) return []
+    const nestedFields = nestedFieldsByCollection[relatedCollection] ?? []
+    return fieldSelectOptions(
+      m2oFieldsPointingAt(relatedCollection, nestedFields, targetCollection),
+    ).map((nestedField) => ({
+      label: `${base.label} / ${nestedField.label}`,
+      value: `${field.field}.${nestedField.value}`,
+    }))
+  })
+
+  return [...direct, ...nested]
+}
+
+function hintTooltip(value: string) {
+  return { value, class: 'tree-settings-hint-tooltip' }
 }
 
 function updateSettings(patch: Partial<TreeTableSettings>): void {
@@ -160,6 +276,44 @@ function updateMainDisplayFields(fields: unknown): void {
     labelFields,
   })
 }
+
+const sortFieldOptions = computed(() => [
+  { label: t('treeSettings.noSort', 'No sort'), value: '' },
+  ...itemFieldOptions.value,
+])
+
+const sortOrderOptions = computed(() => [
+  { label: t('tableSettings.ascending', 'Ascending'), value: 1 },
+  { label: t('tableSettings.descending', 'Descending'), value: -1 },
+])
+
+const mainSortField = computed({
+  get: () => settings.value.main.sort?.field ?? '',
+  set: (field: string) => {
+    const next = String(field ?? '').trim()
+    if (!next) {
+      updateMainSettings({ sort: null })
+      return
+    }
+    updateMainSettings({
+      sort: {
+        field: next,
+        order: settings.value.main.sort?.order === -1 ? -1 : 1,
+      },
+    })
+  },
+})
+
+const mainSortOrder = computed({
+  get: () => settings.value.main.sort?.order ?? 1,
+  set: (order: 1 | -1) => {
+    const field = settings.value.main.sort?.field?.trim()
+    if (!field) return
+    updateMainSettings({
+      sort: { field, order: order === -1 ? -1 : 1 },
+    })
+  },
+})
 
 async function saveSettings(): Promise<void> {
   saving.value = true
@@ -281,12 +435,24 @@ async function saveSettings(): Promise<void> {
         </label>
 
         <label class="tree-settings-field">
-          {{ t('treeSettings.mainGroupField', 'Main group FK field') }}
+          <span class="inline-flex items-center gap-1">
+            {{ t('treeSettings.mainGroupField', 'Main group FK field') }}
+            <button
+              type="button"
+              class="tree-settings-hint"
+              v-tooltip.bottom="hintTooltip(t(
+                'treeSettings.mainGroupFieldHint',
+                'Field on the main object that points at the group collection. Use a nested path when the link goes through another M2O (e.g. Item / Item group → item.item_group).',
+              ))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </span>
           <Select
             :model-value="settings.main.groupField"
-            :options="itemFieldOptions"
+            :options="mainGroupFieldOptions"
             option-label="label"
             option-value="value"
+            filter
             fluid
             @update:model-value="updateMainSettings({ groupField: String($event) })"
           />
@@ -315,6 +481,29 @@ async function saveSettings(): Promise<void> {
             fluid
             @update:model-value="updateMainDisplayFields"
           />
+        </label>
+
+        <label class="tree-settings-field tree-settings-field--wide">
+          {{ t('treeSettings.mainDefaultSort', 'Default item sort') }}
+          <div class="flex items-center gap-2 min-w-0">
+            <Select
+              v-model="mainSortField"
+              class="flex-1 min-w-0"
+              :options="sortFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('tableSettings.sortField', 'Sort field')"
+              fluid
+            />
+            <Select
+              v-model="mainSortOrder"
+              class="w-[8.5rem] flex-shrink-0"
+              :options="sortOrderOptions"
+              option-label="label"
+              option-value="value"
+              :disabled="!mainSortField"
+            />
+          </div>
         </label>
       </div>
     </section>
@@ -382,5 +571,38 @@ async function saveSettings(): Promise<void> {
 
 .tree-settings-field--wide {
   grid-column: 1 / -1;
+}
+
+.tree-settings-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border: 1px solid rgba(55, 53, 47, 0.28);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(55, 53, 47, 0.55);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+}
+
+.tree-settings-hint::before {
+  content: 'i';
+}
+
+.tree-settings-hint:focus-visible {
+  outline: 2px solid var(--p-primary-color, #3b82f6);
+  outline-offset: 1px;
+}
+</style>
+
+<style>
+.tree-settings-hint-tooltip,
+.tree-settings-hint-tooltip .p-tooltip-text {
+  max-width: 22rem;
 }
 </style>

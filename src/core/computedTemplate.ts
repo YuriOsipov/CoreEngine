@@ -108,6 +108,16 @@ function valuesEqualLoose(left: unknown, right: unknown): boolean {
   return String(left) === String(right)
 }
 
+/** Round to nearest integer, or to `digits` decimal places when provided. */
+function roundNumber(value: unknown, digits: unknown = 0): number | null {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  const d = Math.trunc(Number(digits))
+  if (!Number.isFinite(d) || d <= 0) return Math.round(n)
+  const factor = 10 ** Math.min(d, 15)
+  return Math.round(n * factor) / factor
+}
+
 /** First row where row[key] equals value (loose coerce). */
 export function findRowByKey(
   list: unknown,
@@ -198,7 +208,7 @@ export function parseExpression(
       }
       if (op === 'CEIL') return Math.ceil(Number(valueA))
       if (op === 'FLOOR') return Math.floor(Number(valueA))
-      if (op === 'ROUND') return Math.round(Number(valueA))
+      if (op === 'ROUND') return roundNumber(valueA)
       if (op === 'EXP') return Math.exp(Number(valueA))
       if (op === 'LOG') return Math.log(Number(valueA))
       if (op === 'MAX' && Array.isArray(valueA)) return Math.max(...valueA.map(Number))
@@ -222,6 +232,7 @@ export function parseExpression(
       if (op === 'MULTIPLY') return Number(valueA) * Number(valueB)
       if (op === 'DIVIDE') return Number(valueA) / Number(valueB)
       if (op === 'REMAINDER') return Number(valueA) % Number(valueB)
+      if (op === 'ROUND') return roundNumber(valueA, valueB)
       if (op === 'DATE_ADD_DAYS') {
         const base =
           valueA instanceof Date ? new Date(valueA.getTime()) : new Date(String(valueA ?? ''))
@@ -308,14 +319,18 @@ export function evaluateComputedTemplate(
 
 const DYNAMIC_VARIABLES = new Set(['$NOW', '$CURRENT_USER'])
 
-function collectExpressionFieldRefs(expression: string, refs: Set<string>): void {
+function collectExpressionFieldRefs(
+  expression: string,
+  refs: Set<string>,
+  mode: 'root' | 'path' = 'root',
+): void {
   const exp = expression.trim()
   if (!exp || (exp.startsWith('"') && exp.endsWith('"'))) return
 
   const opMatch = parseOp(exp)
   if (opMatch) {
     for (const arg of opMatch.args) {
-      collectExpressionFieldRefs(arg, refs)
+      collectExpressionFieldRefs(arg, refs, mode)
     }
     return
   }
@@ -324,7 +339,7 @@ function collectExpressionFieldRefs(expression: string, refs: Set<string>): void
   if (DYNAMIC_VARIABLES.has(exp) || exp.startsWith('$CURRENT_USER')) return
 
   if (/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(exp)) {
-    refs.add(exp.split('.')[0])
+    refs.add(mode === 'path' ? exp : exp.split('.')[0])
   }
 }
 
@@ -332,7 +347,16 @@ function collectExpressionFieldRefs(expression: string, refs: Set<string>): void
 export function extractTemplateFieldRefs(template: string): string[] {
   const refs = new Set<string>()
   for (const match of template.matchAll(TEMPLATE_BLOCK)) {
-    collectExpressionFieldRefs(match[1], refs)
+    collectExpressionFieldRefs(match[1], refs, 'root')
+  }
+  return Array.from(refs)
+}
+
+/** Extract full dotted field paths (e.g. `item.base_price`) from a computed template. */
+export function extractTemplateFieldPaths(template: string): string[] {
+  const refs = new Set<string>()
+  for (const match of template.matchAll(TEMPLATE_BLOCK)) {
+    collectExpressionFieldRefs(match[1], refs, 'path')
   }
   return Array.from(refs)
 }

@@ -50,6 +50,11 @@ const configRoutes: RouteRecordRaw[] = [
         component: () => import('@/modules/config/pages/TaskSchedulerSetupPage.vue'),
       },
       {
+        path: 'archived',
+        name: 'setup-archived',
+        component: () => import('@/modules/config/pages/ArchivedRecordsSetupPage.vue'),
+      },
+      {
         path: 'users',
         name: 'setup-users',
         component: () => import('@/modules/config/components/setup/SetupUsersTab.vue'),

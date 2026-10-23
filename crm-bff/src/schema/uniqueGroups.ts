@@ -108,26 +108,29 @@ export function uniqueIndexName(entityApiName: string, group: EntityUniqueGroup)
 export function buildUniqueIndexSql(
   entityApiName: string,
   group: EntityUniqueGroup,
-  schema = CRM_SCHEMA,
-  table = entityApiName,
-  options?: { includeStatusPredicate?: boolean },
+  schema: string = CRM_SCHEMA,
+  table: string = entityApiName,
+  options?: { archive?: 'deleted' | 'status' | 'none' },
 ): string | null {
   const cols = group.fields.filter((f) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(f))
   if (!cols.length) return null
   const relation = crmQualifiedTable({ schema, table }, entityApiName)
   const idx = quoteIdent(uniqueIndexName(entityApiName, group))
   const colSql = cols.map((c) => quoteIdent(c)).join(', ')
+  const archive = options?.archive ?? 'deleted'
   const statusPredicate =
-    options?.includeStatusPredicate === false
-      ? ''
-      : `\n    WHERE status IS DISTINCT FROM 'archived'`
+    archive === 'deleted'
+      ? `\n    WHERE is_deleted IS NOT TRUE`
+      : archive === 'status'
+        ? `\n    WHERE status IS DISTINCT FROM 'archived'`
+        : ''
   return `CREATE UNIQUE INDEX IF NOT EXISTS ${idx}
     ON ${relation} (${colSql})${statusPredicate}`
 }
 
 export async function listExistingUniqueIndexNames(
   entityApiName: string,
-  schema = CRM_SCHEMA,
+  schema: string = CRM_SCHEMA,
 ): Promise<string[]> {
   const rows = await query<{ indexname: string }>(
     `SELECT indexname
@@ -166,21 +169,25 @@ export async function planUniqueIndexActions(
   const schema = storage.schema || CRM_SCHEMA
   const table = storage.table || entityApiName
   const groups = await loadEntityUniqueGroups(entityApiName)
-  const statusRows = await query<{ api_name: string }>(
+  const archiveRows = await query<{ api_name: string }>(
     `SELECT f.api_name
      FROM public.fields f
      JOIN public.entities e ON e.id = f.entity_id
      WHERE e.api_name = $1
        AND e.deleted_at IS NULL
-       AND f.api_name = 'status'
-     LIMIT 1`,
-    [entityApiName],
+       AND f.api_name = ANY($2::text[])`,
+    [entityApiName, ['is_deleted', 'status']],
   )
-  const includeStatusPredicate = Boolean(statusRows[0])
+  const archiveNames = new Set(archiveRows.map((row) => row.api_name))
+  const archive = archiveNames.has('is_deleted')
+    ? 'deleted'
+    : archiveNames.has('status')
+      ? 'status'
+      : 'none'
   const desired = new Map<string, { group: EntityUniqueGroup; sql: string }>()
   for (const group of groups) {
     const sql = buildUniqueIndexSql(entityApiName, group, schema, table, {
-      includeStatusPredicate,
+      archive,
     })
     if (!sql) continue
     desired.set(uniqueIndexName(entityApiName, group), { group, sql })

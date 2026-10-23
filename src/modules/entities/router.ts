@@ -37,6 +37,13 @@ const routes: RouteRecordRaw[] = [
     meta: { integratedHeader: true },
   },
   {
+    // Must be registered before related-record-list so "activity" is not treated as a collection.
+    path: '/object/:collection/:id/activity',
+    name: 'record-activity-log',
+    component: () => import('./pages/ActivityLogPage.vue'),
+    props: true,
+  },
+  {
     path: '/object/:collection/:id/:related_collection',
     name: 'related-record-list',
     component: () => import('./pages/RelatedRecordsPage.vue'),

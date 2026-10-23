@@ -3,7 +3,8 @@ import {
 } from '@/core/graphql/itemsBridge'
 import {
   applyCalculatedFields,
-  resolveFieldFormula,
+  collectFormulaRequestPaths,
+  resolveCollectionFormulas,
 } from '@/core/calculatedFields'
 import {
   applyNestedColumnValues,
@@ -13,7 +14,14 @@ import {
   resolveColumnFieldPath,
   type ResolvedDataTableFieldPath,
 } from '@/core/dataTableFieldPath'
-import { effectiveDateDisplayFormat, formatDateValue } from '@/core/dateFormatting'
+import {
+  defaultDateDisplayFormat,
+  defaultDateTimeDisplayFormat,
+  effectiveDateDisplayFormat,
+  formatDateValue,
+} from '@/core/dateFormatting'
+import { SYSTEM_AUDIT_USER_DISPLAY_FIELDS } from '@/core/layoutFieldRules'
+import { isUsersAssetCollection } from '@/core/usersField'
 import type {
   DataTableColumnConfig,
   DataTableSettings,
@@ -21,16 +29,17 @@ import type {
   FieldDefinition,
   RelationDefinition,
 } from '@/interfaces'
+import { keysEqual } from '@/core/relationHelpers'
 import { translateCollection, translateField } from '@/core/translation'
-import { normalizeSpecial } from '../utils/fieldMapper'
+import { resolveRecordKey } from '@/core/utils/object'
+import { findRelationForField, normalizeSpecial } from '../utils/fieldMapper'
 import {
   buildChoiceLabelMap,
   choiceValueLabel,
   extractTemplateFields,
   humanizeFieldName,
-  relatedRecordFallbackLabel,
-  renderTemplateLabel,
-  shouldUseTemplateForRelatedLabel,
+  relatedRecordLabel,
+  resolveNumberDisplayOptions,
 } from '../utils/recordDisplay'
 import { dataTableSortQuery, usesPrimaryKeyRecordLink } from './tableSettings'
 import {
@@ -105,6 +114,7 @@ interface PreparedDataTableContext {
   choiceLabels: Map<string, Map<string, string>>
   requestFields: string[]
   dateFormats: Map<string, string>
+  formulas: Record<string, string>
   allFields?: FieldDefinition[]
 }
 
@@ -122,6 +132,7 @@ export async function fetchDataTableRuntime(
     m2oMetadata,
     choiceLabels,
     resolvedPaths,
+    formulas,
   } = context
 
   const filterQuery = buildFetchFilterQuery(options, fields, context.relations, context.parentRelation)
@@ -174,36 +185,28 @@ export async function fetchDataTableRuntime(
         limit: Number(readQuery.limit ?? limit),
         offset:
           readQuery.offset === undefined ? undefined : Number(readQuery.offset),
-        includeDeleted: Boolean(options.includeArchivedStatus),
+        includeDeleted:
+          Boolean(options.includeArchivedStatus) || Boolean(options.archivedOnly),
       },
       { includeTotalCount: !options.recordIds?.length },
     )
 
-    let rows = page.nodes.map((row) =>
-      renderDataTableRowValues(
-        row,
+    // Evaluate formulas on raw rows (nested M2O objects intact) before display
+    // wrapping turns relations into { id, label } cells.
+    const hasFormulas = Object.keys(formulas).length > 0
+    let rows = page.nodes.map((row) => {
+      const withFormulas = hasFormulas
+        ? applyCalculatedFields(row, formulas)
+        : row
+      return renderDataTableRowValues(
+        withFormulas,
         m2oMetadata.templates,
         m2oMetadata.collections,
         choiceLabels,
         dateFormats,
         resolvedPaths,
-      ),
-    )
-
-    const formulas: Record<string, string> = {}
-    for (const definition of fields) {
-      // Never recompute M2O columns — their options.template is a related-label
-      // display template, already applied in renderDataTableRowValues.
-      if (m2oMetadata.collections.has(definition.field)) continue
-      const formula = resolveFieldFormula(
-        definition,
-        fields.map((item) => item.field),
       )
-      if (formula) formulas[definition.field] = formula
-    }
-    if (Object.keys(formulas).length) {
-      rows = rows.map((row) => applyCalculatedFields(row, formulas))
-    }
+    })
 
     if (options.recordIds?.length && !hasDbSort) {
       const order = new Map(options.recordIds.map((id, index) => [String(id), index]))
@@ -292,23 +295,25 @@ export function getM2OMetadata(
 ): M2OMetadata {
   const templates = new Map<string, string>()
   const collections = new Map<string, string>()
-  const fieldByName = new Map(fields.map((field) => [field.field, field]))
 
   for (const fieldName of columnKeys) {
     if (isNestedFieldPath(fieldName)) continue
 
-    const field = fieldByName.get(fieldName)
-    const relation = relations.find(
-      (item) => item.collection === collection && item.field === fieldName,
-    )
-    const template = field?.meta?.options?.template
-    const special = normalizeSpecial(field?.meta?.special)
+    const field = fields.find((entry) => keysEqual(entry.field, fieldName))
+    if (!field) continue
+    const relation = findRelationForField(field, relations)
+    const template = field.meta?.options?.template
+    const special = normalizeSpecial(field.meta?.special)
     const isM2O = special.includes('m2o') || Boolean(relation?.related_collection)
+    const relatedCollection = relation?.related_collection?.trim()
 
-    if (isM2O && relation?.related_collection) {
-      collections.set(fieldName, relation.related_collection)
+    if (isM2O && relatedCollection) {
+      // Canonical field key so row[field] matches API payloads.
+      collections.set(field.field, relatedCollection)
+      if (fieldName !== field.field) collections.set(fieldName, relatedCollection)
       if (typeof template === 'string' && template.trim()) {
-        templates.set(fieldName, template)
+        templates.set(field.field, template)
+        if (fieldName !== field.field) templates.set(fieldName, template)
       }
     }
   }
@@ -330,16 +335,15 @@ async function applyRelatedCollectionDisplayTemplates(
   )
 
   for (const [field, relatedCollection] of m2oMetadata.collections) {
-    if (m2oMetadata.templates.get(field)?.trim()) continue
     const template = templatesByCollection.get(relatedCollection)
     if (template) m2oMetadata.templates.set(field, template)
   }
 
   for (const column of columns) {
-    if (column.template?.trim() || !column.relatedCollection) continue
+    if (!column.relatedCollection) continue
     const template =
-      m2oMetadata.templates.get(column.field) ??
-      templatesByCollection.get(column.relatedCollection)
+      templatesByCollection.get(column.relatedCollection) ??
+      m2oMetadata.templates.get(column.field)
     if (template) column.template = template
   }
 }
@@ -402,23 +406,22 @@ export function renderDataTableRowValues(
   applyNestedColumnValues(rendered, row, resolvedPaths, choiceLabels)
 
   for (const [field, relatedCollection] of m2oCollections) {
-    const value = row[field]
+    const rowKey = resolveRecordKey(row, field) ?? field
+    const value = row[rowKey]
     const record = value && typeof value === 'object'
       ? (value as Record<string, unknown>)
       : null
-    const template = m2oTemplates.get(field)
+    const template = m2oTemplates.get(field) ?? m2oTemplates.get(rowKey)
     const id = record?.id ?? value
-    const templateFields = template ? extractTemplateFields(template) : []
-    const label =
-      record && template && shouldUseTemplateForRelatedLabel(template, templateFields)
-        ? renderTemplateLabel(template, record)
-        : relatedRecordFallbackLabel(record, id)
-    rendered[field] = {
-      __crmValueType: 'm2o',
+    const label = relatedRecordLabel(record, id, template)
+    const cell = {
+      __crmValueType: 'm2o' as const,
       id,
       label,
       relatedCollection,
     }
+    rendered[field] = cell
+    if (rowKey !== field) rendered[rowKey] = cell
   }
 
   for (const [path, labels] of choiceLabels) {
@@ -494,6 +497,12 @@ async function prepareDataTableContext(
   await applyRelatedCollectionDisplayTemplates(m2oMetadata, columns)
   const choiceLabels = await getChoiceLabels(resolvedPaths)
   const extraFields = ['id', ...(parentRelation ? [parentRelation.field] : [])]
+  if (hasDeletedField(fields)) {
+    extraFields.push('is_deleted')
+  }
+  if (hasActiveField(fields)) {
+    extraFields.push('is_active')
+  }
   if (hasStatusField(fields)) {
     extraFields.push('status')
   }
@@ -508,12 +517,13 @@ async function prepareDataTableContext(
     }
   }
 
+  const formulas = resolveCollectionFormulas(fields)
   const requestFields = buildDataTableRequestFields(
     resolvedPaths,
     m2oMetadata,
     relatedFieldsByCollection,
     {
-      extraFields,
+      extraFields: [...extraFields, ...collectFormulaRequestPaths(formulas)],
       allFields: allFields ?? undefined,
       mutateTemplates: Boolean(options.parentCollection),
     },
@@ -542,6 +552,7 @@ async function prepareDataTableContext(
     choiceLabels,
     requestFields,
     dateFormats,
+    formulas,
     allFields: allFields ?? undefined,
   }
 }
@@ -609,9 +620,17 @@ export async function resolveDataTableColumns(
 
     const labelDefinition = resolved.nestedDefinition ?? resolved.rootDefinition
     const isDateType = ['date', 'dateTime', 'timestamp'].includes(labelDefinition.type)
+    // DATE must stay date-only. Do not apply related-list `dateFormatDefault`
+    // (`short`), which uses locale date+time and shows "12:00 AM" for midnight.
     const format = isDateType
-      ? (effectiveDateDisplayFormat(column.format, labelDefinition) ?? dateFormatDefault)
+      ? (effectiveDateDisplayFormat(column.format, labelDefinition) ??
+          (labelDefinition.type === 'date'
+            ? defaultDateDisplayFormat()
+            : (dateFormatDefault ??
+                defaultDateTimeDisplayFormat({ includeSeconds: false }))))
       : effectiveDateDisplayFormat(column.format, labelDefinition)
+
+    const numberDisplay = resolveNumberDisplayOptions(labelDefinition)
 
     columns.push({
       field: resolved.path,
@@ -626,6 +645,7 @@ export async function resolveDataTableColumns(
       relatedCollection: resolved.relatedCollection ?? column.relatedCollection,
       template: resolved.template ?? column.template,
       format,
+      numberDisplay,
       valueCollection: resolved.valueCollection,
       enabled: true,
       ...(column.inlineEditable === true ? { inlineEditable: true } : {}),
@@ -658,17 +678,32 @@ function buildDataTableRequestFields(
     const relatedCollectionName = m2oMetadata.collections.get(resolved.path)
     if (relatedCollectionName) {
       requestFields.add(`${resolved.path}.id`)
-      const targetFields =
-        relatedFieldsByCollection[relatedCollectionName] ??
-        options.allFields?.filter((item) => item.collection === relatedCollectionName) ??
-        []
-      for (const field of nestedDisplayFallbackRequestFields(resolved.path, targetFields)) {
-        requestFields.add(field)
+      if (isUsersAssetCollection(relatedCollectionName)) {
+        for (const userField of SYSTEM_AUDIT_USER_DISPLAY_FIELDS) {
+          requestFields.add(`${resolved.path}.${userField}`)
+        }
+      } else {
+        const targetFields =
+          relatedFieldsByCollection[relatedCollectionName] ??
+          options.allFields?.filter((item) => item.collection === relatedCollectionName) ??
+          []
+        for (const field of nestedDisplayFallbackRequestFields(resolved.path, targetFields)) {
+          requestFields.add(field)
+        }
       }
       const template = m2oMetadata.templates.get(resolved.path) ?? resolved.template
       if (template) {
         if (options.mutateTemplates) {
           m2oMetadata.templates.set(resolved.path, template)
+        }
+        const relatedFields =
+          relatedFieldsByCollection[relatedCollectionName] ??
+          options.allFields?.filter((item) => keysEqual(item.collection, relatedCollectionName)) ??
+          []
+        for (const templateField of extractTemplateFields(template)) {
+          const [head, ...rest] = templateField.split('.')
+          const canonical = relatedFields.find((field) => keysEqual(field.field, head))?.field ?? head
+          requestFields.add([resolved.path, canonical, ...rest].filter(Boolean).join('.'))
         }
         for (const field of resolved.requestFields) {
           requestFields.add(field)
@@ -689,14 +724,19 @@ function buildFetchFilterQuery(
   relations: RelationDefinition[],
   parentRelation?: RelationDefinition,
 ): Record<string, unknown> {
+  const hasDeleted = hasDeletedField(fields)
   const hasStatus = hasStatusField(fields)
   const statusFilter = options.archivedOnly
-    ? hasStatus
-      ? { status: { _in: ARCHIVED_STATUS_VALUES } }
-      : undefined
-    : options.includeArchivedStatus !== false && hasStatus
-      ? activeStatusFilter()
-      : undefined
+    ? hasDeleted
+      ? { is_deleted: { _eq: true } }
+      : hasStatus
+        ? { status: { _in: ARCHIVED_STATUS_VALUES } }
+        : undefined
+    : options.includeArchivedStatus !== false && hasDeleted
+      ? { is_deleted: { _neq: true } }
+      : options.includeArchivedStatus !== false && hasStatus
+        ? activeStatusFilter()
+        : undefined
 
   if (options.parentCollection !== undefined) {
     const relation =
@@ -763,6 +803,14 @@ async function buildRuntimeResult(
     parentName: context.parentRelation?.field,
     sort: options.settings?.sort ?? null,
   }
+}
+
+function hasDeletedField(fields: FieldDefinition[]): boolean {
+  return fields.some((field) => field.field === 'is_deleted')
+}
+
+function hasActiveField(fields: FieldDefinition[]): boolean {
+  return fields.some((field) => field.field === 'is_active')
 }
 
 function hasStatusField(fields: FieldDefinition[]): boolean {

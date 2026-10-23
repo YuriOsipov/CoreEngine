@@ -130,11 +130,33 @@ function normalizeListDetailPanel(
       ? Math.min(50, Math.max(5, Math.round(panel.detailMinSize)))
       : undefined
 
+  const orientation = panel.orientation === 'sideBySide' ? 'sideBySide' : undefined
+  // Side-by-side always uses the full Page Layout on the detail pane.
+  const contentMode =
+    orientation === 'sideBySide' || panel.contentMode === 'fullPageLayout'
+      ? 'fullPageLayout'
+      : undefined
+
+  const relatedListsSource =
+    contentMode === 'fullPageLayout'
+      ? undefined
+      : panel.relatedListsSource === 'block'
+        ? 'block'
+        : undefined
+  const relatedListsBlockId =
+    relatedListsSource === 'block' && typeof panel.relatedListsBlockId === 'string'
+      ? panel.relatedListsBlockId.trim() || null
+      : undefined
+
   return {
     enabled: true,
+    ...(contentMode ? { contentMode } : {}),
+    ...(orientation ? { orientation } : {}),
     ...(masterSize !== undefined ? { masterSize } : {}),
     ...(detailMinSize !== undefined ? { detailMinSize } : {}),
     ...(panel.defaultCollapsed === true ? { defaultCollapsed: true } : {}),
+    ...(relatedListsSource ? { relatedListsSource } : {}),
+    ...(relatedListsSource === 'block' ? { relatedListsBlockId: relatedListsBlockId ?? null } : {}),
   }
 }
 
@@ -177,6 +199,7 @@ function normalizeComponent(
     && type !== 'actions'
     && type !== 'field'
     && type !== 'fieldGroup'
+    && type !== 'path'
   ) {
     return null
   }
@@ -209,6 +232,16 @@ function normalizeComponent(
         ? component.relatedFieldId
         : null,
     field: typeof component.field === 'string' ? component.field : undefined,
+    terminalField:
+      type === 'path' && typeof component.terminalField === 'string' && component.terminalField.trim()
+        ? component.terminalField.trim()
+        : undefined,
+    successTerminalValues:
+      type === 'path' && Array.isArray(component.successTerminalValues)
+        ? component.successTerminalValues
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map((value) => value.trim())
+        : undefined,
     fieldComponent: component.fieldComponent,
     span: typeof component.span === 'number' ? component.span : undefined,
     format: typeof component.format === 'string' ? component.format : undefined,

@@ -198,7 +198,6 @@ async function addTask(): Promise<void> {
       project: props.projectId,
       name: t('projects.newTask', 'New stage'),
       stage_status: 'todo',
-      sort: tasks.value.length,
       offset_days: 0,
       duration_days: 1,
       is_custom: true,

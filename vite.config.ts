@@ -35,5 +35,15 @@ export default defineConfig({
     fs: {
       allow: [projectRoot, editorPackageRoot, docEngineRoot],
     },
+    // Backend / tooling edits must not full-reload the Vite UI.
+    watch: {
+      ignored: [
+        '**/crm-bff/**',
+        '**/.cursor/**',
+        '**/supabase/**',
+        '**/scripts/**',
+        '**/agent-tools/**',
+      ],
+    },
   },
 })

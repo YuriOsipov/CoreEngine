@@ -81,7 +81,6 @@ export const DOC_VALUE_FIELDS = [
 export const DOC_TEMPLATE_FIELDS = [
   'id',
   'archived',
-  'sort',
   'user_created',
   'date_created',
   'user_updated',

@@ -9,6 +9,7 @@ import type {
   RelatedTransferSettings,
 } from '@/interfaces'
 import { keysEqual, relatedCollectionForCollectionField } from '@/core/relationHelpers'
+import { resolveRelatedTransferValue } from '@/core/relatedTransferResolver'
 import { resolveRecordKey } from '@/core/utils/object'
 import { loadChildLookupFieldSettings } from '@/modules/config/services/layoutSettings'
 import { getCachedCollectionFields, getCachedRelations } from '@/modules/entities/services/collectionSchema'
@@ -16,10 +17,12 @@ import {
   createDynamicItem,
   loadSourceGroups,
   loadSourceItems,
+  labelTargetRelationCells,
   loadTargetRows,
   mergeChildLookupFieldSettings,
   resolveLookupPayload,
   loadSelectableLookupOptions,
+  sourceItemGroupId,
   type RelatedTransferDataContext,
 } from '@/modules/entities/services/relatedTransferData'
 import {
@@ -34,7 +37,7 @@ import {
   sourceValue,
   targetValue,
 } from '@/modules/entities/utils/relatedTransferLookups'
-import { choiceValueLabel, humanizeFieldName, scalarId } from '@/modules/entities/utils/recordDisplay'
+import { choiceValueLabel, formatNumberDisplayValue, humanizeFieldName, resolveNumberDisplayOptions, scalarId } from '@/modules/entities/utils/recordDisplay'
 import type {
   LookupHeaderItem,
   TransferRow,
@@ -74,6 +77,8 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
   const error = ref<string | null>(null)
   const hydratedSettings = ref<RelatedTransferSettings | null>(null)
   const targetFieldDefinitions = ref<FieldDefinition[]>([])
+  const sourceFieldDefinitions = ref<FieldDefinition[]>([])
+  const nestedSourceFieldDefinitions = ref<Record<string, FieldDefinition[]>>({})
   const relationDefinitions = ref<RelationDefinition[]>([])
   const childLookupSettingsByField = ref<Record<string, LayoutFieldChildLookup>>({})
   let loadToken = 0
@@ -123,19 +128,18 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
         source.value.itemGroupField,
     ),
   )
-  const sourcePanelStyle = computed(() =>
-    shouldSplitSourceTree.value
-      ? { height: 'min(360px, calc(56vh - 120px))' }
-      : { height: 'min(660px, calc(96vh - 180px))' },
-  )
-  const selectedPanelStyle = computed(() =>
-    shouldSplitSourceTree.value
-      ? { height: 'min(260px, calc(40vh - 90px))' }
-      : { height: 'min(660px, calc(96vh - 180px))' },
-  )
-  const tableModeScrollHeight = 'min(600px, calc(96vh - 260px))'
-  const treeModeSourceScrollHeight = 'min(300px, calc(56vh - 180px))'
-  const treeModeSelectedScrollHeight = 'min(200px, calc(40vh - 160px))'
+  const fillPanelStyle: Record<string, string> = {
+    height: '100%',
+    minHeight: '0',
+    flex: '1 1 auto',
+    display: 'flex',
+    flexDirection: 'column',
+  }
+  const sourcePanelStyle = computed(() => fillPanelStyle)
+  const selectedPanelStyle = computed(() => fillPanelStyle)
+  const tableModeScrollHeight = 'flex'
+  const treeModeSourceScrollHeight = 'flex'
+  const treeModeSelectedScrollHeight = 'flex'
 
   function dataContext(): RelatedTransferDataContext {
     return {
@@ -176,7 +180,7 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
       field,
       header: isLookupSourceColumn(field)
         ? lookupSourceColumnHeader(field)
-        : humanizeFieldName(field),
+        : field.split('.').filter(Boolean).map((part) => humanizeFieldName(part)).join(' / '),
     }))
   })
 
@@ -199,15 +203,26 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     return formatTransferValue(row[lookup.valueField])
   }
 
+  function sourceFieldLabelMap(field: string): Map<string, string> | undefined {
+    if (sourceChoiceLabels.value.has(field)) return sourceChoiceLabels.value.get(field)
+    return [...sourceChoiceLabels.value.entries()].find(([key]) => keysEqual(key, field))?.[1]
+  }
+
   function sourceDisplayValue(item: Record<string, unknown>, field: string): string {
     if (isLookupSourceColumn(field)) {
       return lookupSourceDisplayValue(item, lookupSourceTargetField(field))
     }
 
-    const value = item[field]
-    const labels = sourceChoiceLabels.value.get(field)
-    const choiceLabel = labels ? choiceValueLabel(value, labels) : undefined
-    return choiceLabel ?? formatTransferValue(value)
+    const value = field.includes('.')
+      ? resolveRelatedTransferValue(`$source.${field}`, { sourceRecord: item })
+      : (() => {
+          const key = resolveRecordKey(item, field)
+          return key ? item[key] : undefined
+        })()
+    const labels = sourceFieldLabelMap(field)
+    const choiceLabel = labels ? choiceValueLabel(scalarId(value) ?? value, labels) : undefined
+    if (choiceLabel) return choiceLabel
+    return formatSourceFieldValue(field, value)
   }
 
   const currentRows = computed<TransferRow[]>(() =>
@@ -442,7 +457,7 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     if (!groupField || selectedSourceGroupId.value === null) return []
 
     return sourceItems.value.filter((item) => {
-      const groupId = scalarId(item[groupField])
+      const groupId = sourceItemGroupId(item, groupField)
       return groupId !== null && String(groupId) === String(selectedSourceGroupId.value)
     })
   })
@@ -478,16 +493,20 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     if (!baseSettings) {
       hydratedSettings.value = null
       targetFieldDefinitions.value = []
+      sourceFieldDefinitions.value = []
+      nestedSourceFieldDefinitions.value = {}
       relationDefinitions.value = []
       childLookupSettingsByField.value = {}
       return
     }
 
     const targetCollection = baseSettings.target.collection
+    const sourceCollection = baseSettings.source.itemCollection
     const fieldNames = baseSettings.target.columns.map((column) => column.field)
-    const [nextSettings, fields, relations, childLookups] = await Promise.all([
+    const [nextSettings, fields, sourceFields, relations, childLookups] = await Promise.all([
       mergeChildLookupFieldSettings(baseSettings),
       targetCollection ? getCachedCollectionFields(targetCollection) : Promise.resolve([]),
+      sourceCollection ? getCachedCollectionFields(sourceCollection) : Promise.resolve([]),
       getCachedRelations() as Promise<RelationDefinition[]>,
       targetCollection
         ? loadChildLookupFieldSettings(targetCollection, fieldNames)
@@ -496,8 +515,46 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     if (token !== hydrateToken) return
     hydratedSettings.value = nextSettings
     targetFieldDefinitions.value = fields
+    sourceFieldDefinitions.value = sourceFields
     relationDefinitions.value = relations
     childLookupSettingsByField.value = childLookups
+    nestedSourceFieldDefinitions.value = sourceCollection
+      ? await nestedFieldsForSourceColumns(baseSettings, sourceCollection, relations)
+      : {}
+    if (token !== hydrateToken) return
+  }
+
+  async function nestedFieldsForSourceColumns(
+    currentSettings: RelatedTransferSettings,
+    sourceCollection: string,
+    relations: RelationDefinition[],
+  ): Promise<Record<string, FieldDefinition[]>> {
+    const roots = Array.from(new Set(
+      [
+        ...(currentSettings.source.itemLabelFields ?? []),
+        ...(currentSettings.source.fields ?? []),
+      ]
+        .filter((field) => field.includes('.'))
+        .map((field) => field.split('.')[0] ?? '')
+        .filter(Boolean),
+    ))
+    const entries = await Promise.all(roots.map(async (root) => {
+      const related = relatedCollectionForCollectionField(relations, sourceCollection, root)
+      if (!related) return [root, [] as FieldDefinition[]] as const
+      return [root, await getCachedCollectionFields(related)] as const
+    }))
+    return Object.fromEntries(entries)
+  }
+
+  function sourceFieldDefinition(field: string): FieldDefinition | undefined {
+    if (!field.includes('.')) {
+      return sourceFieldDefinitions.value.find((item) => keysEqual(item.field, field))
+    }
+    const [root, ...rest] = field.split('.')
+    const leaf = rest[rest.length - 1] ?? ''
+    const nested = Object.entries(nestedSourceFieldDefinitions.value)
+      .find(([key]) => keysEqual(key, root))?.[1] ?? []
+    return nested.find((item) => keysEqual(item.field, leaf))
   }
 
   function reconcileSelectedSourceGroup(): void {
@@ -548,10 +605,14 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
 
     try {
       const ctx = dataContext()
+      const preloadedTargetRows = options.currentTargetRows()
       const [nextSourceResult, nextTargetRows] = await Promise.all([
         loadSourceItems(currentSettings, ctx),
-        options.currentTargetRows()
-          ? Promise.resolve(options.currentTargetRows()!)
+        preloadedTargetRows
+          ? labelTargetRelationCells(
+            preloadedTargetRows.map((row) => ({ ...row })),
+            currentSettings,
+          )
           : loadTargetRows(
             currentSettings,
             resolvedTargetParentField.value,
@@ -738,12 +799,44 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     )
   }
 
+  function isNumericDefinition(definition: FieldDefinition | undefined): boolean {
+    if (!definition) return false
+    if (resolveNumberDisplayOptions(definition)) return true
+    const type = definition.type.toLowerCase()
+    return ['integer', 'biginteger', 'float', 'decimal', 'numeric', 'number', 'double'].includes(type)
+  }
+
+  function formatWithNumberDisplay(
+    definition: FieldDefinition | undefined,
+    value: unknown,
+  ): string {
+    const formatted = formatNumberDisplayValue(value, resolveNumberDisplayOptions(definition))
+    if (formatted !== null) return formatted
+    return formatTransferValue(value)
+  }
+
+  function formatTargetFieldValue(field: string, value: unknown): string {
+    const definition = targetFieldDefinitions.value.find((item) => keysEqual(item.field, field))
+    return formatWithNumberDisplay(definition, value)
+  }
+
+  function formatSourceFieldValue(field: string, value: unknown): string {
+    return formatWithNumberDisplay(sourceFieldDefinition(field), value)
+  }
+
+  function isNumericSourceField(field: string): boolean {
+    const definition = sourceFieldDefinition(field)
+    if (!definition) return false
+    return isNumericDefinition(definition)
+  }
+
   function isNumericTargetField(field: string): boolean {
     // M2O FKs are often typed as integer/uuid — treat them as relations, not numbers.
     if (isTargetFieldM2O(field)) return false
+    if (isQuantityField(field)) return true
     const definition = targetFieldDefinitions.value.find((item) => keysEqual(item.field, field))
-    if (!definition) return isQuantityField(field)
-    return ['integer', 'bigInteger', 'float', 'decimal'].includes(definition.type)
+    if (!definition) return false
+    return isNumericDefinition(definition)
   }
 
   function childLookupSettingsForField(field: string): LayoutFieldChildLookup | undefined {
@@ -864,7 +957,9 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     isSelectedSourceGroup,
     onSourceSort,
     sourceDisplayValue,
+    isNumericSourceField,
     formatTransferValue,
+    formatTargetFieldValue,
     rowValue,
     isEditablePendingField,
     isNumericTargetField,

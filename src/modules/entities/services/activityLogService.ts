@@ -47,6 +47,18 @@ export interface FetchRecordActivityLogOptions {
   collection: string
   recordId: string | number
   settings?: ActivityLogSettings | null
+  /** Override settings.maxItems when paging (View all). */
+  limit?: number
+  offset?: number
+}
+
+export interface ActivityLogPage {
+  entries: ActivityLogEntry[]
+  totalCount: number
+  offset: number
+  limit: number
+  /** Raw activity rows returned by the API for this page (before client filters). */
+  fetched: number
 }
 
 interface FieldDisplayContext {
@@ -650,30 +662,36 @@ async function fetchRevisionIndex(
 async function readActivityRows(
   options: FetchRecordActivityLogOptions,
   settings: ReturnType<typeof normalizeActivityLogSettings>,
-): Promise<Record<string, unknown>[]> {
-  return readRecordActivitiesBridge({
+): Promise<{ nodes: Record<string, unknown>[]; totalCount: number; limit: number; offset: number }> {
+  const limit = Math.min(
+    Math.max(options.limit ?? settings.maxItems, 1),
+    500,
+  )
+  const offset = Math.max(options.offset ?? 0, 0)
+  const page = await readRecordActivitiesBridge({
     entity: options.collection,
     recordId: options.recordId,
     actions: mapUiActionsToPlatform(settings.actions as ActivityLogAction[]),
     uiActions: settings.actions as ActivityLogAction[],
-    limit: settings.maxItems,
+    limit,
+    offset,
     fields: [...ACTIVITY_LOG_FIELDS],
   })
+  return {
+    nodes: page.nodes,
+    totalCount: page.totalCount,
+    limit,
+    offset,
+  }
 }
 
-export async function fetchRecordActivityLog(
-  options: FetchRecordActivityLogOptions,
-): Promise<ActivityLogEntry[]> {
-  const settings = normalizeActivityLogSettings(options.settings)
-  const [fieldContext, revisionState, activities] = await Promise.all([
-    buildFieldDisplayContext(options.collection),
-    fetchRevisionIndex(options.collection, options.recordId),
-    readActivityRows(options, settings),
-  ])
-  const { index: revisionIndex, sortedRevisionIds } = revisionState
-
-  await populateUserLabelCache(fieldContext, revisionIndex, activities)
-
+function mapActivitiesToEntries(
+  activities: Record<string, unknown>[],
+  settings: ReturnType<typeof normalizeActivityLogSettings>,
+  revisionIndex: Map<number, RevisionSnapshot>,
+  sortedRevisionIds: number[],
+  fieldContext: FieldDisplayContext,
+): ActivityLogEntry[] {
   const entries = activities.map((activity) => {
     const record = activity
     const revisions = Array.isArray(record.revisions) ? record.revisions : []
@@ -717,4 +735,39 @@ export async function fetchRecordActivityLog(
   return entries.filter(
     (entry) => !shouldSkipCreateTimeUpdate(entry, createTimestampLabels),
   )
+}
+
+export async function fetchRecordActivityLogPage(
+  options: FetchRecordActivityLogOptions,
+): Promise<ActivityLogPage> {
+  const settings = normalizeActivityLogSettings(options.settings)
+  const [fieldContext, revisionState, activityPage] = await Promise.all([
+    buildFieldDisplayContext(options.collection),
+    fetchRevisionIndex(options.collection, options.recordId),
+    readActivityRows(options, settings),
+  ])
+  const { index: revisionIndex, sortedRevisionIds } = revisionState
+
+  await populateUserLabelCache(fieldContext, revisionIndex, activityPage.nodes)
+
+  return {
+    entries: mapActivitiesToEntries(
+      activityPage.nodes,
+      settings,
+      revisionIndex,
+      sortedRevisionIds,
+      fieldContext,
+    ),
+    totalCount: activityPage.totalCount,
+    offset: activityPage.offset,
+    limit: activityPage.limit,
+    fetched: activityPage.nodes.length,
+  }
+}
+
+export async function fetchRecordActivityLog(
+  options: FetchRecordActivityLogOptions,
+): Promise<ActivityLogEntry[]> {
+  const page = await fetchRecordActivityLogPage(options)
+  return page.entries
 }

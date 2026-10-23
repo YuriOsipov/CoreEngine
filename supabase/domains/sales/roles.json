@@ -1,0 +1,14 @@
+{
+  "roles": [
+    {
+      "name": "Sales Manager",
+      "isAdmin": false,
+      "permissions": "full_pack"
+    },
+    {
+      "name": "Sales Rep",
+      "isAdmin": false,
+      "permissions": "full_pack"
+    }
+  ]
+}

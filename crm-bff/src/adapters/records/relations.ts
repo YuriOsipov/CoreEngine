@@ -108,7 +108,9 @@ async function loadEntityRelations(
      FROM public.relations r
      JOIN public.fields f ON f.id = r.field_id
      JOIN public.entities e ON e.id = r.entity_id
-     LEFT JOIN public.entities related ON related.id = r.related_entity_id
+     -- Soft-deleted related objects must not win M2O label resolution.
+     LEFT JOIN public.entities related
+       ON related.id = r.related_entity_id AND related.deleted_at IS NULL
      LEFT JOIN public.entities junction ON junction.id = r.junction_entity_id
      WHERE e.deleted_at IS NULL
        AND (
@@ -140,6 +142,9 @@ async function loadEntityRelations(
           : null
         const relatedEntityApiName =
           fromEntity ||
+          // After a related object rename/archive, meta.one_collection is the
+          // surviving target (e.g. item_price_group → price_group).
+          (kind === 'M2O' && oneCollection ? oneCollection : null) ||
           (oneCollection === 'files' ? 'files' : null) ||
           (oneCollection === 'roles' ? 'roles' : null) ||
           (oneCollection === 'users' ? 'users' : null) ||
@@ -232,6 +237,47 @@ export function fkIdFromValue(value: unknown): string | null {
   return String(value)
 }
 
+function relationFieldKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+/** Match a requested field to the relation's api name, ignoring case and separators. */
+export function canonicalRelationField(
+  name: string,
+  relationFields: Set<string>,
+): string | null {
+  if (relationFields.has(name)) return name
+  const needle = relationFieldKey(name)
+  for (const field of relationFields) {
+    if (relationFieldKey(field) === needle) return field
+  }
+  return null
+}
+
+export function readRecordField(
+  record: Record<string, unknown>,
+  field: string,
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(record, field)) return record[field]
+  const needle = relationFieldKey(field)
+  const key = Object.keys(record).find((candidate) => relationFieldKey(candidate) === needle)
+  return key ? record[key] : undefined
+}
+
+export function writeRecordField(
+  record: Record<string, unknown>,
+  field: string,
+  value: unknown,
+): void {
+  if (Object.prototype.hasOwnProperty.call(record, field)) {
+    record[field] = value
+    return
+  }
+  const needle = relationFieldKey(field)
+  const key = Object.keys(record).find((candidate) => relationFieldKey(candidate) === needle)
+  record[key ?? field] = value
+}
+
 /**
  * Split requested fields into direct fields and per-relation nested subfields.
  * `provider_type.name` → relations.get('provider_type') = ['name'].
@@ -248,8 +294,9 @@ export function splitRelationFields(
   for (const field of fields) {
     const dot = field.indexOf('.')
     if (dot === -1) {
-      if (relationFields.has(field)) {
-        if (!relations.has(field)) relations.set(field, [])
+      const relationField = canonicalRelationField(field, relationFields)
+      if (relationField) {
+        if (!relations.has(relationField)) relations.set(relationField, [])
       } else {
         direct.push(field)
       }
@@ -257,14 +304,15 @@ export function splitRelationFields(
     }
     const base = field.slice(0, dot)
     const rest = field.slice(dot + 1)
-    if (!relationFields.has(base)) {
+    const relationField = canonicalRelationField(base, relationFields)
+    if (!relationField) {
       // Not a relation we can expand; keep base so projection retains the scalar.
       direct.push(base)
       continue
     }
-    const list = relations.get(base) ?? []
+    const list = relations.get(relationField) ?? []
     if (rest) list.push(rest)
-    relations.set(base, list)
+    relations.set(relationField, list)
   }
 
   return { direct, relations }

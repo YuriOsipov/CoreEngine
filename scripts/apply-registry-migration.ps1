@@ -2,7 +2,8 @@
 # Usage (from repo root):
 #   powershell -File .\scripts\apply-registry-migration.ps1
 
-$ErrorActionPreference = 'Stop'
+# psql emits NOTICE on stderr; Continue so those do not abort the script.
+$ErrorActionPreference = 'Continue'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $supabaseEnvPath = Join-Path $repoRoot 'supabase\.env'
@@ -71,11 +72,27 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $tracked = & $psql -h $hostName -p $port -U $user -d $db -tA -c "SELECT COUNT(*) FROM public.schema_migrations"
-$entityCount = & $psql -h $hostName -p $port -U $user -d $db -tA -c "SELECT COUNT(*) FROM public.entities"
 if ($LASTEXITCODE -ne 0) {
-  throw 'Failed to inspect schema_migrations / entities'
+  throw 'Failed to inspect schema_migrations'
 }
-if ([int](($tracked | Out-String).Trim()) -eq 0 -and [int](($entityCount | Out-String).Trim()) -gt 0) {
+$trackedCount = [int](($tracked | Out-String).Trim())
+
+# Legacy DBs may already have entities but an empty migration ledger.
+# Greenfield DBs have no public.entities yet - treat that as count 0.
+$entitiesExist = & $psql -h $hostName -p $port -U $user -d $db -tA -c "SELECT to_regclass('public.entities') IS NOT NULL"
+if ($LASTEXITCODE -ne 0) {
+  throw 'Failed to inspect entities'
+}
+$entityCount = 0
+if ((($entitiesExist | Out-String).Trim()) -eq 't') {
+  $entityCountRaw = & $psql -h $hostName -p $port -U $user -d $db -tA -c "SELECT COUNT(*) FROM public.entities"
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to count entities'
+  }
+  $entityCount = [int](($entityCountRaw | Out-String).Trim())
+}
+
+if ($trackedCount -eq 0 -and $entityCount -gt 0) {
   Write-Host 'Recording previously applied migrations (existing database)'
   foreach ($file in $files) {
     if ($file.Name -eq '202609180001_pm_task_to_stage.sql') { continue }

@@ -12,6 +12,10 @@ import CompactRecordTooltip from '@/modules/entities/components/CompactRecordToo
 import RelatedListFieldHost from '@/modules/entities/components/RelatedListFieldHost.vue'
 import AttachedDataTableField from '@/modules/entities/components/AttachedDataTableField.vue'
 import ActivityLogField from '@/modules/entities/components/ActivityLogField.vue'
+import CrmStagePath, {
+  type CrmStagePathChange,
+  type CrmStagePathStep,
+} from '@/core/ui-kit/CrmStagePath.vue'
 import type {
   EntityAction,
   EntityLayoutSchema,
@@ -23,6 +27,12 @@ import { buildFieldGroupSchema } from '@/modules/config/utils/recordPageFieldGro
 import { buildRecordPageFilesField } from '@/modules/config/utils/recordPageFiles'
 import { buildRecordPageActivityLogField } from '@/modules/config/utils/recordPageActivityLog'
 import type { CompactRecordDetailsRuntime } from '@/modules/entities/services/recordDetails'
+import { fetchFieldRuntimeMetadata } from '@/modules/entities/services/collectionSchema'
+import {
+  loadDynamicPicklistOptions,
+  parseDynamicPicklistSource,
+  type DynamicPicklistSource,
+} from '@/core/dynamicPicklist'
 import { useTranslation } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
 
@@ -46,10 +56,12 @@ const props = defineProps<{
   actionsDisabled?: boolean
   deleting?: boolean
   recordArchived?: boolean
+  pathSaving?: boolean
 }>()
 
 const emit = defineEmits<{
   'blocks-saved': [payload: { field: string; value: unknown }]
+  'path-change': [payload: { updates: Record<string, unknown> }]
   'run-action': [action: EntityAction]
   'edit-record': []
   'delete-record': []
@@ -61,6 +73,164 @@ const { canUpdate: canUpdateRecord, canDelete: canDeleteRecord } =
   useEntityPermissions(() => props.collection)
 const activeTabId = ref<string | null>(null)
 const overflowMenu = ref<{ toggle: (event: Event) => void } | null>(null)
+const pathSteps = ref<CrmStagePathStep[]>([])
+const pathTerminalSteps = ref<CrmStagePathStep[]>([])
+const pathLoading = ref(false)
+const pathError = ref<string | null>(null)
+
+const pathField = computed(() =>
+  props.component.type === 'path' && props.component.field
+    ? props.component.field
+    : null,
+)
+
+const pathTerminalField = computed(() =>
+  props.component.type === 'path'
+    && typeof props.component.terminalField === 'string'
+    && props.component.terminalField.trim()
+    ? props.component.terminalField.trim()
+    : null,
+)
+
+const pathSuccessTerminalValues = computed(() =>
+  props.component.type === 'path' && Array.isArray(props.component.successTerminalValues)
+    ? props.component.successTerminalValues
+    : [],
+)
+
+const pathModelValue = computed(() => {
+  const field = pathField.value
+  if (!field) return undefined
+  return props.modelValue[field]
+})
+
+const pathTerminalValue = computed(() => {
+  const field = pathTerminalField.value
+  if (!field) return undefined
+  return props.modelValue[field]
+})
+
+const pathDisabled = computed(
+  () =>
+    props.actionsDisabled
+    || props.recordArchived
+    || !canUpdateRecord.value
+    || pathLoading.value
+    || Boolean(pathError.value)
+    || pathSteps.value.length === 0,
+)
+
+function normalizePathSteps(raw: unknown): CrmStagePathStep[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const row = item as Record<string, unknown>
+      if (row.value === undefined || row.value === null) return null
+      const label =
+        typeof row.label === 'string' && row.label.trim()
+          ? row.label.trim()
+          : String(row.value)
+      return {
+        label,
+        value: row.value as string | number | boolean,
+      }
+    })
+    .filter((step): step is CrmStagePathStep => step !== null)
+}
+
+async function loadPathFieldSteps(field: string): Promise<CrmStagePathStep[]> {
+  const metadata = await fetchFieldRuntimeMetadata(props.collection, field, 'Select')
+  const choiceSource = parseDynamicPicklistSource(metadata.props?.choiceSource)
+  let steps = normalizePathSteps(metadata.props?.options)
+  if (choiceSource && steps.length === 0) {
+    steps = await loadPathStepsFromChoiceSource(choiceSource)
+  }
+  return steps
+}
+
+async function loadPathSteps(): Promise<void> {
+  const field = pathField.value
+  if (!field) {
+    pathSteps.value = []
+    pathTerminalSteps.value = []
+    pathError.value = null
+    return
+  }
+
+  pathLoading.value = true
+  pathError.value = null
+  try {
+    const openSteps = await loadPathFieldSteps(field)
+    pathSteps.value = openSteps
+
+    const terminalField = pathTerminalField.value
+    if (terminalField) {
+      pathTerminalSteps.value = await loadPathFieldSteps(terminalField)
+    } else {
+      pathTerminalSteps.value = []
+    }
+
+    if (openSteps.length === 0) {
+      pathError.value = t(
+        'recordPage.path.noChoices',
+        'No picklist choices configured for this field.',
+      )
+    }
+  } catch (err) {
+    pathSteps.value = []
+    pathTerminalSteps.value = []
+    pathError.value =
+      err instanceof Error
+        ? err.message
+        : t('recordPage.path.loadError', 'Failed to load path stages.')
+  } finally {
+    pathLoading.value = false
+  }
+}
+
+async function loadPathStepsFromChoiceSource(
+  choiceSource: DynamicPicklistSource,
+): Promise<CrmStagePathStep[]> {
+  const options = await loadDynamicPicklistOptions(
+    props.collection,
+    choiceSource,
+    props.modelValue,
+  )
+  return options.map((option) => ({
+    label: option.label,
+    value: option.value,
+  }))
+}
+
+watch(
+  () =>
+    [
+      props.component.type,
+      props.component.field,
+      props.component.terminalField,
+      props.collection,
+    ] as const,
+  () => {
+    if (props.component.type === 'path') {
+      void loadPathSteps()
+    } else {
+      pathSteps.value = []
+      pathTerminalSteps.value = []
+      pathError.value = null
+    }
+  },
+  { immediate: true },
+)
+
+function onPathChange(payload: CrmStagePathChange): void {
+  if (pathDisabled.value || props.pathSaving) return
+  const updates = payload.updates
+  if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+    return
+  }
+  emit('path-change', { updates })
+}
 
 const tabs = computed(() => props.component.tabs ?? [])
 
@@ -412,6 +582,49 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
     </div>
 
     <div
+      v-else-if="component.type === 'path'"
+      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+    >
+      <div
+        v-if="component.label"
+        class="mb-2 text-sm font-semibold text-surface-700"
+      >
+        {{ component.label }}
+      </div>
+      <p
+        v-if="!pathField"
+        class="m-0 text-sm text-muted-color"
+      >
+        {{ t('recordPage.path.fieldRequired', 'Select a picklist field for this Path.') }}
+      </p>
+      <p
+        v-else-if="pathLoading"
+        class="m-0 text-sm text-muted-color"
+      >
+        {{ t('common.loading', 'Loading…') }}
+      </p>
+      <p
+        v-else-if="pathError"
+        class="m-0 text-sm text-red-500"
+      >
+        {{ pathError }}
+      </p>
+      <CrmStagePath
+        v-else-if="pathField"
+        :field="pathField"
+        :steps="pathSteps"
+        :model-value="pathModelValue"
+        :terminal-field="pathTerminalField"
+        :terminal-steps="pathTerminalSteps"
+        :terminal-value="pathTerminalValue"
+        :success-terminal-values="pathSuccessTerminalValues"
+        :disabled="pathDisabled"
+        :saving="Boolean(pathSaving)"
+        @change="onPathChange"
+      />
+    </div>
+
+    <div
       v-else-if="component.type === 'tabs'"
       class="rounded-lg border border-surface-200 bg-surface-0 p-3"
     >
@@ -453,7 +666,10 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
                   :action-running="actionRunning"
                   :actions-disabled="actionsDisabled"
                   :deleting="deleting"
+                  :record-archived="recordArchived"
+                  :path-saving="pathSaving"
                   @blocks-saved="emit('blocks-saved', $event)"
+                  @path-change="emit('path-change', $event)"
                   @related-changed="emit('related-changed')"
                   @run-action="emit('run-action', $event)"
                   @edit-record="emit('edit-record')"

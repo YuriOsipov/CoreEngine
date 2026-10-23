@@ -2,9 +2,13 @@ import {
   resolveRelatedTransferValue,
   type RelatedTransferResolveContext,
 } from '@/core/relatedTransferResolver'
-import { readPath, resolveRecordKey, setPathValue } from '@/core/utils/object'
+import { keysEqual, readPath, resolveRecordKey, setPathValue } from '@/core/utils/object'
 import type { RelatedTransferSettings } from '@/interfaces'
-import { formatDisplayValue, scalarId } from '@/modules/entities/utils/recordDisplay'
+import {
+  formatDisplayValue,
+  relatedRecordFallbackLabel,
+  scalarId,
+} from '@/modules/entities/utils/recordDisplay'
 import {
   collectSourceTokenFields,
   lookupFilterTokens,
@@ -20,11 +24,64 @@ export function formatTransferValue(value: unknown): string {
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
     if (record.__crmValueType === 'm2o' && record.label !== undefined && record.label !== null) {
+      const label = String(record.label).trim()
+      const id = record.id == null ? '' : String(record.id)
+      if (label && label !== id) return label
+    }
+    const fallback = relatedRecordFallbackLabel(record, record.id)
+    if (fallback && fallback !== String(record.id ?? '')) return fallback
+    if (record.__crmValueType === 'm2o' && record.label != null && String(record.label).trim()) {
       return String(record.label)
     }
-    return String(record.label ?? record.name ?? record.title ?? record.id ?? formatDisplayValue(value))
+    return fallback || formatDisplayValue(value, { emptyValue: '-' })
   }
   return formatDisplayValue(value, { emptyValue: '-' })
+}
+
+function payloadHasField(payload: Record<string, unknown>, field: string): boolean {
+  return Object.keys(payload).some((key) => keysEqual(key, field))
+}
+
+function copySourceFieldValue(
+  sourceRecord: Record<string, unknown>,
+  sourceField: string,
+): unknown {
+  if (sourceField.includes('.')) {
+    const resolved = resolveRelatedTransferValue(`$source.${sourceField}`, { sourceRecord })
+    if (resolved && typeof resolved === 'object') return scalarId(resolved) ?? resolved
+    return resolved
+  }
+  const sourceKey = resolveRecordKey(sourceRecord, sourceField) ?? sourceField
+  return sourceRecord[sourceKey]
+}
+
+/**
+ * When destination columns are not explicitly mapped, copy same-named source
+ * fields (e.g. opportunity_item.price ← item_price.price).
+ */
+function applyMatchingSourceColumnCopies(
+  payload: Record<string, unknown>,
+  currentSettings: RelatedTransferSettings,
+  sourceRecord: Record<string, unknown>,
+  context: {
+    parentField: string
+  },
+): void {
+  const targetSettings = currentSettings.target
+  const mappedTargets = Object.keys(currentSettings.mapping?.copyFromSource ?? {})
+
+  for (const column of targetSettings.columns ?? []) {
+    const targetField = column.field?.trim()
+    if (!targetField) continue
+    if (targetSettings.itemField && keysEqual(targetField, targetSettings.itemField)) continue
+    if (context.parentField && keysEqual(targetField, context.parentField)) continue
+    if (mappedTargets.some((field) => keysEqual(field, targetField))) continue
+    if (payloadHasField(payload, targetField)) continue
+
+    const value = copySourceFieldValue(sourceRecord, targetField)
+    if (value === undefined || value === null || value === '') continue
+    payload[targetField] = value
+  }
 }
 
 export function buildCreatePayload(
@@ -51,7 +108,9 @@ export function buildCreatePayload(
   }
 
   for (const [targetField, sourceField] of Object.entries(mapping?.copyFromSource ?? {})) {
-    payload[targetField] = sourceRecord[sourceField]
+    if (!sourceField) continue
+    const value = copySourceFieldValue(sourceRecord, sourceField)
+    if (value !== undefined) payload[targetField] = value
   }
 
   for (const [field, value] of Object.entries(mapping?.values ?? {})) {
@@ -62,6 +121,10 @@ export function buildCreatePayload(
       sourcePrimaryKey: context.sourcePrimaryKey,
     })
   }
+
+  applyMatchingSourceColumnCopies(payload, currentSettings, sourceRecord, {
+    parentField: context.parentField,
+  })
 
   if (context.parentField) {
     payload[context.parentField] = context.parentId
@@ -244,7 +307,7 @@ export function defaultValueSourceFields(currentSettings: RelatedTransferSetting
   for (const value of Object.values(currentSettings.target.defaultValues ?? {})) {
     if (typeof value === 'string') {
       const match = /^\$source\.([A-Za-z0-9_.]+)$/.exec(value.trim())
-      if (match) fields.push(match[1].split('.')[0])
+      if (match?.[1]) fields.push(match[1])
     }
   }
   return fields
@@ -267,7 +330,8 @@ export function lookupSourceFields(
 
 export function targetValue(row: Record<string, unknown> | undefined, field: string): unknown {
   if (!row) return undefined
-  return row[field]
+  const key = resolveRecordKey(row, field)
+  return key ? row[key] : undefined
 }
 
 export function duplicateValue(

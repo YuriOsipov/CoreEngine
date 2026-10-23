@@ -9,6 +9,7 @@ import {
   CRM_SCHEMA,
   clearCrmStorageCache,
   crmQualifiedTable,
+  isNumericPgType,
   loadPromotedFields,
   normalizeOnDelete,
   quoteIdent,
@@ -40,6 +41,8 @@ export interface TypedColumnInfo {
   columnName: string
   dataType: string
   udtName: string
+  numericPrecision: number | null
+  numericScale: number | null
 }
 
 export interface DdlDriftItem {
@@ -90,7 +93,12 @@ async function resolveEntityTypedStorage(
   }
 }
 
-function normalizePgType(dataType: string, udtName: string): string {
+function normalizePgType(
+  dataType: string,
+  udtName: string,
+  numericPrecision?: number | null,
+  numericScale?: number | null,
+): string {
   const dt = String(dataType || '').toLowerCase()
   const udt = String(udtName || '').toLowerCase()
   if (dt === 'boolean' || udt === 'bool') return 'boolean'
@@ -98,6 +106,18 @@ function normalizePgType(dataType: string, udtName: string): string {
   if (dt === 'integer' || udt === 'int4') return 'integer'
   if (dt === 'double precision' || udt === 'float8') return 'double precision'
   if (dt === 'real' || udt === 'float4') return 'real'
+  if (dt === 'numeric' || udt === 'numeric') {
+    const p =
+      numericPrecision != null && Number.isFinite(Number(numericPrecision))
+        ? Math.trunc(Number(numericPrecision))
+        : null
+    const s =
+      numericScale != null && Number.isFinite(Number(numericScale))
+        ? Math.trunc(Number(numericScale))
+        : null
+    if (p != null && s != null) return `numeric(${p},${s})`
+    return 'numeric'
+  }
   if (dt === 'jsonb' || udt === 'jsonb') return 'jsonb'
   if (dt === 'json' || udt === 'json') return 'json'
   if (dt === 'date' || udt === 'date') return 'date'
@@ -107,6 +127,15 @@ function normalizePgType(dataType: string, udtName: string): string {
   if (dt === 'character varying' || udt === 'varchar') return 'text'
   if (dt === 'uuid' || udt === 'uuid') return 'uuid'
   return udt || dt || 'unknown'
+}
+
+function columnNormalizedType(col: TypedColumnInfo): string {
+  return normalizePgType(
+    col.dataType,
+    col.udtName,
+    col.numericPrecision,
+    col.numericScale,
+  )
 }
 
 function typesCompatible(expected: string, actual: string): boolean {
@@ -123,7 +152,7 @@ function typesCompatible(expected: string, actual: string): boolean {
 function coerceUsingExpr(columnIdent: string, expectedPgType: string): string {
   const expected = expectedPgType.toLowerCase()
   const textExpr = `NULLIF(btrim(${columnIdent}::text), '')`
-  if (expected === 'double precision' || expected === 'real') {
+  if (expected === 'double precision' || expected === 'real' || isNumericPgType(expected)) {
     return `CASE
       WHEN ${textExpr} IS NULL THEN NULL
       WHEN ${textExpr} ~ '^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$'
@@ -172,7 +201,9 @@ export async function listTypedTableColumns(
   return query<TypedColumnInfo>(
     `SELECT column_name AS "columnName",
             data_type AS "dataType",
-            udt_name AS "udtName"
+            udt_name AS "udtName",
+            numeric_precision AS "numericPrecision",
+            numeric_scale AS "numericScale"
      FROM information_schema.columns
      WHERE table_schema = $1
        AND table_name = $2
@@ -299,11 +330,16 @@ function buildCreateTableSql(
   promoted: CrmPromotedField[],
   schema: string,
   table: string,
+  envelope: { includeStatus: boolean; includeDeleted: boolean; includeActive: boolean },
 ): string {
   const relation = crmQualifiedTable({ schema, table }, entityApiName)
   const cols = [
     'record_id text PRIMARY KEY',
-    `status text NOT NULL DEFAULT 'published'`,
+    ...(envelope.includeStatus ? [`status text NOT NULL DEFAULT 'published'`] : []),
+    ...(envelope.includeDeleted
+      ? ['is_deleted boolean NOT NULL DEFAULT false']
+      : []),
+    ...(envelope.includeActive ? ['is_active boolean NOT NULL DEFAULT true'] : []),
     `data jsonb NOT NULL DEFAULT '{}'::jsonb`,
     'created_at timestamptz NOT NULL DEFAULT now()',
     'updated_at timestamptz NOT NULL DEFAULT now()',
@@ -322,6 +358,17 @@ function buildBackfillSql(
   const col = quoteIdent(field.apiName)
   const key = field.apiName.replace(/'/g, "''")
   const raw = `data->>'${key}'`
+
+  if (isNumericPgType(field.pgType) || field.pgType === 'double precision') {
+    return `UPDATE ${relation}
+  SET ${col} = CASE
+    WHEN ${raw} ~ '^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$' THEN (${raw})::${field.pgType}
+    ELSE NULL
+  END
+  WHERE ${col} IS NULL
+    AND data ? '${key}'
+    AND NULLIF(${raw}, '') IS NOT NULL`
+  }
 
   switch (field.pgType) {
     case 'boolean':
@@ -343,20 +390,12 @@ function buildBackfillSql(
   WHERE ${col} IS NULL
     AND data ? '${key}'
     AND NULLIF(${raw}, '') IS NOT NULL`
-    case 'double precision':
-      return `UPDATE ${relation}
-  SET ${col} = CASE
-    WHEN ${raw} ~ '^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$' THEN (${raw})::double precision
-    ELSE NULL
-  END
-  WHERE ${col} IS NULL
-    AND data ? '${key}'
-    AND NULLIF(${raw}, '') IS NOT NULL`
     case 'jsonb':
+      // Parentheses required: `data->>'k'::jsonb` casts the key literal, not the value.
       return `UPDATE ${relation}
   SET ${col} = CASE
     WHEN jsonb_typeof(data->'${key}') IS NOT NULL THEN data->'${key}'
-    WHEN NULLIF(${raw}, '') IS NOT NULL THEN ${raw}::jsonb
+    WHEN NULLIF(${raw}, '') IS NOT NULL THEN (${raw})::jsonb
     ELSE NULL
   END
   WHERE ${col} IS NULL
@@ -407,13 +446,13 @@ async function entityHasRegistryField(
   return Boolean(rows[0]?.exists)
 }
 
-/** Envelope columns from CREATE TABLE; status only when the registry has that field. */
+/** Envelope columns from CREATE TABLE; archive/status columns follow the registry. */
 function planEnvelopeColumns(
   entityApiName: string,
   schema: string,
   table: string,
   byName: Map<string, string>,
-  includeStatus: boolean,
+  envelope: { includeStatus: boolean; includeDeleted: boolean; includeActive: boolean },
 ): DdlAction[] {
   const relation = crmQualifiedTable({ schema, table }, entityApiName)
   const specs: Array<{ name: string; ddl: string; include: boolean }> = [
@@ -431,7 +470,17 @@ function planEnvelopeColumns(
     {
       name: 'status',
       ddl: `text NOT NULL DEFAULT 'published'`,
-      include: includeStatus,
+      include: envelope.includeStatus,
+    },
+    {
+      name: 'is_deleted',
+      ddl: 'boolean NOT NULL DEFAULT false',
+      include: envelope.includeDeleted,
+    },
+    {
+      name: 'is_active',
+      ddl: 'boolean NOT NULL DEFAULT true',
+      include: envelope.includeActive,
     },
   ]
   const actions: DdlAction[] = []
@@ -455,7 +504,7 @@ function planStandardIndexes(
   schema: string,
   table: string,
   existingIndexes: Set<string> | null,
-  options?: { hasStatusColumn?: boolean },
+  options?: { hasStatusColumn?: boolean; hasDeletedColumn?: boolean },
 ): DdlAction[] {
   const relation = crmQualifiedTable({ schema, table }, entityApiName)
   const actions: DdlAction[] = []
@@ -469,12 +518,20 @@ function planStandardIndexes(
     })
   }
 
-  if (options?.hasStatusColumn !== false) {
+  if (options?.hasStatusColumn) {
     const statusIdx = `${sanitizeIdentPart(entityApiName)}_status_idx`
     pushIndex(
       statusIdx,
       `CREATE INDEX IF NOT EXISTS ${quoteIdent(statusIdx)} ON ${relation} (status)`,
       `Index ${statusIdx}`,
+    )
+  }
+  if (options?.hasDeletedColumn) {
+    const deletedIdx = `${sanitizeIdentPart(entityApiName)}_is_deleted_idx`
+    pushIndex(
+      deletedIdx,
+      `CREATE INDEX IF NOT EXISTS ${quoteIdent(deletedIdx)} ON ${relation} (is_deleted)`,
+      `Index ${deletedIdx}`,
     )
   }
   const updatedIdx = `${sanitizeIdentPart(entityApiName)}_updated_idx`
@@ -622,19 +679,25 @@ export async function planEntityDdlSync(
   })
 
   const exists = await tableExists(schema, table)
+  const envelopeFlags = {
+    includeStatus: await entityHasRegistryField(entityApiName, 'status'),
+    includeDeleted: await entityHasRegistryField(entityApiName, 'is_deleted'),
+    includeActive: await entityHasRegistryField(entityApiName, 'is_active'),
+  }
 
   if (!exists) {
     actions.push({
       type: 'CREATE_TABLE',
       entityApiName,
-      sql: buildCreateTableSql(entityApiName, promoted, schema, table),
+      sql: buildCreateTableSql(entityApiName, promoted, schema, table, envelopeFlags),
       message: `Create table ${schema}.${table} (${promoted.length} promoted columns)`,
     })
 
     actions.push(...planUpdatedAtTrigger(entityApiName, schema, table, true, false))
     actions.push(
       ...planStandardIndexes(entityApiName, promoted, schema, table, null, {
-        hasStatusColumn: true,
+        hasStatusColumn: envelopeFlags.includeStatus,
+        hasDeletedColumn: envelopeFlags.includeDeleted,
       }),
     )
 
@@ -646,19 +709,21 @@ export async function planEntityDdlSync(
 
   const columns = await listTypedTableColumns(schema, table)
   const byName = new Map(
-    columns.map((c) => [c.columnName, normalizePgType(c.dataType, c.udtName)]),
+    columns.map((c) => [c.columnName, columnNormalizedType(c)]),
   )
-  const includeStatus = await entityHasRegistryField(entityApiName, 'status')
   const envelope = planEnvelopeColumns(
     entityApiName,
     schema,
     table,
     byName,
-    includeStatus,
+    envelopeFlags,
   )
   actions.push(...envelope)
   const hasStatusColumn =
     byName.has('status') || envelope.some((action) => action.fieldApiName === 'status')
+  const hasDeletedColumn =
+    byName.has('is_deleted') ||
+    envelope.some((action) => action.fieldApiName === 'is_deleted')
   const existingIndexes = await listIndexNames(schema, table)
   const triggerName = `trg_${sanitizeIdentPart(entityApiName)}_updated_at`
   const hasTrigger = await triggerExists(schema, table, triggerName)
@@ -718,6 +783,7 @@ export async function planEntityDdlSync(
   actions.push(
     ...planStandardIndexes(entityApiName, promoted, schema, table, existingIndexes, {
       hasStatusColumn,
+      hasDeletedColumn,
     }),
   )
 
@@ -813,7 +879,7 @@ export async function detectTypedTableDrift(
 
   const columns = await listTypedTableColumns(schema, table)
   const byName = new Map(
-    columns.map((c) => [c.columnName, normalizePgType(c.dataType, c.udtName)]),
+    columns.map((c) => [c.columnName, columnNormalizedType(c)]),
   )
 
   for (const field of promoted) {

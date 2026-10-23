@@ -1,4 +1,5 @@
 import {
+  bridgeDeleteItem,
   bridgeReadItem,
   bridgeRestoreItem,
   bridgeSoftDeleteItem,
@@ -57,10 +58,15 @@ import type { EntityAction } from '@/interfaces'
 
 const ARCHIVED_STATUS_VALUES = ['archived', 'Archived']
 
+function isTruthyFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true'
+}
+
 export function isRecordArchived(
   record: Record<string, unknown> | null | undefined,
 ): boolean {
   if (!record) return false
+  if (isTruthyFlag(record.is_deleted)) return true
   const status = record.status
   if (status === null || status === undefined) return false
   return ARCHIVED_STATUS_VALUES.includes(String(status))
@@ -128,6 +134,18 @@ function baseRecordFieldsForCollection(
 
   if (collectionHasField('date_updated', definitions)) {
     fields.push('date_updated')
+  }
+
+  if (collectionHasField('is_deleted', definitions)) {
+    fields.push('is_deleted')
+  }
+
+  if (collectionHasField('is_active', definitions)) {
+    fields.push('is_active')
+  }
+
+  if (collectionHasField('status', definitions)) {
+    fields.push('status')
   }
 
   if (collectionHasField('user_created', definitions)) {
@@ -380,6 +398,13 @@ export async function restoreObjectRecord(
   return bridgeRestoreItem(collection, id)
 }
 
+export async function hardDeleteObjectRecord(
+  collection: string,
+  id: string,
+): Promise<void> {
+  await bridgeDeleteItem(collection, id)
+}
+
 export async function triggerFlowAction(
   action: EntityAction,
   collection: string,
@@ -511,7 +536,13 @@ async function countRelatedRecords(
       },
     },
   ]
-  if (fields.some((field) => field.field === 'status')) {
+  if (fields.some((field) => field.field === 'is_deleted')) {
+    filters.push({
+      is_deleted: {
+        _neq: true,
+      },
+    })
+  } else if (fields.some((field) => field.field === 'status')) {
     filters.push({
       status: {
         _nin: ARCHIVED_STATUS_VALUES,

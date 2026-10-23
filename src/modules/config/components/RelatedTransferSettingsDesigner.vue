@@ -55,7 +55,7 @@ const VISIT_ITEMS_EXAMPLE: RelatedTransferSettings = {
     itemLabelFields: ['name'],
     fields: ['base_price', 'item_type', 'Group'],
     filter: {
-      status: { _neq: 'archived' },
+      is_deleted: { _neq: true },
     },
   },
   target: {

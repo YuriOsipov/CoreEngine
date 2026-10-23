@@ -24,8 +24,9 @@ export async function buildDocumentExportFile(
     return new File([html], `${base}.html`, { type: 'text/html;charset=utf-8' })
   }
 
+  // Filename uses `title`; do not pass it to generateDocumentPdfBlob — that sets
+  // pageSetup.title and prints the report name as a body heading in the PDF.
   const blob = await generateDocumentPdfBlob(doc as never, {
-    title: options.title || 'document',
     download: false,
   })
   return new File([blob], `${base}.pdf`, { type: blob.type || 'application/pdf' })

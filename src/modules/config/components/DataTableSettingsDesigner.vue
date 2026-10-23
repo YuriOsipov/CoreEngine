@@ -32,6 +32,7 @@ import {
   relationManyCollection,
   relationRelatedCollection,
 } from '@/core/relationHelpers'
+import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 import { listDataTableFields, normalizeTableSettings, DEFAULT_RELATED_ROW_LIMIT } from '@/modules/entities/services/tableSettings'
 import {
   getCachedCollectionFields,
@@ -39,6 +40,11 @@ import {
 } from '@/modules/entities/services/collectionSchema'
 import { loadDocTemplateListItems } from '@/modules/documents/services/docTemplateService'
 import { buildListFilterMetaBlock } from '@/core/listFilterUtils'
+import {
+  ALL_RECORDS_FILTER_ID,
+} from '@/modules/config/services/listFilterSettings'
+import { loadListViews } from '@/modules/config/services/listViewSettings'
+import { RECENTLY_VIEWED_FILTER_ID } from '@/modules/dashboard/services/recentRecords'
 import { isDateComponent } from '@/core/dateFormatting'
 import { supportsInlineCellEditor } from '@/core/inlineCellEdit'
 import { DIALOG_SORTABLE_ATTRS } from '../utils/dialogSortable'
@@ -62,6 +68,8 @@ const props = defineProps<{
     userVisible?: boolean
     fieldWidth?: number
   }> | null
+  /** List layout / view id — used to reload Filter conditions when opening Template. */
+  listViewId?: string | null
   modelValue: DataTableSettings
 }>()
 const { t } = useTranslation()
@@ -125,13 +133,27 @@ watch(
     }
   },
 )
-const sortOptions = computed(() => [
-  { label: t('tableSettings.noDefaultSort', 'No default sort'), value: '' },
-  ...selectedColumns.value.map((field) => ({
-    label: field.header,
-    value: field.field,
-  })),
-])
+const sortOptions = computed(() => {
+  const options: Array<{ label: string; value: string }> = [
+    { label: t('tableSettings.noDefaultSort', 'No default sort'), value: '' },
+    {
+      label: t('tableSettings.recordLinkPrimaryKey', 'Primary key (Id)'),
+      value: 'id',
+    },
+  ]
+  const seen = new Set(['', 'id'])
+  for (const column of selectedColumns.value) {
+    const field = String(column.field ?? '').trim()
+    if (!field || seen.has(field)) continue
+    seen.add(field)
+    options.push({ label: column.header, value: field })
+  }
+  const current = String(props.modelValue.sort?.field ?? '').trim()
+  if (current && !seen.has(current)) {
+    options.push({ label: current, value: current })
+  }
+  return options
+})
 const groupByOptions = computed(() => [
   { label: t('tableSettings.noGrouping', 'No grouping'), value: '' },
   ...selectedColumns.value.map((column) => ({
@@ -498,10 +520,157 @@ const recordScopeOptions = computed(() => [
   },
 ])
 
+const listActionBehaviorOptions = computed(() => [
+  {
+    label: t('tableSettings.listActionBehaviorDocument', 'Document report'),
+    value: 'openDocument' as const,
+  },
+  {
+    label: t('tableSettings.listActionBehaviorBulkUpdate', 'Bulk update'),
+    value: 'bulkUpdate' as const,
+  },
+])
+
 const viewModeOptions = computed(() => [
   { label: t('formBuilder.documentViewPdf', 'PDF'), value: 'pdf' as const },
   { label: t('formBuilder.documentViewHtml', 'HTML'), value: 'html' as const },
 ])
+
+const DEFAULT_LIST_BULK_FORMULA = '{{source}} * {{prompt}}'
+const LIST_BULK_FORMULA_PRESETS = computed(() => [
+  {
+    label: t('formBuilder.bulkFormulaPresetMultiply', '× Prompt'),
+    value: '{{source}} * {{prompt}}',
+  },
+  {
+    label: t('formBuilder.bulkFormulaPresetPercentOff', 'Discount %'),
+    value: '{{source}} * (1 - {{prompt}} / 100)',
+  },
+])
+
+function isNumericFieldDefinition(field: FieldDefinition): boolean {
+  const type = String(field.type ?? '').toLowerCase()
+  if (
+    type.includes('int')
+    || type.includes('float')
+    || type.includes('decimal')
+    || type.includes('numeric')
+    || type === 'number'
+    || type === 'biginteger'
+    || type === 'double'
+    || type === 'real'
+    || type === 'money'
+  ) {
+    return true
+  }
+  const iface = String(field.meta?.interface ?? '').toLowerCase()
+  return (
+    iface.includes('input-number')
+    || iface.includes('input-decimal')
+    || iface.includes('input-float')
+    || iface.includes('currency')
+    || iface.includes('slider')
+    || iface.includes('numeric')
+  )
+}
+
+function fieldOptionLabel(field: FieldDefinition): string {
+  const translated = field.meta?.translations?.find((entry) => entry.translation?.trim())
+    ?.translation
+  return translated?.trim() || field.field
+}
+
+const listBulkTargetFieldOptions = computed(() => {
+  const numeric = schemaFields.value
+    .filter((field) => isNumericFieldDefinition(field) && !field.schema?.is_primary_key)
+    .map((field) => ({ label: fieldOptionLabel(field), value: field.field }))
+  if (numeric.length > 0) return numeric
+  return schemaFields.value
+    .filter((field) => !field.schema?.is_primary_key)
+    .map((field) => ({ label: fieldOptionLabel(field), value: field.field }))
+})
+
+const listBulkSourceM2oOptions = computed(() =>
+  schemaFields.value
+    .filter((field) =>
+      isFieldM2O(
+        props.collection,
+        field.field,
+        schemaFields.value,
+        relationDefinitions.value,
+      ),
+    )
+    .map((field) => ({ label: fieldOptionLabel(field), value: field.field })),
+)
+
+const listBulkSourceNestedOptions = computed(() => {
+  const m2o = actionDraftBulkSourceM2o.value
+  if (!m2o) return [] as Array<{ label: string; value: string }>
+  const related = relatedCollectionForCollectionField(
+    relationDefinitions.value,
+    props.collection,
+    m2o,
+  )
+  const nested = related ? nestedFieldsByCollection.value[related] ?? [] : []
+  return nested
+    .filter((field) => isNumericFieldDefinition(field) && !field.schema?.is_primary_key)
+    .map((field) => ({ label: fieldOptionLabel(field), value: field.field }))
+})
+
+const listBulkDirectSourceOptions = computed(() =>
+  schemaFields.value
+    .filter((field) => isNumericFieldDefinition(field) && !field.schema?.is_primary_key)
+    .map((field) => ({ label: fieldOptionLabel(field), value: field.field })),
+)
+
+const actionDraftBulkSourceM2o = computed({
+  get: () => {
+    const path = actionDraft.value?.bulkUpdate?.sourcePath ?? ''
+    const [root] = path.split('.')
+    if (!root) return ''
+    const isM2o = listBulkSourceM2oOptions.value.some((opt) => opt.value === root)
+    return isM2o ? root : ''
+  },
+  set: (m2oField: string) => {
+    if (!actionDraft.value?.bulkUpdate) return
+    actionDraft.value.bulkUpdate.sourcePath = m2oField ? `${m2oField}.` : ''
+  },
+})
+
+const actionDraftBulkSourceNested = computed({
+  get: () => {
+    const path = actionDraft.value?.bulkUpdate?.sourcePath ?? ''
+    const parts = path.split('.')
+    return parts.length > 1 ? parts.slice(1).join('.') : ''
+  },
+  set: (nested: string) => {
+    if (!actionDraft.value?.bulkUpdate) return
+    const m2o = actionDraftBulkSourceM2o.value
+    actionDraft.value.bulkUpdate.sourcePath =
+      m2o && nested ? `${m2o}.${nested}` : m2o ? `${m2o}.` : nested
+  },
+})
+
+const actionDraftBulkDirectSource = computed({
+  get: () => {
+    const path = actionDraft.value?.bulkUpdate?.sourcePath ?? ''
+    if (!path || path.includes('.')) return ''
+    return path
+  },
+  set: (field: string) => {
+    if (!actionDraft.value?.bulkUpdate) return
+    actionDraft.value.bulkUpdate.sourcePath = field
+  },
+})
+
+const listBulkFormulaPreview = computed(() => {
+  const target =
+    actionDraft.value?.bulkUpdate?.targetField?.trim()
+    || t('formBuilder.bulkFormulaTargetPlaceholder', 'target')
+  const formula =
+    actionDraft.value?.bulkUpdate?.formula?.trim() || DEFAULT_LIST_BULK_FORMULA
+  return `${target} = ${formula}`
+})
 
 watch(
   () => props.collection,
@@ -527,7 +696,25 @@ async function loadDocTemplateOptions(collection: string): Promise<void> {
   }
 }
 
-function createEmptyListAction(): ListViewAction {
+function createEmptyListAction(
+  behavior: ListViewAction['behavior'] = 'openDocument',
+): ListViewAction {
+  if (behavior === 'bulkUpdate') {
+    return {
+      id: `list_action_${Date.now()}`,
+      label: t('tableSettings.listActionBulkDefaultLabel', 'Bulk update'),
+      behavior: 'bulkUpdate',
+      bulkUpdate: {
+        targetField: '',
+        sourcePath: '',
+        formula: DEFAULT_LIST_BULK_FORMULA,
+        promptLabel: '',
+        confirmBeforeRun: true,
+        successMessage: t('tableSettings.listBulkUpdateCompleted', 'Records updated.'),
+      },
+      recordScope: 'filtered',
+    }
+  }
   return {
     id: `list_action_${Date.now()}`,
     label: t('tableSettings.listActionDefaultLabel', 'Document report'),
@@ -541,17 +728,38 @@ function createEmptyListAction(): ListViewAction {
   }
 }
 
-function openAddListAction(): void {
+function openAddListAction(behavior: ListViewAction['behavior'] = 'openDocument'): void {
   editingActionId.value = null
-  actionDraft.value = createEmptyListAction()
+  actionDraft.value = createEmptyListAction(behavior)
   actionDraftVisible.value = true
 }
 
 function openEditListAction(action: ListViewAction): void {
   editingActionId.value = action.id
-  actionDraft.value = {
-    ...action,
-    document: { ...action.document },
+  if (action.behavior === 'bulkUpdate') {
+    actionDraft.value = {
+      ...action,
+      bulkUpdate: {
+        targetField: action.bulkUpdate?.targetField ?? '',
+        sourcePath: action.bulkUpdate?.sourcePath ?? '',
+        formula: action.bulkUpdate?.formula?.trim() || DEFAULT_LIST_BULK_FORMULA,
+        promptLabel: action.bulkUpdate?.promptLabel ?? '',
+        confirmBeforeRun: action.bulkUpdate?.confirmBeforeRun !== false,
+        successMessage:
+          action.bulkUpdate?.successMessage
+          || t('tableSettings.listBulkUpdateCompleted', 'Records updated.'),
+      },
+    }
+  } else {
+    actionDraft.value = {
+      ...action,
+      behavior: 'openDocument',
+      document: {
+        templateId: action.document?.templateId ?? null,
+        viewMode: action.document?.viewMode === 'html' ? 'html' : 'pdf',
+        skipInteractiveFill: action.document?.skipInteractiveFill !== false,
+      },
+    }
   }
   actionDraftVisible.value = true
 }
@@ -560,22 +768,58 @@ function removeListAction(actionId: string): void {
   listActions.value = listActions.value.filter((action) => action.id !== actionId)
 }
 
+function onListActionBehaviorChange(behavior: ListViewAction['behavior']): void {
+  if (!actionDraft.value) return
+  const label = actionDraft.value.label
+  const id = actionDraft.value.id
+  const recordScope = actionDraft.value.recordScope
+  const next = createEmptyListAction(behavior)
+  next.id = id
+  next.label = label
+  next.recordScope = recordScope
+  actionDraft.value = next
+}
+
 function applyListActionDraft(): void {
   const draft = actionDraft.value
   if (!draft) return
   const label = draft.label.trim()
-  if (!label || !draft.document.templateId?.trim()) return
+  if (!label) return
 
-  const next: ListViewAction = {
-    id: draft.id,
-    label,
-    behavior: 'openDocument',
-    document: {
-      templateId: draft.document.templateId.trim(),
-      viewMode: draft.document.viewMode === 'html' ? 'html' : 'pdf',
-      skipInteractiveFill: true,
-    },
-    recordScope: draft.recordScope === 'visible' ? 'visible' : 'filtered',
+  let next: ListViewAction
+  if (draft.behavior === 'bulkUpdate') {
+    const targetField = draft.bulkUpdate?.targetField?.trim() ?? ''
+    const sourcePath = draft.bulkUpdate?.sourcePath?.trim() ?? ''
+    if (!targetField || !sourcePath || sourcePath.endsWith('.')) return
+    next = {
+      id: draft.id,
+      label,
+      behavior: 'bulkUpdate',
+      bulkUpdate: {
+        targetField,
+        sourcePath,
+        formula: draft.bulkUpdate?.formula?.trim() || DEFAULT_LIST_BULK_FORMULA,
+        promptLabel: draft.bulkUpdate?.promptLabel?.trim() ?? '',
+        confirmBeforeRun: draft.bulkUpdate?.confirmBeforeRun !== false,
+        successMessage:
+          draft.bulkUpdate?.successMessage?.trim()
+          || t('tableSettings.listBulkUpdateCompleted', 'Records updated.'),
+      },
+      recordScope: draft.recordScope === 'visible' ? 'visible' : 'filtered',
+    }
+  } else {
+    if (!draft.document?.templateId?.trim()) return
+    next = {
+      id: draft.id,
+      label,
+      behavior: 'openDocument',
+      document: {
+        templateId: draft.document.templateId.trim(),
+        viewMode: draft.document.viewMode === 'html' ? 'html' : 'pdf',
+        skipInteractiveFill: true,
+      },
+      recordScope: draft.recordScope === 'visible' ? 'visible' : 'filtered',
+    }
   }
 
   if (editingActionId.value) {
@@ -591,14 +835,74 @@ function applyListActionDraft(): void {
   editingActionId.value = null
 }
 
+const canApplyListActionDraft = computed(() => {
+  const draft = actionDraft.value
+  if (!draft?.label?.trim()) return false
+  if (draft.behavior === 'bulkUpdate') {
+    const target = draft.bulkUpdate?.targetField?.trim() ?? ''
+    const source = draft.bulkUpdate?.sourcePath?.trim() ?? ''
+    return Boolean(target && source && !source.endsWith('.'))
+  }
+  return Boolean(draft.document?.templateId?.trim())
+})
+
 function templateLabelForAction(action: ListViewAction): string {
-  const id = action.document.templateId
+  if (action.behavior === 'bulkUpdate') {
+    const target = action.bulkUpdate?.targetField?.trim()
+    return target
+      ? t('tableSettings.listActionBulkSummary', 'Update {field}', { field: target })
+      : t('tableSettings.listActionBulkDefaultLabel', 'Bulk update')
+  }
+  const id = action.document?.templateId
   if (!id) return t('tableSettings.listActionNoTemplate', 'No template')
   return docTemplateOptions.value.find((opt) => opt.value === id)?.label ?? id
 }
 
+function applyListBulkFormulaPreset(formula: string): void {
+  if (!actionDraft.value?.bulkUpdate) return
+  actionDraft.value.bulkUpdate.formula = formula
+}
+
+/**
+ * Prefer live List layout Filter panel conditions; if empty, reload from the saved view.
+ * Document Templates (no list action) never get these — only this entry point.
+ */
+async function resolveListActionFilterConditions(): Promise<Array<{
+  id: string
+  field: string
+  operator: string
+  value: unknown
+  type?: string
+  userVisible?: boolean
+  fieldWidth?: number
+}> | null> {
+  if (props.listViewConditions?.length) {
+    return props.listViewConditions.map((condition) => ({ ...condition }))
+  }
+
+  const viewId = props.listViewId?.trim() || ''
+  if (
+    !viewId ||
+    viewId === ALL_RECORDS_FILTER_ID ||
+    viewId === RECENTLY_VIEWED_FILTER_ID
+  ) {
+    return null
+  }
+
+  try {
+    const views = await loadListViews(props.collection)
+    const view = views.find((item) => item.id === viewId)
+    if (view?.conditions?.length) {
+      return view.conditions.map((condition) => ({ ...condition }))
+    }
+  } catch {
+    // Fall through — empty meta.filter when Filter list is unavailable.
+  }
+  return null
+}
+
 async function openListActionTemplate(action: ListViewAction): Promise<void> {
-  const templateId = action.document.templateId?.trim()
+  const templateId = action.document?.templateId?.trim()
   if (!templateId) return
   templateEditorLayoutId.value = templateId
 
@@ -613,9 +917,7 @@ async function openListActionTemplate(action: ListViewAction): Promise<void> {
     return
   }
 
-  const filterConditions = props.listViewConditions?.length
-    ? props.listViewConditions.map((condition) => ({ ...condition }))
-    : null
+  const filterConditions = await resolveListActionFilterConditions()
   const filter = filterConditions?.length
     ? await buildListFilterMetaBlock(props.collection, filterConditions)
     : null
@@ -996,7 +1298,7 @@ const batchInsertHint = computed(() =>
               class="table-settings-hint"
               v-tooltip.bottom="hintTooltip(t(
                 'tableSettings.listActionsHint',
-                'Adds a toolbar button that builds one DocEngine document from list rows ($payload.records). Map table columns to $payload.records.* in the template.',
+                'Toolbar buttons for this list: document reports ($payload.records) or bulk update with a formula on filtered / visible rows. After saving a Document report with a template, use Template on the action to design Field Mapping — $payload.meta.filter comes from this list layout Filter list.',
               ))"
               :aria-label="t('common.moreInfo', 'More information')"
               @click.stop
@@ -1042,7 +1344,7 @@ const batchInsertHint = computed(() =>
                   {{ action.label }}
                 </button>
                 <Button
-                  v-if="action.document.templateId?.trim()"
+                  v-if="action.behavior !== 'bulkUpdate' && action.document?.templateId?.trim()"
                   :label="t('tableSettings.openListActionTemplate', 'Template')"
                   size="small"
                   severity="secondary"
@@ -1066,7 +1368,15 @@ const batchInsertHint = computed(() =>
               size="small"
               severity="secondary"
               text
-              @click="openAddListAction"
+              @click="openAddListAction('openDocument')"
+            />
+            <Button
+              class="table-settings-actions-add shrink-0"
+              :label="t('tableSettings.addListBulkAction', '+ Bulk update')"
+              size="small"
+              severity="secondary"
+              text
+              @click="openAddListAction('bulkUpdate')"
             />
           </div>
           <div
@@ -1113,7 +1423,7 @@ const batchInsertHint = computed(() =>
       </section>
 
       <Splitter
-        class="table-settings-designer__panels min-h-0 flex-1 overflow-hidden"
+        class="table-settings-designer__panels"
         layout="horizontal"
         state-key="crm.tableSettings.fieldsSplitter"
         state-storage="local"
@@ -1136,7 +1446,7 @@ const batchInsertHint = computed(() =>
               :placeholder="t('tableSettings.searchFields', 'Search fields...')"
             />
           </IconField>
-          <div class="table-settings-panel__body min-h-0 overflow-y-auto overscroll-contain">
+          <div class="table-settings-panel__body">
             <Tree
               v-if="filteredAvailableTreeNodes.length > 0"
               :value="filteredAvailableTreeNodes"
@@ -1183,7 +1493,7 @@ const batchInsertHint = computed(() =>
             item-key="field"
             handle=".column-drag-handle"
             tag="div"
-            class="table-settings-panel__body flex min-h-0 flex-col gap-[0.35rem] overflow-y-auto overscroll-contain"
+            class="table-settings-panel__body flex flex-col gap-[0.35rem]"
             ghost-class="opacity-50"
             v-bind="DIALOG_SORTABLE_ATTRS"
           >
@@ -1307,12 +1617,12 @@ const batchInsertHint = computed(() =>
           />
         </div>
 
-        <div class="table-settings-inline-options__item">
+        <div class="table-settings-inline-options__item table-settings-inline-options__item--sort">
           <label class="table-settings-inline-options__label">{{ t('tableSettings.defaultSort', 'Default sort') }}</label>
-          <div class="flex items-center gap-2 min-w-0">
+          <div class="table-settings-inline-options__sort">
             <Select
               v-model="sortField"
-              class="flex-1 min-w-0"
+              class="table-settings-inline-options__sort-field"
               :options="sortOptions"
               option-label="label"
               option-value="value"
@@ -1320,7 +1630,7 @@ const batchInsertHint = computed(() =>
             />
             <Select
               v-model="sortOrder"
-              class="w-[8.5rem] flex-shrink-0"
+              class="table-settings-inline-options__sort-order"
               :options="sortOrderOptions"
               option-label="label"
               option-value="value"
@@ -1347,51 +1657,56 @@ const batchInsertHint = computed(() =>
           />
         </div>
 
-        <div class="table-settings-inline-options__item">
-          <div class="table-settings-inline-options__label-row">
-            <label class="table-settings-inline-options__label">
-              {{ t('tableSettings.inlineEditRefresh', 'After inline edit') }}
-            </label>
-            <button
-              type="button"
-              class="table-settings-hint"
-              v-tooltip.bottom="
-                hintTooltip(
-                  t(
-                    'tableSettings.inlineEditRefreshHint',
-                    'Re-fetch the row after inline save so automation/formula fields (e.g. text_result) update. Off by default.',
-                  ),
-                )
-              "
-              :aria-label="t('common.moreInfo', 'More information')"
+        <div
+          class="table-settings-inline-options__item"
+          :class="{ 'table-settings-inline-options__item--pair': inlineEditRefresh === 'fields' }"
+        >
+          <div class="table-settings-inline-options__field">
+            <div class="table-settings-inline-options__label-row">
+              <label class="table-settings-inline-options__label">
+                {{ t('tableSettings.inlineEditRefresh', 'After inline edit') }}
+              </label>
+              <button
+                type="button"
+                class="table-settings-hint"
+                v-tooltip.bottom="
+                  hintTooltip(
+                    t(
+                      'tableSettings.inlineEditRefreshHint',
+                      'Re-fetch the row after inline save so automation/formula fields (e.g. text_result) update. Off by default.',
+                    ),
+                  )
+                "
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </div>
+            <Select
+              v-model="inlineEditRefresh"
+              class="w-full"
+              :options="inlineEditRefreshOptions"
+              option-label="label"
+              option-value="value"
             />
           </div>
-          <Select
-            v-model="inlineEditRefresh"
-            class="w-full"
-            :options="inlineEditRefreshOptions"
-            option-label="label"
-            option-value="value"
-          />
-        </div>
 
-        <div
-          v-if="inlineEditRefresh === 'fields'"
-          class="table-settings-inline-options__item"
-        >
-          <label class="table-settings-inline-options__label">
-            {{ t('tableSettings.inlineEditRefreshFields', 'Fields to refresh') }}
-          </label>
-          <MultiSelect
-            v-model="inlineEditRefreshFields"
-            class="w-full"
-            :options="selectedColumns"
-            option-label="header"
-            option-value="field"
-            display="chip"
-            filter
-            :placeholder="t('tableSettings.inlineEditRefreshFieldsPlaceholder', 'Select fields…')"
-          />
+          <div
+            v-if="inlineEditRefresh === 'fields'"
+            class="table-settings-inline-options__field"
+          >
+            <label class="table-settings-inline-options__label">
+              {{ t('tableSettings.inlineEditRefreshFields', 'Fields to refresh') }}
+            </label>
+            <MultiSelect
+              v-model="inlineEditRefreshFields"
+              class="w-full"
+              :options="selectedColumns"
+              option-label="header"
+              option-value="field"
+              display="chip"
+              filter
+              :placeholder="t('tableSettings.inlineEditRefreshFieldsPlaceholder', 'Select fields…')"
+            />
+          </div>
         </div>
 
         <div class="table-settings-inline-options__item col-span-full">
@@ -1562,15 +1877,15 @@ const batchInsertHint = computed(() =>
           </div>
           <div class="flex flex-col gap-[0.35rem]">
             <label class="text-[0.85rem] font-medium">
-              {{ t('formBuilder.documentTemplate', 'Document template') }}
+              {{ t('formBuilder.actionBehavior', 'Behavior') }}
             </label>
             <Select
-              v-model="actionDraft.document.templateId"
-              :options="docTemplateOptions"
+              :model-value="actionDraft.behavior"
+              :options="listActionBehaviorOptions"
               option-label="label"
               option-value="value"
-              :placeholder="t('formBuilder.documentTemplateRuntime', 'Choose template')"
               fluid
+              @update:model-value="onListActionBehaviorChange"
             />
           </div>
           <div class="flex flex-col gap-[0.35rem]">
@@ -1585,18 +1900,163 @@ const batchInsertHint = computed(() =>
               fluid
             />
           </div>
-          <div class="flex flex-col gap-[0.35rem]">
-            <label class="text-[0.85rem] font-medium">
-              {{ t('formBuilder.documentViewMode', 'Show as') }}
-            </label>
-            <Select
-              v-model="actionDraft.document.viewMode"
-              :options="viewModeOptions"
-              option-label="label"
-              option-value="value"
-              fluid
-            />
-          </div>
+
+          <template v-if="actionDraft.behavior === 'bulkUpdate' && actionDraft.bulkUpdate">
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+                {{ t('formBuilder.bulkTargetField', 'Target field') }}
+                <button
+                  type="button"
+                  class="table-settings-hint"
+                  v-tooltip.bottom="hintTooltip(t('formBuilder.bulkTargetFieldHint', 'Numeric field on the related collection to update (e.g. new_price).'))"
+                  :aria-label="t('common.moreInfo', 'More information')"
+                />
+              </label>
+              <Select
+                v-model="actionDraft.bulkUpdate.targetField"
+                :options="listBulkTargetFieldOptions"
+                option-label="label"
+                option-value="value"
+                :placeholder="t('formBuilder.bulkTargetFieldPlaceholder', 'Select target field')"
+                filter
+                fluid
+              />
+            </div>
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+                {{ t('formBuilder.bulkSourcePath', 'Source path') }}
+                <button
+                  type="button"
+                  class="table-settings-hint"
+                  v-tooltip.bottom="hintTooltip(t('tableSettings.listBulkSourceHint', 'Direct numeric field, or M2O → nested field (e.g. item.base_price).'))"
+                  :aria-label="t('common.moreInfo', 'More information')"
+                />
+              </label>
+              <Select
+                v-model="actionDraftBulkDirectSource"
+                :options="listBulkDirectSourceOptions"
+                option-label="label"
+                option-value="value"
+                :placeholder="t('tableSettings.listBulkDirectSourcePlaceholder', 'Direct field (optional)')"
+                show-clear
+                filter
+                fluid
+              />
+              <Select
+                v-model="actionDraftBulkSourceM2o"
+                :options="listBulkSourceM2oOptions"
+                option-label="label"
+                option-value="value"
+                :placeholder="t('formBuilder.bulkSourceM2oPlaceholder', 'Related M2O field')"
+                show-clear
+                filter
+                fluid
+              />
+              <Select
+                v-model="actionDraftBulkSourceNested"
+                :options="listBulkSourceNestedOptions"
+                option-label="label"
+                option-value="value"
+                :placeholder="t('formBuilder.bulkSourceNestedPlaceholder', 'Nested numeric field')"
+                :disabled="!actionDraftBulkSourceM2o"
+                filter
+                fluid
+              />
+            </div>
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+                {{ t('formBuilder.bulkFormula', 'Formula') }}
+                <button
+                  type="button"
+                  class="table-settings-hint"
+                  v-tooltip.bottom="hintTooltip(t('formBuilder.bulkFormulaHint', 'Custom arithmetic using {{source}} (from Source path) and {{prompt}} (user input). Example: {{source}} * (1 - {{prompt}} / 100)'))"
+                  :aria-label="t('common.moreInfo', 'More information')"
+                />
+              </label>
+              <InputText
+                v-model="actionDraft.bulkUpdate.formula"
+                :placeholder="t('formBuilder.bulkFormulaPlaceholder', '{{source}} * (1 - {{prompt}} / 100)')"
+                fluid
+              />
+              <div class="flex flex-wrap gap-1">
+                <Button
+                  v-for="preset in LIST_BULK_FORMULA_PRESETS"
+                  :key="preset.value"
+                  :label="preset.label"
+                  size="small"
+                  text
+                  type="button"
+                  @click="applyListBulkFormulaPreset(preset.value)"
+                />
+              </div>
+              <code class="m-0 rounded border border-surface-200 bg-surface-50 px-2 py-1.5 text-[0.8rem] text-surface-700 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200">
+                {{ listBulkFormulaPreview }}
+              </code>
+            </div>
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="text-[0.85rem] font-medium">
+                {{ t('formBuilder.bulkPromptLabel', 'Prompt label') }}
+              </label>
+              <InputText
+                v-model="actionDraft.bulkUpdate.promptLabel"
+                :placeholder="t('formBuilder.bulkPromptLabelPlaceholder', 'Multiplier')"
+                fluid
+              />
+            </div>
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="text-[0.85rem] font-medium">
+                {{ t('formBuilder.successMessage', 'Success message') }}
+              </label>
+              <InputText
+                v-model="actionDraft.bulkUpdate.successMessage"
+                fluid
+              />
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[0.85rem]">
+                {{ t('formBuilder.confirmBeforeRun', 'Confirm before running') }}
+              </span>
+              <ToggleSwitch v-model="actionDraft.bulkUpdate.confirmBeforeRun" />
+            </div>
+          </template>
+
+          <template v-else-if="actionDraft.document">
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+                {{ t('formBuilder.documentTemplate', 'Document template') }}
+                <button
+                  type="button"
+                  class="table-settings-hint"
+                  v-tooltip.bottom="hintTooltip(t(
+                    'tableSettings.listActionDocumentTemplateHint',
+                    'Pick an existing template (create one under Document Templates if needed). After Apply, use Template on the action to open the designer — Field Mapping meta.filter uses this list layout Filter list.',
+                  ))"
+                  :aria-label="t('common.moreInfo', 'More information')"
+                />
+              </label>
+              <Select
+                v-model="actionDraft.document.templateId"
+                :options="docTemplateOptions"
+                option-label="label"
+                option-value="value"
+                :placeholder="t('tableSettings.listActionDocumentTemplatePlaceholder', 'Select a template')"
+                filter
+                fluid
+              />
+            </div>
+            <div class="flex flex-col gap-[0.35rem]">
+              <label class="text-[0.85rem] font-medium">
+                {{ t('formBuilder.documentViewMode', 'Show as') }}
+              </label>
+              <Select
+                v-model="actionDraft.document.viewMode"
+                :options="viewModeOptions"
+                option-label="label"
+                option-value="value"
+                fluid
+              />
+            </div>
+          </template>
         </div>
 
         <template #footer>
@@ -1608,7 +2068,7 @@ const batchInsertHint = computed(() =>
           />
           <Button
             :label="t('common.apply', 'Apply')"
-            :disabled="!actionDraft?.label?.trim() || !actionDraft?.document?.templateId"
+            :disabled="!canApplyListActionDraft"
             @click="applyListActionDraft"
           />
         </template>
@@ -1667,6 +2127,10 @@ const batchInsertHint = computed(() =>
   --list-line-strong: #6f868c;
   width: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   font-family: Inter, system-ui, sans-serif;
   color: var(--list-ink);
 }
@@ -1741,23 +2205,37 @@ const batchInsertHint = computed(() =>
 }
 
 .table-settings-designer__panels {
+  flex: 0 0 auto;
   width: 100%;
-  min-height: 12rem;
+  height: min(26rem, 46vh);
+  min-height: 20rem;
+  max-height: min(26rem, 46vh);
   border: 0;
   background: transparent;
+  overflow: hidden;
+}
+
+.table-settings-designer__panels :deep(.p-splitter) {
+  height: 100%;
+  min-height: 0;
 }
 
 .table-settings-designer__panels :deep(.p-splitter-panel) {
   display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
 .table-settings-designer__split-pane {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .table-settings-designer__panels :deep(.p-splitter-gutter) {
@@ -1788,6 +2266,7 @@ const batchInsertHint = computed(() =>
   height: 100%;
   width: 100%;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .table-settings-panel__title {
@@ -1802,9 +2281,28 @@ const batchInsertHint = computed(() =>
   border-radius: 8px;
 }
 
+.table-settings-panel__body {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
 .table-settings-panel__empty {
   font-size: 0.85rem;
   color: rgba(55, 53, 47, 0.45);
+}
+
+.table-settings-tree {
+  width: 100%;
+}
+
+.table-settings-tree :deep(.p-tree),
+.table-settings-tree :deep(.p-tree-root),
+.table-settings-tree :deep(.p-tree-root-children) {
+  overflow: visible;
 }
 
 .table-settings-tree :deep(.p-tree-node-content) {
@@ -1852,11 +2350,12 @@ const batchInsertHint = computed(() =>
   width: 100%;
   box-sizing: border-box;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.45rem 0.75rem;
+  gap: 0.45rem 1rem;
   align-items: end;
   border-radius: 8px;
   background: var(--list-wash);
   padding: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .table-settings-inline-options--features {
@@ -1868,6 +2367,54 @@ const batchInsertHint = computed(() =>
   display: grid;
   gap: 0.35rem;
   min-width: 0;
+  max-width: 100%;
+}
+
+.table-settings-inline-options__item :deep(.p-inputnumber),
+.table-settings-inline-options__item :deep(.p-inputnumber-input),
+.table-settings-inline-options__item:not(.table-settings-inline-options__item--sort) :deep(.p-select),
+.table-settings-inline-options__item :deep(.p-multiselect) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.table-settings-inline-options__item--sort {
+  grid-column: span 2;
+}
+
+.table-settings-inline-options__item--pair {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+  align-items: end;
+}
+
+.table-settings-inline-options__field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.table-settings-inline-options__sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.table-settings-inline-options__sort-field {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table-settings-inline-options__sort-order {
+  flex: 0 0 8.5rem;
+  width: 8.5rem;
+  max-width: 8.5rem;
 }
 
 .table-settings-inline-options__item--toggle {
@@ -1956,6 +2503,11 @@ const batchInsertHint = computed(() =>
 @media (max-width: 640px) {
   .table-settings-inline-options,
   .table-settings-inline-options--features {
+    grid-template-columns: 1fr;
+  }
+
+  .table-settings-inline-options__item--pair {
+    grid-column: 1 / -1;
     grid-template-columns: 1fr;
   }
 }

@@ -5,6 +5,7 @@ import {
   isAutoCompleteField,
   isDataTableField,
   isFilesField,
+  isRelationPickerField,
   isSchedulerField,
 } from '@/core/fieldHelpers'
 
@@ -59,7 +60,7 @@ export function useRuntimeFieldMetadata(entity: () => string) {
         } else {
           delete runtimeFormula[field.field]
         }
-        if (isAutoCompleteField(field)) {
+        if (isAutoCompleteField(field) || isRelationPickerField(field)) {
           await onAutoComplete?.(field, metadata.template)
         }
       } finally {

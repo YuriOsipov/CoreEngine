@@ -1,0 +1,23 @@
+---
+description: Use entity Display Template for all M2O field labels — never raw IDs
+alwaysApply: true
+---
+
+# Use Display Template for M2O fields
+
+**Main persistence rule:** every M2O (and audit user) cell must render the related entity’s **Display Template** (e.g. `{{name}}`), never a raw UUID / PK.
+
+## Apply everywhere
+Lists, related lists, detail panels, trees, transfers, form read-only values, pickers, inline edit display.
+
+## How
+- Resolve labels via the related entity display template, then name/title fallbacks — same path as `dataTableRuntime` + `CrmDataTable` (`relatedCollection`, `template`, `syncM2OCellLabels` / `relatedRecordLabel` / `fetchRelatedCollectionOptionById`).
+- Column/cell needs `relatedCollection` from relation metadata. Missing relation → raw FK; fix the relation, do not leave UUID text in the UI.
+- Display Template on the related object (Setup → Entity parameters) is required and authoritative; UI code must consume it, not invent a different label field.
+- New grids must not use bare `{ field, header }` for relation columns — reuse list/runtime M2O resolution (avoid Tree / related-transfer raw-UUID regressions).
+- If the payload is a scalar id or a label that equals the id, async-fetch the template label; never treat that as final display.
+
+```text
+❌ BAD:  Price group → 7a4ca04b-f94b-4136-a66b-06c562b908d2
+✅ GOOD: Price group → value from price_group Display Template (Name)
+```

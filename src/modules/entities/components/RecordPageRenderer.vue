@@ -37,10 +37,12 @@ const props = defineProps<{
   actionsDisabled?: boolean
   deleting?: boolean
   recordArchived?: boolean
+  pathSaving?: boolean
 }>()
 
 const emit = defineEmits<{
   'blocks-saved': [payload: { field: string; value: unknown }]
+  'path-change': [payload: { updates: Record<string, unknown> }]
   'run-action': [action: EntityAction]
   'edit-record': []
   'delete-record': []
@@ -215,6 +217,15 @@ watch(
   { immediate: true, deep: true },
 )
 
+/** Keep Highlights in sync when Path / edit / related flows update the record. */
+watch(
+  () => props.modelValue,
+  () => {
+    void loadHighlights()
+  },
+  { deep: true },
+)
+
 onMounted(() => {
   void hydrateDetailLayouts()
   void hydrateRelatedListFields()
@@ -265,7 +276,9 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
           :actions-disabled="actionsDisabled"
           :deleting="deleting"
           :record-archived="recordArchived"
+          :path-saving="pathSaving"
           @blocks-saved="emit('blocks-saved', $event)"
+          @path-change="emit('path-change', $event)"
           @related-changed="emit('related-changed')"
           @run-action="emit('run-action', $event)"
           @edit-record="emit('edit-record')"
@@ -305,7 +318,9 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
             :actions-disabled="actionsDisabled"
             :deleting="deleting"
             :record-archived="recordArchived"
+            :path-saving="pathSaving"
             @blocks-saved="emit('blocks-saved', $event)"
+            @path-change="emit('path-change', $event)"
             @related-changed="emit('related-changed')"
             @run-action="emit('run-action', $event)"
             @edit-record="emit('edit-record')"
@@ -347,7 +362,9 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
             :actions-disabled="actionsDisabled"
             :deleting="deleting"
             :record-archived="recordArchived"
+            :path-saving="pathSaving"
             @blocks-saved="emit('blocks-saved', $event)"
+            @path-change="emit('path-change', $event)"
             @related-changed="emit('related-changed')"
             @run-action="emit('run-action', $event)"
             @edit-record="emit('edit-record')"

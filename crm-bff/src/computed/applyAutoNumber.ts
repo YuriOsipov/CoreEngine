@@ -111,7 +111,9 @@ export async function stripAutoNumberWrites(
 }
 
 /**
- * Assign Auto Number values on create. Existing values are never rewritten.
+ * Assign Auto Number values on create. Non-empty client values are kept
+ * (after stripAutoNumberWrites, that is mainly editable fields like
+ * `doc_template:name`).
  */
 export async function applyAutoNumbersOnCreate(
   entityApiName: string,
@@ -123,6 +125,10 @@ export async function applyAutoNumbersOnCreate(
 
   const next = { ...patch }
   for (const field of fields) {
+    const existing = next[field.apiName]
+    if (existing != null && String(existing).trim() !== '') {
+      continue
+    }
     const sequence = await allocateNextNumber(
       field.fieldId,
       field.startingNumber,

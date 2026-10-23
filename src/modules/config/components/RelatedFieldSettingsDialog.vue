@@ -167,10 +167,19 @@ function applySettings(): void {
     modal
     maximizable
     :header="dialogHeader"
-    :style="{ width: 'min(1100px, 96vw)' }"
-    :content-style="{ maxHeight: 'calc(92vh - 6rem)', overflow: 'auto' }"
+    class="related-field-settings-dialog"
+    :style="{ width: 'min(1100px, 96vw)', maxHeight: '92vh' }"
+    :content-style="{
+      maxHeight: 'calc(92vh - 8.5rem)',
+      overflow: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+    }"
   >
-    <p v-if="relatedCollection" class="m-0 text-[0.85rem] text-muted-color">
+    <p
+      v-if="relatedCollection"
+      class="related-field-settings-dialog__meta m-0 shrink-0 text-[0.85rem] text-muted-color"
+    >
       {{ t('formBuilder.relatedCollection', 'Related collection') }}:
       <code>{{ relatedCollection }}</code>
     </p>
@@ -180,28 +189,28 @@ function applySettings(): void {
       v-model="dataTableDraft"
       :collection="relatedCollection"
       :parent-collection="parentCollection"
-      class="mt-3"
+      class="related-field-settings-dialog__designer mt-3"
     />
 
     <TreeTableSettingsDesigner
       v-else-if="isTreeTable && treeTableDraft"
       v-model="treeTableDraft"
       :collection="parentCollection"
-      class="mt-3"
+      class="related-field-settings-dialog__designer mt-3"
     />
 
     <SchedulerSettingsDesigner
       v-else-if="isScheduler && schedulerDraft"
       v-model="schedulerDraft"
       :collection="parentCollection"
-      class="mt-3"
+      class="related-field-settings-dialog__designer mt-3"
     />
 
     <Message
       v-else
       severity="warn"
       :closable="false"
-      class="mt-3"
+      class="mt-3 shrink-0"
     >
       {{ t('formBuilder.relatedFieldDialogUnsupported', 'This field type cannot be configured here.') }}
     </Message>
@@ -220,3 +229,39 @@ function applySettings(): void {
     </template>
   </Dialog>
 </template>
+
+<style>
+.related-field-settings-dialog.p-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: min(44rem, 92vh);
+  max-height: 92vh;
+}
+
+.related-field-settings-dialog .p-dialog-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding-bottom: 0.75rem !important;
+}
+
+.related-field-settings-dialog .p-dialog-content > .related-field-settings-dialog__designer {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+}
+
+.related-field-settings-dialog .p-dialog-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid rgba(55, 53, 47, 0.1);
+}
+</style>

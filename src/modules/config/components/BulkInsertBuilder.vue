@@ -64,6 +64,7 @@ const { t } = useTranslation()
 
 const collections = ref<FieldOption[]>([])
 const sourceFields = ref<FieldDefinition[]>([])
+const sourceNestedFieldsByCollection = ref<Record<string, FieldDefinition[]>>({})
 const sourceGroupFields = ref<FieldDefinition[]>([])
 const targetFields = ref<FieldDefinition[]>([])
 const entityChildLookupFields = ref<Set<string>>(new Set())
@@ -88,8 +89,35 @@ const sourceModeOptions = computed<Array<{ label: string; value: 'tree' | 'table
   { label: t('bulkInsertBuilder.tree', 'Tree'), value: 'tree' },
   { label: t('bulkInsertBuilder.table', 'Table'), value: 'table' },
 ])
-const sourceFieldOptions = computed(() => fieldSelectOptions(sourceFields.value))
-const sourceColumnOptions = computed(() => sourceFieldOptions.value)
+const sourceNestedFieldOptions = computed(() =>
+  nestedFieldOptions(
+    sourceFields.value,
+    sourceNestedFieldsByCollection.value,
+    (field) =>
+      relatedCollectionForCollectionField(
+        relationDefinitions.value,
+        settings.value.source.itemCollection,
+        field.field,
+      ) || field.schema?.foreign_key_table || '',
+  ),
+)
+const sourceItemGroupFieldOptions = computed(() =>
+  m2oFieldOptionsForCollection(
+    settings.value.source.itemCollection,
+    sourceFields.value,
+    settings.value.source.groupCollection ?? '',
+    sourceNestedFieldsByCollection.value,
+  ),
+)
+const groupParentFieldOptions = computed(() => [
+  { label: t('bulkInsertBuilder.noHierarchy', 'No hierarchy'), value: '' },
+  ...m2oFieldOptionsForCollection(
+    settings.value.source.groupCollection ?? '',
+    sourceGroupFields.value,
+    settings.value.source.groupCollection ?? '',
+  ),
+])
+const sourceColumnOptions = computed(() => sourceNestedFieldOptions.value)
 const sourceCollectionOptions = computed(() => {
   const targetCollection = settings.value.target.collection
   if (!targetCollection) return []
@@ -138,13 +166,9 @@ const sourceCollectionOptions = computed(() => {
     Array.from(allowedCollections).some((collection) => keysEqual(collection, option.value)),
   )
 })
-const optionalSourceGroupFieldOptions = computed(() => [
-  { label: t('bulkInsertBuilder.noHierarchy', 'No hierarchy'), value: '' },
-  ...sourceGroupFieldOptions.value,
-])
 const optionalMappingSourceOptions = computed(() => [
   { label: t('bulkInsertBuilder.noSourceAssignment', 'No source assignment'), value: '' },
-  ...sourceFieldOptions.value,
+  ...sourceNestedFieldOptions.value,
 ])
 const destinationMappingModeOptions = computed<Array<{ label: string; value: DestinationMappingMode }>>(() => [
   { label: t('bulkInsertBuilder.sourceFieldMode', 'Source field'), value: 'source' },
@@ -172,12 +196,16 @@ watch(
 )
 
 watch(
-  () => settings.value.source.itemCollection,
-  (collection) => {
+  () => [
+    settings.value.source.itemCollection,
+    relationDefinitions.value.length,
+  ],
+  ([collection]) => {
     // Drop previous collection fields immediately so the Source filter never
     // briefly (or stuck) shows the target / prior object fields.
     sourceFields.value = []
-    void loadFields(collection, sourceFields, sourceFieldsLoading)
+    sourceNestedFieldsByCollection.value = {}
+    void loadSourceFieldsWithNested(String(collection ?? ''))
   },
   { immediate: true },
 )
@@ -232,6 +260,22 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => [
+    props.modelValue?.target?.defaultValues,
+    props.modelValue?.source?.itemPrimaryKey,
+    props.modelValue?.source?.groupPrimaryKey,
+  ] as const,
+  ([defaultValues, itemPrimaryKey, groupPrimaryKey]) => {
+    const hasDefaults = Boolean(defaultValues && Object.keys(defaultValues).length > 0)
+    const customPrimaryKey = Boolean(itemPrimaryKey && itemPrimaryKey !== 'id')
+      || Boolean(groupPrimaryKey && groupPrimaryKey !== 'id')
+    if (!hasDefaults && !customPrimaryKey) return
+    emitSettings(props.modelValue)
+  },
+  { immediate: true },
+)
+
 void loadCollections()
 void loadRelationDefinitions()
 
@@ -279,6 +323,41 @@ async function loadFields(
     target.value = []
   } finally {
     loading.value = false
+  }
+}
+
+async function loadSourceFieldsWithNested(collection: string): Promise<void> {
+  if (!collection) {
+    sourceFields.value = []
+    sourceNestedFieldsByCollection.value = {}
+    return
+  }
+
+  sourceFieldsLoading.value = true
+  try {
+    const resolved = await resolveCollectionKey(collection)
+    sourceFields.value = await getCachedCollectionFields(resolved)
+    const relationFields = sourceFields.value
+      .map((field) =>
+        relatedCollectionForCollectionField(
+          relationDefinitions.value,
+          resolved,
+          field.field,
+        ) || field.schema?.foreign_key_table || '',
+      )
+      .filter(Boolean)
+    const nestedEntries = await Promise.all(
+      Array.from(new Set(relationFields)).map(async (relatedCollection) => [
+        relatedCollection,
+        await getCachedCollectionFields(await resolveCollectionKey(relatedCollection)),
+      ] as const),
+    )
+    sourceNestedFieldsByCollection.value = Object.fromEntries(nestedEntries)
+  } catch {
+    sourceFields.value = []
+    sourceNestedFieldsByCollection.value = {}
+  } finally {
+    sourceFieldsLoading.value = false
   }
 }
 
@@ -440,6 +519,11 @@ function updateSourceColumns(fields: unknown): void {
   })
 }
 
+function matchingSourceFieldName(targetField: string): string | undefined {
+  const sourceMatch = sourceFields.value.find((field) => keysEqual(field.field, targetField))
+  return sourceMatch?.field
+}
+
 function updateDestinationColumns(fields: unknown): void {
   const selected = stringArray(fields)
   const previous = new Map(settings.value.target.columns.map((column) => [column.field, column]))
@@ -458,13 +542,19 @@ function updateDestinationColumns(fields: unknown): void {
     Object.entries(settings.value.mapping?.copyFromSource ?? {})
       .filter(([field]) => selectedSet.has(field)),
   )
+  // Auto-wire Source field mappings for newly added columns with a same-named source field.
+  for (const field of selected) {
+    if (entityChildLookupFields.value.has(field)) continue
+    if (Object.keys(nextMappings).some((mapped) => keysEqual(mapped, field))) continue
+    if (settings.value.target.itemField && keysEqual(field, settings.value.target.itemField)) {
+      continue
+    }
+    const sourceField = matchingSourceFieldName(field)
+    if (sourceField) nextMappings[field] = sourceField
+  }
   const nextDefaults = Object.fromEntries(
     Object.entries(settings.value.mapping?.defaults ?? {})
       .filter(([field]) => selectedSet.has(field) && !entityChildLookupFields.value.has(field)),
-  )
-  const nextDefaultValues = Object.fromEntries(
-    Object.entries(settings.value.target.defaultValues ?? {})
-      .filter(([field]) => selectedSet.has(field)),
   )
 
   emitSettings({
@@ -474,7 +564,7 @@ function updateDestinationColumns(fields: unknown): void {
       columns: nextColumns,
       editableFields: (settings.value.target.editableFields ?? [])
         .filter((field) => selectedSet.has(field)),
-      defaultValues: nextDefaultValues,
+      defaultValues: undefined,
     },
     mapping: {
       defaults: nextDefaults,
@@ -600,44 +690,6 @@ function updateDefaultValue(targetField: string, value: string): void {
   updateMapping({ defaults, copyFromSource })
 }
 
-function targetDefaultValueText(field: string): string {
-  const value = settings.value.target.defaultValues?.[field]
-  if (value === undefined || value === null) return ''
-  if (typeof value === 'string' && /^\$source\./.test(value.trim())) return ''
-  if (typeof value === 'string') return value
-  return JSON.stringify(value)
-}
-
-function targetDefaultValueSourceField(field: string): string {
-  const value = settings.value.target.defaultValues?.[field]
-  if (typeof value === 'string') {
-    const match = /^\$source\.([A-Za-z0-9_.]+)$/.exec(value.trim())
-    if (match) return match[1]
-  }
-  return ''
-}
-
-function updateTargetDefaultValue(field: string, value: string): void {
-  const defaults = { ...(settings.value.target.defaultValues ?? {}) }
-  const trimmed = value.trim()
-  if (!trimmed) {
-    delete defaults[field]
-  } else {
-    defaults[field] = parseFixedValue(trimmed)
-  }
-  updateTarget({ defaultValues: Object.keys(defaults).length > 0 ? defaults : undefined })
-}
-
-function updateTargetDefaultValueSource(field: string, sourceField: string): void {
-  const defaults = { ...(settings.value.target.defaultValues ?? {}) }
-  if (!sourceField) {
-    delete defaults[field]
-  } else {
-    defaults[field] = `$source.${sourceField}`
-  }
-  updateTarget({ defaultValues: Object.keys(defaults).length > 0 ? defaults : undefined })
-}
-
 function parseFixedValue(value: string): unknown {
   if (value === 'true' || value === 'false' || value === 'null') {
     return JSON.parse(value) as unknown
@@ -737,16 +789,21 @@ function normalizeSettings(
     itemField: '',
     columns: [],
   }
+  const folded = foldDefaultValuesIntoMapping(
+    target.defaultValues,
+    value.mapping?.copyFromSource ?? {},
+    value.mapping?.defaults ?? {},
+  )
 
   return {
     source: {
       mode: source.mode ?? 'tree',
       groupCollection: source.groupCollection ?? '',
       itemCollection: source.itemCollection ?? '',
-      groupPrimaryKey: source.groupPrimaryKey || 'id',
+      groupPrimaryKey: 'id',
       groupParentField: source.groupParentField ?? null,
       groupLabelField: source.groupLabelField || 'name',
-      itemPrimaryKey: source.itemPrimaryKey || 'id',
+      itemPrimaryKey: 'id',
       itemGroupField: source.itemGroupField ?? '',
       itemLabelFields: source.itemLabelFields ?? [],
       fields: source.fields ?? [],
@@ -759,16 +816,92 @@ function normalizeSettings(
       duplicateKey: target.duplicateKey ?? target.itemField ?? '',
       columns: target.columns ?? [],
       editableFields: target.editableFields ?? [],
-      defaultValues: target.defaultValues ?? {},
       totalFormulas: target.totalFormulas ?? [],
     },
     mapping: {
-      defaults: value.mapping?.defaults ?? {},
-      copyFromSource: value.mapping?.copyFromSource ?? {},
+      defaults: folded.defaults,
+      copyFromSource: folded.copyFromSource,
       values: value.mapping?.values ?? {},
       lookups: {},
     },
   }
+}
+
+function foldDefaultValuesIntoMapping(
+  defaultValues: Record<string, unknown> | undefined,
+  copyFromSource: Record<string, string>,
+  defaults: Record<string, unknown>,
+): { copyFromSource: Record<string, string>; defaults: Record<string, unknown> } {
+  const nextCopy = { ...copyFromSource }
+  const nextDefaults = { ...defaults }
+
+  for (const [field, value] of Object.entries(defaultValues ?? {})) {
+    const mapped = Object.entries(nextCopy).some(
+      ([key, sourceField]) => keysEqual(key, field) && Boolean(sourceField),
+    )
+    const fixed = Object.keys(nextDefaults).some((key) => keysEqual(key, field))
+    if (mapped || fixed) continue
+
+    if (typeof value === 'string') {
+      const match = /^\$source\.([A-Za-z0-9_.]+)$/.exec(value.trim())
+      if (match?.[1]) {
+        nextCopy[field] = match[1]
+        continue
+      }
+    }
+
+    if (value === undefined || value === null || value === '') continue
+    nextDefaults[field] = value
+  }
+
+  return { copyFromSource: nextCopy, defaults: nextDefaults }
+}
+
+function relatedCollectionOf(collection: string, field: FieldDefinition): string {
+  return relatedCollectionForCollectionField(
+    relationDefinitions.value,
+    collection,
+    field.field,
+  ) || field.schema?.foreign_key_table || ''
+}
+
+function m2oFieldsPointingAt(
+  collection: string,
+  fields: FieldDefinition[],
+  targetCollection: string,
+): FieldDefinition[] {
+  if (!collection || !targetCollection) return []
+  return fields.filter((field) => {
+    if (!isFieldM2O(collection, field.field, fields, relationDefinitions.value)) return false
+    return keysEqual(relatedCollectionOf(collection, field), targetCollection)
+  })
+}
+
+/** Direct and one-hop M2O fields whose related collection is `targetCollection`. */
+function m2oFieldOptionsForCollection(
+  collection: string,
+  fields: FieldDefinition[],
+  targetCollection: string,
+  nestedFieldsByCollection: Record<string, FieldDefinition[]> = {},
+): FieldOption[] {
+  if (!collection || !targetCollection) return []
+
+  const direct = fieldSelectOptions(m2oFieldsPointingAt(collection, fields, targetCollection))
+  const nested = fields.flatMap((field) => {
+    if (!isFieldM2O(collection, field.field, fields, relationDefinitions.value)) return []
+    const relatedCollection = relatedCollectionOf(collection, field)
+    if (!relatedCollection || keysEqual(relatedCollection, targetCollection)) return []
+    const [base] = fieldSelectOptions([field])
+    if (!base) return []
+    const nestedFields = nestedFieldsByCollection[relatedCollection] ?? []
+    return fieldSelectOptions(m2oFieldsPointingAt(relatedCollection, nestedFields, targetCollection))
+      .map((nestedField) => ({
+        label: `${base.label} / ${nestedField.label}`,
+        value: `${field.field}.${nestedField.value}`,
+      }))
+  })
+
+  return [...direct, ...nested]
 }
 
 function parentFilterFieldOptions(): FieldOption[] {
@@ -843,7 +976,7 @@ function uniqueFields(fields: string[]): string[] {
         </h2>
 
         <div class="grid gap-3">
-          <div class="grid gap-3 grid-cols-[minmax(160px,1.2fr)_minmax(90px,120px)_auto_minmax(200px,1.6fr)] items-end max-[900px]:grid-cols-1">
+          <div class="grid gap-3 grid-cols-[minmax(160px,1.2fr)_auto_minmax(200px,1.6fr)] items-end max-[900px]:grid-cols-1">
             <label class="bulk-insert-field">
               {{ t('bulkInsertBuilder.sourceCollection', 'Source collection') }}
               <Select
@@ -855,20 +988,6 @@ function uniqueFields(fields: string[]): string[] {
                 filter
                 fluid
                 @update:model-value="updateSourceCollection(String($event ?? ''))"
-              />
-            </label>
-
-            <label class="bulk-insert-field">
-              {{ t('bulkInsertBuilder.sourcePrimaryKey', 'Source primary key') }}
-              <Select
-                :model-value="settings.source.itemPrimaryKey"
-                :options="sourceFieldOptions"
-                option-label="label"
-                option-value="value"
-                :loading="sourceFieldsLoading"
-                filter
-                fluid
-                @update:model-value="updateSource({ itemPrimaryKey: String($event ?? '') })"
               />
             </label>
 
@@ -920,20 +1039,6 @@ function uniqueFields(fields: string[]): string[] {
               </label>
 
               <label class="bulk-insert-field">
-                {{ t('bulkInsertBuilder.groupPrimaryKey', 'Group primary key') }}
-                <Select
-                  :model-value="settings.source.groupPrimaryKey"
-                  :options="sourceGroupFieldOptions"
-                  option-label="label"
-                  option-value="value"
-                  :loading="groupFieldsLoading"
-                  filter
-                  fluid
-                  @update:model-value="updateSource({ groupPrimaryKey: String($event ?? '') })"
-                />
-              </label>
-
-              <label class="bulk-insert-field">
                 {{ t('bulkInsertBuilder.groupLabelField', 'Group label field') }}
                 <Select
                   :model-value="settings.source.groupLabelField"
@@ -951,7 +1056,7 @@ function uniqueFields(fields: string[]): string[] {
                 {{ t('bulkInsertBuilder.groupParentField', 'Group parent field') }}
                 <Select
                   :model-value="settings.source.groupParentField ?? ''"
-                  :options="optionalSourceGroupFieldOptions"
+                  :options="groupParentFieldOptions"
                   option-label="label"
                   option-value="value"
                   :loading="groupFieldsLoading"
@@ -965,7 +1070,7 @@ function uniqueFields(fields: string[]): string[] {
                 {{ t('bulkInsertBuilder.itemGroupField', 'Source group field') }}
                 <Select
                   :model-value="settings.source.itemGroupField"
-                  :options="sourceFieldOptions"
+                  :options="sourceItemGroupFieldOptions"
                   option-label="label"
                   option-value="value"
                   :loading="sourceFieldsLoading"
@@ -1110,13 +1215,12 @@ function uniqueFields(fields: string[]): string[] {
           </section>
 
           <section class="grid gap-2">
-            <div class="bulk-insert-mapping-header grid grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(110px,0.65fr)] gap-2 px-2">
+            <div class="bulk-insert-mapping-header grid grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(150px,1fr)] gap-2 px-2">
               <span aria-hidden="true"></span>
               <span>{{ t('bulkInsertBuilder.destinationHeader', 'Destination') }}</span>
               <span>{{ t('common.field', 'Field') }}</span>
               <span>{{ t('bulkInsertBuilder.mappingMode', 'Mode') }}</span>
               <span>{{ t('bulkInsertBuilder.mappingValue', 'Mapping') }}</span>
-              <span>{{ t('bulkInsertBuilder.defaultValue', 'Default value') }}</span>
             </div>
 
             <VueDraggableNext
@@ -1131,7 +1235,7 @@ function uniqueFields(fields: string[]): string[] {
               <div
                 v-for="column in settings.target.columns"
                 :key="column.field"
-                class="bulk-insert-card grid items-center gap-2 grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(160px,1fr)_minmax(110px,0.65fr)]"
+                class="bulk-insert-card grid items-center gap-2 grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(150px,1fr)]"
               >
                 <button
                   type="button"
@@ -1182,34 +1286,6 @@ function uniqueFields(fields: string[]): string[] {
                   @update:model-value="updateSourceAssignment(column.field, String($event ?? ''))"
                 />
                 <span v-else-if="isEntityLookupColumn(column.field)" />
-
-                <div
-                  v-if="(settings.target.editableFields ?? []).includes(column.field)"
-                  class="flex flex-col gap-1"
-                >
-                  <Select
-                    :model-value="targetDefaultValueSourceField(column.field)"
-                    :options="sourceFieldOptions"
-                    option-label="label"
-                    option-value="value"
-                    size="small"
-                    show-clear
-                    fluid
-                    :loading="sourceFieldsLoading"
-                    :placeholder="t('bulkInsertBuilder.fromSourceField', 'From source field…')"
-                    @update:model-value="updateTargetDefaultValueSource(column.field, String($event ?? ''))"
-                  />
-                  <InputText
-                    v-if="!targetDefaultValueSourceField(column.field)"
-                    :model-value="targetDefaultValueText(column.field)"
-                    size="small"
-                    fluid
-                    :placeholder="t('bulkInsertBuilder.fixedDefaultValue', 'Fixed value…')"
-                    @update:model-value="updateTargetDefaultValue(column.field, String($event ?? ''))"
-                  />
-                </div>
-                <span v-else />
-
               </div>
             </VueDraggableNext>
 

@@ -22,6 +22,7 @@ import {
   listRecentRecordViews,
   upsertRecentRecordView,
 } from '../services/recentRecordsService.js'
+import { loadItemGroupPriceTree } from '../services/itemGroupPriceTree.js'
 import { listRoles } from '../services/rolesService.js'
 import { fetchMe, listUsers } from '../adapters/usersAdapter.js'
 import { listPresets } from '../adapters/presetsAdapter.js'
@@ -84,6 +85,11 @@ import {
 import { createRegistryEntity, deleteRegistryEntity } from '../schema/entityRegistry.js'
 import { generateScheduleSlots as generateScheduleSlotsService } from '../schedule/generateSlots.js'
 import { SCHEDULE_SLOT_COLLECTION } from '../schedule/constants.js'
+import {
+  bulkUpdateRelatedFromAction,
+  BulkUpdateRelatedError,
+} from '../actions/bulkUpdateRelated.js'
+import { bulkUpdateFilteredFromAction } from '../actions/bulkUpdateFiltered.js'
 import {
   deleteScheduledTask,
   listScheduledTaskRuns,
@@ -196,7 +202,8 @@ async function loadRelations(entityId: string) {
        ), '{}') AS allowed_entity_api_names
      FROM public.relations r
      JOIN public.fields f ON f.id = r.field_id
-     LEFT JOIN public.entities related ON related.id = r.related_entity_id
+     LEFT JOIN public.entities related
+       ON related.id = r.related_entity_id AND related.deleted_at IS NULL
      LEFT JOIN public.entities junction ON junction.id = r.junction_entity_id
      WHERE r.entity_id = $1
      ORDER BY f.api_name ASC`,
@@ -441,7 +448,8 @@ export const resolvers = {
              ), '{}') AS allowed_entity_api_names
            FROM public.relations r
            JOIN public.fields f ON f.id = r.field_id
-           LEFT JOIN public.entities related ON related.id = r.related_entity_id
+           LEFT JOIN public.entities related
+             ON related.id = r.related_entity_id AND related.deleted_at IS NULL
            LEFT JOIN public.entities junction ON junction.id = r.junction_entity_id
            WHERE r.entity_id = ANY($1::uuid[])
            ORDER BY f.api_name ASC`,
@@ -570,6 +578,7 @@ export const resolvers = {
         recordId: string
         actions?: string[] | null
         limit?: number
+        offset?: number
       },
     ) => {
       return listRecordActivities({
@@ -577,6 +586,7 @@ export const resolvers = {
         recordId: String(args.recordId),
         actions: args.actions,
         limit: args.limit,
+        offset: args.offset,
       })
     },
 
@@ -852,6 +862,30 @@ export const resolvers = {
       await requireAdminAccess(ctx)
       return listScheduledTaskRuns(String(args.taskId), args.limit ?? 20)
     },
+
+    itemGroupPriceTree: async (
+      _: unknown,
+      args: {
+        priceGroupId?: string | null
+        filter?: Record<string, unknown> | null
+        fields?: string[] | null
+        flatten?: boolean | null
+        config?: Record<string, unknown> | null
+      },
+    ) => {
+      const result = await loadItemGroupPriceTree({
+        priceGroupId: args.priceGroupId ?? null,
+        filter: args.filter ?? null,
+        fields: args.fields ?? null,
+        config: args.config ?? null,
+      })
+      const includeRows = args.flatten !== false
+      return {
+        tree: result.tree,
+        rows: includeRows ? result.rows : [],
+        sections: result.sections,
+      }
+    },
   },
 
   Mutation: {
@@ -954,10 +988,12 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       await assertEntityPermission(ctx, args.entity, 'create')
+      const actorUserId = await resolveActorUserId(ctx)
       const created = await createRecord(
         args.entity,
         args.data ?? {},
         args.fields ?? null,
+        { actorUserId },
       )
       const recordId = String(created.id ?? '')
       if (recordId) {
@@ -967,7 +1003,7 @@ export const resolvers = {
             recordId,
             action: 'CREATE',
             after: created,
-            userId: await resolveActorUserId(ctx),
+            userId: actorUserId,
           })
         } catch (error) {
           console.warn('[audit] createRecord failed', error)
@@ -987,6 +1023,7 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       await assertEntityPermission(ctx, args.entity, 'update')
+      const actorUserId = await resolveActorUserId(ctx)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(args.entity, String(args.id))
@@ -998,6 +1035,7 @@ export const resolvers = {
         String(args.id),
         args.data ?? {},
         args.fields ?? null,
+        { actorUserId },
       )
       try {
         await writeEntityAudit({
@@ -1006,7 +1044,7 @@ export const resolvers = {
           action: 'UPDATE',
           before,
           after: updated,
-          userId: await resolveActorUserId(ctx),
+          userId: actorUserId,
         })
       } catch (error) {
         console.warn('[audit] updateRecord failed', error)
@@ -1020,13 +1058,16 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       await assertEntityPermission(ctx, args.entity, 'delete')
+      const actorUserId = await resolveActorUserId(ctx)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(args.entity, String(args.id))
       } catch {
         before = null
       }
-      const deleted = await softDeleteRecord(args.entity, String(args.id))
+      const deleted = await softDeleteRecord(args.entity, String(args.id), undefined, {
+        actorUserId,
+      })
       try {
         await writeEntityAudit({
           entityApiName: args.entity,
@@ -1034,7 +1075,7 @@ export const resolvers = {
           action: 'SOFT_DELETE',
           before,
           after: deleted,
-          userId: await resolveActorUserId(ctx),
+          userId: actorUserId,
         })
       } catch (error) {
         console.warn('[audit] softDeleteRecord failed', error)
@@ -1635,6 +1676,88 @@ export const resolvers = {
         providerIds: args.providerIds ?? undefined,
         facilityIds: args.facilityIds ?? undefined,
       })
+    },
+
+    bulkUpdateRelatedFromAction: async (
+      _: unknown,
+      args: {
+        collection: string
+        recordId: string
+        relatedCollection: string
+        targetField: string
+        sourcePath: string
+        multiplier: number
+        formula?: string | null
+        sourceCollection?: string | null
+        sourceLinkField?: string | null
+        activeSourcesOnly?: boolean | null
+      },
+      ctx: GraphQlAuthContext,
+    ) => {
+      const sourceCollection = String(args.sourceCollection ?? '').trim()
+      await assertEntityPermission(ctx, args.collection, 'read')
+      await assertEntityPermission(ctx, args.relatedCollection, 'read')
+      await assertEntityPermission(ctx, args.relatedCollection, 'update')
+      if (sourceCollection) {
+        await assertEntityPermission(ctx, sourceCollection, 'read')
+        await assertEntityPermission(ctx, args.relatedCollection, 'create')
+      }
+      const actorUserId = await resolveActorUserId(ctx)
+      try {
+        return await bulkUpdateRelatedFromAction({
+          collection: args.collection,
+          recordId: String(args.recordId),
+          relatedCollection: args.relatedCollection,
+          targetField: args.targetField,
+          sourcePath: args.sourcePath,
+          multiplier: Number(args.multiplier),
+          formula: args.formula ?? 'multiply',
+          sourceCollection: sourceCollection || null,
+          sourceLinkField: args.sourceLinkField ?? null,
+          activeSourcesOnly: args.activeSourcesOnly !== false,
+          actorUserId,
+        })
+      } catch (error) {
+        if (error instanceof BulkUpdateRelatedError) {
+          throw new Error(error.message)
+        }
+        throw error
+      }
+    },
+
+    bulkUpdateFilteredFromAction: async (
+      _: unknown,
+      args: {
+        collection: string
+        targetField: string
+        sourcePath: string
+        multiplier: number
+        formula?: string | null
+        filter?: Record<string, unknown> | null
+        recordIds?: string[] | null
+      },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await assertEntityPermission(ctx, args.collection, 'read')
+      await assertEntityPermission(ctx, args.collection, 'update')
+      const actorUserId = await resolveActorUserId(ctx)
+      try {
+        return await bulkUpdateFilteredFromAction({
+          collection: args.collection,
+          targetField: args.targetField,
+          sourcePath: args.sourcePath,
+          multiplier: Number(args.multiplier),
+          formula: args.formula ?? '{{source}} * {{prompt}}',
+          filter: args.filter ?? null,
+          recordIds: args.recordIds ?? null,
+          actorUserId,
+        })
+      } catch (error) {
+        if (error instanceof BulkUpdateRelatedError) {
+          throw new Error(error.message)
+        }
+        throw error
+      }
     },
   },
 

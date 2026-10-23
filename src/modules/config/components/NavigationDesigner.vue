@@ -6,7 +6,6 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { VueDraggableNext } from 'vue-draggable-next'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
@@ -141,10 +140,6 @@ function addTopFolder(): void {
   const folder = createNavFolder()
   app.value.items.push(folder)
   openEditor(folder)
-}
-
-function removeTopItem(item: NavItem): void {
-  app.value.items = app.value.items.filter((entry) => entry.id !== item.id)
 }
 
 function openHomeEditor(): void {
@@ -360,23 +355,13 @@ async function remove(): Promise<void> {
         {{ t('navigation.emptyStructure', 'Add folders and links to build this navigation app.') }}
       </Message>
 
-      <VueDraggableNext
+      <NavTreeNode
         v-else
-        :list="app.items"
-        :group="{ name: 'nav' }"
-        handle=".nav-node__handle"
-        item-key="id"
+        :items="app.items"
+        :depth="1"
         class="flex flex-col gap-2"
-      >
-        <NavTreeNode
-          v-for="item in app.items"
-          :key="item.id"
-          :item="item"
-          :depth="1"
-          @edit="openEditor"
-          @remove="removeTopItem"
-        />
-      </VueDraggableNext>
+        @edit="openEditor"
+      />
     </div>
 
     <NavItemEditor

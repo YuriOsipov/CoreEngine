@@ -60,13 +60,23 @@ export const AVAILABLE_FILE_COLUMNS: FileDisplayColumn[] = [
 export type { PrimeVueComponentType }
 
 export interface LayoutFieldChildLookup {
-  /** Child collection used to populate this field, e.g. item_variant. */
+  /**
+   * Collection used to populate this field.
+   * Bridge mode: a junction collection (e.g. item_variant).
+   * Direct mode (M2O picklist): the related entity itself (e.g. variant), filtered via {@link filter}.
+   */
   collection: string
   /** Current form field whose value filters the child rows, e.g. item. */
   sourceField: string
-  /** Child collection field that points to sourceField, e.g. item. */
+  /**
+   * Child collection field that points to sourceField, e.g. item.
+   * Optional in direct related-entity mode when {@link filter} scopes options (e.g. by `$parent.variant_type`).
+   */
   childSourceField: string
-  /** Child field whose value is saved into this field. Also used for picklist option labels. */
+  /**
+   * Field whose value is saved into this field / used as picklist option values.
+   * In direct related-entity mode this is typically the primary key (`id`).
+   */
   valueField: string
   /** @deprecated Ignored — labels are derived from {@link valueField}. */
   labelField?: string
@@ -198,7 +208,11 @@ export interface LayoutSystemInfoSettings {
 export type EntityActionDisplayType = 'detailButton' | 'detailLink' | 'document'
 
 /** Canonical action behavior after layout normalize. */
-export type EntityActionBehavior = 'flow' | 'openDocument' | 'cloneRelated'
+export type EntityActionBehavior =
+  | 'flow'
+  | 'openDocument'
+  | 'cloneRelated'
+  | 'bulkUpdateRelated'
 
 export interface EntityActionFlowSettings {
   /** Flow trigger key or `/flows/trigger/{key}` path (BFF local or proxied). */
@@ -219,6 +233,47 @@ export interface EntityActionCloneRelatedSettings extends CloneRelatedFromSettin
   refreshRecordAfterRun?: boolean
   /** Soft-delete existing target rows for configured pairs before cloning. */
   replaceExisting?: boolean
+}
+
+/**
+ * Prompt for a number, then set targetField from sourcePath + prompt on every
+ * related row for the current parent record (e.g. item_price.new_price ← item.base_price × n).
+ *
+ * When {@link sourceCollection} + {@link sourceLinkField} are set, loads source
+ * rows (optionally active only), upserts related rows for the parent, then
+ * applies the formula — sourcePath is resolved on each source record.
+ */
+export interface EntityActionBulkUpdateRelatedSettings {
+  /** Related / child collection api_name (e.g. item_price). */
+  relatedCollection: string
+  /** Writable field on related rows to patch (admin-selected). */
+  targetField: string
+  /**
+   * Dotted path for the source number.
+   * Update-only: on each related row (e.g. item.base_price).
+   * Upsert mode: on each source row (e.g. base_price).
+   */
+  sourcePath: string
+  /**
+   * Optional peer collection to upsert from (e.g. item). When set with
+   * {@link sourceLinkField}, creates missing related rows then updates.
+   */
+  sourceCollection?: string
+  /** M2O on related pointing at source (e.g. item on item_price). Required with sourceCollection. */
+  sourceLinkField?: string
+  /** When sourceCollection is set, filter source with is_active = true. Default true. */
+  activeSourcesOnly?: boolean
+  /**
+   * Arithmetic expression using `{{source}}` and `{{prompt}}`.
+   * Example: `{{source}} * (1 - {{prompt}} / 100)`
+   * Legacy presets `multiply` / `percentOff` are still accepted and expanded.
+   */
+  formula?: string
+  /** Label for the multiplier / discount prompt dialog. */
+  promptLabel?: string
+  confirmBeforeRun?: boolean
+  successMessage?: string
+  refreshRecordAfterRun?: boolean
 }
 
 export interface EntityActionPayloadSettings {
@@ -252,6 +307,8 @@ export interface EntityAction {
   document?: EntityActionDocumentSettings
   /** Present when {@link behavior} is `cloneRelated`. */
   cloneRelated?: EntityActionCloneRelatedSettings
+  /** Present when {@link behavior} is `bulkUpdateRelated`. */
+  bulkUpdateRelated?: EntityActionBulkUpdateRelatedSettings
 }
 
 /** Admin rule: on create/update/delete, when conditions match, set fields / actions (BFF). */
@@ -350,6 +407,8 @@ export type RecordPageComponentType =
   | 'actions'
   | 'field'
   | 'fieldGroup'
+  /** Chevron stage path bound to a picklist field. */
+  | 'path'
 
 /** Default count of Highlights action buttons shown before the overflow menu. */
 export const DEFAULT_VISIBLE_ACTION_BUTTONS = 5
@@ -378,8 +437,18 @@ export interface RecordPageComponent {
   relatedCollection?: string
   /** @deprecated Related List renders all DataTable fields from the Block Layout. */
   relatedFieldId?: string | null
-  /** Registry field key for `field` and `files` components. */
+  /** Registry field key for `field`, `files`, and `path` components. */
   field?: string
+  /**
+   * Path only: optional picklist for terminal outcomes (Won / Lost / Cancel).
+   * Open stages stay on `field`; closed outcomes write here.
+   */
+  terminalField?: string
+  /**
+   * Path only: terminal picklist values styled as success (green).
+   * Other terminal values are styled as failure (red).
+   */
+  successTerminalValues?: string[]
   /** PrimeVue component for `field` components. */
   fieldComponent?: PrimeVueComponentType
   /** Grid column span (1–12) for `field` components. */
@@ -415,19 +484,54 @@ export interface RecordPageRegion {
   components: RecordPageComponent[]
 }
 
+/** Which Block Layouts feed the object-list Detail panel related tabs. */
+export type RecordPageListDetailRelatedSource = 'all' | 'block'
+
+/** What the object-list detail pane shows for the selected row. */
+export type RecordPageListDetailContentMode = 'relatedLists' | 'fullPageLayout'
+
 /**
- * Collapsible master/detail related panel on object list views.
- * Content comes from Related List / Files / related fields on this Page Layout.
+ * How master/detail panes are arranged on the object list.
+ * - `stacked` (default): list above, detail below (OpenVue Splitter `layout="vertical"`).
+ * - `sideBySide`: list left, detail right (OpenVue Splitter `layout="horizontal"`).
+ */
+export type RecordPageListDetailOrientation = 'stacked' | 'sideBySide'
+
+/**
+ * Collapsible master/detail panel on object list views.
+ * Content is either related-list tabs or the full Page Layout for the selected record.
  */
 export interface RecordPageListDetailPanel {
-  /** When true, object list shows a vertical splitter with a related-records pane. */
+  /** When true, object list shows a splitter with a detail pane. */
   enabled: boolean
+  /**
+   * `relatedLists` (default): related tabs from this Page Layout.
+   * `fullPageLayout`: full Page Layout for the selected record.
+   * Forced to `fullPageLayout` when `orientation` is `sideBySide`.
+   */
+  contentMode?: RecordPageListDetailContentMode
+  /**
+   * `stacked` (default): list above, detail below (content mode configurable).
+   * `sideBySide`: list left, detail right — always shows the full Page Layout.
+   */
+  orientation?: RecordPageListDetailOrientation
   /** Initial master pane size percent (1–99). Default 60. */
   masterSize?: number
   /** Minimum detail pane size percent when expanded. Default 15. */
   detailMinSize?: number
   /** Start with the detail pane collapsed. Remembered in localStorage per collection. */
   defaultCollapsed?: boolean
+  /**
+   * `all` (default): every Related List / Files / Detail-related field on the page.
+   * `block`: only related fields from the Block Layout in `relatedListsBlockId`.
+   * Used only when `contentMode` is `relatedLists`.
+   */
+  relatedListsSource?: RecordPageListDetailRelatedSource
+  /**
+   * Block Layout Setting id when `relatedListsSource` is `block`.
+   * Related tabs come from DataTable / Files / M2A fields on that layout.
+   */
+  relatedListsBlockId?: string | null
 }
 
 /**

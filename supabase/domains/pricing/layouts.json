@@ -1,0 +1,127 @@
+{
+  "layouts": [
+    {
+      "entityApiName": "item_group",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "parent"]
+      }
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "sort": ["name"],
+        "columns": ["name", "parent"]
+      }
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name"]
+      }
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "sort": ["name"],
+        "columns": ["name"]
+      }
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "group", "base_price"]
+      }
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "sort": ["name"],
+        "columns": ["name", "group", "base_price"]
+      }
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "date_start", "date_end", "description"]
+      }
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "sort": ["-date_start"],
+        "columns": ["name", "date_start", "date_end"]
+      }
+    },
+    {
+      "entityApiName": "promotion",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": [
+          "name",
+          "campaign",
+          "date_start",
+          "date_end",
+          "promo_type",
+          "fixed_price",
+          "discount_percent",
+          "item",
+          "item_group",
+          "price_group",
+          "description"
+        ]
+      }
+    },
+    {
+      "entityApiName": "promotion",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "sort": ["-date_start"],
+        "columns": [
+          "name",
+          "campaign",
+          "date_start",
+          "date_end",
+          "promo_type",
+          "item",
+          "item_group",
+          "price_group"
+        ]
+      }
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "item", "price_group", "price", "promo_price", "promotion"]
+      }
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "sort": ["name"],
+        "columns": ["name", "item", "price_group", "price", "promo_price", "promotion"]
+      }
+    }
+  ]
+}

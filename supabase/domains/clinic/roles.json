@@ -1,0 +1,14 @@
+{
+  "roles": [
+    {
+      "name": "Clinician",
+      "isAdmin": false,
+      "permissions": "full_pack"
+    },
+    {
+      "name": "Reception",
+      "isAdmin": false,
+      "permissions": "full_pack"
+    }
+  ]
+}

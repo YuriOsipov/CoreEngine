@@ -1,0 +1,9 @@
+{
+  "id": "documents",
+  "label": "Document engine",
+  "description": "Platform document templates, snapshots, filled values, and reusable value sets.",
+  "entitiesFile": "entities.json",
+  "rolesFile": "roles.json",
+  "layoutsFile": "layouts.json",
+  "recordsFile": "records.json"
+}

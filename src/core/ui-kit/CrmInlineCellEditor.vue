@@ -72,6 +72,11 @@ const selectLoading = ref(false)
 const activeChoiceSource = ref<DynamicPicklistSource | null>(null)
 const dateShowTime = ref(props.kind === 'datetime')
 const dateFormat = ref('yy-mm-dd')
+/** OpenVue InputNumber only inserts `.` when maxFractionDigits is truthy. */
+const numberMinFractionDigits = ref(0)
+const numberMaxFractionDigits = ref(5)
+const numberPrefix = ref<string | undefined>(undefined)
+const numberSuffix = ref<string | undefined>(undefined)
 let blurTimer: number | null = null
 
 const effectiveKind = computed<InlineCellEditorKind>(() => {
@@ -108,8 +113,51 @@ watch(
   },
 )
 
+function asFiniteInt(value: unknown, fallback: number): number {
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : NaN
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(6, Math.max(0, Math.trunc(n)))
+}
+
 async function loadFieldMetadata(): Promise<void> {
   if (!props.collection || !props.field) return
+
+  if (props.kind === 'number') {
+    numberMinFractionDigits.value = 0
+    numberMaxFractionDigits.value = 5
+    numberPrefix.value = undefined
+    numberSuffix.value = undefined
+    try {
+      const metadata = await fetchFieldRuntimeMetadata(
+        props.collection,
+        props.field,
+        'InputNumber',
+      )
+      const minRaw = metadata.props.minFractionDigits
+      const maxRaw = metadata.props.maxFractionDigits
+      numberMinFractionDigits.value =
+        minRaw === undefined || minRaw === null ? 0 : asFiniteInt(minRaw, 0)
+      // OpenVue only inserts '.' when maxFractionDigits is truthy; default to 5
+      // when the field has no explicit fraction config (typical float/currency).
+      numberMaxFractionDigits.value =
+        maxRaw === undefined || maxRaw === null ? 5 : asFiniteInt(maxRaw, 5)
+      if (typeof metadata.props.prefix === 'string' && metadata.props.prefix) {
+        numberPrefix.value = metadata.props.prefix
+      }
+      if (typeof metadata.props.suffix === 'string' && metadata.props.suffix) {
+        numberSuffix.value = metadata.props.suffix
+      }
+    } catch {
+      numberMinFractionDigits.value = 0
+      numberMaxFractionDigits.value = 5
+    }
+    return
+  }
 
   if (props.kind === 'select') {
     selectLoading.value = true
@@ -272,6 +320,10 @@ function clearBlurTimer(): void {
     <InputNumber
       v-if="kind === 'number'"
       :model-value="typeof modelValue === 'number' ? modelValue : null"
+      :min-fraction-digits="numberMinFractionDigits"
+      :max-fraction-digits="numberMaxFractionDigits"
+      :prefix="numberPrefix"
+      :suffix="numberSuffix"
       fluid
       size="small"
       :disabled="saving"

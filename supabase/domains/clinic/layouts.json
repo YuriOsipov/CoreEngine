@@ -1,0 +1,72 @@
+{
+  "layouts": [
+    {
+      "entityApiName": "patient",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "columns": ["name", "date_of_birth", "phone", "email"],
+        "sort": ["name"]
+      }
+    },
+    {
+      "entityApiName": "patient",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "date_of_birth", "phone", "email"]
+      }
+    },
+    {
+      "entityApiName": "practitioner",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "columns": ["name", "specialty", "phone"],
+        "sort": ["name"]
+      }
+    },
+    {
+      "entityApiName": "practitioner",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "specialty", "phone"]
+      }
+    },
+    {
+      "entityApiName": "visit",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "columns": ["name", "visit_date", "patient_id", "practitioner_id"],
+        "sort": ["-visit_date"]
+      }
+    },
+    {
+      "entityApiName": "visit",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "visit_date", "patient_id", "practitioner_id", "notes"]
+      }
+    },
+    {
+      "entityApiName": "appointment",
+      "groupKey": "list",
+      "subGroup": "default",
+      "payload": {
+        "columns": ["name", "starts_at", "ends_at", "patient_id", "practitioner_id"],
+        "sort": ["starts_at"]
+      }
+    },
+    {
+      "entityApiName": "appointment",
+      "groupKey": "form",
+      "subGroup": "default",
+      "payload": {
+        "fields": ["name", "starts_at", "ends_at", "patient_id", "practitioner_id"]
+      }
+    }
+  ]
+}

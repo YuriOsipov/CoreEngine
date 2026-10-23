@@ -5,20 +5,26 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { TreeNodeDropEvent } from 'openvue/tree'
 import CrmDataTable from './CrmDataTable.vue'
 import type { CrmDataTableColumn } from './CrmDataTable.vue'
 import RecordCreateDialog from '@/modules/entities/components/RecordCreateDialog.vue'
 import { bridgeReadItems } from '@/core/graphql/itemsBridge'
 import { updateObjectRecord } from '@/modules/entities/services/recordDetails'
-import type { TreeTableSettings } from '@/interfaces'
+import { fetchDataTableRuntime } from '@/modules/entities/services/dataTableRuntime'
+import type {
+  DataTableSettings,
+  DataTableSortConfig,
+  TreeTableSettings,
+} from '@/interfaces'
 import {
-  humanizeFieldName,
+  getPathValue,
   recordId,
   recordLabel,
   scalarId,
 } from '@/modules/entities/utils/recordDisplay'
+import { nestRelationFilter } from '@/core/listFilterUtils'
 import { useTranslation } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
 
@@ -39,20 +45,38 @@ const props = defineProps<{
   disabled?: boolean
   mode?: 'picker' | 'browse'
   filter?: Record<string, unknown> | null
+  /** Groups filter chrome only — items pane is owned by the parent (ObjectListPage). */
+  groupsOnly?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [items: Record<string, unknown>[]]
   'item-selected': [item: Record<string, unknown>]
+  'group-selected': [
+    payload: {
+      id: string | number
+      record: Record<string, unknown>
+      /** Selected group id plus all descendant group ids (for nested list / bulk filters). */
+      subtreeIds: Array<string | number>
+    } | null,
+  ]
+  'item-moved': [payload: { itemId: string | number; groupId: string | number }]
+  'update:selectedGroupId': [id: string | number | null]
 }>()
 
 const groups = ref<Record<string, unknown>[]>([])
 const items = ref<Record<string, unknown>[]>([])
+const itemColumns = ref<CrmDataTableColumn[]>([])
 const selectedGroupKey = ref<string | null>(null)
 const selectedKeys = ref<Record<string, boolean>>({})
+const expandedKeys = ref<Record<string, boolean>>({})
+const groupSearch = ref('')
+const activeItemSort = ref<DataTableSortConfig | null>(null)
 const loadingGroups = ref(false)
 const loadingItems = ref(false)
 const createGroupDialogVisible = ref(false)
+const createGroupParentId = ref<string | number | null>(null)
+const createGroupParentRecord = ref<Record<string, unknown> | null>(null)
 const moving = ref(false)
 const error = ref<string | null>(null)
 const draggedItem = ref<Record<string, unknown> | null>(null)
@@ -111,30 +135,91 @@ const itemDisplayFields = computed(() => {
   return Array.from(new Set(fields.filter(Boolean)))
 })
 
-const itemColumns = computed<CrmDataTableColumn[]>(() => {
-  const settings = props.settings
-  if (!settings) return []
-
-  return itemDisplayFields.value
-    .filter((field) => field !== settings.main.primaryKey)
-    .map((field) => ({
-      field,
-      header: humanizeFieldName(field),
-    }))
+const effectiveItemSort = computed<DataTableSortConfig | null>(() => {
+  if (activeItemSort.value?.field?.trim()) return activeItemSort.value
+  const configured = props.settings?.main.sort
+  if (configured?.field?.trim()) {
+    return {
+      field: configured.field.trim(),
+      order: configured.order === -1 ? -1 : 1,
+    }
+  }
+  return null
 })
+
+function treeItemTableSettings(): DataTableSettings | null {
+  const settings = props.settings
+  if (!settings) return null
+
+  const primaryKey = settings.main.primaryKey
+  const groupField = settings.main.groupField?.trim() || ''
+  const fields = itemDisplayFields.value.filter((field) => field !== primaryKey)
+  // Always request the group FK so CrmDataTable client parent-filter can match
+  // rows even when the FK is not a visible display column.
+  if (groupField && groupField !== primaryKey && !fields.includes(groupField)) {
+    fields.push(groupField)
+  }
+
+  return {
+    columns: fields.map((field) => ({ field, enabled: true })),
+    sort: effectiveItemSort.value,
+    groupBy: null,
+  }
+}
+
+function visibleItemColumns(
+  columns: CrmDataTableColumn[],
+  settings: TreeTableSettings,
+): CrmDataTableColumn[] {
+  const display = new Set(
+    itemDisplayFields.value.filter((field) => field !== settings.main.primaryKey),
+  )
+  return columns.filter((column) => display.has(column.field))
+}
 
 /** Keep Tree droppableNodes stable during save — toggling it tears down PrimeVue dragDropService mid-drag (stopDrag null). */
 const canReparentGroups = computed(() =>
   Boolean(!props.disabled && props.settings?.group.parentField),
 )
 
-const canMoveItems = computed(() =>
-  Boolean(!props.disabled && !moving.value && props.settings?.main.groupField),
-)
+const canMoveItems = computed(() => {
+  const groupField = props.settings?.main.groupField?.trim() || ''
+  // Nested paths (item.item_group) are read-only for drag — the FK lives on the related record.
+  return Boolean(
+    !props.disabled &&
+      !moving.value &&
+      groupField &&
+      !groupField.includes('.'),
+  )
+})
 
 const splitterStateKey = computed(
   () => `crm-tree-table-splitter:${props.settings?.main.collection ?? 'unknown'}`,
 )
+
+/** Same collection on both panes — item CRUD must refresh the left tree. */
+const isSelfRefTree = computed(() => {
+  const settings = props.settings
+  if (!settings?.group.collection || !settings.main.collection) return false
+  return settings.group.collection === settings.main.collection
+})
+
+function compareTreeNodeLabels(left: TreeNode, right: TreeNode): number {
+  return left.label.localeCompare(right.label, undefined, {
+    sensitivity: 'base',
+    numeric: true,
+  })
+}
+
+function sortTreeNodesByLabel(nodes: TreeNode[]): TreeNode[] {
+  const sorted = [...nodes].sort(compareTreeNodeLabels)
+  for (const node of sorted) {
+    if (node.children?.length) {
+      node.children = sortTreeNodesByLabel(node.children)
+    }
+  }
+  return sorted
+}
 
 function buildTreeNodes(records: Record<string, unknown>[]): TreeNode[] {
   const settings = props.settings
@@ -167,21 +252,68 @@ function buildTreeNodes(records: Record<string, unknown>[]): TreeNode[] {
     }
   }
 
-  return roots
+  return sortTreeNodesByLabel(roots)
 }
 
 function syncTreeNodesFromGroups(): void {
   treeNodes.value = buildTreeNodes(groups.value)
 }
 
+function filterTreeNodes(nodes: TreeNode[], query: string): TreeNode[] {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return nodes
+
+  const result: TreeNode[] = []
+  for (const node of nodes) {
+    const selfMatch = node.label.toLowerCase().includes(normalized)
+    const childMatches = filterTreeNodes(node.children ?? [], query)
+    if (!selfMatch && childMatches.length === 0) continue
+
+    result.push({
+      ...node,
+      children:
+        selfMatch && childMatches.length === 0
+          ? [...(node.children ?? [])]
+          : childMatches,
+    })
+  }
+  return result
+}
+
+function collectExpandKeys(nodes: TreeNode[]): Record<string, boolean> {
+  const keys: Record<string, boolean> = {}
+  for (const node of nodes) {
+    if (!node.children?.length) continue
+    keys[node.key] = true
+    Object.assign(keys, collectExpandKeys(node.children))
+  }
+  return keys
+}
+
+const displayedTreeNodes = computed(() =>
+  filterTreeNodes(treeNodes.value, groupSearch.value),
+)
+
+watch(groupSearch, (query) => {
+  if (!query.trim()) return
+  expandedKeys.value = {
+    ...expandedKeys.value,
+    ...collectExpandKeys(displayedTreeNodes.value),
+  }
+})
+
 watch(
   () => props.settings,
   () => {
     groups.value = []
     items.value = []
+    itemColumns.value = []
     treeNodes.value = []
     selectedGroupKey.value = null
     selectedKeys.value = {}
+    expandedKeys.value = {}
+    groupSearch.value = ''
+    activeItemSort.value = null
     if (props.settings) {
       void loadGroups()
     }
@@ -189,16 +321,11 @@ watch(
   { immediate: true, deep: true },
 )
 
-watch(selectedGroupKey, () => {
-  items.value = []
-  if (selectedGroupKey.value) {
-    void loadItems()
-  }
-})
-
 watch(
-  () => props.filter,
+  () => props.settings?.main.sort,
   () => {
+    if (props.groupsOnly) return
+    activeItemSort.value = null
     if (selectedGroupKey.value) {
       void loadItems()
     }
@@ -206,12 +333,54 @@ watch(
   { deep: true },
 )
 
+watch(selectedGroupKey, () => {
+  emitGroupSelection()
+  if (props.groupsOnly) return
+  items.value = []
+  if (selectedGroupKey.value) {
+    void loadItems()
+  } else {
+    itemColumns.value = []
+  }
+})
+
+watch(
+  () => props.filter,
+  () => {
+    if (props.groupsOnly) return
+    if (selectedGroupKey.value) {
+      void loadItems()
+    }
+  },
+  { deep: true },
+)
+
+function emitGroupSelection(): void {
+  const group = selectedGroup.value
+  const id = group && props.settings
+    ? recordId(group, props.settings.group.primaryKey)
+    : null
+  if (id === null || !group) {
+    emit('group-selected', null)
+    emit('update:selectedGroupId', null)
+    return
+  }
+  emit('group-selected', {
+    id,
+    record: group,
+    subtreeIds: collectSubtreeGroupIds(id),
+  })
+  emit('update:selectedGroupId', id)
+}
+
 function updateSelectedKeys(keys: Record<string, boolean>): void {
   selectedKeys.value = keys
   selectedGroupKey.value = Object.keys(keys).find((key) => keys[key]) ?? null
 }
 
 function updateTreeNodesModel(nodes: unknown): void {
+  // Avoid replacing the full tree with a filtered subset while searching.
+  if (groupSearch.value.trim()) return
   treeNodes.value = Array.isArray(nodes) ? (nodes as TreeNode[]) : []
 }
 
@@ -235,8 +404,24 @@ function clearDragState(): void {
   draggedItem.value = null
 }
 
+function hasItemDragPayload(event: DragEvent): boolean {
+  if (draggedItem.value) return true
+  const types = event.dataTransfer?.types
+  if (!types) return false
+  return Array.from(types).includes('text/plain')
+}
+
+function resolveDraggedItem(event: DragEvent): Record<string, unknown> | null {
+  if (draggedItem.value) return draggedItem.value
+  const settings = props.settings
+  if (!settings) return null
+  const raw = event.dataTransfer?.getData('text/plain')?.trim()
+  if (!raw || raw === 'item' || raw === 'row') return null
+  return { [settings.main.primaryKey]: raw }
+}
+
 function allowItemDrop(event: DragEvent): void {
-  if (!draggedItem.value) return
+  if (!canMoveItems.value || !hasItemDragPayload(event)) return
   event.preventDefault()
   event.stopPropagation()
   if (event.dataTransfer) {
@@ -245,7 +430,8 @@ function allowItemDrop(event: DragEvent): void {
 }
 
 async function dropItemOnTree(event: DragEvent): Promise<void> {
-  if (!draggedItem.value || !props.settings) return
+  if (!canMoveItems.value || !props.settings) return
+  if (!hasItemDragPayload(event)) return
   event.preventDefault()
   event.stopPropagation()
 
@@ -264,15 +450,18 @@ async function dropItemOnGroup(
   group: Record<string, unknown>,
   event: DragEvent,
 ): Promise<void> {
-  if (!draggedItem.value) return
+  if (!canMoveItems.value) return
   event.preventDefault()
   event.stopPropagation()
   if (!props.settings) return
 
+  const item = resolveDraggedItem(event)
+  if (!item) return
+
   const groupId = recordId(group, props.settings.group.primaryKey)
   if (groupId === null) return
 
-  await moveItemToGroup(draggedItem.value, groupId)
+  await moveItemToGroup(item, groupId)
 }
 
 function itemDropGroupKey(event: DragEvent): string | null {
@@ -414,13 +603,19 @@ async function moveItemToGroup(
   groupId: string | number,
 ): Promise<void> {
   const settings = props.settings
-  if (!settings?.main.groupField || moving.value) return
+  const groupField = settings?.main.groupField?.trim() || ''
+  if (!settings || !groupField || moving.value || groupField.includes('.')) return
 
   const itemId = recordId(item, settings.main.primaryKey)
   if (itemId === null) return
 
-  const currentGroupId = scalarId(item[settings.main.groupField])
-  if (String(currentGroupId ?? '') === String(groupId)) {
+  const currentGroupId = scalarId(getPathValue(item, groupField))
+    ?? scalarId(item[groupField])
+  if (
+    (Object.prototype.hasOwnProperty.call(item, groupField) ||
+      getPathValue(item, groupField) !== undefined) &&
+    String(currentGroupId ?? '') === String(groupId)
+  ) {
     clearDragState()
     return
   }
@@ -431,12 +626,18 @@ async function moveItemToGroup(
     await updateObjectRecord(
       settings.main.collection,
       String(itemId),
-      { [settings.main.groupField]: groupId },
+      { [groupField]: groupId },
     )
 
-    items.value = items.value.filter(
-      (row) => String(recordId(row, settings.main.primaryKey)) !== String(itemId),
-    )
+    if (!props.groupsOnly) {
+      items.value = items.value.filter(
+        (row) => String(recordId(row, settings.main.primaryKey)) !== String(itemId),
+      )
+    }
+    emit('item-moved', { itemId, groupId })
+    if (isSelfRefTree.value) {
+      await loadGroups()
+    }
   } catch (err) {
     error.value =
       err instanceof Error
@@ -480,6 +681,43 @@ function isGroupDescendant(
   return false
 }
 
+/** Selected group + every nested child group (BFS over parentField). */
+function collectSubtreeGroupIds(rootId: string | number): Array<string | number> {
+  const settings = props.settings
+  const ids: Array<string | number> = [rootId]
+  if (!settings?.group.parentField) return ids
+
+  const primaryKey = settings.group.primaryKey
+  const parentField = settings.group.parentField
+  const childrenByParent = new Map<string, Array<string | number>>()
+
+  for (const group of groups.value) {
+    const id = recordId(group, primaryKey)
+    if (id === null) continue
+    const parentId = scalarId(group[parentField])
+    if (parentId === null) continue
+    const key = String(parentId)
+    const list = childrenByParent.get(key) ?? []
+    list.push(id)
+    childrenByParent.set(key, list)
+  }
+
+  const queue = [String(rootId)]
+  const seen = new Set<string>(queue)
+  while (queue.length) {
+    const current = queue.shift()!
+    for (const childId of childrenByParent.get(current) ?? []) {
+      const childKey = String(childId)
+      if (seen.has(childKey)) continue
+      seen.add(childKey)
+      ids.push(childId)
+      queue.push(childKey)
+    }
+  }
+
+  return ids
+}
+
 async function loadGroups(): Promise<void> {
   const settings = props.settings
   if (!settings?.group.collection) return
@@ -496,13 +734,16 @@ async function loadGroups(): Promise<void> {
         settings.group.parentField,
       ].filter(Boolean) as string[]),
     )
+    const labelField = settings.group.labelField?.trim()
     const rows = await readDynamicItems(settings.group.collection, {
       limit: -1,
       fields,
+      ...(labelField ? { sort: [labelField] } : {}),
     })
     if (token === groupLoadToken) {
       groups.value = rows as Record<string, unknown>[]
       syncTreeNodesFromGroups()
+      ensureDefaultGroupSelection()
     }
   } catch (err) {
     if (token === groupLoadToken) {
@@ -518,7 +759,23 @@ async function loadGroups(): Promise<void> {
   }
 }
 
+/** Pick the first root group when nothing is selected (or selection is stale). */
+function ensureDefaultGroupSelection(): void {
+  const pk = props.settings?.group.primaryKey ?? 'id'
+  if (selectedGroupKey.value) {
+    const stillPresent = groups.value.some(
+      (group) => String(recordId(group, pk)) === selectedGroupKey.value,
+    )
+    if (stillPresent) return
+  }
+
+  const firstRoot = treeNodes.value[0]
+  if (!firstRoot) return
+  focusGroupKey(firstRoot.key)
+}
+
 async function loadItems(): Promise<void> {
+  if (props.groupsOnly) return
   const settings = props.settings
   if (!settings?.main.collection || !settings.main.groupField || !selectedGroup.value) {
     return
@@ -527,24 +784,25 @@ async function loadItems(): Promise<void> {
   const groupId = recordId(selectedGroup.value, settings.group.primaryKey)
   if (groupId === null) return
 
+  const tableSettings = treeItemTableSettings()
+  if (!tableSettings) return
+
   const token = ++itemLoadToken
   loadingItems.value = true
   error.value = null
 
   try {
-    const rows = await readDynamicItems(settings.main.collection, {
+    const runtime = await fetchDataTableRuntime({
+      collection: settings.main.collection,
+      settings: tableSettings,
       limit: -1,
-      fields: Array.from(
-        new Set([
-          settings.main.primaryKey,
-          settings.main.groupField,
-          ...itemDisplayFields.value,
-        ]),
-      ),
-      filter: buildItemFilter(settings.main.groupField, groupId, props.filter),
+      parentCollection: settings.group.collection,
+      parentId: groupId,
+      listFilter: buildItemFilter(settings.main.groupField, groupId, props.filter),
     })
     if (token === itemLoadToken) {
-      items.value = rows as Record<string, unknown>[]
+      items.value = runtime.rows
+      itemColumns.value = visibleItemColumns(runtime.columns, settings)
     }
   } catch (err) {
     if (token === itemLoadToken) {
@@ -585,19 +843,126 @@ function openCreateGroupDialog(): void {
   if (props.disabled || !props.settings?.group.collection || !canCreateGroup.value) {
     return
   }
+  if (!props.settings.group.parentField?.trim()) {
+    createGroupParentId.value = null
+    createGroupParentRecord.value = null
+  } else {
+    createGroupParentId.value = selectedGroupId()
+    createGroupParentRecord.value = selectedGroup.value
+  }
   createGroupDialogVisible.value = true
 }
 
+function updateCreateGroupDialogVisible(visible: boolean): void {
+  createGroupDialogVisible.value = visible
+  if (!visible) {
+    createGroupParentId.value = null
+    createGroupParentRecord.value = null
+  }
+}
+
+function expandAncestorsOf(key: string): void {
+  const settings = props.settings
+  const parentField = settings?.group.parentField?.trim()
+  if (!settings || !parentField) return
+
+  const byId = new Map<string, Record<string, unknown>>()
+  for (const group of groups.value) {
+    const id = recordId(group, settings.group.primaryKey)
+    if (id !== null) byId.set(String(id), group)
+  }
+
+  const next = { ...expandedKeys.value }
+  let current = byId.get(key)
+  const seen = new Set<string>()
+  while (current) {
+    const currentId = recordId(current, settings.group.primaryKey)
+    if (currentId !== null) {
+      const currentKey = String(currentId)
+      if (seen.has(currentKey)) break
+      seen.add(currentKey)
+    }
+    const parentId = scalarId(current[parentField])
+    if (parentId === null) break
+    const parentKey = String(parentId)
+    next[parentKey] = true
+    current = byId.get(parentKey)
+  }
+  expandedKeys.value = next
+}
+
+function focusGroupKey(key: string | null): void {
+  if (!key) return
+  selectedGroupKey.value = key
+  selectedKeys.value = { [key]: true }
+  expandAncestorsOf(key)
+  void nextTick(() => {
+    const el = document.querySelector(
+      `[data-tree-group-key="${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`,
+    )
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+}
+
 function handleGroupCreated(record: Record<string, unknown>): void {
-  createGroupDialogVisible.value = false
+  updateCreateGroupDialogVisible(false)
   groups.value = upsertRecord(groups.value, record, props.settings?.group.primaryKey ?? 'id')
   syncTreeNodesFromGroups()
 
   const id = props.settings ? recordId(record, props.settings.group.primaryKey) : null
   if (id !== null) {
-    selectedGroupKey.value = String(id)
-    selectedKeys.value = { [String(id)]: true }
+    focusGroupKey(String(id))
   }
+}
+
+async function refreshTreeAfterItemChange(
+  focusRecord?: Record<string, unknown> | null,
+): Promise<void> {
+  if (!isSelfRefTree.value) return
+
+  const settings = props.settings
+  const previousKey = selectedGroupKey.value
+  const focusId =
+    focusRecord && settings
+      ? recordId(focusRecord, settings.main.primaryKey)
+      : null
+  const focusKey = focusId !== null ? String(focusId) : previousKey
+
+  await loadGroups()
+
+  if (focusKey) {
+    focusGroupKey(focusKey)
+  }
+
+  // Selecting a different node already reloads items via selectedGroupKey watch.
+  if (selectedGroupKey.value && selectedGroupKey.value === previousKey) {
+    await loadItems()
+  }
+}
+
+async function handleItemRecordCreated(row: Record<string, unknown>): Promise<void> {
+  await refreshTreeAfterItemChange(row)
+}
+
+async function handleItemRecordUpdated(row: Record<string, unknown>): Promise<void> {
+  await refreshTreeAfterItemChange(row)
+}
+
+async function handleItemRecordDeleted(row: Record<string, unknown>): Promise<void> {
+  const settings = props.settings
+  const parentField = settings?.group.parentField?.trim()
+  let focusParent: Record<string, unknown> | null = null
+  if (settings && parentField) {
+    const parentId = scalarId(row[parentField])
+    if (parentId !== null) {
+      focusParent = { [settings.group.primaryKey]: parentId }
+    }
+  }
+  await refreshTreeAfterItemChange(focusParent)
+}
+
+async function handleItemRecordRestored(row: Record<string, unknown>): Promise<void> {
+  await refreshTreeAfterItemChange(row)
 }
 
 function selectedGroupId(): string | number | null {
@@ -610,11 +975,7 @@ function buildItemFilter(
   groupId: string | number,
   filter?: Record<string, unknown> | null,
 ): Record<string, unknown> {
-  const groupFilter = {
-    [groupField]: {
-      _eq: groupId,
-    },
-  }
+  const groupFilter = nestRelationFilter(groupField, { _eq: groupId })
 
   return filter && Object.keys(filter).length > 0
     ? { _and: [groupFilter, filter] }
@@ -652,10 +1013,32 @@ function isItemSelected(item: Record<string, unknown>): boolean {
   return id !== null && selectedItemIds.value.has(String(id))
 }
 
+function handleItemSortChange(payload: {
+  field: string | null
+  order: 1 | -1 | null
+}): void {
+  const field = payload.field?.trim() || ''
+  if (!field || payload.order === null) {
+    activeItemSort.value = null
+  } else {
+    activeItemSort.value = {
+      field,
+      order: payload.order === -1 ? -1 : 1,
+    }
+  }
+  if (selectedGroupKey.value) {
+    void loadItems()
+  }
+}
+
+defineExpose({
+  refreshGroups: loadGroups,
+})
+
 </script>
 
 <template>
-  <div class="crm-tree-table flex flex-col gap-3 min-h-[18rem]">
+  <div class="crm-tree-table flex min-h-0 h-full flex-col gap-3">
     <Message
       v-if="!settings"
       severity="warn"
@@ -681,7 +1064,85 @@ function isItemSelected(item: Record<string, unknown>): boolean {
         {{ t('treeTable.savingMove', 'Saving move...') }}
       </Message>
 
+      <section
+        v-if="groupsOnly"
+        class="crm-tree-table__pane crm-tree-table__pane--groups border border-surface-200 rounded-lg p-3"
+      >
+        <div class="flex items-center gap-3 justify-between mb-2 shrink-0">
+          <h3 class="text-[0.9rem] m-0">{{ t('treeTable.groups', 'Groups') }}</h3>
+          <Button
+            v-if="canCreateGroup"
+            :label="t('treeTable.newGroup', 'New group')"
+            icon="pi pi-plus"
+            size="small"
+            text
+            :disabled="disabled || !settings.group.collection"
+            @click="openCreateGroupDialog"
+          />
+        </div>
+        <IconField class="crm-tree-table__group-search shrink-0 mb-2 w-full">
+          <InputIcon class="pi pi-search" />
+          <InputText
+            v-model="groupSearch"
+            class="w-full"
+            size="small"
+            :placeholder="t('treeTable.searchGroups', 'Search groups…')"
+            :disabled="loadingGroups"
+          />
+        </IconField>
+        <div
+          v-if="loadingGroups"
+          class="crm-tree-table__loading flex items-center gap-3 text-muted-color text-[0.85rem] shrink-0"
+        >
+          <ProgressSpinner stroke-width="4" />
+          <span>{{ t('treeTable.loadingGroups', 'Loading groups...') }}</span>
+        </div>
+        <div
+          v-else
+          class="crm-tree-table__groups-scroll"
+        >
+          <Tree
+            :value="displayedTreeNodes"
+            selection-mode="single"
+            :selection-keys="selectedKeys"
+            v-model:expanded-keys="expandedKeys"
+            :draggable-nodes="canReparentGroups && !groupSearch.trim()"
+            :droppable-nodes="canReparentGroups && !groupSearch.trim()"
+            :validate-drop="true"
+            class="!border-0 !p-0"
+            @dragover.capture="allowItemDrop"
+            @drop.capture="dropItemOnTree"
+            @node-drop="handleGroupNodeDrop"
+            @update:selection-keys="updateSelectedKeys"
+            @update:value="updateTreeNodesModel"
+          >
+            <template #default="{ node }">
+              <span
+                class="rounded inline-flex py-0.5 px-1"
+                :class="{ 'cursor-move': canReparentGroups || canMoveItems }"
+                :data-tree-group-key="node.key"
+                @dragover="allowItemDrop"
+                @drop="dropItemOnGroup(node.data, $event)"
+              >
+                {{ node.label }}
+              </span>
+            </template>
+          </Tree>
+          <p
+            v-if="displayedTreeNodes.length === 0"
+            class="m-0 text-muted-color text-[0.85rem]"
+          >
+            {{
+              groupSearch.trim()
+                ? t('treeTable.noGroupSearchResults', 'No groups match your search.')
+                : t('treeTable.noGroups', 'No groups yet.')
+            }}
+          </p>
+        </div>
+      </section>
+
       <Splitter
+        v-else
         :state-key="splitterStateKey"
         state-storage="local"
         class="crm-tree-table__splitter"
@@ -691,8 +1152,8 @@ function isItemSelected(item: Record<string, unknown>): boolean {
           :min-size="20"
           class="crm-tree-table__panel"
         >
-          <section class="crm-tree-table__pane border border-surface-200 rounded-lg min-h-[18rem] p-3">
-            <div class="flex items-center gap-3 justify-between mb-3">
+          <section class="crm-tree-table__pane crm-tree-table__pane--groups border border-surface-200 rounded-lg p-3">
+            <div class="flex items-center gap-3 justify-between mb-2 shrink-0">
               <h3 class="text-[0.9rem] m-0">{{ t('treeTable.groups', 'Groups') }}</h3>
               <Button
                 v-if="canCreateGroup"
@@ -704,17 +1165,34 @@ function isItemSelected(item: Record<string, unknown>): boolean {
                 @click="openCreateGroupDialog"
               />
             </div>
-            <div v-if="loadingGroups" class="crm-tree-table__loading flex items-center gap-3 text-muted-color text-[0.85rem]">
+            <IconField class="crm-tree-table__group-search shrink-0 mb-2 w-full">
+              <InputIcon class="pi pi-search" />
+              <InputText
+                v-model="groupSearch"
+                class="w-full"
+                size="small"
+                :placeholder="t('treeTable.searchGroups', 'Search groups…')"
+                :disabled="loadingGroups"
+              />
+            </IconField>
+            <div
+              v-if="loadingGroups"
+              class="crm-tree-table__loading flex items-center gap-3 text-muted-color text-[0.85rem] shrink-0"
+            >
               <ProgressSpinner stroke-width="4" />
               <span>{{ t('treeTable.loadingGroups', 'Loading groups...') }}</span>
             </div>
-            <template v-else>
+            <div
+              v-else
+              class="crm-tree-table__groups-scroll"
+            >
               <Tree
-                :value="treeNodes"
+                :value="displayedTreeNodes"
                 selection-mode="single"
                 :selection-keys="selectedKeys"
-                :draggable-nodes="canReparentGroups"
-                :droppable-nodes="canReparentGroups"
+                v-model:expanded-keys="expandedKeys"
+                :draggable-nodes="canReparentGroups && !groupSearch.trim()"
+                :droppable-nodes="canReparentGroups && !groupSearch.trim()"
                 :validate-drop="true"
                 class="!border-0 !p-0"
                 @dragover.capture="allowItemDrop"
@@ -735,7 +1213,17 @@ function isItemSelected(item: Record<string, unknown>): boolean {
                   </span>
                 </template>
               </Tree>
-            </template>
+              <p
+                v-if="displayedTreeNodes.length === 0"
+                class="m-0 text-muted-color text-[0.85rem]"
+              >
+                {{
+                  groupSearch.trim()
+                    ? t('treeTable.noGroupSearchResults', 'No groups match your search.')
+                    : t('treeTable.noGroups', 'No groups yet.')
+                }}
+              </p>
+            </div>
           </section>
         </SplitterPanel>
 
@@ -759,15 +1247,24 @@ function isItemSelected(item: Record<string, unknown>): boolean {
               :primary-key="settings.main.primaryKey"
               :parent-name="settings.main.groupField"
               :parent-id="selectedGroupId() ?? undefined"
+              :parent-collection="settings.group.collection"
+              :parent-record="selectedGroup ?? undefined"
               :loading="loadingItems"
               :empty-message="t('treeTable.noItemsForGroup', 'No items for selected group.')"
               :show-new-button="!disabled"
               :new-button-label="t('treeTable.newItem', 'New item')"
               :show-delete-button="!disabled || mode === 'browse'"
-              :sortable-columns="false"
+              :sortable-columns="true"
               :reorderable-columns="false"
+              :default-sort-field="effectiveItemSort?.field ?? null"
+              :default-sort-order="effectiveItemSort?.order ?? null"
               :row-draggable="canMoveItems"
               @update:rows="items = $event"
+              @sort-change="handleItemSortChange"
+              @record-created="handleItemRecordCreated"
+              @record-updated="handleItemRecordUpdated"
+              @record-deleted="handleItemRecordDeleted"
+              @record-restored="handleItemRecordRestored"
               @view-record="chooseItem"
               @row-drag-start="startItemDrag"
               @row-drag-end="clearDragState"
@@ -795,24 +1292,39 @@ function isItemSelected(item: Record<string, unknown>): boolean {
       :visible="createGroupDialogVisible"
       :collection="settings.group.collection"
       :parent-field="settings.group.parentField || undefined"
-      :parent-id="selectedGroupId() ?? undefined"
-      @update:visible="createGroupDialogVisible = $event"
+      :parent-id="createGroupParentId ?? undefined"
+      :parent-collection="settings.group.collection"
+      :parent-record="createGroupParentRecord ?? undefined"
+      @update:visible="updateCreateGroupDialogVisible"
       @created="handleGroupCreated"
     />
   </div>
 </template>
 
 <style scoped>
+.crm-tree-table {
+  min-height: 0;
+}
+
 .crm-tree-table__splitter {
   flex: 1 1 auto;
   width: 100%;
-  min-height: 18rem;
+  min-height: 0;
+  height: 100%;
   border: none;
   background: transparent;
 }
 
+.crm-tree-table__splitter :deep(.p-splitter) {
+  height: 100%;
+  min-height: 0;
+}
+
 .crm-tree-table__splitter :deep(.p-splitter-panel) {
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .crm-tree-table__panel {
@@ -820,12 +1332,33 @@ function isItemSelected(item: Record<string, unknown>): boolean {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
 }
 
 .crm-tree-table__pane {
   flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   overflow: auto;
+}
+
+.crm-tree-table__pane--groups {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.crm-tree-table__groups-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.crm-tree-table__group-search :deep(.p-inputtext) {
+  width: 100%;
 }
 
 .crm-tree-table__loading :deep(.p-progressspinner) {

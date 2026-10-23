@@ -1,0 +1,261 @@
+{
+  "entities": [
+    {
+      "apiName": "item_group",
+      "label": "Item group",
+      "icon": "folder",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "parent",
+          "label": "Parent group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item_group"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "price_group",
+      "label": "Price group",
+      "icon": "sell",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": []
+    },
+    {
+      "apiName": "item",
+      "label": "Item",
+      "icon": "inventory_2",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "base_price",
+          "label": "Base price",
+          "type": "FLOAT",
+          "interface": "input"
+        },
+        {
+          "apiName": "group",
+          "label": "Group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item_group"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "campaign",
+      "label": "Campaign",
+      "icon": "campaign",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "date_start",
+          "label": "Date start",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "date_end",
+          "label": "Date end",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "textarea"
+        }
+      ]
+    },
+    {
+      "apiName": "promotion",
+      "label": "Promotion",
+      "icon": "local_offer",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "campaign",
+          "label": "Campaign",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "campaign",
+          "required": true,
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "campaign"
+          }
+        },
+        {
+          "apiName": "date_start",
+          "label": "Date start",
+          "type": "DATE",
+          "interface": "datetime",
+          "required": true
+        },
+        {
+          "apiName": "date_end",
+          "label": "Date end",
+          "type": "DATE",
+          "interface": "datetime",
+          "required": true
+        },
+        {
+          "apiName": "item_group",
+          "label": "Item group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item_group"
+          }
+        },
+        {
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item"
+          }
+        },
+        {
+          "apiName": "price_group",
+          "label": "Price group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "price_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "price_group"
+          }
+        },
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "textarea"
+        },
+        {
+          "apiName": "promo_type",
+          "label": "Promo type",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "required": true,
+          "options": {
+            "choices": [
+              {
+                "text": "Fixed price",
+                "value": "fixed_price"
+              },
+              {
+                "text": "Discount %",
+                "value": "discount_percent"
+              }
+            ],
+            "default": "discount_percent"
+          }
+        },
+        {
+          "apiName": "fixed_price",
+          "label": "Fixed price",
+          "type": "FLOAT",
+          "interface": "input"
+        },
+        {
+          "apiName": "discount_percent",
+          "label": "Discount %",
+          "type": "FLOAT",
+          "interface": "input"
+        }
+      ]
+    },
+    {
+      "apiName": "item_price",
+      "label": "Item price",
+      "icon": "payments",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "required": true,
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "item"
+          }
+        },
+        {
+          "apiName": "price_group",
+          "label": "Price group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "price_group",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "price_group"
+          }
+        },
+        {
+          "apiName": "price",
+          "label": "Price",
+          "type": "FLOAT",
+          "interface": "input",
+          "required": true
+        },
+        {
+          "apiName": "promo_price",
+          "label": "Promo price",
+          "type": "FLOAT",
+          "interface": "input",
+          "readonly": true
+        },
+        {
+          "apiName": "promotion",
+          "label": "Promotion",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "promotion",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "promotion"
+          }
+        }
+      ]
+    }
+  ]
+}

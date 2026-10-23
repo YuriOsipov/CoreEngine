@@ -12,6 +12,11 @@ export interface GraphQlRecordActivity {
   revisionIds: string[]
 }
 
+export interface GraphQlRecordActivityPage {
+  nodes: GraphQlRecordActivity[]
+  totalCount: number
+}
+
 export interface GraphQlRecordRevision {
   id: string
   activityId: string | null
@@ -28,21 +33,26 @@ const RECORD_ACTIVITIES_QUERY = /* GraphQL */ `
     $recordId: ID!
     $actions: [String!]
     $limit: Int
+    $offset: Int
   ) {
     recordActivities(
       entity: $entity
       recordId: $recordId
       actions: $actions
       limit: $limit
+      offset: $offset
     ) {
-      id
-      entityApiName
-      recordId
-      action
-      userId
-      comment
-      createdAt
-      revisionIds
+      nodes {
+        id
+        entityApiName
+        recordId
+        action
+        userId
+        comment
+        createdAt
+        revisionIds
+      }
+      totalCount
     }
   }
 `
@@ -98,16 +108,22 @@ export async function fetchRecordActivitiesFromGraphQL(options: {
   recordId: string | number
   actions?: string[]
   limit?: number
-}): Promise<GraphQlRecordActivity[]> {
+  offset?: number
+}): Promise<GraphQlRecordActivityPage> {
   const data = await graphqlRequest<{
-    recordActivities: GraphQlRecordActivity[]
+    recordActivities: GraphQlRecordActivityPage
   }>(RECORD_ACTIVITIES_QUERY, {
     entity: options.entity,
     recordId: String(options.recordId),
     actions: options.actions ?? null,
     limit: options.limit ?? 50,
+    offset: options.offset ?? 0,
   })
-  return data.recordActivities ?? []
+  const page = data.recordActivities
+  return {
+    nodes: page?.nodes ?? [],
+    totalCount: Number(page?.totalCount ?? 0),
+  }
 }
 
 export async function fetchRecordRevisionsFromGraphQL(options: {
@@ -129,26 +145,7 @@ export function canUseAuditGraphQL(): boolean {
   return featureFlags.auditFromGraphQL
 }
 
-/** Activities for a record — GraphQL only. */
-export async function readRecordActivitiesBridge(options: {
-  entity: string
-  recordId: string | number
-  actions?: string[]
-  /** @deprecated Ignored — legacy UI action mapping path removed. */
-  uiActions?: Array<'create' | 'update' | 'delete'>
-  limit?: number
-  fields?: string[]
-}): Promise<Record<string, unknown>[]> {
-  if (!canUseAuditGraphQL()) {
-    refuseLegacyFallback('readRecordActivitiesBridge')
-  }
-  const rows = await fetchRecordActivitiesFromGraphQL({
-    entity: options.entity,
-    recordId: options.recordId,
-    actions: options.actions,
-    limit: options.limit,
-  })
-
+function mapActivityRows(rows: GraphQlRecordActivity[]): Record<string, unknown>[] {
   return rows.map((row) => ({
     id: Number(row.id),
     action: mapPlatformActionToUi(row.action),
@@ -157,6 +154,34 @@ export async function readRecordActivitiesBridge(options: {
     comment: row.comment,
     revisions: row.revisionIds.map((id) => ({ id: Number(id) })),
   }))
+}
+
+/** Activities for a record — GraphQL only. */
+export async function readRecordActivitiesBridge(options: {
+  entity: string
+  recordId: string | number
+  actions?: string[]
+  /** @deprecated Ignored — legacy UI action mapping path removed. */
+  uiActions?: Array<'create' | 'update' | 'delete'>
+  limit?: number
+  offset?: number
+  fields?: string[]
+}): Promise<{ nodes: Record<string, unknown>[]; totalCount: number }> {
+  if (!canUseAuditGraphQL()) {
+    refuseLegacyFallback('readRecordActivitiesBridge')
+  }
+  const page = await fetchRecordActivitiesFromGraphQL({
+    entity: options.entity,
+    recordId: options.recordId,
+    actions: options.actions,
+    limit: options.limit,
+    offset: options.offset,
+  })
+
+  return {
+    nodes: mapActivityRows(page.nodes),
+    totalCount: page.totalCount,
+  }
 }
 
 /** Revisions for a record — GraphQL only. */

@@ -7,6 +7,7 @@ import { nestedDisplayFallbackRequestFields } from '@/core/dataTableFieldPath'
 import {
   resolveRelatedTransferFilter,
   resolveRelatedTransferValue,
+  SOURCE_NESTED_VALUES_KEY,
   type RelatedTransferResolveContext,
 } from '@/core/relatedTransferResolver'
 import { readPath, resolveRecordKey } from '@/core/utils/object'
@@ -69,16 +70,64 @@ import {
   resolveCollectionKey,
   resolveFieldPath,
   resolveFlatFieldPath,
+  resolveSourceItemGroupFieldPath,
 } from '@/modules/entities/utils/relatedTransferSchema'
 import {
   buildChoiceLabelMap,
   extractTemplateFields,
+  getPathValue,
   humanizeFieldName,
   relatedRecordFallbackLabel,
+  relatedRecordLabel,
   renderTemplateLabel,
   scalarId,
   shouldUseTemplateForRelatedLabel,
 } from '@/modules/entities/utils/recordDisplay'
+
+/** Stashed on source rows before M2O display flattening erases nested group paths. */
+export const SOURCE_ITEM_GROUP_ID_KEY = '__crmSourceGroupId'
+
+export function sourceItemGroupId(
+  item: Record<string, unknown>,
+  groupField?: string | null,
+): string | number | null {
+  const stashed = scalarId(item[SOURCE_ITEM_GROUP_ID_KEY])
+  if (stashed !== null) return stashed
+  if (!groupField) return null
+  return scalarId(getPathValue(item, groupField)) ?? scalarId(item[groupField])
+}
+
+function stashSourceItemGroupIds(
+  items: Record<string, unknown>[],
+  groupFieldPath: string,
+): void {
+  if (!groupFieldPath) return
+  for (const item of items) {
+    const groupId = scalarId(getPathValue(item, groupFieldPath))
+      ?? scalarId(item[groupFieldPath])
+    if (groupId !== null) item[SOURCE_ITEM_GROUP_ID_KEY] = groupId
+  }
+}
+
+/** Keep related scalars (e.g. Item.MinQty) after the M2O object is replaced by its id. */
+function stashNestedSourceScalars(
+  item: Record<string, unknown>,
+  field: string,
+  record: Record<string, unknown>,
+): void {
+  const previous = item[SOURCE_NESTED_VALUES_KEY]
+  const nested: Record<string, unknown> =
+    previous && typeof previous === 'object' && !Array.isArray(previous)
+      ? { ...(previous as Record<string, unknown>) }
+      : {}
+  let changed = false
+  for (const [key, value] of Object.entries(record)) {
+    if (value !== null && typeof value === 'object') continue
+    nested[`${field}.${key}`] = value
+    changed = true
+  }
+  if (changed) item[SOURCE_NESTED_VALUES_KEY] = nested
+}
 
 export interface RelatedTransferDataContext {
   t: TranslateFn
@@ -167,26 +216,30 @@ export async function mergeChildLookupFieldSettings(
       : ''
     // Same collection as batch Source (e.g. Price from price_item): pin to that row by PK.
     // Different collection (e.g. Variant from item_variant): link via sourceField (Item).
+    // Direct related-entity mode: no childSourceField — rely on childLookup.filter only.
     const lookupIsSourceCollection = Boolean(
       sourceCollection &&
       lookupCollection &&
       keysEqual(lookupCollection, sourceCollection),
     )
+    const childSourceField = childLookup.childSourceField?.trim() || ''
     const automaticFilter = lookupIsSourceCollection
       ? {
           [sourcePrimaryKey]: {
             _eq: `$source.${sourcePrimaryKey}`,
           },
         }
-      : {
-          [childLookup.childSourceField]: {
-            _eq: `$source.${
-              childLookup.sourceField?.trim()
-              || baseSettings.target.itemField
-              || sourcePrimaryKey
-            }`,
-          },
-        }
+      : childSourceField
+        ? {
+            [childSourceField]: {
+              _eq: `$source.${
+                childLookup.sourceField?.trim()
+                || baseSettings.target.itemField
+                || sourcePrimaryKey
+              }`,
+            },
+          }
+        : null
     const isEditable = (baseSettings.target.editableFields ?? []).some((field) =>
       keysEqual(field, targetField),
     )
@@ -624,20 +677,35 @@ async function sourceM2ODisplayPlans(
 ): Promise<SourceM2ODisplayPlan[]> {
   const relations = await getCachedRelations() as RelationDefinition[]
   const plans: SourceM2ODisplayPlan[] = []
+  const rootFields = Array.from(new Set([
+    ...fields.filter((field) => !field.includes('.')),
+    ...fields
+      .filter((field) => field.includes('.'))
+      .map((field) => field.split('.')[0] ?? '')
+      .filter(Boolean),
+  ]))
 
-  for (const field of fields) {
-    if (field.includes('.') || !isFieldM2O(collection, field, definitions, relations)) continue
+  for (const field of rootFields) {
+    if (!isFieldM2O(collection, field, definitions, relations)) continue
 
     const relatedCollection = await relationCollectionForField(collection, field, definitions)
     if (!relatedCollection) continue
 
     const resolvedRelated = await resolveCollectionKey(relatedCollection)
-    const relatedFields = await collectionFields(resolvedRelated)
-    if (!relatedFields?.length) continue
-
     const definition = definitions?.find((item) => keysEqual(item.field, field))
-    const template = fieldDisplayTemplate(definition) ??
-      await fetchCollectionDisplayTemplate(resolvedRelated)
+    const relatedFields = await collectionFields(resolvedRelated)
+    const template =
+      (await fetchCollectionDisplayTemplate(resolvedRelated)) ||
+      fieldDisplayTemplate(definition)
+    if (!relatedFields?.length) {
+      plans.push({
+        field,
+        relatedCollection: resolvedRelated,
+        template,
+        requestFields: [`${field}.id`],
+      })
+      continue
+    }
     const requestFields = new Set<string>([`${field}.id`])
 
     if (template && shouldUseTemplateForRelatedLabel(template)) {
@@ -650,6 +718,14 @@ async function sourceM2ODisplayPlans(
     for (const fallback of nestedDisplayFallbackRequestFields(field, relatedFields)) {
       const nested = fallback.slice(field.length + 1)
       if (canonicalRelatedPath(relatedFields, nested)) requestFields.add(fallback)
+    }
+
+    for (const nestedPath of fields) {
+      if (!nestedPath.includes('.')) continue
+      const [root] = nestedPath.split('.')
+      if (!root || !keysEqual(root, field)) continue
+      requestFields.add(nestedPath)
+      requestFields.add(`${nestedPath}.id`)
     }
 
     plans.push({
@@ -680,11 +756,7 @@ function relatedSourceLabel(
   template: string | undefined,
   id: string | number,
 ): string {
-  const templateFields = template ? extractTemplateFields(template) : []
-  if (template && shouldUseTemplateForRelatedLabel(template, templateFields)) {
-    return renderTemplateLabel(template, record)
-  }
-  return relatedRecordFallbackLabel(record, id)
+  return relatedRecordLabel(record, id, template)
 }
 
 function sourceRowDisplayLabel(
@@ -755,6 +827,7 @@ function applySourceM2ODisplayLabels(
       if (!value || typeof value !== 'object' || Array.isArray(value)) continue
 
       const record = value as Record<string, unknown>
+      stashNestedSourceScalars(item, plan.field, record)
       const id = scalarId(record.id)
       if (id === null || id === 0 || id === '0') {
         item[plan.field] = null
@@ -778,24 +851,124 @@ function applyTargetM2ODisplayValues(
 ): void {
   for (const plan of plans) {
     for (const item of items) {
-      const value = item[plan.field]
+      const key = resolveRecordKey(item, plan.field)
+      if (!key) continue
+      const value = item[key]
       if (!value || typeof value !== 'object' || Array.isArray(value)) continue
       if ((value as Record<string, unknown>).__crmValueType === 'm2o') continue
 
       const record = value as Record<string, unknown>
       const id = scalarId(record.id)
       if (id === null || id === 0 || id === '0') {
-        item[plan.field] = null
+        item[key] = null
         continue
       }
 
-      item[plan.field] = {
+      item[key] = {
         __crmValueType: 'm2o',
         id,
         label: relatedSourceLabel(record, plan.template, id),
       }
     }
   }
+}
+
+/** Relation id stored as a scalar, an expanded record, or an m2o label. */
+function relationCellId(value: unknown): string | null {
+  if (value == null || value === '') return null
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) return null
+    const id = scalarId((value as Record<string, unknown>).id)
+    if (id === null || id === 0 || id === '0') return null
+    return String(id)
+  }
+  const id = scalarId(value)
+  if (id === null || id === 0 || id === '0') return null
+  return String(id)
+}
+
+/** True when a selected cell is still the relation id, not a display name. */
+function rawRelationId(value: unknown): string | null {
+  if (value == null || value === '') return null
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) return null
+    const record = value as Record<string, unknown>
+    if (record.__crmValueType !== 'm2o') return relationCellId(value)
+    const id = relationCellId(value)
+    if (!id) return null
+    const label = String(record.label ?? '').trim()
+    if (label && label !== id) return null
+    return id
+  }
+  return relationCellId(value)
+}
+
+async function fillRawRelationLabels(
+  rows: Record<string, unknown>[],
+  plan: SourceM2ODisplayPlan,
+): Promise<void> {
+  const pending: Array<{ row: Record<string, unknown>; key: string; id: string }> = []
+  for (const row of rows) {
+    const key = resolveRecordKey(row, plan.field)
+    if (!key) continue
+    // A collection display template (for example Item → Description) replaces
+    // a name/code fallback. Without a template, keep an existing label.
+    const id = plan.template ? relationCellId(row[key]) : rawRelationId(row[key])
+    if (!id) continue
+    pending.push({ row, key, id })
+  }
+  if (!pending.length) return
+
+  const ids = Array.from(new Set(pending.map((entry) => entry.id)))
+  let related: Record<string, unknown>[] = []
+  try {
+    related = await readRelatedTransferItems(plan.relatedCollection, {
+      limit: ids.length,
+      filter: { id: { _in: ids } },
+      includeDeleted: true,
+    })
+  } catch {
+    return
+  }
+
+  const byId = new Map<string, Record<string, unknown>>()
+  for (const record of related) {
+    const id = scalarId(record.id)
+    if (id !== null) byId.set(String(id), record)
+  }
+
+  for (const entry of pending) {
+    const record = byId.get(entry.id)
+    if (!record) continue
+    const label = relatedSourceLabel(record, plan.template, entry.id)
+    if (!label || label === entry.id) continue
+    entry.row[entry.key] = {
+      __crmValueType: 'm2o',
+      id: entry.id,
+      label,
+    }
+  }
+}
+
+export async function labelTargetRelationCells(
+  rows: Record<string, unknown>[],
+  currentSettings: RelatedTransferSettings,
+): Promise<Record<string, unknown>[]> {
+  const columnFields = currentSettings.target.columns
+    .map((column) => column.field)
+    .filter(Boolean)
+  if (!rows.length || !currentSettings.target.collection || columnFields.length === 0) {
+    return rows
+  }
+
+  const plans = await sourceM2ODisplayPlans(
+    currentSettings.target.collection,
+    columnFields,
+    await collectionFields(currentSettings.target.collection),
+  )
+  applyTargetM2ODisplayValues(rows, plans)
+  await Promise.all(plans.map((plan) => fillRawRelationLabels(rows, plan)))
+  return rows
 }
 
 export async function loadSourceItems(
@@ -807,9 +980,16 @@ export async function loadSourceItems(
   const availableFields = sourceDefinitions
     ? new Set(sourceDefinitions.map((field) => field.field))
     : null
+  const resolvedGroupFieldPath = await resolveSourceItemGroupFieldPath(
+    sourceSettings.itemCollection,
+    sourceSettings.itemGroupField,
+    sourceSettings.groupCollection,
+    sourceDefinitions,
+  )
   const fields = filterKnownFields(Array.from(new Set([
     sourceSettings.itemPrimaryKey || 'id',
     sourceSettings.itemGroupField,
+    resolvedGroupFieldPath,
     ...(sourceSettings.itemLabelFields ?? []),
     ...(sourceSettings.fields ?? []),
     ...Object.values(currentSettings.mapping?.copyFromSource ?? {}),
@@ -906,6 +1086,8 @@ export async function loadSourceItems(
     ctx.t('relatedTransfer.sourceItemsContext', 'source item collection'),
     ctx.t,
   )
+  // Capture group ids before M2O display flattening replaces nested objects with scalars.
+  stashSourceItemGroupIds(items, resolvedGroupFieldPath)
   const sourceRecordLabels = applySourceM2ODisplayLabels(items, m2oPlans, choiceLabels, {
     primaryKey: sourceSettings.itemPrimaryKey || 'id',
     template: sourceTemplate,
@@ -992,6 +1174,7 @@ export async function loadTargetRows(
     t,
   )
   applyTargetM2ODisplayValues(rows, m2oPlans)
+  await Promise.all(m2oPlans.map((plan) => fillRawRelationLabels(rows, plan)))
   return rows
 }
 

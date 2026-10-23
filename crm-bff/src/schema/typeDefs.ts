@@ -321,6 +321,11 @@ export const typeDefs = /* GraphQL */ `
     revisionIds: [ID!]!
   }
 
+  type RecordActivityPage {
+    nodes: [RecordActivity!]!
+    totalCount: Int!
+  }
+
   type RecordRevision {
     id: ID!
     activityId: ID
@@ -408,7 +413,8 @@ export const typeDefs = /* GraphQL */ `
       recordId: ID!
       actions: [String!]
       limit: Int = 50
-    ): [RecordActivity!]!
+      offset: Int = 0
+    ): RecordActivityPage!
     recordRevisions(
       entity: String!
       recordId: ID!
@@ -488,6 +494,18 @@ export const typeDefs = /* GraphQL */ `
     """Admin: cron jobs owned by the BFF scheduler."""
     scheduledTasks: [ScheduledTask!]!
     scheduledTaskRuns(taskId: ID!, limit: Int = 20): [ScheduledTaskRun!]!
+    """
+    Group hierarchy with nested prices (exact group-field match per node).
+    config is required: collections + parent/group/scope field paths from Tree settings.
+    Always returns { tree, rows, sections }. When flatten is false, rows is [].
+    """
+    itemGroupPriceTree(
+      priceGroupId: ID
+      filter: JSON
+      fields: [String!]
+      flatten: Boolean = true
+      config: JSON
+    ): JSON
   }
 
   type ScheduledTask {
@@ -640,6 +658,13 @@ export const typeDefs = /* GraphQL */ `
     totalCount: Int!
   }
 
+  """Result of bulkUpdateRelatedFromAction (sourcePath × multiplier → targetField)."""
+  type BulkUpdateRelatedResult {
+    createdCount: Int!
+    updatedCount: Int!
+    skippedCount: Int!
+  }
+
   type Mutation {
     upsertLayoutSetting(input: UpsertLayoutSettingInput!): LayoutSetting!
     deleteLayoutSetting(settingId: String!): Boolean!
@@ -734,5 +759,38 @@ export const typeDefs = /* GraphQL */ `
       providerIds: [ID!]
       facilityIds: [ID!]
     ): GenerateScheduleResult!
+    """
+    For each related row under the parent record, set targetField from a custom formula.
+    formula uses {{source}} (sourcePath value) and {{prompt}} (multiplier), e.g.
+    "{{source}} * (1 - {{prompt}} / 100)". Legacy presets multiply / percentOff still work.
+    When sourceCollection + sourceLinkField are set, upserts related rows from the source
+    collection (optionally active only) before applying the formula.
+    Used by Record Action behavior bulkUpdateRelated.
+    """
+    bulkUpdateRelatedFromAction(
+      collection: String!
+      recordId: ID!
+      relatedCollection: String!
+      targetField: String!
+      sourcePath: String!
+      multiplier: Float!
+      formula: String = "{{source}} * {{prompt}}"
+      sourceCollection: String
+      sourceLinkField: String
+      activeSourcesOnly: Boolean = true
+    ): BulkUpdateRelatedResult!
+    """
+    Patch rows in a list collection matching filter or explicit ids using a custom formula.
+    Used by List View Action behavior bulkUpdate (filtered / visible scope).
+    """
+    bulkUpdateFilteredFromAction(
+      collection: String!
+      targetField: String!
+      sourcePath: String!
+      multiplier: Float!
+      formula: String = "{{source}} * {{prompt}}"
+      filter: JSON
+      recordIds: [ID!]
+    ): BulkUpdateRelatedResult!
   }
 `

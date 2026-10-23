@@ -372,6 +372,11 @@ export async function resolvePinnedListViewId(
 ): Promise<string | null> {
   if (!pinnedId) return null
 
+  // Predefined views (All records / Recently Viewed) are valid pin targets.
+  if (isPredefinedListViewId(pinnedId)) {
+    return pinnedId
+  }
+
   const views = await resolveListViewsForCurrentUser(collection)
   if (views.some((view) => view.id === pinnedId)) {
     return pinnedId

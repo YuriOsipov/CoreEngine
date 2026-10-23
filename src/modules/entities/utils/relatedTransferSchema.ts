@@ -148,3 +148,57 @@ export function isFieldM2O(
   return special.includes('m2o') ||
     Boolean(relationRelatedCollection(relation) || relation?.related_collection)
 }
+
+/**
+ * Resolve the path used to match source rows to tree groups.
+ * Supports nested paths (e.g. `item.group`). When a top-level M2O does not
+ * point at the group collection, walk one hop (Item Price.item → Item.group).
+ */
+export async function resolveSourceItemGroupFieldPath(
+  sourceCollection: string,
+  itemGroupField: string | undefined,
+  groupCollection: string | undefined,
+  sourceDefinitions: FieldDefinition[] | null,
+): Promise<string> {
+  const field = itemGroupField?.trim() || ''
+  if (!field || !groupCollection || !sourceCollection) return field
+  if (field.includes('.')) return resolveFieldPath(sourceDefinitions, field)
+
+  const rootField = resolveFieldPath(sourceDefinitions, field)
+  const rootRelated = await relationCollectionForField(
+    sourceCollection,
+    rootField,
+    sourceDefinitions,
+  )
+  if (!rootRelated) return rootField
+
+  const resolvedGroup = await resolveCollectionKey(groupCollection)
+  const resolvedRelated = await resolveCollectionKey(rootRelated)
+  if (keysEqual(resolvedRelated, resolvedGroup)) return rootField
+
+  const relatedFields = await collectionFields(resolvedRelated)
+  if (!relatedFields?.length) return rootField
+
+  const relations = await getCachedRelations() as RelationDefinition[]
+  const bridges = relatedFields.filter((relatedField) => {
+    if (!isFieldM2O(resolvedRelated, relatedField.field, relatedFields, relations)) {
+      return false
+    }
+    const fk = relatedField.schema?.foreign_key_table
+    if (fk && keysEqual(fk, resolvedGroup)) return true
+    const relation = relations.find((item) =>
+      keysEqual(relationManyCollection(item), resolvedRelated) &&
+      keysEqual(relationField(item), relatedField.field),
+    )
+    const one = relationRelatedCollection(relation) || relation?.related_collection
+    return Boolean(one && keysEqual(one, resolvedGroup))
+  })
+
+  if (bridges.length === 0) return rootField
+
+  const preferred = bridges.find((item) =>
+    ['group', 'item_group', 'parent_group'].some((name) => keysEqual(item.field, name)),
+  ) ?? bridges[0]
+
+  return `${rootField}.${preferred.field}`
+}

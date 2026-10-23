@@ -7,10 +7,24 @@ export const SYSTEM_AUDIT_FIELDS = [
   'date_updated',
 ] as const
 
+export const SYSTEM_AUDIT_USER_FIELDS = ['user_created', 'user_updated'] as const
+
+/** Nested scalars requested so list cells can show a user name (mirrors record detail). */
+export const SYSTEM_AUDIT_USER_DISPLAY_FIELDS = [
+  'id',
+  'first_name',
+  'last_name',
+  'email',
+] as const
+
 export type SystemAuditFieldName = (typeof SYSTEM_AUDIT_FIELDS)[number]
 
 export function isSystemAuditFieldName(field: string): boolean {
   return (SYSTEM_AUDIT_FIELDS as readonly string[]).includes(field)
+}
+
+export function isSystemAuditUserFieldName(field: string): boolean {
+  return (SYSTEM_AUDIT_USER_FIELDS as readonly string[]).includes(field)
 }
 
 export function isSystemAuditLayoutField(field: LayoutFieldMetadata): boolean {

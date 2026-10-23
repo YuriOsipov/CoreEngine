@@ -9,8 +9,8 @@ import { computed, ref, watch } from 'vue'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
 import CrmBarcodeScanToolbar from '@/core/ui-kit/CrmBarcodeScanToolbar.vue'
 import CrmAutoComplete from '@/core/ui-kit/CrmAutoComplete.vue'
-import RelatedTransferField from '@/modules/entities/components/RelatedTransferField.vue'
-import { useDataTableCompact } from '../composables/useDataTableCompact'
+import BatchInsertDialog from '@/modules/entities/components/BatchInsertDialog.vue'
+import { useDataTableLazy } from '../composables/useDataTableLazy'
 import {
   fetchCollectionIcon,
   fetchCollectionLabel,
@@ -23,6 +23,7 @@ import {
 import { createObjectRecord } from '../services/recordDetails'
 import { extractRelationFieldId } from '../utils/recordDisplay'
 import type {
+  DataTableSettings,
   LayoutFieldMetadata,
   ListViewAction,
   RelatedTransferSettings,
@@ -36,7 +37,10 @@ import {
 } from '@/core/barcodeScan'
 import { useTranslation } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
-import { resolveRelatedRowLimit } from '../services/tableSettings'
+import {
+  normalizeTableSettings,
+  resolveRelatedRowLimit,
+} from '../services/tableSettings'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
 import { useToast } from 'openvue/usetoast'
@@ -157,40 +161,121 @@ const linkCollection = computed(
 
 const rowLimit = computed(() => resolveRelatedRowLimit(props.field.dataTable))
 
-const watchKey = computed(() => {
-  if (!props.field.relatedCollection) return ''
-  return [
-    props.field.field,
-    props.field.relatedCollection,
-    props.parentName ?? '',
-    props.parentId ?? '',
-    props.refreshKey ?? '',
-    JSON.stringify(props.field.dataTable ?? {}),
-    JSON.stringify(barcodeListFilter.value ?? null),
-  ].join('.')
+/** Column field for the sort indicator (e.g. `item`); API sort uses nested key. */
+const uiSortField = ref<string | null>(null)
+const uiSortOrder = ref<1 | -1 | null>(null)
+
+const tableSettings = computed<DataTableSettings | null>(() => {
+  if (!props.field.dataTable) return { columns: [] }
+  return normalizeTableSettings(props.field.dataTable)
 })
+
+const tableSortField = computed(
+  () =>
+    uiSortField.value ??
+    props.field.dataTable?.sort?.field ??
+    props.defaultSortField ??
+    null,
+)
+const tableSortOrder = computed<1 | -1 | null>(
+  () =>
+    uiSortOrder.value ??
+    props.field.dataTable?.sort?.order ??
+    props.defaultSortOrder ??
+    null,
+)
 
 const {
   runtime,
   loading,
   hasMore,
-  refreshRuntime,
+  pageSize,
+  reload,
+  handleSortChange: reloadWithSort,
+  resetSort,
   updateRows,
-} = useDataTableCompact({
-  maxRows: rowLimit,
-  enabled: () => props.active && canReadRelated.value,
-  watchKey,
-  fetchFn: async () =>
-    fetchDataTableRuntimeMetadata(
-      props.field.relatedCollection!,
+} = useDataTableLazy({
+  settings: tableSettings,
+  initialPageSize: rowLimit.value,
+  fetchFn: async ({ limit, offset, settings }) => {
+    if (!props.field.relatedCollection) {
+      return {
+        collection: '',
+        columns: [],
+        rows: [],
+        totalCount: 0,
+        primaryKey: 'id',
+      }
+    }
+    return fetchDataTableRuntimeMetadata(
+      props.field.relatedCollection,
       props.parentName,
       props.parentId,
-      rowLimit.value,
-      props.field.dataTable,
-      0,
+      limit,
+      settings,
+      offset,
       barcodeListFilter.value,
-    ),
+    )
+  },
 })
+
+async function refreshRuntime(): Promise<void> {
+  await reload(true)
+}
+
+function handleSortChange(
+  payload: Parameters<typeof reloadWithSort>[0],
+): void {
+  uiSortField.value = payload.field
+  uiSortOrder.value = payload.order
+  reloadWithSort(payload)
+}
+
+watch(
+  rowLimit,
+  (limit) => {
+    if (pageSize.value === limit) return
+    pageSize.value = limit
+    if (runtime.value) void reload(true)
+  },
+)
+
+watch(
+  () =>
+    [
+      props.active,
+      canReadRelated.value,
+      props.field.relatedCollection ?? '',
+      props.parentName ?? '',
+      String(props.parentId ?? ''),
+      String(props.refreshKey ?? ''),
+      JSON.stringify(barcodeListFilter.value ?? null),
+    ] as const,
+  ([active, canRead, related]) => {
+    if (!active || !canRead || !related) {
+      runtime.value = null
+      return
+    }
+    resetSort()
+    uiSortField.value = null
+    uiSortOrder.value = null
+    pageSize.value = rowLimit.value
+    void reload()
+  },
+  { immediate: true },
+)
+
+// Layout column config changes — reload but keep interactive sort if still valid.
+watch(
+  () => JSON.stringify(props.field.dataTable?.columns ?? null),
+  (next, prev) => {
+    if (prev === undefined || next === prev) return
+    if (!props.active || !canReadRelated.value || !props.field.relatedCollection) {
+      return
+    }
+    void reload(true)
+  },
+)
 
 watch(
   () =>
@@ -322,6 +407,15 @@ async function handleBatchSubmitted(): Promise<void> {
 
 function handleRelatedMutated(): void {
   void refreshRuntime()
+  emit('related-changed')
+}
+
+/**
+ * Inline / dialog edit already patches the edited row via `@update:rows`
+ * (and optional single-row `inlineEditRefresh`). Do not reload the whole
+ * related list — that discards the row patch and re-fetches every record.
+ */
+function handleRelatedUpdated(_row: Record<string, unknown>): void {
   emit('related-changed')
 }
 
@@ -696,6 +790,9 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
         :columns="runtime?.columns ?? []"
         :collection="field.relatedCollection"
         primary-key="id"
+        lazy
+        :has-more="false"
+        :loading="loading"
         :max-local-rows="rowLimit"
         :show-new-button="false"
         :show-delete-button="canShowDelete"
@@ -706,39 +803,33 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
         :parent-id="runtime?.parentId"
         :parent-collection="entity"
         :parent-record="parentRecord"
-        :default-sort-field="field.dataTable?.sort?.field ?? null"
-        :default-sort-order="field.dataTable?.sort?.order ?? null"
+        :default-sort-field="tableSortField"
+        :default-sort-order="tableSortOrder"
         :group-by="field.dataTable?.groupBy ?? null"
         :record-link-field="field.dataTable?.recordLinkField ?? null"
         :inline-edit-refresh="field.dataTable?.inlineEditRefresh ?? 'off'"
         :inline-edit-refresh-fields="field.dataTable?.inlineEditRefreshFields ?? []"
         :empty-message="resolvedEmptyMessage"
+        @sort-change="handleSortChange"
         @view-record="emit('view-record', $event)"
         @update:rows="updateRows"
         @record-created="handleRelatedMutated"
-        @record-updated="handleRelatedMutated"
+        @record-updated="handleRelatedUpdated"
         @record-deleted="handleRelatedMutated"
       />
     </template>
 
-    <Dialog
+    <BatchInsertDialog
       v-model:visible="batchInsertVisible"
-      modal
-      :header="t('relatedTransfer.batchInsertHeader', 'Batch insert {label}', { label: headerLabel })"
-      :style="{ width: 'min(1500px, 98vw)', maxHeight: '96vh' }"
-      :content-style="{ maxHeight: 'calc(96vh - 5rem)', overflow: 'hidden' }"
-    >
-      <RelatedTransferField
-        :settings="resolvedRelatedTransfer"
-        :label="translatedLabel || field.label"
-        :parent-record="parentRecord ?? {}"
-        :parent-collection="entity"
-        :parent-id="runtime?.parentId"
-        :target-parent-field="runtime?.parentName"
-        :current-target-rows="runtime?.rows ?? []"
-        @submitted="handleBatchSubmitted"
-      />
-    </Dialog>
+      :settings="resolvedRelatedTransfer"
+      :label="translatedLabel || field.label"
+      :parent-record="parentRecord ?? {}"
+      :parent-collection="entity"
+      :parent-id="runtime?.parentId"
+      :target-parent-field="runtime?.parentName"
+      :current-target-rows="runtime?.rows ?? []"
+      @submitted="handleBatchSubmitted"
+    />
 
     <Dialog
       v-model:visible="linkDialogVisible"

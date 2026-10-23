@@ -22,6 +22,9 @@ import { extractRelationFieldId, scalarId } from '@/modules/entities/utils/recor
 const SYSTEM_SKIP_FIELDS = new Set([
   'id',
   'status',
+  'sort',
+  'is_deleted',
+  'is_active',
   'date_created',
   'date_updated',
   'user_created',
@@ -367,6 +370,12 @@ function buildClonePayload(
 
   if (!('status' in payload) && targetFields.has('status')) {
     payload.status = 'published'
+  }
+  if (!('is_deleted' in payload) && targetFields.has('is_deleted')) {
+    payload.is_deleted = false
+  }
+  if (!('is_active' in payload) && targetFields.has('is_active')) {
+    payload.is_active = true
   }
 
   return payload

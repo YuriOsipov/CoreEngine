@@ -130,10 +130,14 @@ export interface ActivityLogSettings {
 }
 
 export const DEFAULT_ACTIVITY_LOG_SETTINGS: Required<ActivityLogSettings> = {
-  maxItems: 50,
+  /** Visible rows on the record page widget (View all opens the full history). */
+  maxItems: 5,
   actions: ['create', 'update', 'delete'],
   showDeltas: true,
 }
+
+/** Page size for Activity log View-all infinite scroll. */
+export const ACTIVITY_LOG_PAGE_SIZE = 25
 
 export function normalizeActivityLogSettings(
   settings?: ActivityLogSettings | null,
@@ -150,6 +154,12 @@ export function normalizeActivityLogSettings(
 
 // Data-grid and scheduling types
 
+export interface DataTableNumberDisplayOptions {
+  prefix?: string
+  suffix?: string
+  decimalPlaces?: number
+}
+
 export interface DataTableColumnConfig {
   field: string
   header: string
@@ -157,6 +167,8 @@ export interface DataTableColumnConfig {
   relatedCollection?: string
   template?: string
   format?: string
+  /** Currency / number display options from field meta (list cells). */
+  numberDisplay?: DataTableNumberDisplayOptions | null
   enabled?: boolean
   /** When true, this list / related-list column can be edited inline. Default off. */
   inlineEditable?: boolean
@@ -209,22 +221,45 @@ export interface ListViewDetailPanel {
 /** Rows fed into a list DocEngine report. */
 export type ListViewActionRecordScope = 'filtered' | 'visible'
 
+export type ListViewActionBehavior = 'openDocument' | 'bulkUpdate'
+
+/**
+ * Prompt + formula bulk patch for rows in the current list collection
+ * (same tokens as record-action bulk update: `{{source}}`, `{{prompt}}`).
+ */
+export interface ListViewBulkUpdateSettings {
+  /** Writable field on list rows to patch (admin-selected). */
+  targetField: string
+  /** Dotted path on each row for the source number (e.g. item.base_price). */
+  sourcePath: string
+  /**
+   * Arithmetic expression using `{{source}}` and `{{prompt}}`.
+   * Example: `{{source}} * (1 - {{prompt}} / 100)`
+   */
+  formula?: string
+  /** Label for the numeric prompt dialog. */
+  promptLabel?: string
+  confirmBeforeRun?: boolean
+  successMessage?: string
+}
+
 /**
  * Toolbar action on object / related list tables.
- * Option B: one document populated from `{ records: [...] }`.
+ * - openDocument: DocEngine list report from `{ records: [...] }`
+ * - bulkUpdate: prompt + formula patch on filtered / visible rows
  */
 export interface ListViewAction {
   id: string
   label: string
-  /** Always openDocument for list reports (extensible later). */
-  behavior: 'openDocument'
-  document: {
+  behavior: ListViewActionBehavior
+  document?: {
     templateId: string | null
     viewMode?: 'html' | 'pdf'
     /** List reports default to skip fill (direct preview). */
     skipInteractiveFill?: boolean
   }
-  /** Which rows become `$payload.records`. Default: filtered. */
+  bulkUpdate?: ListViewBulkUpdateSettings
+  /** Which rows are included. Default: filtered. */
   recordScope?: ListViewActionRecordScope
 }
 
@@ -292,6 +327,10 @@ export interface RelatedTransferSourceSettings {
   groupParentField?: string | null
   groupLabelField?: string
   itemPrimaryKey?: string
+  /**
+   * Field on the source item that links to the tree group.
+   * Supports nested paths (e.g. `item.group` when source is Item Price).
+   */
   itemGroupField?: string
   itemLabelFields?: string[]
   /** Extra fields to request from source items for mapping/default display. */
@@ -315,7 +354,7 @@ export interface RelatedTransferTargetSettings {
   columns: DataTableColumnConfig[]
   /** Target fields editable for pending rows before submit, e.g. ['Quantity']. */
   editableFields?: string[]
-  /** Default values pre-filled for editable destination fields when a source item is added, e.g. { qty: 1 }. */
+  /** Default values pre-filled for editable destination fields when a source item is added, e.g. { qty: 1 } or { Quantity: '$source.Item.MinQty' }. */
   defaultValues?: Record<string, unknown>
   /** Default values pre-filled into editable fields when a pending row is created, e.g. { qty: 1 }. */
   editableFieldDefaults?: Record<string, unknown>
@@ -369,6 +408,8 @@ export interface TreeTableSettings {
     primaryKey: string
     labelField?: string
     labelFields: string[]
+    /** Default sort for the items pane. */
+    sort?: DataTableSortConfig | null
   }
   destination: {
     collection: string

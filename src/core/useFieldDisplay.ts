@@ -37,6 +37,14 @@ export function useFieldDisplay(entity: () => string) {
       const relationId = relatedFieldRelationId(rawValue)
       if (relationId === null) return '-'
 
+      // Prefer async labels (entity display_template). Nested M2O payloads often
+      // only include the default name field, which must not win over the template.
+      const key = relatedDisplay.cacheKey(field, relationId)
+      if (relatedDisplay.keys[field.field] === key) {
+        const resolved = relatedDisplay.labels[field.field]
+        if (resolved) return resolved
+      }
+
       if (rawValue && typeof rawValue === 'object') {
         const inlineLabel = relatedRecordFallbackLabel(rawValue, relationId)
         if (inlineLabel && inlineLabel !== String(relationId)) {
@@ -44,11 +52,9 @@ export function useFieldDisplay(entity: () => string) {
         }
       }
 
-      const key = relatedDisplay.cacheKey(field, relationId)
-      if (relatedDisplay.keys[field.field] === key) {
-        return relatedDisplay.labels[field.field] || '-'
-      }
-      return '-'
+      return relatedDisplay.keys[field.field] === key
+        ? relatedDisplay.labels[field.field] || '-'
+        : '-'
     }
 
     const choiceLabels = choiceDisplay.labels[field.field]

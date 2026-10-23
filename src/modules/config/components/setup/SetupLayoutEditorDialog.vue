@@ -168,7 +168,8 @@ const dialogStyle = computed(() => {
   if (!isCompactDialog.value) {
     return { width: '95vw', height: '95vh' }
   }
-  // Scheduler needs more width for multi-field rows; tree stays tighter.
+  // Scheduler needs more width for multi-field rows; tree needs enough for
+  // layout name + role + save/delete on one toolbar line.
   // Fixed height keeps the window stable across scheduler tabs.
   if (props.layoutType === 'scheduler') {
     return {
@@ -176,7 +177,7 @@ const dialogStyle = computed(() => {
       height: 'min(860px, 88vh)',
     }
   }
-  return { width: 'min(720px, 92vw)' }
+  return { width: 'min(960px, 92vw)' }
 })
 
 const dialogContentStyle = computed(() => {

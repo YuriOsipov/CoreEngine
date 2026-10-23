@@ -5,7 +5,13 @@
 import { query } from '../db/pool.js'
 import { clearComputedFieldMetaCache } from '../computed/fieldMeta.js'
 import { syncAutoNumberCounterFromOptions } from '../computed/applyAutoNumber.js'
-import { clearCrmStorageCache, normalizeOnDelete, resolveCrmStorageConfig, shouldPromoteField } from './crmStorage.js'
+import {
+  clearCrmStorageCache,
+  normalizeFloatFieldOptions,
+  normalizeOnDelete,
+  resolveCrmStorageConfig,
+  shouldPromoteField,
+} from './crmStorage.js'
 import { applyDdlActions, planEntityDdlSync } from './ddlSync.js'
 import {
   applyUniqueIndexActions,
@@ -629,6 +635,11 @@ export async function createRegistryField(
       )[0]?.next ?? 10,
     )
 
+  const fieldOptions =
+    fieldType === 'FLOAT'
+      ? normalizeFloatFieldOptions(input.options)
+      : asObject(input.options)
+
   const inserted = await query<{ id: string }>(
     `INSERT INTO public.fields (
        entity_id, api_name, label, field_type, interface,
@@ -644,7 +655,7 @@ export async function createRegistryField(
       String(input.label || apiName).trim() || apiName,
       fieldType,
       iface,
-      JSON.stringify(asObject(input.options)),
+      JSON.stringify(fieldOptions),
       JSON.stringify(asObject(input.displayOptions)),
       Boolean(input.required),
       Boolean(input.readonly),
@@ -704,6 +715,7 @@ export async function updateRegistryField(
     entity_id: string
     api_name: string
     field_type: string
+    options: Record<string, unknown> | null
     is_system: boolean
     entity_api_name: string
     relation_kind: string | null
@@ -712,6 +724,7 @@ export async function updateRegistryField(
             f.entity_id::text AS entity_id,
             f.api_name,
             f.field_type,
+            f.options,
             f.is_system,
             e.api_name AS entity_api_name,
             r.kind AS relation_kind
@@ -769,6 +782,20 @@ export async function updateRegistryField(
         defaultInterfaceForType(nextType, relationKind ?? null)
       : undefined
 
+  let nextOptionsJson: string | null = null
+  if (input.options !== undefined || String(nextType).toUpperCase() === 'FLOAT') {
+    const baseOptions =
+      input.options !== undefined
+        ? asObject(input.options)
+        : asObject(current.options)
+    nextOptionsJson =
+      String(nextType).toUpperCase() === 'FLOAT'
+        ? JSON.stringify(normalizeFloatFieldOptions(baseOptions))
+        : input.options !== undefined
+          ? JSON.stringify(baseOptions)
+          : null
+  }
+
   await query(
     `UPDATE public.fields SET
        api_name = COALESCE($2, api_name),
@@ -791,7 +818,7 @@ export async function updateRegistryField(
       input.label !== undefined ? String(input.label).trim() : null,
       input.type ? nextType : null,
       iface ?? null,
-      input.options !== undefined ? JSON.stringify(asObject(input.options)) : null,
+      nextOptionsJson,
       input.displayOptions !== undefined
         ? JSON.stringify(asObject(input.displayOptions))
         : null,

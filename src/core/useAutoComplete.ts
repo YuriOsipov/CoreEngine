@@ -24,6 +24,14 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
     }
   }
 
+  function seedSelection(fieldName: string, option: AutoCompleteOption): void {
+    selections[fieldName] = option
+    formState.value = {
+      ...formState.value,
+      [fieldName]: option.value,
+    }
+  }
+
   function relationPickerFields(fields: LayoutFieldMetadata[]): LayoutFieldMetadata[] {
     return fields.filter(
       (field) => isAutoCompleteField(field) || isRelationPickerField(field),
@@ -75,7 +83,12 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
         continue
       }
       if (selections[field.field]?.value === value) continue
-      selections[field.field] = null
+      // Keep a provisional option so AutoComplete is not null while the label
+      // loads — a null modelValue can emit clear and wipe prefilled FKs.
+      selections[field.field] = {
+        label: String(value),
+        value: value as string | number,
+      }
     }
   }
 
@@ -87,7 +100,14 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
     if (!field.relatedCollection || value === null) {
       return
     }
-    if (selections[field.field]?.value === value) return
+    const existing = selections[field.field]
+    if (
+      existing?.value === value &&
+      existing.label &&
+      existing.label !== String(value)
+    ) {
+      return
+    }
 
     const option = await fetchRelatedCollectionOptionById(
       field.relatedCollection,
@@ -96,6 +116,12 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
     )
     if (option) {
       selections[field.field] = option
+      if (extractRelationFieldId(formState.value[field.field]) === null) {
+        formState.value = {
+          ...formState.value,
+          [field.field]: option.value,
+        }
+      }
     }
   }
 
@@ -107,5 +133,13 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
     await syncSelectionLabel(field, template)
   }
 
-  return { selections, templates, updateValue, syncSelections, syncSelectionLabel, onAutoComplete }
+  return {
+    selections,
+    templates,
+    updateValue,
+    seedSelection,
+    syncSelections,
+    syncSelectionLabel,
+    onAutoComplete,
+  }
 }

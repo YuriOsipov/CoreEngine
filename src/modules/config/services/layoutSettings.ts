@@ -708,9 +708,18 @@ function normalizeChildLookupSetting(
   const collection = String(body.collection ?? '').trim()
   const childSourceField = String(body.childSourceField ?? '').trim()
   const valueField = String(body.valueField ?? '').trim()
-  // Lookup-query mode requires the child collection wiring; source-field-only
-  // mode (scalar default from source) only needs sourceField (+ optional default).
-  if (collection && (!childSourceField || !valueField)) {
+  const filter =
+    body.filter && typeof body.filter === 'object' && !Array.isArray(body.filter)
+      ? (body.filter as Record<string, unknown>)
+      : null
+  const hasFilter = Boolean(filter && Object.keys(filter).length > 0)
+  // Lookup-query mode requires collection + valueField. Child source field is
+  // optional when a Lookup filter scopes rows (direct related-entity picklists).
+  // Source-field-only mode (scalar default) only needs sourceField (+ optional default).
+  if (collection && !valueField) {
+    return null
+  }
+  if (collection && !childSourceField && !hasFilter) {
     return null
   }
 
@@ -721,7 +730,7 @@ function normalizeChildLookupSetting(
     valueField,
     defaultValueField: body.defaultValueField ?? '',
     parentField: body.parentField ?? '',
-    filter: body.filter ?? null,
+    filter,
   }
 }
 
@@ -840,6 +849,16 @@ function normalizeCloneRelatedChildren(
     })
 }
 
+const DEFAULT_BULK_UPDATE_FORMULA = '{{source}} * {{prompt}}'
+
+function normalizeBulkUpdateFormula(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_BULK_UPDATE_FORMULA
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === 'multiply') return DEFAULT_BULK_UPDATE_FORMULA
+  if (trimmed === 'percentOff') return '{{source}} * (1 - {{prompt}} / 100)'
+  return trimmed
+}
+
 function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityAction[] {
   if (!Array.isArray(actions)) return []
 
@@ -882,6 +901,49 @@ function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityA
               || action.cloneRelated?.replaceExisting === 1
               || action.cloneRelated?.replaceExisting === 'true'
               || action.cloneRelated?.replaceExisting === '1',
+          },
+        }
+      }
+
+      if (action.behavior === 'bulkUpdateRelated') {
+        const bulk = action.bulkUpdateRelated
+        const sourceCollection =
+          typeof bulk?.sourceCollection === 'string'
+            ? bulk.sourceCollection.trim()
+            : ''
+        const sourceLinkField =
+          typeof bulk?.sourceLinkField === 'string'
+            ? bulk.sourceLinkField.trim()
+            : ''
+        return {
+          id: action.id || `action_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`,
+          name: action.name || action.label || 'bulk_update_related',
+          label: action.label || action.name || 'Bulk update related',
+          displayType: action.displayType === 'detailLink' ? 'detailLink' : 'detailButton',
+          behavior: 'bulkUpdateRelated' as const,
+          bulkUpdateRelated: {
+            relatedCollection:
+              typeof bulk?.relatedCollection === 'string'
+                ? bulk.relatedCollection.trim()
+                : '',
+            targetField:
+              typeof bulk?.targetField === 'string' ? bulk.targetField.trim() : '',
+            sourcePath:
+              typeof bulk?.sourcePath === 'string' ? bulk.sourcePath.trim() : '',
+            ...(sourceCollection
+              ? {
+                  sourceCollection,
+                  sourceLinkField,
+                  activeSourcesOnly: bulk?.activeSourcesOnly !== false,
+                }
+              : {}),
+            formula: normalizeBulkUpdateFormula(bulk?.formula),
+            promptLabel:
+              typeof bulk?.promptLabel === 'string' ? bulk.promptLabel.trim() : '',
+            confirmBeforeRun: bulk?.confirmBeforeRun ?? true,
+            successMessage:
+              bulk?.successMessage ?? 'Related records updated.',
+            refreshRecordAfterRun: bulk?.refreshRecordAfterRun ?? true,
           },
         }
       }

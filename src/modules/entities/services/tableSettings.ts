@@ -223,6 +223,16 @@ function normalizeInlineEditRefreshFields(
   return fields
 }
 
+const DEFAULT_LIST_BULK_FORMULA = '{{source}} * {{prompt}}'
+
+function normalizeListBulkFormula(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_LIST_BULK_FORMULA
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === 'multiply') return DEFAULT_LIST_BULK_FORMULA
+  if (trimmed === 'percentOff') return '{{source}} * (1 - {{prompt}} / 100)'
+  return trimmed
+}
+
 export function normalizeListViewActions(
   actions: DataTableSettings['actions'],
 ): ListViewAction[] | null {
@@ -234,9 +244,34 @@ export function normalizeListViewActions(
       const label = String(action.label ?? '').trim()
       if (!label) return null
       const id = String(action.id ?? '').trim() || `list_action_${index + 1}`
+      const recordScope = action.recordScope === 'visible' ? 'visible' : 'filtered'
+
+      if (action.behavior === 'bulkUpdate') {
+        const bulk = action.bulkUpdate
+        return {
+          id,
+          label,
+          behavior: 'bulkUpdate',
+          bulkUpdate: {
+            targetField:
+              typeof bulk?.targetField === 'string' ? bulk.targetField.trim() : '',
+            sourcePath:
+              typeof bulk?.sourcePath === 'string' ? bulk.sourcePath.trim() : '',
+            formula: normalizeListBulkFormula(bulk?.formula),
+            promptLabel:
+              typeof bulk?.promptLabel === 'string' ? bulk.promptLabel.trim() : '',
+            confirmBeforeRun: bulk?.confirmBeforeRun !== false,
+            successMessage:
+              typeof bulk?.successMessage === 'string' && bulk.successMessage.trim()
+                ? bulk.successMessage.trim()
+                : 'Records updated.',
+          },
+          recordScope,
+        }
+      }
+
       const templateId = action.document?.templateId?.trim() || null
       const viewMode = action.document?.viewMode === 'html' ? 'html' : 'pdf'
-      const recordScope = action.recordScope === 'visible' ? 'visible' : 'filtered'
       return {
         id,
         label,

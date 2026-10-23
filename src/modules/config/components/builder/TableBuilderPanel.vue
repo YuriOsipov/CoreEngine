@@ -522,6 +522,7 @@ watch(layoutRoleId, async () => {
       v-else
       v-model="tableSettings"
       :collection="collection"
+      :list-view-id="activeViewId"
       :list-view-conditions="activeListViewConditions"
       hide-batch-insert
       class="min-h-0 flex-1"

@@ -7,6 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useConfirm } from 'openvue/useconfirm'
+import { useToast } from 'openvue/usetoast'
 import FormRenderer from './FormRenderer.vue'
 import type { EntityLayoutSchema } from '@/interfaces'
 import {
@@ -43,6 +44,7 @@ const emit = defineEmits<{
 
 const { t } = useTranslation()
 const confirm = useConfirm()
+const toast = useToast()
 const { canDelete: canDeleteRecord, canUpdate: canUpdateRecord } =
   useEntityPermissions(() => props.collection)
 const showDeleteAction = computed(
@@ -50,6 +52,9 @@ const showDeleteAction = computed(
 )
 const layoutSchema = ref<EntityLayoutSchema | null>(null)
 const formDraft = ref<Record<string, unknown>>({})
+const formRendererRef = ref<{ validateRequired: () => { valid: boolean; missingLabels: string[] } } | null>(
+  null,
+)
 const originalRecord = ref<Record<string, unknown> | null>(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -145,6 +150,19 @@ function updateVisible(visible: boolean): void {
 async function saveRecord(): Promise<void> {
   const recordId = props.recordId
   if (!editLayoutSchema.value || !originalRecord.value || recordId === null) return
+
+  const validation = formRendererRef.value?.validateRequired()
+  if (validation && !validation.valid) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: t('formRenderer.missingRequiredFields', 'Required fields are missing: {fields}', {
+        fields: validation.missingLabels.join(', '),
+      }),
+      life: 5000,
+    })
+    return
+  }
 
   saving.value = true
   error.value = null
@@ -251,8 +269,8 @@ async function restoreRecordConfirmed(recordId: string | number): Promise<void> 
 
   try {
     const restored = await restoreObjectRecord(props.collection, String(recordId))
-    originalRecord.value = { ...(originalRecord.value ?? {}), ...restored, status: 'published' }
-    formDraft.value = { ...formDraft.value, status: 'published' }
+    originalRecord.value = { ...(originalRecord.value ?? {}), ...restored, is_deleted: false }
+    formDraft.value = { ...formDraft.value, is_deleted: false }
     emit('updated', originalRecord.value)
   } catch (err) {
     error.value =
@@ -289,6 +307,7 @@ async function restoreRecordConfirmed(recordId: string | number): Promise<void> 
 
     <FormRenderer
       v-if="editLayoutSchema && !loading"
+      ref="formRendererRef"
       v-model="formDraft"
       :schema="editLayoutSchema"
       :record-id="recordId ?? undefined"

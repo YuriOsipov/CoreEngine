@@ -28,8 +28,6 @@ const TEMPLATE_FIELDS = [
   'default_duration_days',
   'default_statuses',
   'archived',
-  'status',
-  'sort',
 ] as const
 
 const TEMPLATE_TASK_FIELDS = [
@@ -46,7 +44,6 @@ const TEMPLATE_TASK_FIELDS = [
   'is_optional',
   'base_price',
   'pm_cost',
-  'sort',
 ] as const
 
 const TEMPLATE_TASK_ITEM_FIELDS = [
@@ -65,7 +62,6 @@ const TEMPLATE_TASK_ITEM_FIELDS = [
   'base_price',
   'total',
   'is_required',
-  'sort',
 ] as const
 
 function mapTemplate(row: Record<string, unknown>): PmProjectTemplateRecord {
@@ -130,7 +126,7 @@ export async function listProjectTemplates(includeArchived = false): Promise<PmP
   const rows = await bridgeReadItems(PM_PROJECT_TEMPLATE_COLLECTION, {
     filter,
     fields: [...TEMPLATE_FIELDS],
-    sort: ['sort', 'name'],
+    sort: ['name'],
     limit: 500,
   })
   return rows.map(mapTemplate)
@@ -154,7 +150,6 @@ export async function saveProjectTemplate(
     default_statuses: input.default_statuses ?? PM_DEFAULT_STATUSES,
     version: input.version ?? 1,
     archived: input.archived ?? false,
-    status: 'published',
   }
   const row = id
     ? await bridgeUpdateItem(PM_PROJECT_TEMPLATE_COLLECTION, id, payload, {
@@ -170,7 +165,7 @@ export async function listTemplateTasks(templateId: string): Promise<PmProjectTe
   const rows = await bridgeReadItems(PM_PROJECT_TEMPLATE_STAGE_COLLECTION, {
     filter: { template: { _eq: templateId } },
     fields: [...TEMPLATE_TASK_FIELDS],
-    sort: ['sort', 'offset_days', 'name'],
+    sort: ['offset_days', 'name'],
     limit: 2000,
   })
   return rows.map(mapTemplateTask)
@@ -193,8 +188,7 @@ export async function saveTemplateTask(
     is_optional: input.is_optional ?? false,
     base_price: input.base_price ?? 0,
     pm_cost: input.pm_cost ?? 0,
-    sort: input.sort ?? 0,
-    status: 'published',
+    is_active: true,
   }
   const row = id
     ? await bridgeUpdateItem(PM_PROJECT_TEMPLATE_STAGE_COLLECTION, id, payload, {
@@ -216,7 +210,7 @@ export async function listTemplateTaskItems(
   const rows = await bridgeReadItems(PM_PROJECT_TEMPLATE_STAGE_ITEM_COLLECTION, {
     filter: { template_stage: { _eq: templateTaskId } },
     fields: [...TEMPLATE_TASK_ITEM_FIELDS],
-    sort: ['sort', 'name'],
+    sort: ['name'],
     limit: 500,
   })
   return rows.map(mapTemplateTaskItem)

@@ -25,7 +25,10 @@ import {
   normalizeActivityLogSettings,
 } from '@/interfaces'
 import type { PaletteItem } from '@/modules/entities/utils/fieldPalette'
-import { buildLivePalette } from '@/modules/entities/services/collectionSchema'
+import {
+  buildLivePalette,
+  fetchFieldRuntimeMetadata,
+} from '@/modules/entities/services/collectionSchema'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
 import {
   loadCompactLayouts,
@@ -74,6 +77,7 @@ const PALETTE_ICONS: Record<string, string> = {
   tabs: '☰',
   actions: '⚡',
   fieldGroup: '§',
+  path: '➤',
 }
 
 const props = defineProps<{
@@ -178,11 +182,53 @@ function patchListDetailPanel(patch: Partial<RecordPageListDetailPanel> | null):
     patch.defaultCollapsed !== undefined
       ? patch.defaultCollapsed === true
       : current?.defaultCollapsed === true
+  const orientation =
+    patch.orientation !== undefined
+      ? patch.orientation === 'sideBySide'
+        ? 'sideBySide'
+        : 'stacked'
+      : current?.orientation === 'sideBySide'
+        ? 'sideBySide'
+        : 'stacked'
+  // Side-by-side always shows the full Page Layout on the right.
+  const contentMode =
+    orientation === 'sideBySide'
+      ? 'fullPageLayout'
+      : patch.contentMode !== undefined
+        ? patch.contentMode === 'fullPageLayout'
+          ? 'fullPageLayout'
+          : 'relatedLists'
+        : current?.contentMode === 'fullPageLayout'
+          ? 'fullPageLayout'
+          : 'relatedLists'
+  const relatedListsSource =
+    contentMode === 'fullPageLayout'
+      ? 'all'
+      : patch.relatedListsSource !== undefined
+        ? patch.relatedListsSource === 'block'
+          ? 'block'
+          : 'all'
+        : current?.relatedListsSource === 'block'
+          ? 'block'
+          : 'all'
+  const relatedListsBlockId =
+    contentMode === 'fullPageLayout'
+      ? null
+      : patch.relatedListsBlockId !== undefined
+        ? (typeof patch.relatedListsBlockId === 'string'
+            ? patch.relatedListsBlockId.trim() || null
+            : null)
+        : current?.relatedListsBlockId?.trim() || null
   const next: RecordPageListDetailPanel = {
     enabled: true,
+    contentMode,
+    orientation,
     masterSize: patch.masterSize ?? current?.masterSize ?? 60,
     detailMinSize: patch.detailMinSize ?? current?.detailMinSize ?? 15,
     ...(defaultCollapsed ? { defaultCollapsed: true } : {}),
+    ...(contentMode === 'relatedLists' && relatedListsSource === 'block'
+      ? { relatedListsSource: 'block', relatedListsBlockId }
+      : {}),
   }
   schema.value = { ...schema.value, listDetailPanel: next }
 }
@@ -190,8 +236,12 @@ function patchListDetailPanel(patch: Partial<RecordPageListDetailPanel> | null):
 function enableListDetailPanel(): void {
   patchListDetailPanel({
     enabled: true,
+    contentMode: schema.value.listDetailPanel?.contentMode ?? 'relatedLists',
+    orientation: schema.value.listDetailPanel?.orientation ?? 'stacked',
     masterSize: schema.value.listDetailPanel?.masterSize ?? 60,
     detailMinSize: schema.value.listDetailPanel?.detailMinSize ?? 15,
+    relatedListsSource: schema.value.listDetailPanel?.relatedListsSource ?? 'all',
+    relatedListsBlockId: schema.value.listDetailPanel?.relatedListsBlockId ?? null,
   })
 }
 
@@ -233,8 +283,111 @@ const listDetailDefaultCollapsed = computed({
   },
 })
 
+const listDetailOrientation = computed({
+  get: () =>
+    schema.value.listDetailPanel?.orientation === 'sideBySide' ? 'sideBySide' : 'stacked',
+  set: (orientation: 'stacked' | 'sideBySide') => {
+    if (!listDetailPanelEnabled.value) return
+    patchListDetailPanel({
+      orientation,
+      ...(orientation === 'sideBySide'
+        ? {
+            contentMode: 'fullPageLayout' as const,
+            // Narrower master pane suits compact record cards (Salesforce Split View).
+            masterSize: Math.min(schema.value.listDetailPanel?.masterSize ?? 30, 35),
+          }
+        : {}),
+    })
+  },
+})
+
+const listDetailContentMode = computed({
+  get: () =>
+    listDetailOrientation.value === 'sideBySide'
+    || schema.value.listDetailPanel?.contentMode === 'fullPageLayout'
+      ? 'fullPageLayout'
+      : 'relatedLists',
+  set: (contentMode: 'relatedLists' | 'fullPageLayout') => {
+    if (!listDetailPanelEnabled.value) return
+    if (listDetailOrientation.value === 'sideBySide') return
+    patchListDetailPanel({ contentMode })
+  },
+})
+
+const listDetailRelatedListsSource = computed({
+  get: () =>
+    schema.value.listDetailPanel?.relatedListsSource === 'block' ? 'block' : 'all',
+  set: (relatedListsSource: 'all' | 'block') => {
+    if (!listDetailPanelEnabled.value) return
+    patchListDetailPanel({
+      relatedListsSource,
+      relatedListsBlockId:
+        relatedListsSource === 'block'
+          ? schema.value.listDetailPanel?.relatedListsBlockId ?? null
+          : null,
+    })
+  },
+})
+
+const listDetailRelatedListsBlockId = computed({
+  get: () => schema.value.listDetailPanel?.relatedListsBlockId ?? null,
+  set: (relatedListsBlockId: string | null) => {
+    if (!listDetailPanelEnabled.value) return
+    patchListDetailPanel({ relatedListsSource: 'block', relatedListsBlockId })
+  },
+})
+
+const listDetailContentModeOptions = computed(() => [
+  {
+    label: t('recordPage.listDetailContentModeRelatedLists', 'Related lists'),
+    value: 'relatedLists' as const,
+  },
+  {
+    label: t('recordPage.listDetailContentModeFullPageLayout', 'Full page layout'),
+    value: 'fullPageLayout' as const,
+  },
+])
+
+const listDetailOrientationOptions = computed(() => [
+  {
+    label: t('recordPage.listDetailOrientationStacked', 'List above detail'),
+    value: 'stacked' as const,
+  },
+  {
+    label: t('recordPage.listDetailOrientationSideBySide', 'List beside detail'),
+    value: 'sideBySide' as const,
+  },
+])
+
+const listDetailRelatedSourceOptions = computed(() => [
+  {
+    label: t('recordPage.listDetailRelatedSourceAll', 'All related lists'),
+    value: 'all' as const,
+  },
+  {
+    label: t('recordPage.listDetailRelatedSourceBlock', 'From selected block layout'),
+    value: 'block' as const,
+  },
+])
+
+/** Block Layout Settings available for Detail panel related-list scope. */
+const listDetailBlockOptions = computed(() =>
+  pageLayouts.value.map((layout) => ({
+    label: layout.name,
+    value: layout.id,
+  })),
+)
+
+function hintTooltip(value: string) {
+  return { value, class: 'record-page-hint-tooltip' }
+}
+
 async function refreshListDetailPreview(): Promise<void> {
-  if (!props.collection || !listDetailPanelEnabled.value) {
+  if (
+    !props.collection
+    || !listDetailPanelEnabled.value
+    || listDetailContentMode.value === 'fullPageLayout'
+  ) {
     listDetailPreviewLabels.value = []
     return
   }
@@ -364,6 +517,13 @@ const structuralComponentItems = computed<RecordPagePaletteItem[]>(() => [
     label: t('recordPage.component.tabs', 'Tabs'),
     icon: PALETTE_ICONS.tabs,
     componentType: 'tabs',
+  },
+  {
+    id: 'cmp-path',
+    kind: 'component',
+    label: t('recordPage.component.path', 'Path'),
+    icon: PALETTE_ICONS.path,
+    componentType: 'path',
   },
 ])
 
@@ -512,10 +672,68 @@ const assignedFieldKeys = computed(() => {
   return keys
 })
 
+const pathPicklistFieldOptions = computed(() =>
+  fieldPaletteItems.value
+    .filter((item) =>
+      Boolean(item.fieldKey)
+      && (item.component === 'Select' || item.component === 'Dropdown'),
+    )
+    .map((item) => ({
+      label: item.label || item.fieldKey || '',
+      value: item.fieldKey,
+    })),
+)
+
+const pathTerminalSuccessOptions = ref<Array<{ label: string; value: string }>>([])
+
 const selectedComponent = computed(() => {
   if (!selectedComponentId.value) return null
   return findComponentById(selectedComponentId.value)
 })
+
+watch(
+  () =>
+    [
+      selectedComponent.value?.type,
+      selectedComponent.value?.terminalField,
+      props.collection,
+    ] as const,
+  async ([type, terminalField, collection]) => {
+    if (type !== 'path' || !terminalField || !collection) {
+      pathTerminalSuccessOptions.value = []
+      return
+    }
+    try {
+      const metadata = await fetchFieldRuntimeMetadata(collection, terminalField, 'Select')
+      const options = Array.isArray(metadata.props?.options)
+        ? metadata.props.options
+        : []
+      pathTerminalSuccessOptions.value = options
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const row = item as Record<string, unknown>
+          if (row.value === undefined || row.value === null) return null
+          const value = String(row.value)
+          const label =
+            typeof row.label === 'string' && row.label.trim()
+              ? row.label.trim()
+              : value
+          return { label, value }
+        })
+        .filter((item): item is { label: string; value: string } => item !== null)
+    } catch {
+      pathTerminalSuccessOptions.value = []
+    }
+  },
+  { immediate: true },
+)
+
+function updatePathTerminalField(value: string | null): void {
+  updateSelected({
+    terminalField: value ?? undefined,
+    successTerminalValues: value ? selectedComponent.value?.successTerminalValues : undefined,
+  })
+}
 
 const activityLogActionOptions = computed(() => [
   { label: t('activityLog.actionCreate', 'Created'), value: 'create' as ActivityLogAction },
@@ -612,6 +830,8 @@ function componentTypeLabel(type: RecordPageComponentType): string {
       return t('recordPage.component.field', 'Field')
     case 'fieldGroup':
       return t('recordPage.component.fieldGroup', 'Field group')
+    case 'path':
+      return t('recordPage.component.path', 'Path')
     default:
       return type
   }
@@ -693,6 +913,15 @@ function clonePaletteItem(item: RecordPagePaletteItem): RecordPageComponent {
       type,
       label: item.label,
       activityLog: { ...DEFAULT_ACTIVITY_LOG_SETTINGS },
+    }
+  }
+
+  if (type === 'path') {
+    return {
+      id: newId('cmp'),
+      type,
+      label: item.label,
+      field: undefined,
     }
   }
 
@@ -957,12 +1186,28 @@ watch(
 )
 
 watch(
-  () => [props.collection, schema.value.regions, schema.value.pageLayoutId, listDetailPanelEnabled.value] as const,
+  () =>
+    [
+      props.collection,
+      schema.value.regions,
+      schema.value.pageLayoutId,
+      listDetailPanelEnabled.value,
+      schema.value.listDetailPanel?.contentMode,
+      schema.value.listDetailPanel?.relatedListsSource,
+      schema.value.listDetailPanel?.relatedListsBlockId,
+    ] as const,
   () => {
     void refreshListDetailPreview()
   },
   { deep: true, immediate: true },
 )
+
+watch(listDetailBlockOptions, (options) => {
+  if (listDetailRelatedListsSource.value !== 'block') return
+  const selected = listDetailRelatedListsBlockId.value
+  if (selected && options.some((option) => option.value === selected)) return
+  listDetailRelatedListsBlockId.value = options[0]?.value ?? null
+})
 
 watch(
   [
@@ -1541,8 +1786,14 @@ watch(
           class="flex flex-col gap-4"
         >
           <div class="flex flex-col gap-[0.35rem]">
-            <label class="text-[0.85rem] font-medium">
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
               {{ t('recordPage.compactLayout', 'Compact Layout') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t('recordPage.compactLayoutHint', 'Fields shown in the Highlights panel.'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
             </label>
             <Select
               :model-value="selectedComponent.compactLayoutId"
@@ -1554,14 +1805,20 @@ watch(
               class="w-full"
               @update:model-value="updateSelected({ compactLayoutId: ($event as string | null) ?? null })"
             />
-            <p class="m-0 text-[0.75rem] text-muted-color">
-              {{ t('recordPage.compactLayoutHint', 'Fields shown in the Highlights panel.') }}
-            </p>
           </div>
 
           <div class="flex flex-col gap-[0.35rem]">
-            <label class="text-[0.85rem] font-medium">
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
               {{ t('recordPage.actionLayout', 'Actions from Block Layout') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.highlightsActionLayoutHint',
+                  'Custom actions from this Block Layout appear with Edit and Delete in the Highlights panel.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
             </label>
             <Select
               :model-value="selectedComponent.actionLayoutId"
@@ -1573,14 +1830,20 @@ watch(
               class="w-full"
               @update:model-value="updateSelected({ actionLayoutId: ($event as string | null) ?? null })"
             />
-            <p class="m-0 text-[0.75rem] text-muted-color">
-              {{ t('recordPage.highlightsActionLayoutHint', 'Custom actions from this Block Layout appear with Edit and Delete in the Highlights panel.') }}
-            </p>
           </div>
 
           <div class="flex flex-col gap-[0.35rem]">
-            <label class="text-[0.85rem] font-medium" for="highlights-visible-actions">
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium" for="highlights-visible-actions">
               {{ t('recordPage.visibleActionButtons', 'Visible Action Buttons') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.visibleActionButtonsHint',
+                  'Number of buttons shown before the overflow menu. Edit, Delete, and all custom actions are included automatically.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
             </label>
             <InputNumber
               input-id="highlights-visible-actions"
@@ -1593,9 +1856,6 @@ watch(
                 visibleActionButtons: typeof $event === 'number' ? $event : DEFAULT_VISIBLE_ACTION_BUTTONS,
               })"
             />
-            <p class="m-0 text-[0.75rem] text-muted-color">
-              {{ t('recordPage.visibleActionButtonsHint', 'Number of buttons shown before the overflow menu. Edit, Delete, and all custom actions are included automatically.') }}
-            </p>
           </div>
         </div>
 
@@ -1641,13 +1901,19 @@ watch(
               :model-value="selectedComponent.inlineLabels !== false"
               @update:model-value="updateSelected({ inlineLabels: Boolean($event) })"
             />
-            <label for="field-group-inline-labels" class="text-sm">
+            <label for="field-group-inline-labels" class="inline-flex items-center gap-1 text-sm">
               {{ t('formBuilder.inlineLabels', 'Inline labels') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.fieldGroupHint',
+                  'Drag fields from the Fields palette into this group on the canvas.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
             </label>
           </div>
-          <p class="m-0 text-[0.75rem] text-muted-color">
-            {{ t('recordPage.fieldGroupHint', 'Drag fields from the Fields palette into this group on the canvas.') }}
-          </p>
         </div>
 
         <div
@@ -1761,17 +2027,23 @@ watch(
           </div>
           <div class="flex flex-col gap-[0.35rem]">
             <div class="flex items-center justify-between gap-2">
-              <label for="record-page-field-inline-labels" class="text-[0.85rem] font-medium">
+              <label for="record-page-field-inline-labels" class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
                 {{ t('formBuilder.inlineLabels', 'Inline labels') }}
+                <button
+                  type="button"
+                  class="record-page-hint"
+                  v-tooltip.bottom="hintTooltip(t(
+                    'formBuilder.inlineLabelsHint',
+                    'Show labels beside values on wide screens; stack above values on small screens.',
+                  ))"
+                  :aria-label="t('common.moreInfo', 'More information')"
+                />
               </label>
               <ToggleSwitch
                 input-id="record-page-field-inline-labels"
                 v-model="selectedFieldInlineLabels"
               />
             </div>
-            <p class="m-0 text-[0.75rem] text-muted-color">
-              {{ t('formBuilder.inlineLabelsHint', 'Show labels beside values on wide screens; stack above values on small screens.') }}
-            </p>
           </div>
           <div
             v-if="selectedSupportsFormat"
@@ -1792,8 +2064,17 @@ watch(
           v-if="selectedComponent.type === 'relatedList'"
           class="flex flex-col gap-[0.35rem]"
         >
-          <label class="text-[0.85rem] font-medium">
+          <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
             {{ t('recordPage.relatedListBlockLayout', 'Block Layout') }}
+            <button
+              type="button"
+              class="record-page-hint"
+              v-tooltip.bottom="hintTooltip(t(
+                'recordPage.relatedListBlockLayoutHint',
+                'Shows DataTable, Files, and M2A related fields configured on this Block Layout.',
+              ))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
           </label>
           <Select
             :model-value="selectedComponent.pageLayoutId"
@@ -1805,45 +2086,147 @@ watch(
             class="w-full"
             @update:model-value="onRelatedListBlockLayoutChange(($event as string | null) ?? null)"
           />
-          <p class="m-0 text-[0.75rem] text-muted-color">
-            {{ t('recordPage.relatedListBlockLayoutHint', 'Shows DataTable, Files, and M2A related fields configured on this Block Layout.') }}
-          </p>
         </div>
 
         <div
           v-if="selectedComponent.type === 'files'"
           class="flex flex-col gap-[0.35rem]"
         >
-          <p class="m-0 text-[0.75rem] text-muted-color">
-            {{
-              t(
+          <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+            {{ t('recordPage.component.files', 'Files') }}
+            <button
+              type="button"
+              class="record-page-hint"
+              v-tooltip.bottom="hintTooltip(t(
                 'recordPage.filesSharedHint',
                 'Shows files attached to this record. Files is a shared object for every collection.',
-              )
-            }}
-          </p>
+              ))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </label>
+        </div>
+
+        <div
+          v-if="selectedComponent.type === 'path'"
+          class="flex flex-col gap-4"
+        >
+          <div class="flex flex-col gap-[0.35rem]">
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('recordPage.path.field', 'Picklist field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.path.fieldHint',
+                  'Open path stages come from this field’s picklist choices.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              :model-value="selectedComponent.field ?? null"
+              :options="pathPicklistFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('recordPage.path.selectField', 'Select a picklist field')"
+              show-clear
+              class="w-full"
+              @update:model-value="updateSelected({ field: ($event as string | null) ?? undefined })"
+            />
+          </div>
+
+          <div class="flex flex-col gap-[0.35rem]">
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('recordPage.path.terminalField', 'Terminal / outcome field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.path.terminalFieldHint',
+                  'Won / Lost / Cancel live on this field. Select Closed Status is always available; the open stage is kept so you know where progress stopped.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              :model-value="selectedComponent.terminalField ?? null"
+              :options="pathPicklistFieldOptions.filter((opt) => opt.value !== selectedComponent.field)"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('recordPage.path.selectTerminalField', 'Optional closed-status field')"
+              show-clear
+              class="w-full"
+              @update:model-value="updatePathTerminalField(($event as string | null) ?? null)"
+            />
+          </div>
+
+          <div
+            v-if="selectedComponent.terminalField"
+            class="flex flex-col gap-[0.35rem]"
+          >
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('recordPage.path.successTerminalValues', 'Success outcomes') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.path.successTerminalValuesHint',
+                  'These outcomes render green; all other terminal values render red.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <MultiSelect
+              :model-value="selectedComponent.successTerminalValues ?? []"
+              :options="pathTerminalSuccessOptions"
+              option-label="label"
+              option-value="value"
+              display="chip"
+              :placeholder="t('recordPage.path.selectSuccessOutcomes', 'e.g. Won')"
+              class="w-full"
+              @update:model-value="updateSelected({
+                successTerminalValues: Array.isArray($event) ? ($event as string[]) : [],
+              })"
+            />
+          </div>
         </div>
 
         <div
           v-if="selectedComponent.type === 'activityLog'"
           class="flex flex-col gap-3"
         >
-          <p class="m-0 text-[0.75rem] text-muted-color">
-            {{
-              t(
+          <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+            {{ t('recordPage.component.activityLog', 'Activity log') }}
+            <button
+              type="button"
+              class="record-page-hint"
+              v-tooltip.bottom="hintTooltip(t(
                 'activityLog.builderDescription',
-                'Read-only audit trail from activity and revisions',
-              )
-            }}
-          </p>
+                'Read-only audit trail from activity and revisions. The record page shows the latest N entries; View all opens the full history with lazy loading.',
+              ))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </label>
           <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
-            {{ t('activityLog.maxItems', 'Maximum entries') }}
+            <span class="inline-flex items-center gap-1">
+              {{ t('activityLog.maxItems', 'Visible entries') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'activityLog.maxItemsHint',
+                  'Rows shown on the record page (default {count}). Use View all for the full history.',
+                  { count: DEFAULT_ACTIVITY_LOG_SETTINGS.maxItems },
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
             <InputNumber
               :model-value="selectedActivityLogSettings.maxItems"
               :min="1"
-              :max="200"
+              :max="100"
               fluid
-              @update:model-value="updateActivityLogSettings({ maxItems: Number($event ?? 50) })"
+              @update:model-value="updateActivityLogSettings({ maxItems: Number($event ?? DEFAULT_ACTIVITY_LOG_SETTINGS.maxItems) })"
             />
           </label>
           <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
@@ -1882,8 +2265,24 @@ watch(
       >
         <section class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="m-0 text-[0.9rem] font-semibold">
+            <h3 class="m-0 inline-flex items-center gap-1.5 text-[0.9rem] font-semibold">
               {{ t('recordPage.region.sidebar', 'Sidebar') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(
+                  sidebarEnabled
+                    ? t(
+                        'recordPage.sidebarEnabledHint',
+                        'Sidebar is visible. Drag the divider between Main and Sidebar to resize panels.',
+                      )
+                    : t(
+                        'recordPage.sidebarDisabledHint',
+                        'Sidebar is hidden. Main uses the full page width. Components in Sidebar are kept.',
+                      ),
+                )"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
             </h3>
             <Button
               v-if="!sidebarEnabled"
@@ -1901,19 +2300,6 @@ watch(
               @click="sidebarEnabled = false"
             />
           </div>
-          <p class="m-0 text-[0.8rem] text-muted-color">
-            {{
-              sidebarEnabled
-                ? t(
-                    'recordPage.sidebarEnabledHint',
-                    'Sidebar is visible. Drag the divider between Main and Sidebar to resize panels.',
-                  )
-                : t(
-                    'recordPage.sidebarDisabledHint',
-                    'Sidebar is hidden. Main uses the full page width. Components in Sidebar are kept.',
-                  )
-            }}
-          </p>
           <div
             v-if="sidebarEnabled"
             class="flex flex-col gap-[0.35rem]"
@@ -1939,8 +2325,24 @@ watch(
 
         <section class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="m-0 text-[0.9rem] font-semibold">
+            <h3 class="m-0 inline-flex items-center gap-1.5 text-[0.9rem] font-semibold">
               {{ t('recordPage.listDetailPanel', 'Detail panel') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(
+                  listDetailPanelEnabled
+                    ? t(
+                        'recordPage.listDetailPanelEnabledHint',
+                        'On the object list, selecting a row shows related records from this Page Layout in a collapsible splitter panel.',
+                      )
+                    : t(
+                        'recordPage.listDetailPanelDisabledHint',
+                        'Enable a detail panel on the object list using Related List, Files, and related fields from this Page Layout.',
+                      ),
+                )"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
             </h3>
             <Button
               v-if="!listDetailPanelEnabled"
@@ -1958,21 +2360,109 @@ watch(
               @click="disableListDetailPanel"
             />
           </div>
-          <p class="m-0 text-[0.8rem] text-muted-color">
-            {{
-              listDetailPanelEnabled
-                ? t(
-                    'recordPage.listDetailPanelEnabledHint',
-                    'On the object list, selecting a row shows related records from this Page Layout in a collapsible splitter panel.',
-                  )
-                : t(
-                    'recordPage.listDetailPanelDisabledHint',
-                    'Enable a detail panel on the object list using Related List, Files, and related fields from this Page Layout.',
-                  )
-            }}
-          </p>
           <template v-if="listDetailPanelEnabled">
             <div class="flex flex-col gap-3">
+              <div class="flex flex-col gap-[0.35rem]">
+                <label
+                  class="inline-flex items-center gap-1 text-[0.8rem] font-medium"
+                  for="record-page-list-detail-orientation"
+                >
+                  {{ t('recordPage.listDetailOrientation', 'Panel layout') }}
+                  <button
+                    type="button"
+                    class="record-page-hint"
+                    v-tooltip.bottom="hintTooltip(t(
+                      'recordPage.listDetailOrientationHint',
+                      'List above detail stacks the table over the panel. List beside detail places the table on the left and always shows the full Page Layout on the right.',
+                    ))"
+                    :aria-label="t('common.moreInfo', 'More information')"
+                  />
+                </label>
+                <Select
+                  input-id="record-page-list-detail-orientation"
+                  v-model="listDetailOrientation"
+                  :options="listDetailOrientationOptions"
+                  option-label="label"
+                  option-value="value"
+                  class="w-full"
+                />
+              </div>
+              <div
+                v-if="listDetailOrientation === 'stacked'"
+                class="flex flex-col gap-[0.35rem]"
+              >
+                <label
+                  class="inline-flex items-center gap-1 text-[0.8rem] font-medium"
+                  for="record-page-list-detail-content-mode"
+                >
+                  {{ t('recordPage.listDetailContentMode', 'Panel content') }}
+                  <button
+                    type="button"
+                    class="record-page-hint"
+                    v-tooltip.bottom="hintTooltip(t(
+                      'recordPage.listDetailContentModeHint',
+                      'Related lists shows related tabs only. Full page layout shows the same Page Layout as the record detail page for the selected row. List beside detail always uses the full Page Layout.',
+                    ))"
+                    :aria-label="t('common.moreInfo', 'More information')"
+                  />
+                </label>
+                <Select
+                  input-id="record-page-list-detail-content-mode"
+                  v-model="listDetailContentMode"
+                  :options="listDetailContentModeOptions"
+                  option-label="label"
+                  option-value="value"
+                  class="w-full"
+                />
+              </div>
+              <template v-if="listDetailContentMode === 'relatedLists'">
+                <div class="flex flex-col gap-[0.35rem]">
+                  <label
+                    class="inline-flex items-center gap-1 text-[0.8rem] font-medium"
+                    for="record-page-list-detail-related-source"
+                  >
+                    {{ t('recordPage.listDetailRelatedSource', 'Related lists') }}
+                    <button
+                      type="button"
+                      class="record-page-hint"
+                      v-tooltip.bottom="hintTooltip(t(
+                        'recordPage.listDetailRelatedSourceHint',
+                        'All related lists uses every Related List, Files, and Detail-related field on this Page Layout. Selected block layout uses related fields from one Block Layout only.',
+                      ))"
+                      :aria-label="t('common.moreInfo', 'More information')"
+                    />
+                  </label>
+                  <Select
+                    input-id="record-page-list-detail-related-source"
+                    v-model="listDetailRelatedListsSource"
+                    :options="listDetailRelatedSourceOptions"
+                    option-label="label"
+                    option-value="value"
+                    class="w-full"
+                  />
+                </div>
+                <div
+                  v-if="listDetailRelatedListsSource === 'block'"
+                  class="flex flex-col gap-[0.35rem]"
+                >
+                  <label
+                    class="text-[0.8rem] font-medium"
+                    for="record-page-list-detail-related-block"
+                  >
+                    {{ t('recordPage.listDetailRelatedBlock', 'Block layout') }}
+                  </label>
+                  <Select
+                    input-id="record-page-list-detail-related-block"
+                    v-model="listDetailRelatedListsBlockId"
+                    :options="listDetailBlockOptions"
+                    option-label="label"
+                    option-value="value"
+                    :placeholder="t('recordPage.listDetailRelatedBlockPlaceholder', 'Select a Block Layout')"
+                    :disabled="listDetailBlockOptions.length === 0"
+                    class="w-full"
+                  />
+                </div>
+              </template>
               <div class="flex flex-col gap-[0.35rem]">
                 <label class="text-[0.8rem] font-medium" for="record-page-list-detail-master-size">
                   {{ t('recordPage.listDetailMasterSize', 'Master panel size') }}
@@ -2014,41 +2504,65 @@ watch(
               </label>
             </div>
             <p
-              v-if="listDetailPreviewLoading"
-              class="m-0 text-[0.8rem] text-muted-color"
-            >
-              {{ t('recordPage.listDetailPreviewLoading', 'Loading related lists…') }}
-            </p>
-            <p
-              v-else-if="listDetailPreviewLabels.length === 0"
+              v-if="listDetailContentMode === 'fullPageLayout'"
               class="m-0 text-[0.8rem] text-muted-color"
             >
               {{
                 t(
-                  'recordPage.listDetailPreviewEmpty',
-                  'No related lists on this Page Layout yet. Add Related List, Files, or a Block Layout with related fields.',
+                  'recordPage.listDetailFullPageLayoutHint',
+                  'The detail pane will render this Page Layout for the selected list row.',
                 )
               }}
             </p>
-            <p
-              v-else
-              class="m-0 text-[0.8rem] text-muted-color"
-            >
-              {{
-                listDetailPreviewLabels.length === 1
-                  ? t('recordPage.listDetailPreviewOne', 'Will show: {label}', {
-                      label: listDetailPreviewLabels[0],
-                    })
-                  : t(
-                      'recordPage.listDetailPreviewMany',
-                      'Will show {count} related lists as tabs: {labels}',
-                      {
-                        count: listDetailPreviewLabels.length,
-                        labels: listDetailPreviewLabels.join(', '),
-                      },
-                    )
-              }}
-            </p>
+            <template v-else>
+              <p
+                v-if="listDetailPreviewLoading"
+                class="m-0 text-[0.8rem] text-muted-color"
+              >
+                {{ t('recordPage.listDetailPreviewLoading', 'Loading related lists…') }}
+              </p>
+              <p
+                v-else-if="listDetailRelatedListsSource === 'block' && !listDetailRelatedListsBlockId"
+                class="m-0 text-[0.8rem] text-muted-color"
+              >
+                {{
+                  t(
+                    'recordPage.listDetailPreviewSelectBlock',
+                    'Select a Block Layout to use for related lists.',
+                  )
+                }}
+              </p>
+              <p
+                v-else-if="listDetailPreviewLabels.length === 0"
+                class="m-0 text-[0.8rem] text-muted-color"
+              >
+                {{
+                  t(
+                    'recordPage.listDetailPreviewEmpty',
+                    'No related lists on this Page Layout yet. Add Related List, Files, or a Block Layout with related fields.',
+                  )
+                }}
+              </p>
+              <p
+                v-else
+                class="m-0 text-[0.8rem] text-muted-color"
+              >
+                {{
+                  listDetailPreviewLabels.length === 1
+                    ? t('recordPage.listDetailPreviewOne', 'Will show: {label}', {
+                        label: listDetailPreviewLabels[0],
+                      })
+                    : t(
+                        'recordPage.listDetailPreviewMany',
+                        'Will show {count} related lists as tabs: {labels}',
+                        {
+                          count: listDetailPreviewLabels.length,
+                          labels: listDetailPreviewLabels.join(', '),
+                        },
+                      )
+                }}
+              </p>
+            </template>
           </template>
         </section>
 
@@ -2400,5 +2914,43 @@ watch(
 .record-page-tab-item--selected {
   border-color: #6f868c !important;
   box-shadow: 0 0 0 1px #6f868c;
+}
+
+.record-page-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(55, 53, 47, 0.4);
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(55, 53, 47, 0.55);
+  font-size: 0.58rem;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+}
+
+.record-page-hint:focus-visible {
+  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline-offset: 2px;
+}
+
+.record-page-hint::before {
+  content: 'i';
+}
+</style>
+
+<style>
+.record-page-hint-tooltip,
+.record-page-hint-tooltip .p-tooltip-text {
+  max-width: 18rem;
+  white-space: normal;
+  line-height: 1.4;
+  font-size: 0.75rem;
 }
 </style>

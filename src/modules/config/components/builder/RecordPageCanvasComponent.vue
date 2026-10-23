@@ -82,6 +82,8 @@ function componentTypeLabel(type: RecordPageComponentType): string {
       return t('recordPage.component.field', 'Field')
     case 'fieldGroup':
       return t('recordPage.component.fieldGroup', 'Field group')
+    case 'path':
+      return t('recordPage.component.path', 'Path')
     default:
       return type
   }
@@ -274,6 +276,15 @@ const subtitle = computed(() => {
   }
   if (props.component.type === 'tabs') {
     return t('recordPage.tabsCount', '{count} tabs', { count: tabs.value.length })
+  }
+  if (props.component.type === 'path') {
+    const openField =
+      props.component.field
+      || t('recordPage.path.selectField', 'Select a picklist field')
+    if (props.component.terminalField) {
+      return `${openField} · ${props.component.terminalField}`
+    }
+    return openField
   }
   return typeLabel.value
 })

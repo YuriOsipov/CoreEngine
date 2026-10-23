@@ -190,13 +190,11 @@ async function buildFormPayload(
           relations,
         )
 
-        if (
-          isFieldM2O(collection, field.field, fields, relations) &&
+        const isM2O = isFieldM2O(collection, field.field, fields, relations)
+        const clearedM2O =
+          isM2O &&
           extractRelationFieldId(normalized) === null &&
           extractRelationFieldId(raw) === null
-        ) {
-          continue
-        }
 
         if (original) {
           const originalNormalized = await normalizeEntityFormFieldValue(
@@ -206,10 +204,17 @@ async function buildFormPayload(
             fields,
             relations,
           )
+          // Skip empty M2O on create / when already empty. Still send null when
+          // clearing an existing relation so the FK is written as SET NULL.
+          if (clearedM2O && extractRelationFieldId(originalNormalized) === null) {
+            continue
+          }
           if (formValuesEqual(normalized, originalNormalized)) continue
+        } else if (clearedM2O) {
+          continue
         }
 
-        payload[field.field] = normalized
+        payload[field.field] = clearedM2O ? null : normalized
       }
     }
   }

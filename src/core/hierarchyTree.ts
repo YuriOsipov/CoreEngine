@@ -57,10 +57,9 @@ export function buildHierarchyTreeNodes(
   }
 
   for (const node of nodeById.values()) {
-    const parentId =
-      options.parentField && node.data && node.data[options.parentField] !== undefined
-        ? scalarId(node.data[options.parentField])
-        : null
+    const parentId = options.parentField
+      ? readParentId(node.data, options.parentField)
+      : null
     const parent = parentId === null ? null : nodeById.get(String(parentId))
     if (parent && parent.key !== node.key) {
       parent.children = [...(parent.children ?? []), node]
@@ -69,7 +68,39 @@ export function buildHierarchyTreeNodes(
     }
   }
 
-  return roots
+  return sortHierarchyTreeNodesByLabel(roots)
+}
+
+/** Resolve self-FK parent from scalar, nested `{ id }`, or case-insensitive key. */
+function readParentId(
+  data: Record<string, unknown> | undefined,
+  parentField: string,
+): string | number | null {
+  if (!data || !parentField) return null
+  if (data[parentField] !== undefined) return scalarId(data[parentField])
+  const lower = parentField.toLowerCase()
+  for (const [key, value] of Object.entries(data)) {
+    if (key.toLowerCase() === lower) return scalarId(value)
+  }
+  return null
+}
+
+/** Sibling order by label (matches CrmTreeTable sidebar). */
+export function sortHierarchyTreeNodesByLabel(
+  nodes: HierarchyTreeNode[],
+): HierarchyTreeNode[] {
+  const sorted = [...nodes].sort((left, right) =>
+    left.label.localeCompare(right.label, undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    }),
+  )
+  for (const node of sorted) {
+    if (node.children?.length) {
+      node.children = sortHierarchyTreeNodesByLabel(node.children)
+    }
+  }
+  return sorted
 }
 
 /** Selected node key plus all descendant keys. */

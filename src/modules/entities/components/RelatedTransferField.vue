@@ -108,6 +108,7 @@ const transfer = useRelatedTransfer({
         :submitting="transfer.submitting.value"
         :add-label="t('common.add', 'Add')"
         :source-display-value="transfer.sourceDisplayValue"
+        :is-numeric-source-field="transfer.isNumericSourceField"
         :source-value="transfer.sourceValue"
         :is-selected-source-group="transfer.isSelectedSourceGroup"
         @update:source-search-query="transfer.sourceSearchQuery.value = $event"
@@ -137,7 +138,7 @@ const transfer = useRelatedTransfer({
         :pending-label="t('relatedTransfer.pending', 'Pending')"
         :current-label="t('relatedTransfer.current', 'Current')"
         :select-lookup-placeholder="t('relatedTransfer.selectLookupValue', 'Select value')"
-        :format-transfer-value="transfer.formatTransferValue"
+        :format-field-value="transfer.formatTargetFieldValue"
         :row-value="transfer.rowValue"
         :is-editable-pending-field="transfer.isEditablePendingField"
         :is-numeric-target-field="transfer.isNumericTargetField"
@@ -159,12 +160,43 @@ const transfer = useRelatedTransfer({
 </template>
 
 <style scoped>
+.related-transfer-field {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.related-transfer-field :deep(.p-panel-header) {
+  flex: 0 0 auto;
+}
+
+.related-transfer-field :deep(.p-panel-content-container),
+.related-transfer-field :deep(.p-panel-content-wrapper),
+.related-transfer-field :deep(.p-panel-content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .related-transfer-splitter {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   border: none;
   background: transparent;
 }
 
 .related-transfer-splitter :deep(.p-splitter-panel) {
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  flex-grow: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>

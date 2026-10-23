@@ -1,6 +1,7 @@
 /**
  * Soft-delete (archive) must honor M2O Delete Constraint metadata.
- * Postgres ON DELETE only runs on hard DELETE; archive is an UPDATE of status.
+ * Postgres ON DELETE only runs on hard DELETE; archive sets is_deleted
+ * (or status = archived on schedule templates).
  */
 import { query } from '../../db/pool.js'
 import {
@@ -115,7 +116,11 @@ async function listChildIds(
     [fieldApiName]: { _eq: parentId },
   }
   if (options.archivedOnly) {
-    filter.status = { _eq: 'archived' }
+    if (childEntity === 'crm_schedule_template') {
+      filter.status = { _eq: 'archived' }
+    } else {
+      filter.is_deleted = { _eq: true }
+    }
   }
   for (;;) {
     const result = await store.findMany(childEntity, {

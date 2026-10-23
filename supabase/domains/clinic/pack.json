@@ -1,0 +1,9 @@
+{
+  "id": "clinic",
+  "label": "Clinic app",
+  "description": "Minimum Clinic starter: patients, practitioners, visits, appointments.",
+  "entitiesFile": "entities.json",
+  "rolesFile": "roles.json",
+  "layoutsFile": "layouts.json",
+  "recordsFile": "records.json"
+}

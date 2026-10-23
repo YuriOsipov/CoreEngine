@@ -86,6 +86,14 @@ export interface CrmRecordRelation {
   schema: string
   table: string | null
   promoted: CrmPromotedField[]
+  /** Envelope `status` column (schedule templates only). */
+  hasStatus: boolean
+  /** Envelope `is_deleted` column — archived records. */
+  hasDeleted: boolean
+  /** Envelope `is_active` column. */
+  hasActive: boolean
+  /** Related entity display template (e.g. `{{description}}`) for label sort. */
+  displayTemplate: string | null
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -142,21 +150,76 @@ export function crmQualifiedTable(
 const ENVELOPE_FIELD_NAMES = new Set([
   'id',
   'status',
+  'is_deleted',
+  'is_active',
   'date_created',
   'date_updated',
   'created_at',
   'updated_at',
 ])
 
+/** Default NUMERIC(precision, scale) for FLOAT / Number fields. */
+export const DEFAULT_NUMERIC_PRECISION = 18
+export const DEFAULT_NUMERIC_SCALE = 2
+export const MAX_NUMERIC_PRECISION = 38
+
+/** Clamp Size (precision) and Decimals (scale) for FLOAT storage. */
+export function normalizeNumericPrecisionScale(
+  options?: Record<string, unknown> | null,
+): { precision: number; scale: number } {
+  const opts =
+    options && typeof options === 'object' && !Array.isArray(options)
+      ? options
+      : {}
+  let precision = Number(opts.precision ?? DEFAULT_NUMERIC_PRECISION)
+  if (!Number.isFinite(precision)) precision = DEFAULT_NUMERIC_PRECISION
+  precision = Math.min(
+    MAX_NUMERIC_PRECISION,
+    Math.max(1, Math.trunc(precision)),
+  )
+
+  let scale = Number(opts.scale ?? opts.decimalPlaces ?? DEFAULT_NUMERIC_SCALE)
+  if (!Number.isFinite(scale)) scale = DEFAULT_NUMERIC_SCALE
+  scale = Math.min(precision, Math.max(0, Math.trunc(scale)))
+
+  return { precision, scale }
+}
+
+/** True when pgType is `numeric` or `numeric(p,s)`. */
+export function isNumericPgType(pgType: string): boolean {
+  return /^numeric(\s*\(|$)/i.test(String(pgType || '').trim())
+}
+
+/**
+ * Ensure FLOAT field options carry clamped precision/scale (and UI mirrors).
+ */
+export function normalizeFloatFieldOptions(
+  options?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const out = asObject(options)
+  const { precision, scale } = normalizeNumericPrecisionScale(out)
+  out.precision = precision
+  out.scale = scale
+  out.decimalPlaces = scale
+  out.minFractionDigits = scale
+  out.maxFractionDigits = scale
+  return out
+}
+
 /** Map registry field_type → Postgres column type for promoted columns. */
-export function pgTypeForFieldType(fieldType: string): string {
+export function pgTypeForFieldType(
+  fieldType: string,
+  options?: Record<string, unknown> | null,
+): string {
   switch (String(fieldType || '').toUpperCase()) {
     case 'BOOLEAN':
       return 'boolean'
     case 'INTEGER':
       return 'bigint'
-    case 'FLOAT':
-      return 'double precision'
+    case 'FLOAT': {
+      const { precision, scale } = normalizeNumericPrecisionScale(options)
+      return `numeric(${precision},${scale})`
+    }
     case 'DATE':
       return 'date'
     case 'DATETIME':
@@ -193,6 +256,7 @@ export async function loadPromotedFields(
   const rows = await query<{
     api_name: string
     field_type: string
+    options: Record<string, unknown> | null
     is_indexed: boolean
     kind: string | null
     related_entity_api_name: string | null
@@ -200,6 +264,7 @@ export async function loadPromotedFields(
   }>(
     `SELECT f.api_name,
             f.field_type,
+            f.options,
             COALESCE(f.is_indexed, false) AS is_indexed,
             r.kind,
             re.api_name AS related_entity_api_name,
@@ -250,6 +315,7 @@ export async function loadPromotedFields(
       relatedEntityApiName: string | null
       onDelete?: OnDeleteAction | null
       forceText?: boolean
+      fieldOptions?: Record<string, unknown> | null
     },
   ): void => {
     if (!shouldPromoteField(apiName, fieldType)) return
@@ -279,7 +345,10 @@ export async function loadPromotedFields(
     out.push({
       apiName,
       fieldType,
-      pgType: isFk || opts.forceText ? 'text' : pgTypeForFieldType(fieldType),
+      pgType:
+        isFk || opts.forceText
+          ? 'text'
+          : pgTypeForFieldType(fieldType, opts.fieldOptions),
       needsFkIndex: isFk,
       needsBtreeIndex,
       canDeclareFk: Boolean(related),
@@ -331,6 +400,7 @@ export async function loadPromotedFields(
       needsBtreeIndex: Boolean(row.is_indexed),
       relatedEntityApiName: related,
       onDelete,
+      fieldOptions: asObject(row.options),
     })
   }
 
@@ -373,6 +443,28 @@ export async function loadPromotedFields(
   return out
 }
 
+async function loadEnvelopeFlags(entityApiName: string): Promise<{
+  hasStatus: boolean
+  hasDeleted: boolean
+  hasActive: boolean
+}> {
+  const rows = await query<{ api_name: string }>(
+    `SELECT f.api_name
+     FROM public.fields f
+     JOIN public.entities e ON e.id = f.entity_id
+     WHERE e.api_name = $1
+       AND e.deleted_at IS NULL
+       AND f.api_name = ANY($2::text[])`,
+    [entityApiName, ['status', 'is_deleted', 'is_active']],
+  )
+  const names = new Set(rows.map((row) => row.api_name))
+  return {
+    hasStatus: names.has('status'),
+    hasDeleted: names.has('is_deleted'),
+    hasActive: names.has('is_active'),
+  }
+}
+
 /** Resolve where CRM rows for an entity live (typed crm_schema vs jsonb shared). */
 export async function resolveRecordRelation(
   entityApiName: string,
@@ -380,14 +472,18 @@ export async function resolveRecordRelation(
   const cached = storageCache.get(entityApiName)
   if (cached && cached.expiresAt > Date.now()) return cached.value
 
-  const rows = await query<{ backend_config: unknown }>(
-    `SELECT backend_config
+  const rows = await query<{ backend_config: unknown; display_template: string | null }>(
+    `SELECT backend_config, display_template
      FROM public.entities
      WHERE api_name = $1 AND deleted_at IS NULL
      LIMIT 1`,
     [entityApiName],
   )
   const config = resolveCrmStorageConfig(rows[0]?.backend_config, entityApiName)
+  const displayTemplate = rows[0]?.display_template
+    ? String(rows[0].display_template)
+    : null
+  const envelope = await loadEnvelopeFlags(entityApiName)
 
   let value: CrmRecordRelation
   if (config.storage === 'typed') {
@@ -399,6 +495,8 @@ export async function resolveRecordRelation(
       schema: config.schema,
       table: config.table || entityApiName,
       promoted,
+      displayTemplate,
+      ...envelope,
     }
   } else {
     value = {
@@ -408,6 +506,8 @@ export async function resolveRecordRelation(
       schema: 'public',
       table: 'business_records',
       promoted: [],
+      displayTemplate,
+      ...envelope,
     }
   }
 
@@ -424,6 +524,10 @@ export function coercePromotedValue(
   raw: unknown,
 ): unknown {
   if (raw === undefined || raw === null || raw === '') return null
+  if (isNumericPgType(field.pgType) || field.pgType === 'double precision') {
+    const n = typeof raw === 'number' ? raw : Number(String(raw))
+    return Number.isFinite(n) ? n : null
+  }
   switch (field.pgType) {
     case 'boolean': {
       if (typeof raw === 'boolean') return raw
@@ -435,10 +539,6 @@ export function coercePromotedValue(
     case 'bigint': {
       const n = typeof raw === 'number' ? raw : Number(String(raw))
       return Number.isFinite(n) ? Math.trunc(n) : null
-    }
-    case 'double precision': {
-      const n = typeof raw === 'number' ? raw : Number(String(raw))
-      return Number.isFinite(n) ? n : null
     }
     case 'jsonb':
       return typeof raw === 'string' ? raw : JSON.stringify(raw)

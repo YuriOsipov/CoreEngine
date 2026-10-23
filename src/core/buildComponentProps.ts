@@ -39,6 +39,8 @@ export function buildComponentProps(
     delete base.optionValue
     delete base.allowCreate
     delete base.forceSelection
+    // Form always controls clear; do not let field metadata hide it.
+    delete base.showClear
   }
   if (isDateComponent(field.component) && field.format?.trim()) {
     base.dateFormat = primeVueDatePickerFormat(field.format)

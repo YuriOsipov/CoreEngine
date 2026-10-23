@@ -145,7 +145,7 @@ const showSystemInfo = computed(
 )
 
 const showSectionTabs = computed(
-  () => !props.embedded && visibleSections.value.length > 0,
+  () => !props.embedded && visibleSections.value.length > 1,
 )
 
 const activeSection = computed(() => visibleSections.value[activeSectionIndex.value])

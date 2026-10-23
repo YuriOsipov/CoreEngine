@@ -1,8 +1,13 @@
 const COLLAPSED_PREFIX = 'object-list-detail-collapsed:'
 const SPLITTER_PREFIX = 'object-list-splitter:'
 
-export function listDetailSplitterStateKey(collection: string): string {
-  return `${SPLITTER_PREFIX}${collection}`
+export type ListDetailSplitterOrientation = 'stacked' | 'sideBySide'
+
+export function listDetailSplitterStateKey(
+  collection: string,
+  orientation: ListDetailSplitterOrientation = 'stacked',
+): string {
+  return `${SPLITTER_PREFIX}${collection}:${orientation}`
 }
 
 export function loadListDetailCollapsed(

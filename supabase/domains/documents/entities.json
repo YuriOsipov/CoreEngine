@@ -1,0 +1,281 @@
+{
+  "entities": [
+    {
+      "apiName": "doc_template",
+      "label": "Document template",
+      "icon": "description",
+      "group": "Platform",
+      "displayTemplate": "{{name}}",
+      "hidden": true,
+      "fields": [
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "textarea"
+        },
+        {
+          "apiName": "collection",
+          "label": "Object",
+          "type": "STRING",
+          "interface": "input",
+          "required": true,
+          "isIndexed": true
+        },
+        {
+          "apiName": "body",
+          "label": "Body",
+          "type": "JSON",
+          "interface": "input-code",
+          "required": true
+        },
+        {
+          "apiName": "field_mapping",
+          "label": "Field mapping",
+          "type": "JSON",
+          "interface": "input-code"
+        },
+        {
+          "apiName": "role",
+          "label": "Role",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "roles",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "roles"
+          }
+        },
+        {
+          "apiName": "output_format",
+          "label": "Output format",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              { "text": "PDF", "value": "pdf" },
+              { "text": "HTML", "value": "html" }
+            ],
+            "default": "pdf"
+          }
+        },
+        {
+          "apiName": "hide_empty",
+          "label": "Hide empty",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "options": { "default": false }
+        },
+        {
+          "apiName": "attach_file",
+          "label": "Attach file",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "options": { "default": true }
+        },
+        {
+          "apiName": "archived",
+          "label": "Archived",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "hidden": true,
+          "options": { "default": false }
+        }
+      ]
+    },
+    {
+      "apiName": "doc_template_snapshot",
+      "label": "Document template snapshot",
+      "icon": "history",
+      "group": "Platform",
+      "displayTemplate": "{{name}}",
+      "hidden": true,
+      "fields": [
+        {
+          "apiName": "template",
+          "label": "Template",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "doc_template",
+          "required": true,
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "doc_template"
+          }
+        },
+        {
+          "apiName": "version",
+          "label": "Version",
+          "type": "INTEGER",
+          "interface": "input",
+          "required": true
+        },
+        {
+          "apiName": "body",
+          "label": "Body",
+          "type": "JSON",
+          "interface": "input-code",
+          "required": true
+        },
+        {
+          "apiName": "field_mapping",
+          "label": "Field mapping",
+          "type": "JSON",
+          "interface": "input-code"
+        },
+        {
+          "apiName": "archived",
+          "label": "Archived",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "hidden": true,
+          "options": { "default": false }
+        }
+      ]
+    },
+    {
+      "apiName": "doc_value",
+      "label": "Document value",
+      "icon": "article",
+      "group": "Platform",
+      "displayTemplate": "{{name}}",
+      "hidden": true,
+      "fields": [
+        {
+          "apiName": "template",
+          "label": "Template",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "doc_template",
+          "required": true,
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "doc_template"
+          }
+        },
+        {
+          "apiName": "template_snapshot",
+          "label": "Template snapshot",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "doc_template_snapshot",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "doc_template_snapshot"
+          }
+        },
+        {
+          "apiName": "parent_collection",
+          "label": "Parent object",
+          "type": "STRING",
+          "interface": "input",
+          "isIndexed": true
+        },
+        {
+          "apiName": "parent_id",
+          "label": "Parent id",
+          "type": "STRING",
+          "interface": "input",
+          "isIndexed": true
+        },
+        {
+          "apiName": "values",
+          "label": "Values",
+          "type": "JSON",
+          "interface": "input-code",
+          "required": true
+        },
+        {
+          "apiName": "document_status",
+          "label": "Document status",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              { "text": "Draft", "value": "draft" },
+              { "text": "Completed", "value": "completed" }
+            ],
+            "default": "draft"
+          }
+        },
+        {
+          "apiName": "completed_date",
+          "label": "Completed date",
+          "type": "DATETIME",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "output_file",
+          "label": "Output file",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "files",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "files"
+          }
+        },
+        {
+          "apiName": "archived",
+          "label": "Archived",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "hidden": true,
+          "options": { "default": false }
+        }
+      ]
+    },
+    {
+      "apiName": "doc_value_set",
+      "label": "Document value set",
+      "icon": "library_books",
+      "group": "Platform",
+      "displayTemplate": "{{name}}",
+      "hidden": true,
+      "fields": [
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "textarea"
+        },
+        {
+          "apiName": "template",
+          "label": "Template",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "doc_template",
+          "required": true,
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "doc_template"
+          }
+        },
+        {
+          "apiName": "values",
+          "label": "Values",
+          "type": "JSON",
+          "interface": "input-code",
+          "required": true
+        },
+        {
+          "apiName": "archived",
+          "label": "Archived",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "hidden": true,
+          "options": { "default": false }
+        }
+      ]
+    }
+  ]
+}

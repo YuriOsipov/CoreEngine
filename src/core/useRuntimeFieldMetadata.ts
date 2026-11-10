@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import type { LayoutFieldMetadata } from '@/interfaces'
 import { fetchFieldRuntimeMetadata } from '@/modules/entities/services/collectionSchema'
+import { isFilesAssetCollection } from '@/core/filesField'
 import {
   isAutoCompleteField,
   isDataTableField,
@@ -33,6 +34,12 @@ export function useRuntimeFieldMetadata(entity: () => string) {
       }
     }
 
+    // File Preview uses ad-hoc layout fields on the platform `files` asset table.
+    // Those columns are not CRM registry fields — skip registry metadata entirely.
+    if (isFilesAssetCollection(entity())) {
+      return
+    }
+
     for (const field of fields) {
       if (
         isDataTableField(field) ||
@@ -62,6 +69,15 @@ export function useRuntimeFieldMetadata(entity: () => string) {
         }
         if (isAutoCompleteField(field) || isRelationPickerField(field)) {
           await onAutoComplete?.(field, metadata.template)
+        }
+      } catch (err) {
+        // Layout fields that are not (yet) in the registry — keep layout defaults.
+        delete metadataKeys[field.field]
+        if (import.meta.env.DEV) {
+          console.debug(
+            `[useRuntimeFieldMetadata] skip ${cacheKey}:`,
+            err instanceof Error ? err.message : err,
+          )
         }
       } finally {
         metadataRequests.delete(cacheKey)

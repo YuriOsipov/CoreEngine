@@ -1,3 +1,7 @@
+import {
+  createEmptyAddressValue,
+  isAddressFieldDefinition,
+} from '@/core/addressField'
 import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
 import { keysEqual } from '@/core/utils/object'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
@@ -310,6 +314,18 @@ async function buildCollectionSample(
     }
 
     if (field.type === 'alias') continue
+
+    if (isAddressFieldDefinition(field)) {
+      payload[field.field] = {
+        ...createEmptyAddressValue(),
+        address: '123 Sample Street',
+        city: 'Sample City',
+        state: 'CA',
+        postCode: '90210',
+        country: 'United States',
+      }
+      continue
+    }
 
     payload[field.field] = scalarSample(field.type, field.field)
   }

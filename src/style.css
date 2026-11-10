@@ -45,7 +45,7 @@ body {
 .app-shell {
   /* width: 95%; */
   /* margin-inline: auto; */
-  padding: 1rem 1.5rem 1.5rem;
+  padding: 0.25rem 1.25rem 1.25rem;
 }
 
 .app-chrome {
@@ -61,7 +61,7 @@ body {
   /* justify-content: flex-end; */
   /* width: 95%; */
   margin-inline: auto;
-  padding: 0.5rem 0;
+  padding: 0.25rem 0;
 }
 
 .app-chrome__controls {
@@ -92,18 +92,57 @@ body {
 }
 
 .app-header--integrated {
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.75rem;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--p-content-border-color, #e2e8f0);
+}
+
+.record-details-header.app-header--integrated {
+  margin-bottom: 0;
+  padding: 0.35rem 0.75rem;
+  background: var(--p-surface-0, #fff);
+}
+
+.record-details-header__back {
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+/* Record details: full-bleed inside app-root__content (keep that scroll shell). */
+.app-shell--record-details {
+  background: var(--p-surface-50, #f8fafc);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 0;
+}
+
+.app-shell--record-details .object-details-pane {
+  background: var(--p-surface-50, #f8fafc);
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  margin-top: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.app-shell--record-details .object-details-pane__state,
+.app-shell--record-details .object-details-pane__alerts,
+.app-shell--record-details .object-details-pane__fallback {
+  padding: 0.75rem;
 }
 
 .app-header__nav-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem 1rem;
   flex-wrap: wrap;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0;
 }
 
 .app-header__title {
@@ -238,7 +277,7 @@ body {
 }
 
 .object-details-pane {
-  margin-top: 0.75rem;
+  margin-top: 0;
 }
 
 .workspace {
@@ -259,9 +298,9 @@ body {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 1rem 1.25rem;
-  min-height: 480px;
+  padding: 0.65rem 0.85rem;
 }
+
 
 .workspace-pane__title {
   margin: 0 0 1rem;
@@ -672,10 +711,58 @@ body.builder-splitter-resizing * {
   }
 }
 
-/* Inline-label groups: stack + full-width fields below md (768px), Salesforce-style */
-@media (max-width: 767px) {
+/*
+ * Inline-label groups (Light / SF Details): when the *form pane* is narrow,
+ * stack fields one-by-one in DOM order (left, right, left, right… → single column).
+ * Container queries cover sidebars / split record pages where the viewport is still wide.
+ */
+.layout-fields--inline {
+  container-type: inline-size;
+  container-name: layout-fields;
+}
+
+@container layout-fields (max-width: 32rem) {
   .layout-fields--inline > .layout-field--inline {
+    align-items: stretch !important;
+    flex-direction: column !important;
     grid-column: 1 / -1 !important;
+  }
+}
+
+/*
+ * Page Layout builder canvas: keep designed column spans. Shrink-to-view widens
+ * layout width for transform scaling; if container queries still stack here,
+ * fit-scale and 1↔2 column reflow fight each other ("reorder again and again").
+ */
+.record-page-canvas-content .layout-fields--inline,
+.record-page-canvas-content .system-info-fields-host {
+  container-type: normal;
+}
+
+/* System info (Created By / Last Modified By): same pane-width stacking rule */
+.system-info-fields-host {
+  container-type: inline-size;
+  container-name: system-info;
+}
+
+@container system-info (max-width: 32rem) {
+  .system-info-fields {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Viewport fallback when container queries are unavailable */
+@supports not (container-type: inline-size) {
+  @media (max-width: 767px) {
+    .layout-fields--inline > .layout-field--inline {
+      align-items: stretch !important;
+      flex-direction: column !important;
+      grid-column: 1 / -1 !important;
+    }
+
+    .system-info-fields {
+      grid-template-columns: 1fr !important;
+    }
   }
 }
 

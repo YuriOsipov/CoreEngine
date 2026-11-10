@@ -21,6 +21,7 @@ import {
 } from '../utils/fieldMapper'
 import { translateField } from '@/core/translation'
 import { normalizeBarcodeScanSettings } from '@/core/barcodeScan'
+import { extractTemplateFields } from '@/modules/entities/utils/recordDisplay'
 
 const SETTINGS_GROUP = 'list'
 const SETTINGS_SUB_GROUP = 'related_table'
@@ -355,6 +356,32 @@ export function resolveAutoRecordLinkField(
   return linkField
 }
 
+/**
+ * When the auto Name link column is sorted, map `name` (often auto-number) to
+ * Display Template fields so ORDER BY matches the rendered label.
+ */
+export function resolveNameLinkSortFields(
+  sortField: string,
+  displayTemplate: string | null | undefined,
+): string[] {
+  const field = sortField.trim()
+  if (field !== 'name') return field ? [field] : []
+
+  const templateFields = displayTemplate
+    ? extractTemplateFields(displayTemplate).filter(
+        (token) =>
+          Boolean(token) &&
+          token !== 'id' &&
+          token !== 'parent' &&
+          !token.startsWith('parent.'),
+      )
+    : []
+
+  if (templateFields.length === 0) return [field]
+  if (templateFields.every((token) => token === 'name')) return [field]
+  return templateFields
+}
+
 export function buildDataTableSortFields(
   groupBy: DataTableGroupConfig | null | undefined,
   sort: DataTableSortConfig | null | undefined,
@@ -368,9 +395,18 @@ export function buildDataTableSortFields(
   }
 
   const sortField = sort?.field?.trim()
-  if (sortField && isValidField(sortField) && sortField !== groupField) {
-    const order = sort?.order === -1 ? -1 : 1
-    sorts.push(`${order === -1 ? '-' : ''}${sortField}`)
+  if (!sortField) return sorts
+
+  const order = sort?.order === -1 ? -1 : 1
+  const parts = sortField
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  for (const part of parts) {
+    if (!isValidField(part) || part === groupField) continue
+    if (sorts.some((entry) => entry === part || entry === `-${part}`)) continue
+    sorts.push(`${order === -1 ? '-' : ''}${part}`)
   }
 
   return sorts

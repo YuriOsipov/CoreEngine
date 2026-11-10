@@ -8,7 +8,8 @@ export default {
 import { computed, onMounted, ref, watch } from 'vue'
 import { useTranslation } from '@/core/translation'
 import { fetchRegistrySnapshotFromGraphQL } from '@/core/graphql/registryApi'
-import type { DashboardPanelType } from '@/interfaces'
+import type { DashboardPanelSourceType, DashboardPanelType } from '@/interfaces'
+import { listReports } from '@/modules/reports/services/reportSettings'
 import type { DesignerPanelDraft } from '../services/dashboardDesigner'
 import { isDesignerPanelType } from '../services/dashboardDesigner'
 import PanelFilterEditor from './PanelFilterEditor.vue'
@@ -24,7 +25,9 @@ const emit = defineEmits<{
 const { t } = useTranslation()
 
 const collectionOptions = ref<{ label: string; value: string }[]>([])
+const reportOptions = ref<{ label: string; value: string }[]>([])
 const fieldOptions = ref<{ label: string; value: string }[]>([])
+const loadingReports = ref(false)
 
 const aggregateOptions = [
   { label: 'count', value: 'count' },
@@ -36,6 +39,11 @@ const aggregateOptions = [
   { label: 'min', value: 'min' },
   { label: 'max', value: 'max' },
 ]
+
+const sourceTypeOptions = computed(() => [
+  { label: t('dashboard.sourceCollection', 'Collection'), value: 'collection' },
+  { label: t('dashboard.sourceReport', 'Report'), value: 'report' },
+])
 
 const fieldsByCollection = ref<Map<string, { label: string; value: string }[]>>(
   new Map(),
@@ -56,6 +64,14 @@ const isChart = computed(() =>
 const isMetric = computed(() => panelType.value === 'metric')
 const isLabel = computed(() => panelType.value === 'label')
 
+const sourceType = computed<DashboardPanelSourceType>(() => {
+  const explicit = stringOpt('sourceType')
+  if (explicit === 'report' || explicit === 'collection') return explicit
+  return stringOpt('reportId') ? 'report' : 'collection'
+})
+
+const isReportSource = computed(() => sourceType.value === 'report')
+
 const currentFilter = computed((): Record<string, unknown> => {
   const filter = props.panel?.options?.filter
   if (filter && typeof filter === 'object' && !Array.isArray(filter)) {
@@ -66,6 +82,7 @@ const currentFilter = computed((): Record<string, unknown> => {
 
 onMounted(() => {
   void loadCollections()
+  void loadReports()
 })
 
 watch(
@@ -108,6 +125,21 @@ async function loadCollections(): Promise<void> {
   refreshFieldOptions()
 }
 
+async function loadReports(): Promise<void> {
+  loadingReports.value = true
+  try {
+    const reports = await listReports()
+    reportOptions.value = reports.map((report) => ({
+      label: report.title || report.name,
+      value: String(report.settingId),
+    }))
+  } catch {
+    reportOptions.value = []
+  } finally {
+    loadingReports.value = false
+  }
+}
+
 function refreshFieldOptions(): void {
   const collection = stringOpt('collection')
   fieldOptions.value = collection
@@ -136,6 +168,11 @@ function patchOptions(partial: Record<string, unknown>): void {
   if ('collection' in partial) {
     refreshFieldOptions()
   }
+}
+
+function onSourceTypeChange(value: unknown): void {
+  const next = value === 'report' ? 'report' : 'collection'
+  patchOptions({ sourceType: next })
 }
 
 function onFilterUpdate(filter: Record<string, unknown>): void {
@@ -199,87 +236,42 @@ function onFilterUpdate(filter: Record<string, unknown>): void {
 
     <template v-else-if="isMetric || isChart">
       <div class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">{{ t('dashboard.collection', 'Collection') }}</label>
+        <label class="text-xs text-gray-500">{{ t('dashboard.dataSource', 'Data source') }}</label>
         <Select
-          :model-value="stringOpt('collection') || null"
-          :options="collectionOptions"
-          option-label="label"
-          option-value="value"
-          filter
-          show-clear
-          class="w-full"
-          :placeholder="t('dashboard.selectCollection', 'Select collection')"
-          @update:model-value="patchOptions({ collection: String($event || '') })"
-        />
-      </div>
-
-      <div v-if="isMetric" class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">{{ t('dashboard.field', 'Field') }}</label>
-        <Select
-          :model-value="stringOpt('field') || '*'"
-          :options="fieldOptions"
-          option-label="label"
-          option-value="value"
-          filter
-          class="w-full"
-          @update:model-value="patchOptions({ field: String($event || '*') })"
-        />
-      </div>
-
-      <div v-if="isMetric" class="flex flex-col gap-1">
-        <label class="text-xs text-gray-500">{{ t('dashboard.function', 'Function') }}</label>
-        <Select
-          :model-value="stringOpt('function') || 'count'"
-          :options="aggregateOptions"
+          :model-value="sourceType"
+          :options="sourceTypeOptions"
           option-label="label"
           option-value="value"
           class="w-full"
-          @update:model-value="patchOptions({ function: String($event || 'count') })"
+          @update:model-value="onSourceTypeChange"
         />
       </div>
 
-      <template v-if="isChart">
+      <template v-if="isReportSource">
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-gray-500">{{ t('dashboard.xAxis', 'X-Axis') }}</label>
+          <label class="text-xs text-gray-500">{{ t('dashboard.report', 'Report') }}</label>
           <Select
-            :model-value="stringOpt('xAxis') || null"
-            :options="fieldOptions.filter((f) => f.value !== '*')"
+            :model-value="stringOpt('reportId') || null"
+            :options="reportOptions"
             option-label="label"
             option-value="value"
             filter
             show-clear
             class="w-full"
-            @update:model-value="patchOptions({ xAxis: String($event || '') })"
+            :loading="loadingReports"
+            :placeholder="t('dashboard.selectReport', 'Select report')"
+            @update:model-value="patchOptions({ reportId: String($event || '') })"
           />
         </div>
-
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-gray-500">{{ t('dashboard.yAxis', 'Y-Axis') }}</label>
-          <Select
-            :model-value="stringOpt('yAxis') || null"
-            :options="fieldOptions"
-            option-label="label"
-            option-value="value"
-            filter
-            show-clear
-            class="w-full"
-            @update:model-value="patchOptions({ yAxis: String($event || '') })"
-          />
-        </div>
-
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-gray-500">{{ t('dashboard.aggregation', 'Aggregation') }}</label>
-          <Select
-            :model-value="stringOpt('aggregation') || 'count'"
-            :options="aggregateOptions"
-            option-label="label"
-            option-value="value"
-            class="w-full"
-            @update:model-value="patchOptions({ aggregation: String($event || 'count') })"
-          />
-        </div>
-
-        <div class="flex items-center justify-between gap-2">
+        <p class="m-0 text-xs text-gray-500">
+          {{
+            t(
+              'dashboard.reportSourceHint',
+              'Uses the report’s filters, row grouping, and first value. Charts plot the first row field; metrics show the grand total.',
+            )
+          }}
+        </p>
+        <div v-if="isChart" class="flex items-center justify-between gap-2">
           <label class="text-xs text-gray-500">{{ t('dashboard.showLegend', 'Show legend') }}</label>
           <ToggleSwitch
             :model-value="boolOpt('showLegend')"
@@ -288,12 +280,104 @@ function onFilterUpdate(filter: Record<string, unknown>): void {
         </div>
       </template>
 
-      <PanelFilterEditor
-        :key="panel.id"
-        :filter="currentFilter"
-        :field-options="fieldOptions"
-        @update="onFilterUpdate"
-      />
+      <template v-else>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500">{{ t('dashboard.collection', 'Collection') }}</label>
+          <Select
+            :model-value="stringOpt('collection') || null"
+            :options="collectionOptions"
+            option-label="label"
+            option-value="value"
+            filter
+            show-clear
+            class="w-full"
+            :placeholder="t('dashboard.selectCollection', 'Select collection')"
+            @update:model-value="patchOptions({ collection: String($event || '') })"
+          />
+        </div>
+
+        <div v-if="isMetric" class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500">{{ t('dashboard.field', 'Field') }}</label>
+          <Select
+            :model-value="stringOpt('field') || '*'"
+            :options="fieldOptions"
+            option-label="label"
+            option-value="value"
+            filter
+            class="w-full"
+            @update:model-value="patchOptions({ field: String($event || '*') })"
+          />
+        </div>
+
+        <div v-if="isMetric" class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500">{{ t('dashboard.function', 'Function') }}</label>
+          <Select
+            :model-value="stringOpt('function') || 'count'"
+            :options="aggregateOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+            @update:model-value="patchOptions({ function: String($event || 'count') })"
+          />
+        </div>
+
+        <template v-if="isChart">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-500">{{ t('dashboard.xAxis', 'X-Axis') }}</label>
+            <Select
+              :model-value="stringOpt('xAxis') || null"
+              :options="fieldOptions.filter((f) => f.value !== '*')"
+              option-label="label"
+              option-value="value"
+              filter
+              show-clear
+              class="w-full"
+              @update:model-value="patchOptions({ xAxis: String($event || '') })"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-500">{{ t('dashboard.yAxis', 'Y-Axis') }}</label>
+            <Select
+              :model-value="stringOpt('yAxis') || null"
+              :options="fieldOptions"
+              option-label="label"
+              option-value="value"
+              filter
+              show-clear
+              class="w-full"
+              @update:model-value="patchOptions({ yAxis: String($event || '') })"
+            />
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-500">{{ t('dashboard.aggregation', 'Aggregation') }}</label>
+            <Select
+              :model-value="stringOpt('aggregation') || 'count'"
+              :options="aggregateOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              @update:model-value="patchOptions({ aggregation: String($event || 'count') })"
+            />
+          </div>
+
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-xs text-gray-500">{{ t('dashboard.showLegend', 'Show legend') }}</label>
+            <ToggleSwitch
+              :model-value="boolOpt('showLegend')"
+              @update:model-value="patchOptions({ showLegend: Boolean($event) })"
+            />
+          </div>
+        </template>
+
+        <PanelFilterEditor
+          :key="panel.id"
+          :filter="currentFilter"
+          :field-options="fieldOptions"
+          @update="onFilterUpdate"
+        />
+      </template>
     </template>
 
     <Message v-else severity="info" :closable="false">

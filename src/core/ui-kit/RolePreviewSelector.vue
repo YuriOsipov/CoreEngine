@@ -7,6 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { currentUser } from '@/core/currentUser'
+import { clearEntityPermissionsCache } from '@/core/entityPermissions'
 import {
   ACTUAL_ROLE_SELECT_VALUE,
   clearRolePreviewOverride,
@@ -119,6 +120,8 @@ function handleRolePreviewChange(value: string): void {
     setRolePreviewOverride(value)
   }
 
+  // Drop any in-memory admin-full matrix before reload (HMR / soft paths).
+  clearEntityPermissionsCache()
   window.location.reload()
 }
 </script>

@@ -30,7 +30,7 @@ export const ITEM_GROUP_TREE_ROWS_KEY = 'item_group_tree_rows'
  */
 export const ITEM_GROUP_TREE_SECTIONS_KEY = 'item_group_tree_sections'
 /** Stashed on doc payload so mapping sort can honor Tree `main.sort`. */
-export const ITEM_GROUP_TREE_ITEM_SORT_KEY = '__helixItemGroupTreeItemSort'
+export const ITEM_GROUP_TREE_ITEM_SORT_KEY = '__coreEngineItemGroupTreeItemSort'
 
 function isO2MAliasField(
   relations: RelationDefinition[],

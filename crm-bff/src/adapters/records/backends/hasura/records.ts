@@ -6,12 +6,29 @@ import { randomUUID } from 'node:crypto'
 import { query } from '../../../../db/pool.js'
 import {
   CRM_SCHEMA,
+  loadPromotedFields,
   resolveCrmStorageConfig,
+  resolveRecordRelation,
 } from '../../../../schema/crmStorage.js'
 import { assertGqlName, graphqlLiteral, hasuraRequest } from './client.js'
 import { resolveCanonicalEntityApiName } from '../../entityName.js'
 import type { RecordsListParams, RecordsListResult } from '../../types.js'
 import { aggregateSelectFields, groupAggregateRows } from '../../groupAggregate.js'
+
+const LIST_SEARCH_FIELD_CAP = 16
+const M2O_SEARCH_ID_CAP = 500
+
+/** Extract `{{field}}` root field names from a display template. */
+function displayTemplateFields(template: string | null | undefined): string[] {
+  if (!template) return []
+  const fields: string[] = []
+  for (const match of template.matchAll(/\{\{([\s\S]*?)\}\}/g)) {
+    const token = (match[1] ?? '').trim()
+    const root = token.split('.')[0]?.trim()
+    if (root && !fields.includes(root)) fields.push(root)
+  }
+  return fields
+}
 
 export interface HasuraEntityConfig {
   endpoint: string | null
@@ -384,6 +401,7 @@ function compileWhere(
   search: string | null | undefined,
   searchFields: string[],
   types: Record<string, string> = {},
+  extraSearchOr: Record<string, unknown>[] = [],
 ): Record<string, unknown> | null {
   const parts: Record<string, unknown>[] = []
   const compiled = compileWhereNode(config, filter ?? null, types)
@@ -405,18 +423,95 @@ function compileWhere(
     // `_ilike` is only valid on String columns. Mixing Int/UUID/DateTime into the
     // OR clause makes Hasura reject the whole query (empty autocomplete results).
     const orFields = pickIlikeSearchFields(config, searchFields, types)
-    if (orFields.length) {
-      parts.push({
-        _or: orFields.map((field) => ({
-          [field]: { _ilike: `%${q}%` },
-        })),
-      })
+    const orClauses: Record<string, unknown>[] = orFields.map((field) => ({
+      [field]: { _ilike: `%${q}%` },
+    }))
+    orClauses.push(...extraSearchOr)
+    if (orClauses.length) {
+      parts.push({ _or: orClauses })
     }
   }
 
   if (!parts.length) return null
   if (parts.length === 1) return parts[0] ?? null
   return { _and: parts }
+}
+
+/**
+ * Opt-in M2O list search: resolve related IDs whose Display Template fields
+ * match `q`, then OR parent FK `_in` those ids (no object-relationship required).
+ */
+async function buildM2OSearchOrClauses(
+  collection: string,
+  q: string,
+  remainingSlots: number,
+): Promise<Record<string, unknown>[]> {
+  if (!q || remainingSlots <= 0) return []
+
+  const promoted = await loadPromotedFields(collection)
+  const m2oFields = promoted
+    .filter(
+      (field) =>
+        field.needsFkIndex &&
+        field.useInSearch &&
+        Boolean(field.relatedEntityApiName) &&
+        isGqlName(field.apiName),
+    )
+    .slice(0, remainingSlots)
+
+  const clauses: Record<string, unknown>[] = []
+  for (const field of m2oFields) {
+    const relatedEntity = field.relatedEntityApiName
+    if (!relatedEntity) continue
+    try {
+      const relatedRelation = await resolveRecordRelation(relatedEntity)
+      const relatedConfig = await resolveHasuraConfig(relatedEntity)
+      const relatedTypes = await loadHasuraFieldTypes(relatedConfig)
+      const labelFields = [
+        ...new Set([
+          ...displayTemplateFields(relatedRelation.displayTemplate),
+          'name',
+          'title',
+          'label',
+        ]),
+      ].filter((name) => {
+        if (!isGqlName(name)) return false
+        if (!Object.keys(relatedTypes).length) return true
+        return relatedTypes[name] === 'String'
+      })
+      if (!labelFields.length) continue
+
+      const where = {
+        _or: labelFields.map((name) => ({
+          [name]: { _ilike: `%${q}%` },
+        })),
+      }
+      const idField = relatedConfig.idField
+      const queryText = /* GraphQL */ `
+        query HasuraM2OSearchIds {
+          ${relatedConfig.root}(where: ${graphqlLiteral(where)}, limit: ${M2O_SEARCH_ID_CAP}) {
+            ${assertGqlName(idField)}
+          }
+        }
+      `
+      const data = await hasuraRequest<Record<string, unknown>>(
+        queryText,
+        undefined,
+        relatedConfig.endpoint ?? undefined,
+      )
+      const rows = Array.isArray(data[relatedConfig.root])
+        ? (data[relatedConfig.root] as Record<string, unknown>[])
+        : []
+      const ids = rows
+        .map((row) => row[idField])
+        .filter((id): id is string => typeof id === 'string' && Boolean(id))
+      if (!ids.length) continue
+      clauses.push({ [field.apiName]: { _in: ids } })
+    } catch {
+      // Skip this M2O clause if related entity is not queryable via Hasura.
+    }
+  }
+  return clauses
 }
 
 function compileOrderBy(
@@ -747,6 +842,17 @@ export async function hasuraFindMany(
   const config = await resolveHasuraConfig(collection)
   const scalarFields = await loadScalarFieldNames(collection)
   const types = await loadHasuraFieldTypes(config)
+  const q = params.search?.trim() || ''
+  const textSlots = q
+    ? pickIlikeSearchFields(config, scalarFields, types).length
+    : 0
+  const m2oSearchOr = q
+    ? await buildM2OSearchOrClauses(
+        collection,
+        q,
+        Math.max(0, LIST_SEARCH_FIELD_CAP - Math.min(textSlots, LIST_SEARCH_FIELD_CAP)),
+      )
+    : []
   const where = compileWhere(
     config,
     params.filter ?? null,
@@ -754,6 +860,7 @@ export async function hasuraFindMany(
     params.search,
     scalarFields,
     types,
+    m2oSearchOr,
   )
   const orderBy = compileOrderBy(config, params.sort, types)
   const limit = params.limit ?? 50

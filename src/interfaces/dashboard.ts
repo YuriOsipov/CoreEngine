@@ -41,9 +41,15 @@ export interface DashboardPanelRecord {
   options?: Record<string, unknown> | null
 }
 
+export type DashboardPanelSourceType = 'collection' | 'report'
+
 /** Directus metric panel options. */
 export interface MetricPanelOptions {
-  collection: string
+  /** Defaults to collection when omitted. */
+  sourceType?: DashboardPanelSourceType
+  collection?: string
+  /** Setting id of a saved report when sourceType is report. */
+  reportId?: string
   field?: string
   function?: DashboardAggregateFunction | string
   filter?: Record<string, unknown>
@@ -51,7 +57,11 @@ export interface MetricPanelOptions {
 
 /** Directus bar / line / pie chart options. */
 export interface ChartPanelOptions {
-  collection: string
+  /** Defaults to collection when omitted. */
+  sourceType?: DashboardPanelSourceType
+  collection?: string
+  /** Setting id of a saved report when sourceType is report. */
+  reportId?: string
   xAxis?: string
   yAxis?: string
   aggregation?: DashboardAggregateFunction | string

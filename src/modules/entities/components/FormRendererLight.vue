@@ -26,8 +26,10 @@ import {
   fieldRelatedRecordRoute,
 } from '@/core/compactRecordRoutes'
 import {
+  coerceBooleanDisplayValue,
   gridStyle,
   isAddressField,
+  isBooleanColumn,
   isFilesField,
   isFullWidthLayoutField,
   isGroupInlineLabels,
@@ -55,6 +57,7 @@ import {
   filterVisibleLayoutGroups,
   filterVisibleLayoutSections,
 } from '@/core/recordConditionMatch'
+import { normalizeLayoutSchemaFilesFields } from '@/core/entityLayoutUtils'
 
 const { t } = useTranslation()
 
@@ -76,14 +79,17 @@ const emit = defineEmits<{
   'related-changed': []
 }>()
 
-const fieldLabels = useFieldLabels(() => props.schema.entity)
-const fieldDisplay = useFieldDisplay(() => props.schema.entity)
+/** Keep Image M2O fields as single-file Files (not Attachments junction). */
+const layoutSchema = computed(() => normalizeLayoutSchemaFilesFields(props.schema))
+
+const fieldLabels = useFieldLabels(() => layoutSchema.value.entity)
+const fieldDisplay = useFieldDisplay(() => layoutSchema.value.entity)
 const compactTooltip = useCompactTooltip()
 const activeSectionId = ref<string | null>(null)
 const systemInfoCollapsed = ref(false)
 
 const visibleSections = computed(() =>
-  filterVisibleLayoutSections(props.schema.sections, props.modelValue),
+  filterVisibleLayoutSections(layoutSchema.value.sections, props.modelValue),
 )
 
 const activeSectionIndex = computed({
@@ -101,7 +107,7 @@ const activeSectionIndex = computed({
 })
 
 watch(
-  () => props.schema.systemInfo?.collapsed,
+  () => layoutSchema.value.systemInfo?.collapsed,
   (collapsed) => {
     systemInfoCollapsed.value = collapsed ?? false
   },
@@ -111,7 +117,7 @@ watch(
 const groupCollapsed = reactive<Record<string, boolean>>({})
 
 watch(
-  () => props.schema,
+  layoutSchema,
   (schema) => {
     for (const section of schema.sections) {
       for (const group of section.groups) {
@@ -125,7 +131,7 @@ watch(
 )
 
 const visibleFields = computed(() =>
-  props.schema.sections.reduce<LayoutFieldMetadata[]>(
+  layoutSchema.value.sections.reduce<LayoutFieldMetadata[]>(
     (fields, section) => [
       ...fields,
       ...section.groups.reduce<LayoutFieldMetadata[]>(
@@ -141,7 +147,7 @@ const visibleFields = computed(() =>
 )
 
 const showSystemInfo = computed(
-  () => !props.embedded && isSystemInfoEnabled(props.schema),
+  () => !props.embedded && isSystemInfoEnabled(layoutSchema.value),
 )
 
 const showSectionTabs = computed(
@@ -171,7 +177,7 @@ watch(
 )
 
 watch(
-  [visibleFields, () => props.modelValue, () => props.schema.entity],
+  [visibleFields, () => props.modelValue, () => layoutSchema.value.entity],
   ([fields]) => {
     void fieldLabels.sync(fields)
     fieldDisplay.sync(fields, (f) => props.modelValue[f.field])
@@ -270,6 +276,7 @@ watch(
                   show-create
                   show-actions
                   :m2a-editable="Boolean(m2aEditable)"
+                  files-readonly
                   @blocks-saved="emit('blocks-saved', $event)"
                   @related-changed="emit('related-changed')"
                 />
@@ -277,11 +284,11 @@ watch(
 
               <template v-else-if="isTreeTableField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="min-h-[2.35rem] break-all text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
+                  class="min-h-[2.35rem] break-words text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
                   :class="{
                     'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem]': !embedded,
                     'flex-1 min-w-0 w-full': isGroupInlineLabels(group),
@@ -291,11 +298,11 @@ watch(
 
               <template v-else-if="isSchedulerField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="min-h-[2.35rem] break-all text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
+                  class="min-h-[2.35rem] break-words text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
                   :class="{
                     'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem]': !embedded,
                     'flex-1 min-w-0 w-full': isGroupInlineLabels(group),
@@ -309,6 +316,7 @@ watch(
                   :model-value="modelValue"
                   :parent-id="parentId"
                   :parent-name="parentName"
+                  readonly
                 />
               </template>
 
@@ -332,7 +340,7 @@ watch(
 
               <template v-else-if="isRepeaterField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div :class="{ 'flex-1 min-w-0 w-full': isGroupInlineLabels(group) }">
@@ -345,7 +353,7 @@ watch(
 
               <template v-else-if="isAddressField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
@@ -360,7 +368,7 @@ watch(
 
               <template v-else-if="isSensitivityMatrixField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
@@ -377,7 +385,7 @@ watch(
 
               <template v-else-if="isJsonListField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
@@ -392,7 +400,7 @@ watch(
 
               <template v-else-if="isJsonCodeField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
@@ -407,7 +415,7 @@ watch(
 
               <template v-else-if="isHtmlEditorField(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
@@ -421,15 +429,41 @@ watch(
                 </div>
               </template>
 
-              <template v-else>
+              <template v-else-if="isBooleanColumn(field)">
                 <div
-                  class="text-surface-700 text-sm font-medium"
+                  class="text-muted-color text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >
                   {{ fieldLabels.getLabel(field) }}
                 </div>
                 <div
-                  class="layout-field__value min-w-0 break-all text-surface-900 text-[0.95rem] leading-[1.35]"
+                  class="layout-field__value flex min-w-0 items-center text-surface-900"
+                  :class="{
+                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                      !embedded && !isGroupInlineLabels(group),
+                    'flex-1 w-full min-w-0 min-h-[2.5rem] py-0.5':
+                      embedded || isGroupInlineLabels(group),
+                  }"
+                >
+                  <Checkbox
+                    class="pointer-events-none"
+                    :model-value="coerceBooleanDisplayValue(modelValue[field.field])"
+                    binary
+                    :tabindex="-1"
+                    :aria-label="fieldLabels.getLabel(field)"
+                  />
+                </div>
+              </template>
+
+              <template v-else>
+                <div
+                  class="text-muted-color text-xs font-medium leading-tight"
+                  :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
+                >
+                  {{ fieldLabels.getLabel(field) }}
+                </div>
+                <div
+                  class="layout-field__value min-w-0 break-words text-surface-900 text-[0.95rem] leading-[1.35]"
                   :class="{
                     'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),

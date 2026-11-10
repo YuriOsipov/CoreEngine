@@ -1,4 +1,4 @@
--- Helix platform kernel: physical tables (no domain entities)
+-- CoreEngine platform kernel: physical tables (no domain entities)
 
 -- ---------------------------------------------------------------------------
 -- Core registry

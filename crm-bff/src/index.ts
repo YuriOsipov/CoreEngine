@@ -5,7 +5,13 @@ import { createYoga, createSchema } from 'graphql-yoga'
 import { typeDefs } from './schema/typeDefs.js'
 import { resolvers } from './resolvers/index.js'
 import { pool } from './db/pool.js'
-import { loadAsset, updateFileRecord, uploadFileBuffer, deleteFileRecord } from './adapters/filesAdapter.js'
+import {
+  loadAsset,
+  updateFileRecord,
+  uploadFileBuffer,
+  deleteFileRecord,
+  linkFileToRecord,
+} from './adapters/filesAdapter.js'
 import {
   bffLogin,
   bffLogout,
@@ -15,6 +21,9 @@ import { bearerToken, decodeJwtClaims } from './auth/tokenClaims.js'
 import { authJwtSecret, verifyAccessToken } from './auth/jwt.js'
 import { resolveFlowsBackend, triggerFlow } from './flows/flowsAdapter.js'
 import { startTaskScheduler } from './tasks/scheduler.js'
+import { registerRecordsRestApi } from './rest/recordsApi.js'
+import { registerDocumentsRestApi } from './rest/documentsApi.js'
+import { describePlatformMail } from './mail/platformMail.js'
 
 const port = Number(process.env.PORT || 4000)
 const corsOriginAllowlist = (
@@ -232,11 +241,64 @@ app.patch<{
   }
 })
 
+app.post<{
+  Params: { id: string }
+  Body: {
+    parent_collection?: string
+    parent_record_id?: string
+  }
+}>('/files/:id/link', async (request, reply) => {
+  try {
+    const parentCollection = String(request.body?.parent_collection || '').trim()
+    const parentRecordId = String(request.body?.parent_record_id || '').trim()
+    if (!parentCollection || !parentRecordId) {
+      return reply.status(400).send({
+        error: 'parent_collection and parent_record_id are required',
+      })
+    }
+
+    const authHeader =
+      typeof request.headers.authorization === 'string'
+        ? request.headers.authorization
+        : null
+    const token = bearerToken(authHeader)
+    let createdBy: string | null = null
+    if (token) {
+      try {
+        createdBy = verifyAccessToken(token)?.id ?? null
+      } catch {
+        createdBy = decodeJwtClaims(token)?.id ?? null
+      }
+    }
+
+    const data = await linkFileToRecord({
+      fileId: request.params.id,
+      parentCollection,
+      parentRecordId,
+      createdBy,
+    })
+    return reply.send(data)
+  } catch (error) {
+    request.log.error({ err: error }, 'file link failed')
+    const message = error instanceof Error ? error.message : 'File link failed'
+    const status = message.startsWith('File not found') ? 404 : 502
+    return reply.status(status).send({ error: message })
+  }
+})
+
 app.delete<{
   Params: { id: string }
+  Querystring: { parent_collection?: string; parent_record_id?: string }
 }>('/files/:id', async (request, reply) => {
   try {
-    const deleted = await deleteFileRecord(request.params.id)
+    const parentCollection = String(request.query.parent_collection || '').trim()
+    const parentRecordId = String(request.query.parent_record_id || '').trim()
+    const deleted = await deleteFileRecord(
+      request.params.id,
+      parentCollection && parentRecordId
+        ? { collection: parentCollection, recordId: parentRecordId }
+        : null,
+    )
     if (!deleted) {
       return reply.status(404).send({ error: 'File not found' })
     }
@@ -291,6 +353,9 @@ app.post('/flows/trigger/:key', async (request, reply) => {
   return reply.status(status).send(body)
 })
 
+await registerRecordsRestApi(app)
+await registerDocumentsRestApi(app)
+
 async function start() {
   try {
     // Fail fast: login/refresh call signAccessToken and otherwise surface as HTTP 500.
@@ -303,8 +368,16 @@ async function start() {
     )
     app.log.info(`Files upload at http://localhost:${port}/files`)
     app.log.info(`Assets proxy at http://localhost:${port}/assets/:id`)
+    app.log.info(
+      `REST records at http://localhost:${port}/api/v1/:collection[/:id] (GET/POST/PUT/PATCH/DELETE)`,
+    )
+    app.log.info(`REST SOQL query at http://localhost:${port}/api/v1/query`)
+    app.log.info(
+      `REST generate document at http://localhost:${port}/api/v1/documents/generate`,
+    )
     startTaskScheduler()
     app.log.info('Task scheduler started (TASK_SCHEDULER_ENABLED, default on)')
+    app.log.info(describePlatformMail())
   } catch (error) {
     app.log.error(error)
     process.exit(1)

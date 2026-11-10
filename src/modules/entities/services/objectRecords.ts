@@ -27,6 +27,8 @@ export interface ObjectRecordQueryOptions {
   limit?: number
   offset?: number
   archivedOnly?: boolean
+  /** Server-side list search (ANDed with listFilter by the BFF). */
+  search?: string | null
 }
 
 export interface ReadableCollectionOption {
@@ -71,6 +73,7 @@ export async function fetchObjectRecords(
     collection,
     settings: tableSettings,
     listFilter,
+    search: options.search ?? null,
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
     defaultColumnLimit: 12,
@@ -86,12 +89,15 @@ export async function fetchObjectRecordsByIds(
   recordIds: string[],
   totalCount: number,
   tableSettings?: DataTableSettings | null,
+  options: Pick<ObjectRecordQueryOptions, 'search'> = {},
 ): Promise<ObjectRecordList> {
   const runtime = await fetchDataTableRuntime({
     collection,
     settings: tableSettings,
     recordIds,
-    totalCountOverride: totalCount,
+    search: options.search ?? null,
+    // When searching a recently-viewed id set, let the BFF recount matches.
+    totalCountOverride: options.search?.trim() ? undefined : totalCount,
     defaultColumnLimit: 12,
     excludeHiddenFields: true,
   })

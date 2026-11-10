@@ -37,7 +37,7 @@ function asObject(value: unknown): Record<string, unknown> {
 }
 
 export function parseAccountability(raw: unknown): EntityAccountability {
-  if (raw === null) return null
+  if (raw === null || raw === 'none' || raw === '') return null
   if (raw === 'activity' || raw === 'all') return raw
   // Default when unset: track activity + revisions (Directus-like).
   return 'all'

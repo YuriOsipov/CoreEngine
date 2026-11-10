@@ -95,6 +95,7 @@ import {
   filterVisibleLayoutSections,
 } from '@/core/recordConditionMatch'
 import { useShowIfEvalRecord } from '@/core/useShowIfEvalRecord'
+import { isLayoutFieldReadonly } from '@/core/layoutFieldRules'
 import { keysEqual } from '@/core/utils/object'
 
 const props = defineProps<{
@@ -144,6 +145,8 @@ const activeSectionIndex = computed({
 })
 
 const activeSection = computed(() => visibleSections.value[activeSectionIndex.value])
+
+const showSectionTabs = computed(() => visibleSections.value.length > 1)
 
 const visibleGroups = computed(() =>
   activeSection.value
@@ -320,7 +323,8 @@ function fieldComponentProps(field: LayoutFieldMetadata): Record<string, unknown
     readonlyFieldNames.value,
     props.parentName,
     props.parentId,
-    runtimeMeta.runtimeReadonly[field.field],
+    runtimeMeta.runtimeReadonly[field.field] ||
+      isLayoutFieldReadonly(field, showIfEvalRecord.value),
   )
 }
 
@@ -350,6 +354,11 @@ function handleFilesChanged(payload: {
   field: string
   value: Record<string, unknown>[]
 }): void {
+  // Avoid re-entrant updates when AttachedDataTableField hydrates from modelValue.
+  const current = formState.value[payload.field]
+  if (JSON.stringify(current ?? null) === JSON.stringify(payload.value ?? null)) {
+    return
+  }
   updateFormField(payload.field, payload.value)
 }
 
@@ -536,6 +545,7 @@ function validateRequired(): FormRequiredValidationResult {
         }
         if (readonlyFieldNames.value.has(field.field)) continue
         if (runtimeMeta.runtimeReadonly[field.field]) continue
+        if (isLayoutFieldReadonly(field, showIfEvalRecord.value)) continue
         if (!runtimeMeta.runtimeRequired[field.field]) continue
         if (seen.has(field.field)) continue
         seen.add(field.field)
@@ -563,6 +573,7 @@ defineExpose({ validateRequired })
   <div class="flex flex-col gap-4">
     <div v-if="visibleSections.length > 0" class="flex flex-col gap-4">
       <div
+        v-if="showSectionTabs"
         class="layout-tabs flex gap-[0.4rem] border-b border-surface-200"
         role="tablist"
       >
@@ -583,7 +594,7 @@ defineExpose({ validateRequired })
         </button>
       </div>
 
-      <section v-if="activeSection" class="grid gap-4 pt-4">
+      <section v-if="activeSection" class="grid gap-4" :class="{ 'pt-4': showSectionTabs }">
         <p v-if="activeSection.description" class="mt-1 mb-0 text-[0.85rem] text-muted-color">
           {{ activeSection.description }}
         </p>
@@ -606,9 +617,9 @@ defineExpose({ validateRequired })
               class="min-w-0"
               :class="{
                 'layout-field--inline flex w-full flex-col gap-[0.35rem] py-1.5 border-b border-surface-100 md:flex-row md:items-center md:gap-3':
-                  isGroupInlineLabels(group) && !isFullWidthLayoutField(field) && !isCheckboxField(field),
+                  isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
                 'flex flex-col gap-[0.35rem]':
-                  !isGroupInlineLabels(group) || isFullWidthLayoutField(field) || isCheckboxField(field),
+                  !isGroupInlineLabels(group) || isFullWidthLayoutField(field),
                 '!col-span-12': isFullWidthLayoutField(field),
               }"
               :style="gridStyle(field)"
@@ -636,7 +647,6 @@ defineExpose({ validateRequired })
               </template>
               <template v-else>
               <label
-                v-if="!isCheckboxField(field)"
                 class="text-[0.85rem] font-medium text-surface-700"
                 :class="{
                   'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
@@ -650,8 +660,8 @@ defineExpose({ validateRequired })
               <div
                 class="flex flex-col gap-[0.35rem]"
                 :class="{
-                  '!flex-row items-center gap-2': isCheckboxField(field),
-                  'flex-1 min-w-0 w-full': isGroupInlineLabels(group) && !isFullWidthLayoutField(field) && !isCheckboxField(field),
+                  'flex-1 min-w-0 w-full': isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
+                  'justify-center min-h-[2.5rem]': isCheckboxField(field),
                 }"
               >
                 <CrmTreeTable
@@ -669,8 +679,11 @@ defineExpose({ validateRequired })
                   v-else-if="isFilesField(field)"
                   :field="field"
                   :model-value="formState"
-                  :parent-id="recordId"
+                  :parent-id="recordId ?? parentId"
                   :parent-name="schema.entity"
+                  :readonly="
+                    Boolean(readonly) || readonlyFieldNames.has(field.field)
+                  "
                   @files-changed="handleFilesChanged"
                 />
                 <CrmM2MMultiSelect
@@ -699,6 +712,7 @@ defineExpose({ validateRequired })
                   :parent-name="parentName"
                   :parent-record="parentRecord"
                   :prefer-picklist="field.component === 'ChildLookup'"
+                  :value-input="field.component === 'InputNumber' ? 'number' : 'text'"
                   :preserve-draft-on-hydrate="recordId != null && recordId !== ''"
                   :disabled="Boolean(fieldComponentProps(field).disabled)"
                   @update:model-value="updateFormField(field.field, $event)"
@@ -799,15 +813,6 @@ defineExpose({ validateRequired })
                 <p v-else class="m-0 text-[0.85rem] text-red-600">
                   {{ t('formRenderer.unknownComponent', 'Unknown component: {component}', { component: field.component }) }}
                 </p>
-
-                <label
-                  v-if="isCheckboxField(field)"
-                  class="text-[0.9rem] cursor-pointer"
-                  :for="field.field"
-                >
-                  {{ fieldLabels.getLabel(field) }}
-                  <span v-if="runtimeMeta.runtimeRequired[field.field]" class="text-red-600">*</span>
-                </label>
               </div>
               </template>
             </div>

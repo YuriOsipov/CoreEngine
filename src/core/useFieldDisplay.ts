@@ -8,13 +8,18 @@ import {
   formatChoiceValue,
   formatFieldDisplayValue,
 } from '@/core/fieldHelpers'
-import { relatedRecordFallbackLabel } from '@/modules/entities/utils/recordDisplay'
+import {
+  formatNumberDisplayValue,
+  relatedRecordFallbackLabel,
+} from '@/modules/entities/utils/recordDisplay'
 import { useDateDisplayFormats } from '@/core/useDateDisplayFormats'
+import { useNumberDisplayOptions } from '@/core/useNumberDisplayOptions'
 import { useRelatedDisplayLabels } from '@/core/useRelatedDisplayLabels'
 import { useChoiceDisplayLabels } from '@/core/useChoiceDisplayLabels'
 
 export function useFieldDisplay(entity: () => string) {
   const dateFormats = useDateDisplayFormats(entity)
+  const numberDisplay = useNumberDisplayOptions(entity)
   const relatedDisplay = useRelatedDisplayLabels(entity)
   const choiceDisplay = useChoiceDisplayLabels(entity)
 
@@ -23,6 +28,7 @@ export function useFieldDisplay(entity: () => string) {
     getValue: (f: LayoutFieldMetadata) => unknown,
   ): void {
     void dateFormats.sync(fields)
+    void numberDisplay.sync(fields)
     relatedDisplay.sync(fields, getValue)
     choiceDisplay.sync(fields)
   }
@@ -59,6 +65,12 @@ export function useFieldDisplay(entity: () => string) {
 
     const choiceLabels = choiceDisplay.labels[field.field]
     if (choiceLabels) return formatChoiceValue(rawValue, choiceLabels, formatFieldDisplayValue)
+
+    const numberOpts = numberDisplay.options[field.field]
+    if (numberOpts) {
+      const formatted = formatNumberDisplayValue(rawValue, numberOpts)
+      if (formatted !== null) return formatted
+    }
 
     return formatFieldDisplayValue(rawValue)
   }

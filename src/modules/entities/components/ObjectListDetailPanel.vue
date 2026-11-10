@@ -10,6 +10,7 @@ import RelatedListFieldHost from '@/modules/entities/components/RelatedListField
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
+import DocViewDialog from '@/modules/documents/components/DocViewDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import { useEntityRecordActions } from '@/modules/entities/composables/useEntityRecordActions'
 import type { EntityAction, LayoutFieldMetadata, ListViewDetailPanel } from '@/interfaces'
@@ -19,6 +20,7 @@ import {
   listBlockLayoutRelatedListFields,
   relatedListFieldTabLabel,
 } from '@/modules/config/utils/recordPageRelatedList'
+import { canReadEntity, ensureEntityPermissions } from '@/core/entityPermissions'
 import { useTranslation } from '@/core/translation'
 
 const props = defineProps<{
@@ -68,6 +70,11 @@ const {
   fillDocValueId,
   fillExportMode,
   fillAttachFile,
+  viewDialogVisible,
+  viewTemplateId,
+  viewDocValueId,
+  viewMode,
+  viewAutoSave,
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
@@ -98,10 +105,22 @@ const legacyField = computed<LayoutFieldMetadata | null>(() => {
   }
 })
 
+const permissionsTick = ref(0)
+
+void ensureEntityPermissions().then(() => {
+  permissionsTick.value += 1
+})
+
 const displayFields = computed(() => {
-  if (usePrefetched.value) return props.relatedFields ?? []
-  if (legacyRelatedFields.value.length > 0) return legacyRelatedFields.value
-  return legacyField.value ? [legacyField.value] : []
+  void permissionsTick.value
+  const fields = usePrefetched.value
+    ? (props.relatedFields ?? [])
+    : legacyRelatedFields.value.length > 0
+      ? legacyRelatedFields.value
+      : legacyField.value
+        ? [legacyField.value]
+        : []
+  return fields.filter((field) => canReadEntity(field.relatedCollection))
 })
 
 const resolvedActions = computed(() =>
@@ -381,6 +400,17 @@ function emitViewRecord(row: Record<string, unknown>, relatedCollection: string)
       :doc-value-id="fillDocValueId"
       :export-mode="fillExportMode"
       :attach-file="fillAttachFile"
+    />
+
+    <DocViewDialog
+      v-if="hasParent && viewTemplateId"
+      v-model:visible="viewDialogVisible"
+      :collection="collection"
+      :record-id="String(parentId ?? '')"
+      :template-id="viewTemplateId"
+      :doc-value-id="viewDocValueId"
+      :view-mode="viewMode"
+      :auto-save="viewAutoSave"
     />
 
     <ActionNumberPromptDialog

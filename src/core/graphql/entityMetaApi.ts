@@ -74,7 +74,7 @@ const UPDATE_ENTITY_META = /* GraphQL */ `
 `
 
 function normalizeAccountability(raw: unknown): EntityAccountability {
-  if (raw === null) return null
+  if (raw === null || raw === 'none' || raw === '') return null
   if (raw === 'activity' || raw === 'all') return raw
   return 'all'
 }

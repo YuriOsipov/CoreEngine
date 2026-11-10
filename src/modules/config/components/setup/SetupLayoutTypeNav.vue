@@ -5,8 +5,9 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useTranslation } from '@/core/translation'
+import { scheduleFeatureAvailable } from '../../services/scheduleFeature'
 import { SETUP_LAYOUT_TYPES, type SetupLayoutType } from '../../types/setupLayoutType'
 
 const props = defineProps<{
@@ -18,12 +19,21 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
+const scheduleAvailable = ref(false)
+
+onMounted(() => {
+  void scheduleFeatureAvailable().then((available) => {
+    scheduleAvailable.value = available
+  })
+})
 
 const items = computed(() =>
-  SETUP_LAYOUT_TYPES.map((entry) => ({
-    id: entry.id,
-    label: t(entry.labelKey, entry.defaultLabel),
-  })),
+  SETUP_LAYOUT_TYPES
+    .filter((entry) => entry.id !== 'scheduler' || scheduleAvailable.value)
+    .map((entry) => ({
+      id: entry.id,
+      label: t(entry.labelKey, entry.defaultLabel),
+    })),
 )
 
 function selectLayoutType(id: SetupLayoutType): void {

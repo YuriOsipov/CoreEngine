@@ -7,7 +7,7 @@ import {
 import { isUsersAssetCollection } from '../../users/userNames.js'
 import { listRoles } from '../../services/rolesService.js'
 import { listUsers } from '../usersAdapter.js'
-import { findFile, findFiles } from '../filesAdapter.js'
+import { findFile, findFiles, listFiles, listRecordFiles } from '../filesAdapter.js'
 import type { RecordsListParams, RecordsListResult } from './types.js'
 import { resolveRecordsStore } from './registry.js'
 import { resolveCanonicalEntityApiName } from './entityName.js'
@@ -16,6 +16,7 @@ import {
   loadM2ARelations,
   loadM2ORelations,
   loadO2MRelations,
+  loadReverseM2OChildren,
   readRecordField,
   splitRelationFields,
   writeRecordField,
@@ -43,6 +44,7 @@ import {
   applyRecordAutomations,
   attachAutomationToasts,
 } from '../../computed/applyRecordAutomations.js'
+import { scheduleAutomationFlows } from '../../computed/dispatchAutomationFlows.js'
 import {
   enforceCascadeRestore,
   enforceSoftDeleteConstraints,
@@ -62,14 +64,23 @@ export type RecordWriteOptions = {
 function stripClientAuditUserFields(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!('user_created' in data) && !('user_updated' in data)) return data
+  if (
+    !('user_created' in data) &&
+    !('user_updated' in data) &&
+    !('date_created' in data) &&
+    !('date_updated' in data)
+  ) {
+    return data
+  }
   const next: Record<string, unknown> = { ...data }
   delete next.user_created
   delete next.user_updated
+  delete next.date_created
+  delete next.date_updated
   return next
 }
 
-/** Stamp Created By / Last Modified By from the authenticated actor (server-owned). */
+/** Stamp audit users + dates (server-owned; clients cannot set these). */
 async function stampAuditUsers(
   entityApiName: string,
   data: Record<string, unknown>,
@@ -80,11 +91,21 @@ async function stampAuditUsers(
     typeof actorUserId === 'string' && actorUserId.trim()
       ? actorUserId.trim()
       : ''
-  if (!actor) return data
-
+  const nowIso = new Date().toISOString()
   const promoted = await loadPromotedFields(entityApiName)
   const names = new Set(promoted.map((field) => field.apiName))
   const next: Record<string, unknown> = { ...data }
+
+  // Keep JSONB date_* mirrors in sync with envelope created_at / updated_at.
+  if (mode === 'create') {
+    next.date_created = nowIso
+    next.date_updated = nowIso
+  } else {
+    next.date_updated = nowIso
+  }
+
+  if (!actor) return next
+
   if (mode === 'create') {
     if (names.has('user_created')) next.user_created = actor
     if (names.has('user_updated')) next.user_updated = actor
@@ -420,15 +441,57 @@ function idsFromFilter(filter: Record<string, unknown> | null | undefined): stri
   return []
 }
 
+function collectMimeTypesFromFilter(
+  filter: unknown,
+  out: string[] = [],
+): string[] {
+  if (!filter || typeof filter !== 'object') return out
+  if (Array.isArray(filter)) {
+    for (const item of filter) collectMimeTypesFromFilter(item, out)
+    return out
+  }
+
+  const record = filter as Record<string, unknown>
+  for (const [key, value] of Object.entries(record)) {
+    if (key === '_and' || key === '_or') {
+      collectMimeTypesFromFilter(value, out)
+      continue
+    }
+    if (key !== 'type' || !value || typeof value !== 'object') continue
+    const ops = value as Record<string, unknown>
+    if (ops._eq != null) out.push(String(ops._eq))
+    if (ops._starts_with != null) {
+      const prefix = String(ops._starts_with)
+      out.push(prefix.endsWith('/') ? prefix : `${prefix}/`)
+    }
+    if (Array.isArray(ops._in)) {
+      for (const item of ops._in) out.push(String(item))
+    }
+  }
+  return out
+}
+
 async function findManyFileAssets(
   params: RecordsListParams = {},
 ): Promise<RecordsListResult> {
   const ids = idsFromFilter(params.filter ?? null)
-  if (!ids.length) {
-    return { nodes: [], totalCount: 0 }
+  if (ids.length) {
+    const nodes = await findFiles(ids, params.fields ?? undefined)
+    return { nodes, totalCount: nodes.length }
   }
-  const nodes = await findFiles(ids, params.fields ?? undefined)
-  return { nodes, totalCount: nodes.length }
+
+  // Browse mode for Image / file pickers (no id filter required).
+  const mimeTypes = collectMimeTypesFromFilter(params.filter ?? null)
+  const limit =
+    params.limit != null && params.limit >= 0 ? Math.min(params.limit, 100) : 48
+  const offset = params.offset ?? 0
+  return listFiles({
+    search: params.search ?? null,
+    mimeTypes: mimeTypes.length ? mimeTypes : null,
+    fields: params.fields ?? null,
+    limit,
+    offset,
+  })
 }
 
 function projectRoleNode(
@@ -592,6 +655,65 @@ export async function findOneRecord(
   return withRollups ?? expanded ?? record
 }
 
+export type ExpandChildrenOptions = {
+  /** Max rows per child collection (default 100). */
+  limit?: number
+  /** Include public.files linked via parent_collection/parent_record_id. */
+  includeFiles?: boolean
+}
+
+/**
+ * Attach reverse-M2O children under `_children` (and optional `_files`).
+ * Used by REST `?expand=children`.
+ */
+export async function expandRecordWithChildren(
+  entity: string,
+  recordId: string,
+  record: Record<string, unknown>,
+  options: ExpandChildrenOptions = {},
+): Promise<Record<string, unknown>> {
+  const apiName = await resolveEntity(entity)
+  const limit =
+    options.limit != null && options.limit >= 0
+      ? Math.min(Math.trunc(options.limit), 500)
+      : 100
+  const children = await loadReverseM2OChildren(apiName)
+  const childMap: Record<string, Record<string, unknown>[]> = {}
+
+  await Promise.all(
+    children.map(async (rel) => {
+      try {
+        const result = await findManyRecords(rel.childEntityApiName, {
+          filter: { [rel.fkFieldApiName]: { _eq: recordId } },
+          fields: null,
+          limit,
+          offset: 0,
+        })
+        const key = rel.childEntityApiName
+        const existing = childMap[key] ?? []
+        childMap[key] = existing.concat(result.nodes)
+      } catch {
+        // Skip collections the store cannot list (missing table, etc.).
+      }
+    }),
+  )
+
+  const out: Record<string, unknown> = {
+    ...record,
+    _children: childMap,
+  }
+
+  if (options.includeFiles !== false) {
+    try {
+      out._files = await listRecordFiles(apiName, recordId, null)
+    } catch {
+      out._files = []
+    }
+  }
+
+  return out
+}
+
 export async function createRecord(
   entity: string,
   data: Record<string, unknown>,
@@ -635,6 +757,14 @@ export async function createRecord(
         after: created,
       })
       const record = await findOneRecord(apiName, parentId, fields)
+      scheduleAutomationFlows({
+        entityApiName: apiName,
+        recordId: parentId,
+        record: asObject(record),
+        before: null,
+        trigger: 'create',
+        flowTriggers: automationResult.flowTriggers,
+      })
       return attachAutomationToasts(record, automationResult.toasts)
     } catch (err) {
       lastError = err
@@ -704,6 +834,14 @@ export async function updateRecord(
     after: updated,
   })
   const record = await findOneRecord(apiName, String(id), fields)
+  scheduleAutomationFlows({
+    entityApiName: apiName,
+    recordId: String(id),
+    record: asObject(record),
+    before: existing ? asObject(existing) : null,
+    trigger: 'update',
+    flowTriggers: automationResult.flowTriggers,
+  })
   return attachAutomationToasts(record, automationResult.toasts)
 }
 
@@ -760,10 +898,16 @@ export async function softDeleteRecord(
     before: existing,
     after: deleted,
   })
-  return attachAutomationToasts(
-    asObject(deleted),
-    automationResult.toasts,
-  )
+  const deletedObj = asObject(deleted)
+  scheduleAutomationFlows({
+    entityApiName: apiName,
+    recordId,
+    record: deletedObj,
+    before: existing ? asObject(existing) : null,
+    trigger: 'delete',
+    flowTriggers: automationResult.flowTriggers,
+  })
+  return attachAutomationToasts(deletedObj, automationResult.toasts)
 }
 
 function asObject(value: unknown): Record<string, unknown> {

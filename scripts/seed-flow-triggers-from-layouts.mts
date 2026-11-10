@@ -98,14 +98,10 @@ for (const key of keys) {
     continue
   }
 
-  await query(
-    `INSERT INTO public.app_flow_triggers (key, handler, enabled, description, config)
-     VALUES ($1, 'ack', true, $2, '{}'::jsonb)
-     ON CONFLICT (key) DO NOTHING`,
-    [key, `Seeded from layout_settings (ack stub; replace with http if needed)`],
+  // Do not seed ack stubs — configure real HTTP flows in Setup → Flows.
+  console.log(
+    `skip    ${key} (create in Setup → Flows with handler=http and your webhook URL)`,
   )
-  inserted += 1
-  console.log(`insert  ${key}`)
 }
 
 console.log(

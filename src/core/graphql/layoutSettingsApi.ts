@@ -185,7 +185,9 @@ export async function queryLayoutSettings(options: {
     String(a.name ?? '').localeCompare(String(b.name ?? '')),
   )
 
-  if (options.limit !== undefined) {
+  // Directus/BFF convention: limit < 0 means “no limit”.
+  // slice(0, -1) would drop the last row (and empty a 1-row result).
+  if (options.limit !== undefined && options.limit >= 0) {
     rows = rows.slice(0, options.limit)
   }
   return rows

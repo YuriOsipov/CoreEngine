@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTranslation } from '@/core/translation'
 import { loginWithBff } from '@/core/auth/session'
+import { resolveAppHomeRoute } from '@/core/navigation/resolveAppHomeRoute'
 
 const { t } = useTranslation()
 const router = useRouter()
@@ -25,6 +26,11 @@ async function submit(): Promise<void> {
       typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
         ? route.query.redirect
         : '/'
+    if (redirect === '/') {
+      const homeRoute = await resolveAppHomeRoute()
+      await router.replace(homeRoute ?? '/')
+      return
+    }
     await router.replace(redirect)
   } catch (err) {
     error.value =
@@ -40,7 +46,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="login-page flex min-h-screen items-center justify-center p-4">
     <div class="login-page__card w-full max-w-md">
-      <p class="mb-1 text-2xl font-semibold">{{ t('auth.brand', 'Helix') }}</p>
+      <p class="mb-1 text-2xl font-semibold">{{ t('auth.brand', 'CoreEngine') }}</p>
       <p class="mb-4 text-sm text-surface-600">
         {{ t('auth.brandSubtitle', 'Multi-purpose platform') }}
       </p>
@@ -48,7 +54,7 @@ async function submit(): Promise<void> {
         {{ t('auth.signInTitle', 'Sign in') }}
       </h1>
       <p class="mb-6 text-sm text-surface-600">
-        {{ t('auth.signInHint', 'Sign in with your Helix account.') }}
+        {{ t('auth.signInHint', 'Sign in with your CoreEngine account.') }}
       </p>
 
       <Message

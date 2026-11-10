@@ -106,18 +106,21 @@ export const typeDefs = /* GraphQL */ `
 
   """Admin rule: on create/update/delete, when conditions match, set fields and/or run actions."""
   type EntityRecordAutomationAction {
-    """notify | break"""
+    """notify | break | trigger_flow"""
     type: String!
     """info | warn (notify only)"""
     severity: String
     """Toast message (notify only)"""
     message: String
+    """app_flow_triggers key (trigger_flow only)"""
+    flowKey: String
   }
 
   input EntityRecordAutomationActionInput {
     type: String!
     severity: String
     message: String
+    flowKey: String
   }
 
   type EntityRecordAutomation {
@@ -135,7 +138,7 @@ export const typeDefs = /* GraphQL */ `
     requireChanged: [String!]!
     """Field → value. Special tokens: $NOW, $NULL, or {{DATE_ADD_DAYS(...)}} templates"""
     setFields: JSON!
-    """Side effects: notify (toast), break (stop later rules)."""
+    """Side effects: notify (toast), trigger_flow (after save), break (stop later rules)."""
     actions: [EntityRecordAutomationAction!]!
   }
 
@@ -435,6 +438,8 @@ export const typeDefs = /* GraphQL */ `
       groupKey: String!
       key: String!
     ): JSON
+    """Org-wide setting (e.g. company_profile locale / address)."""
+    orgSetting(key: String!): JSON
     recentRecordViews(
       userId: ID!
       collection: String!
@@ -494,6 +499,8 @@ export const typeDefs = /* GraphQL */ `
     """Admin: cron jobs owned by the BFF scheduler."""
     scheduledTasks: [ScheduledTask!]!
     scheduledTaskRuns(taskId: ID!, limit: Int = 20): [ScheduledTaskRun!]!
+    """Admin: local flow triggers (app_flow_triggers) — key → http/update_record."""
+    flowTriggers: [FlowTrigger!]!
     """
     Group hierarchy with nested prices (exact group-field match per node).
     config is required: collections + parent/group/scope field paths from Tree settings.
@@ -546,6 +553,43 @@ export const typeDefs = /* GraphQL */ `
     skipped: Int!
   }
 
+  """
+  Server-side DocEngine generation for automations / n8n.
+  Contract: docs/generate-document-api.md — implementation phased.
+  """
+  input GenerateDocumentInput {
+    """Entity api_name (e.g. opportunity). Aligns with automation payload collection."""
+    collectionName: String!
+    """Record id to fill the template from."""
+    recordId: ID!
+    templateId: ID!
+    """pdf | html (default pdf)"""
+    outputFormat: String = "pdf"
+    """completed | draft (default completed)"""
+    documentStatus: String = "completed"
+    """Create/update doc_value (default true)"""
+    persist: Boolean = true
+    """Render file and set output_file (default true; Phase 2)"""
+    renderOutput: Boolean = true
+    """Merge/override mapped values"""
+    valuesOverride: JSON
+    """always_create | update_latest_draft (default always_create)"""
+    upsertMode: String = "always_create"
+  }
+
+  type GenerateDocumentResult {
+    docValueId: ID
+    templateId: ID!
+    templateSnapshotId: ID
+    collectionName: String!
+    recordId: ID!
+    documentStatus: String!
+    outputFormat: String!
+    outputFileId: ID
+    downloadUrl: String
+    values: JSON
+  }
+
   input UpsertScheduledTaskInput {
     id: ID
     key: String
@@ -556,6 +600,26 @@ export const typeDefs = /* GraphQL */ `
     timezone: String
     enabled: Boolean
     params: JSON
+    description: String
+  }
+
+  """Local app_flow_triggers row — maps a key used by automations/actions to a handler."""
+  type FlowTrigger {
+    key: String!
+    """http | update_record"""
+    handler: String!
+    enabled: Boolean!
+    """http: { url, method, headers, auth? }. update_record: { collection, recordId?, patch? }."""
+    config: JSON!
+    description: String
+    updatedAt: String!
+  }
+
+  input UpsertFlowTriggerInput {
+    key: String!
+    handler: String!
+    enabled: Boolean
+    config: JSON
     description: String
   }
 
@@ -590,6 +654,8 @@ export const typeDefs = /* GraphQL */ `
     canRead: Boolean!
     canUpdate: Boolean!
     canDelete: Boolean!
+    canImport: Boolean!
+    canExport: Boolean!
   }
 
   type PermissionEntity {
@@ -604,6 +670,8 @@ export const typeDefs = /* GraphQL */ `
     canRead: Boolean!
     canUpdate: Boolean!
     canDelete: Boolean!
+    canImport: Boolean!
+    canExport: Boolean!
   }
 
   input CreateAppRoleInput {
@@ -744,6 +812,7 @@ export const typeDefs = /* GraphQL */ `
       key: String!
       value: JSON
     ): Boolean!
+    upsertOrgSetting(key: String!, value: JSON): Boolean!
     upsertRecentRecordView(
       userId: ID!
       collection: String!
@@ -753,6 +822,13 @@ export const typeDefs = /* GraphQL */ `
     upsertScheduledTask(input: UpsertScheduledTaskInput!): ScheduledTask!
     deleteScheduledTask(id: ID!): Boolean!
     runScheduledTask(id: ID!): ScheduledTaskRun!
+    upsertFlowTrigger(input: UpsertFlowTriggerInput!): FlowTrigger!
+    deleteFlowTrigger(key: String!): Boolean!
+    """
+    Generate a DocEngine document for a parent record (populate → optional PDF/HTML).
+    See docs/generate-document-api.md. Stub until Phase 1 implementation.
+    """
+    generateDocument(input: GenerateDocumentInput!): GenerateDocumentResult!
     generateScheduleSlots(
       rangeStart: String!
       rangeEnd: String!

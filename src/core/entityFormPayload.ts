@@ -19,8 +19,12 @@ import {
   m2mOptionsToNestedPayload,
 } from '@/modules/entities/utils/m2mSchema'
 import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
-import { filesItemsToO2MPayload } from '@/core/filesField'
-import { isFilesField, isM2MMultiSelectField } from '@/core/fieldHelpers'
+import { filesItemsToO2MPayload, singleFileM2OPayload } from '@/core/filesField'
+import {
+  isFilesField,
+  isM2MMultiSelectField,
+  isSingleFileField,
+} from '@/core/fieldHelpers'
 import type { RelationDefinition } from '@/interfaces'
 
 type BuildFormPayloadOptions = {
@@ -125,7 +129,7 @@ async function buildFormPayload(
       for (const field of group.fields) {
         if (field.field === primaryKey) continue
         if (skipComponents.has(field.component)) continue
-        if (!isWritableLayoutField(field)) continue
+        if (!isWritableLayoutField(field, draft)) continue
         if (!Object.prototype.hasOwnProperty.call(draft, field.field)) continue
         if (!(await shouldIncludeFieldInPayload(collection, field.field))) continue
 
@@ -172,6 +176,19 @@ async function buildFormPayload(
         }
 
         if (isFilesField(field)) {
+          // Image / single-file M2O: persist FK scalar on the parent record
+          // (same shape as other M2O writes — never `{ id }` objects).
+          if (isSingleFileField(field)) {
+            const next = singleFileM2OPayload(raw)
+            if (original) {
+              const prev = singleFileM2OPayload(original[field.field])
+              if ((next?.id ?? null) === (prev?.id ?? null)) continue
+            } else if (!next) {
+              continue
+            }
+            payload[field.field] = next?.id ?? null
+            continue
+          }
           // Existing parent: junction CRUD is owned by AttachedDataTableField.
           if (original) continue
           const nested = Array.isArray(raw)

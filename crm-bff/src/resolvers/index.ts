@@ -18,6 +18,7 @@ import {
   runSchemaSync,
 } from '../sync/schemaSyncService.js'
 import { getUserSetting, upsertUserSetting } from '../services/userSettingsService.js'
+import { getOrgSetting, upsertOrgSetting } from '../services/orgSettingsService.js'
 import {
   listRecentRecordViews,
   upsertRecentRecordView,
@@ -97,6 +98,12 @@ import {
   runScheduledTask,
   upsertScheduledTask,
 } from '../tasks/taskService.js'
+import {
+  deleteFlowTrigger,
+  listFlowTriggers,
+  upsertFlowTrigger,
+} from '../flows/flowTriggersAdmin.js'
+import { generateDocument } from '../documents/generateDocument.js'
 
 type GraphQlAuthContext = { authorization: string | null }
 
@@ -656,6 +663,10 @@ export const resolvers = {
       })
     },
 
+    orgSetting: async (_: unknown, args: { key: string }) => {
+      return getOrgSetting(String(args.key || ''))
+    },
+
     recentRecordViews: async (
       _: unknown,
       args: {
@@ -733,6 +744,8 @@ export const resolvers = {
           canRead: true,
           canUpdate: true,
           canDelete: true,
+          canImport: true,
+          canExport: true,
         }))
       }
       if (await isRoleAdmin(me.roleId)) {
@@ -743,6 +756,8 @@ export const resolvers = {
           canRead: true,
           canUpdate: true,
           canDelete: true,
+          canImport: true,
+          canExport: true,
         }))
       }
       if (!me.roleId) return []
@@ -861,6 +876,15 @@ export const resolvers = {
     ) => {
       await requireAdminAccess(ctx)
       return listScheduledTaskRuns(String(args.taskId), args.limit ?? 20)
+    },
+
+    flowTriggers: async (
+      _: unknown,
+      __: unknown,
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return listFlowTriggers()
     },
 
     itemGroupPriceTree: async (
@@ -1205,6 +1229,7 @@ export const resolvers = {
             type: string
             severity?: string | null
             message?: string | null
+            flowKey?: string | null
           }> | null
         }>
       },
@@ -1244,6 +1269,16 @@ export const resolvers = {
               .trim()
               .toLowerCase()
             if (type === 'break') return { type: 'break' as const }
+            if (
+              type === 'trigger_flow' ||
+              type === 'triggerflow' ||
+              type === 'flow'
+            ) {
+              return {
+                type: 'trigger_flow' as const,
+                flowKey: String(action.flowKey || '').trim(),
+              }
+            }
             const severityRaw = String(action.severity || 'info')
               .trim()
               .toLowerCase()
@@ -1451,6 +1486,8 @@ export const resolvers = {
           canRead: boolean
           canUpdate: boolean
           canDelete: boolean
+          canImport: boolean
+          canExport: boolean
         }>
       },
       ctx: GraphQlAuthContext,
@@ -1602,6 +1639,14 @@ export const resolvers = {
       return true
     },
 
+    upsertOrgSetting: async (
+      _: unknown,
+      args: { key: string; value?: unknown },
+    ) => {
+      await upsertOrgSetting(String(args.key || ''), args.value ?? null)
+      return true
+    },
+
     upsertRecentRecordView: async (
       _: unknown,
       args: {
@@ -1657,6 +1702,56 @@ export const resolvers = {
     ) => {
       await requireAdminAccess(ctx)
       return runScheduledTask(String(args.id), 'manual')
+    },
+
+    upsertFlowTrigger: async (
+      _: unknown,
+      args: {
+        input: {
+          key: string
+          handler: string
+          enabled?: boolean | null
+          config?: Record<string, unknown> | null
+          description?: string | null
+        }
+      },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return upsertFlowTrigger(args.input)
+    },
+
+    deleteFlowTrigger: async (
+      _: unknown,
+      args: { key: string },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return deleteFlowTrigger(String(args.key))
+    },
+
+    generateDocument: async (
+      _: unknown,
+      args: {
+        input: {
+          collectionName: string
+          recordId: string
+          templateId: string
+          outputFormat?: string | null
+          documentStatus?: string | null
+          persist?: boolean | null
+          renderOutput?: boolean | null
+          valuesOverride?: Record<string, unknown> | null
+          upsertMode?: string | null
+        }
+      },
+      ctx: GraphQlAuthContext,
+    ) => {
+      // Auth required; entity create permission on doc_value enforced in Phase 1.
+      if (!ctx?.authorization) {
+        throw new Error('Authentication required')
+      }
+      return generateDocument(args.input)
     },
 
     generateScheduleSlots: async (

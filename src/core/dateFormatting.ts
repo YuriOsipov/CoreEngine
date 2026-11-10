@@ -1,3 +1,4 @@
+import { getOrgDateFormat, getOrgDateTimeFormat, getOrgTimeZone } from '@/core/orgLocale'
 import { getTranslationLanguage } from '@/core/translation'
 
 interface DateFieldDefinition {
@@ -15,14 +16,17 @@ const DATE_FORMAT_TOKENS = /yyyy|YYYY|uuuu|MMMM|MMM|yy|YY|uu|y|u|MM|M|dd|DD|d/g
 export function formatDateValue(value: unknown, format: string): string {
   const date = toDate(value)
   if (!date) return value === null || value === undefined ? '' : String(value)
+  const dateOnly = isDateOnlyValue(value)
+  const displayDate =
+    dateOnly ? date : toZonedWallClockDate(date, getOrgTimeZone())
   const displayFormat = normalizeDateFormatForLocale(format)
   const preset = displayFormat.trim().toLowerCase()
   if (preset === 'long' || preset === 'short') {
-    return formatDatePreset(date, preset, isDateOnlyValue(value))
+    return formatDatePreset(displayDate, preset, dateOnly)
   }
 
   return displayFormat.replace(FORMAT_TOKENS, (token, index) =>
-    tokenValue(date, token, displayFormat, index),
+    tokenValue(displayDate, token, displayFormat, index),
   )
 }
 
@@ -50,7 +54,25 @@ export function effectiveDateDisplayFormat(
   format: string | null | undefined,
   field: DateFieldDefinition | undefined,
 ): string | undefined {
-  return format?.trim() || (field ? fieldDateDisplayFormat(field) : undefined)
+  if (format?.trim()) return format.trim()
+  if (!field) return undefined
+  return fieldDateDisplayFormat(field) ?? defaultFormatForDateField(field)
+}
+
+/** When Setup has no display format, still show a localized date (not raw ISO). */
+function defaultFormatForDateField(field: DateFieldDefinition): string | undefined {
+  const type = String(field.type ?? '').toLowerCase()
+  if (type === 'date') return defaultDateDisplayFormat()
+  if (type === 'time') return isUkrainianLocale() ? 'HH:mm' : 'h:mm A'
+  if (type === 'datetime' || type === 'timestamp') {
+    return defaultDateTimeDisplayFormat({ includeSeconds: false })
+  }
+  // DatePicker/Calendar layouts may omit a typed date when the column is mis-typed;
+  // prefer a date-only short format over dumping the ISO string.
+  if (!type || type === 'string' || type === 'text') {
+    return defaultDateDisplayFormat()
+  }
+  return undefined
 }
 
 export function isDateComponent(component: string | undefined): boolean {
@@ -58,12 +80,19 @@ export function isDateComponent(component: string | undefined): boolean {
 }
 
 export function defaultDateDisplayFormat(): string {
-  return fieldPresetDateFormat('short')
+  return getOrgDateFormat() || fieldPresetDateFormat('short')
 }
 
 export function defaultDateTimeDisplayFormat(
   options: { includeSeconds?: boolean } = {},
 ): string {
+  const orgFormat = getOrgDateTimeFormat()
+  if (orgFormat) {
+    if (options.includeSeconds === false) {
+      return orgFormat.replace(/:?ss/gi, '').replace(/\s+/g, ' ').trim()
+    }
+    return orgFormat
+  }
   const includeSeconds = options.includeSeconds ?? true
   const timeFormat = isUkrainianLocale()
     ? `HH:mm${includeSeconds ? ':ss' : ''}`
@@ -243,6 +272,7 @@ function tokenValue(date: Date, token: string, format: string, index: number): s
 }
 
 function formatDatePreset(date: Date, preset: 'long' | 'short', dateOnly: boolean): string {
+  // `date` is already org wall-clock for date-times (see formatDateValue).
   if (dateOnly) {
     return date.toLocaleDateString(currentLocale(), {
       dateStyle: preset,
@@ -253,6 +283,41 @@ function formatDatePreset(date: Date, preset: 'long' | 'short', dateOnly: boolea
     dateStyle: preset,
     timeStyle: preset === 'long' ? 'medium' : 'short',
   })
+}
+
+/**
+ * Build a Date whose local getters reflect wall-clock time in `timeZone`
+ * (so existing token formatting can stay timezone-agnostic).
+ */
+function toZonedWallClockDate(date: Date, timeZone: string): Date {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date)
+    const read = (type: Intl.DateTimeFormatPartTypes): number =>
+      Number(parts.find((part) => part.type === type)?.value ?? NaN)
+    const year = read('year')
+    const month = read('month')
+    const day = read('day')
+    const hour = read('hour')
+    const minute = read('minute')
+    const second = read('second')
+    if (
+      [year, month, day, hour, minute, second].some((value) => Number.isNaN(value))
+    ) {
+      return date
+    }
+    return new Date(year, month - 1, day, hour, minute, second)
+  } catch {
+    return date
+  }
 }
 
 function isTimeMinuteToken(format: string, index: number): boolean {

@@ -64,6 +64,10 @@ function selectColumns(relation: CrmRecordRelation): string {
   if (relation.hasDeleted) cols.push('is_deleted')
   if (relation.hasActive) cols.push('is_active')
   cols.push('data', 'created_at::text', 'updated_at::text')
+  // Typed promoted columns are authoritative over stale JSONB mirrors.
+  for (const field of relation.promoted) {
+    cols.push(quoteIdent(field.apiName))
+  }
   return cols.join(', ')
 }
 
@@ -73,11 +77,21 @@ function toPublicRecord(
   fields?: string[] | null,
 ): Record<string, unknown> {
   const data = asObject(row.data)
+  const rowBag = row as BusinessRecordRow & Record<string, unknown>
   const merged: Record<string, unknown> = {
     ...data,
     id: row.record_id,
-    date_created: data.date_created ?? row.created_at,
-    date_updated: data.date_updated ?? row.updated_at,
+    // Envelope timestamps always win — JSONB date_* mirrors go stale on update.
+    date_created: row.created_at ?? data.date_created ?? null,
+    date_updated: row.updated_at ?? data.date_updated ?? null,
+  }
+  for (const field of relation.promoted) {
+    if (!Object.prototype.hasOwnProperty.call(rowBag, field.apiName)) continue
+    const colVal = rowBag[field.apiName]
+    // Prefer typed column when present; keep JSONB when column is still null (legacy).
+    if (colVal !== null && colVal !== undefined) {
+      merged[field.apiName] = colVal
+    }
   }
   if (relation.hasStatus) merged.status = row.status ?? null
   else delete merged.status
@@ -596,6 +610,130 @@ function displayTemplateFields(template: string | null | undefined): string[] {
   return fields
 }
 
+const LIST_SEARCH_FIELD_CAP = 16
+
+/** Text-like promoted scalars only — never M2O/FK columns. */
+function isTextSearchField(field: CrmPromotedField): boolean {
+  if (field.needsFkIndex) return false
+  const pg = field.pgType.toLowerCase()
+  if (
+    pg === 'text' ||
+    pg.startsWith('varchar') ||
+    pg.startsWith('character') ||
+    pg === 'citext'
+  ) {
+    return true
+  }
+  const ft = field.fieldType.toUpperCase()
+  return ft === 'STRING' || ft === 'TEXT'
+}
+
+/**
+ * Columns for list `search`: indexed non-FK text only (Setup → Indexed).
+ * Cap matches Hasura's search-field limit (shared with opt-in M2O slots).
+ */
+function pickListSearchFields(relation: CrmRecordRelation): CrmPromotedField[] {
+  return relation.promoted
+    .filter(isTextSearchField)
+    .filter((field) => field.needsBtreeIndex)
+}
+
+/** M2O FKs flagged Setup → Use in search (related Display Template). */
+function pickM2OSearchFields(relation: CrmRecordRelation): CrmPromotedField[] {
+  return relation.promoted.filter(
+    (field) =>
+      field.needsFkIndex &&
+      field.useInSearch &&
+      Boolean(field.relatedEntityApiName),
+  )
+}
+
+/**
+ * Correlated EXISTS: related row Display Template (or name/title/label) ILIKE q.
+ * Reuses the join shape from m2oSortSubquery.
+ */
+async function m2oSearchExistsSql(
+  parentRelation: CrmRecordRelation,
+  field: CrmPromotedField,
+  patternIndex: number,
+): Promise<SqlFragment | null> {
+  const relatedEntityApiName = field.relatedEntityApiName
+  if (!relatedEntityApiName) return null
+
+  const relatedRelation = await resolveRecordRelation(relatedEntityApiName)
+  const fkExpr = parentFkExpr(parentRelation, field.apiName)
+  const entityFilter = relatedRelation.needsEntityFilter
+    ? ` AND r.entity_api_name = ${quoteLiteral(relatedEntityApiName)}`
+    : ''
+
+  const templateFields = displayTemplateFields(relatedRelation.displayTemplate)
+  const labelFields = [
+    ...new Set([...templateFields, 'name', 'title', 'label']),
+  ]
+  const ilikeParts = labelFields.map(
+    (labelField) =>
+      `${relatedSortExpr('r', relatedRelation, labelField)} ILIKE $${patternIndex}`,
+  )
+  if (!ilikeParts.length) return null
+
+  return {
+    sql: `EXISTS (
+      SELECT 1
+      FROM ${relatedRelation.relationSql} r
+      WHERE r.record_id::text = (${fkExpr})::text${entityFilter}
+        AND (${ilikeParts.join(' OR ')})
+    )`,
+    params: [],
+  }
+}
+
+/**
+ * OR of indexed parent text ILIKE + opt-in M2O Display Template EXISTS;
+ * null when nothing to search.
+ */
+async function compileListSearch(
+  relation: CrmRecordRelation,
+  search: string,
+  startIndex: number,
+): Promise<SqlFragment | null> {
+  const q = search.trim()
+  if (!q) return null
+
+  const textFields = pickListSearchFields(relation)
+  const m2oFields = pickM2OSearchFields(relation)
+  const slots = LIST_SEARCH_FIELD_CAP
+  const textTake = Math.min(textFields.length, slots)
+  const m2oTake = Math.min(m2oFields.length, Math.max(0, slots - textTake))
+  const texts = textFields.slice(0, textTake)
+  const m2os = m2oFields.slice(0, m2oTake)
+  if (!texts.length && !m2os.length) return null
+
+  const pattern = `%${q}%`
+  const parts: string[] = []
+  const params: unknown[] = []
+  let index = startIndex
+
+  for (const field of texts) {
+    parts.push(`${quoteIdent(field.apiName)} ILIKE $${index}`)
+    params.push(pattern)
+    index += 1
+  }
+
+  for (const field of m2os) {
+    const existsFrag = await m2oSearchExistsSql(relation, field, index)
+    if (!existsFrag) continue
+    parts.push(existsFrag.sql)
+    params.push(pattern)
+    index += 1
+  }
+
+  if (!parts.length) return null
+  return {
+    sql: `(${parts.join(' OR ')})`,
+    params,
+  }
+}
+
 /**
  * Sort by a related M2O label via correlated subquery.
  * UI sends paths like `group.name`; bare `group` sorts by the related entity's
@@ -796,9 +934,12 @@ export async function postgresFindMany(
   }
 
   if (params.search?.trim()) {
-    where.push(`data::text ILIKE $${next}`)
-    sqlParams.push(`%${params.search.trim()}%`)
-    next += 1
+    const searchFrag = await compileListSearch(relation, params.search, next)
+    if (searchFrag) {
+      where.push(searchFrag.sql)
+      sqlParams.push(...searchFrag.params)
+      next += searchFrag.params.length
+    }
   }
 
   const whereSql = where.length ? where.join(' AND ') : 'TRUE'

@@ -4,7 +4,6 @@ import {
   readRecordRevisionsBridge,
 } from '@/core/graphql/auditApi'
 import { readUsersBridge } from '@/core/graphql/usersApi'
-import { isUsersAssetCollection } from '@/core/usersField'
 import {
   effectiveDateDisplayFormat,
   formatDateValue,
@@ -18,8 +17,16 @@ import {
   isSensitivityMatrixFieldDefinition,
   normalizeSensitivityValue,
 } from '@/core/sensitivityField'
-import { formatUserLabel, formatDisplayValue } from '../utils/recordDisplay'
-import { getCachedCollectionFields, getCachedRelations } from './collectionSchema'
+import {
+  buildChoiceLabelMap,
+  choiceValueLabel,
+  formatDisplayValue,
+} from '../utils/recordDisplay'
+import {
+  fetchRelatedCollectionOptionById,
+  getCachedCollectionFields,
+  getCachedRelations,
+} from './collectionSchema'
 
 export interface ActivityLogDeltaEntry {
   field: string
@@ -64,8 +71,12 @@ export interface ActivityLogPage {
 interface FieldDisplayContext {
   labels: Record<string, string>
   definitions: Map<string, FieldDefinition>
-  userRelationFields: Set<string>
-  userLabelCache: Map<string, string>
+  /** Picklist / select field → value → translated label */
+  choiceLabels: Map<string, Map<string, string>>
+  /** M2O field → related collection (Display Template labels). */
+  m2oRelationFields: Map<string, string>
+  /** `${relatedCollection}:${id}` → display label */
+  relationLabelCache: Map<string, string>
 }
 
 interface RevisionSnapshot {
@@ -126,6 +137,23 @@ function isUuidString(value: unknown): value is string {
   )
 }
 
+function relationRecordId(value: unknown): string | number | null {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).id
+  if (typeof id === 'string' && id.trim()) return id.trim()
+  if (typeof id === 'number' && Number.isFinite(id)) return id
+  return null
+}
+
+function relationLabelCacheKey(
+  relatedCollection: string,
+  id: string | number,
+): string {
+  return `${relatedCollection}:${id}`
+}
+
 const PREVIEW_MAX_CHARS = 48
 
 function truncateDisplay(text: string, max = PREVIEW_MAX_CHARS): string {
@@ -165,12 +193,25 @@ function formatFieldValue(
     if (formatted) return mode === 'preview' ? truncateDisplay(formatted) : formatted
   }
 
-  if (
-    context.userRelationFields.has(field) &&
-    isUuidString(value)
-  ) {
-    const cached = context.userLabelCache.get(value)
-    if (cached) return mode === 'preview' ? truncateDisplay(cached) : cached
+  const relatedCollection = context.m2oRelationFields.get(field)
+  if (relatedCollection) {
+    const id = relationRecordId(value)
+    if (id !== null) {
+      const cached = context.relationLabelCache.get(
+        relationLabelCacheKey(relatedCollection, id),
+      )
+      if (cached) {
+        return mode === 'preview' ? truncateDisplay(cached) : cached
+      }
+    }
+  }
+
+  const choiceLabels = context.choiceLabels.get(field)
+  if (choiceLabels && choiceLabels.size > 0 && hasDisplayValue(value)) {
+    const mapped = choiceValueLabel(value, choiceLabels)
+    if (mapped !== undefined) {
+      return mode === 'preview' ? truncateDisplay(mapped) : mapped
+    }
   }
 
   if (definition && isSensitivityMatrixFieldDefinition(definition)) {
@@ -503,17 +544,18 @@ async function buildFieldDisplayContext(
   ])
   const labels: Record<string, string> = {}
   const definitions = new Map<string, FieldDefinition>()
-  const userFields = new Set<string>()
+  const choiceLabels = new Map<string, Map<string, string>>()
+  const m2oRelationFields = new Map<string, string>()
 
   for (const relation of relations) {
-    if (
-      relation.collection === collection &&
-      isUsersAssetCollection(
-        String(relation.related_collection || relation.meta?.one_collection || ''),
-      )
-    ) {
-      userFields.add(relation.field)
-    }
+    if (relation.collection !== collection || !relation.field) continue
+    // Junction / O2M rows live on other collections; M2O FKs are on this collection.
+    if (relation.meta?.junction_field) continue
+    const related = String(
+      relation.related_collection || relation.meta?.one_collection || '',
+    ).trim()
+    if (!related) continue
+    m2oRelationFields.set(relation.field, related)
   }
 
   await Promise.all(
@@ -523,34 +565,83 @@ async function buildFieldDisplayContext(
         { ...field, collection },
         field.meta?.note ?? undefined,
       )
+      const choices = await buildChoiceLabelMap(field.meta?.options?.choices, {
+        collection,
+        field: field.field,
+      })
+      if (choices.size > 0) {
+        choiceLabels.set(field.field, choices)
+      }
     }),
   )
 
   return {
     labels,
     definitions,
-    userRelationFields: userFields,
-    userLabelCache: new Map(),
+    choiceLabels,
+    m2oRelationFields,
+    relationLabelCache: new Map(),
   }
 }
 
-async function populateUserLabelCache(
+async function populateRelationLabelCache(
   context: FieldDisplayContext,
   revisionIndex: Map<number, RevisionSnapshot>,
+): Promise<void> {
+  if (context.m2oRelationFields.size === 0) return
+
+  const idsByCollection = new Map<string, Set<string | number>>()
+  for (const snapshot of revisionIndex.values()) {
+    for (const [field, relatedCollection] of context.m2oRelationFields) {
+      const id = relationRecordId(snapshot.data[field])
+      if (id === null) continue
+      let ids = idsByCollection.get(relatedCollection)
+      if (!ids) {
+        ids = new Set()
+        idsByCollection.set(relatedCollection, ids)
+      }
+      ids.add(id)
+    }
+  }
+
+  const lookups: Array<Promise<void>> = []
+  for (const [relatedCollection, ids] of idsByCollection) {
+    for (const id of ids) {
+      const cacheKey = relationLabelCacheKey(relatedCollection, id)
+      if (context.relationLabelCache.has(cacheKey)) continue
+      lookups.push(
+        (async () => {
+          try {
+            const option = await fetchRelatedCollectionOptionById(
+              relatedCollection,
+              id,
+            )
+            const label = option?.label != null ? String(option.label).trim() : ''
+            if (label && label !== String(id)) {
+              context.relationLabelCache.set(cacheKey, label)
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : 'Unknown error'
+            console.warn(
+              `[activityLogService] Failed to resolve ${relatedCollection}/${id}: ${message}`,
+              error,
+            )
+          }
+        })(),
+      )
+    }
+  }
+
+  if (lookups.length > 0) {
+    await Promise.all(lookups)
+  }
+}
+
+async function hydrateActivityUsers(
   activities: Record<string, unknown>[] = [],
 ): Promise<void> {
   const userIds = new Set<string>()
-
-  if (context.userRelationFields.size > 0) {
-    for (const snapshot of revisionIndex.values()) {
-      for (const field of context.userRelationFields) {
-        const value = snapshot.data[field]
-        if (isUuidString(value)) {
-          userIds.add(value)
-        }
-      }
-    }
-  }
 
   for (const activity of activities) {
     const user = activity.user
@@ -575,10 +666,7 @@ async function populateUserLabelCache(
     for (const user of users) {
       const id = user.id
       if (typeof id !== 'string' && typeof id !== 'number') continue
-      const key = String(id)
-      usersById.set(key, user)
-      const label = formatUserLabel(user) || key
-      context.userLabelCache.set(key, label)
+      usersById.set(String(id), user)
     }
 
     for (const activity of activities) {
@@ -748,7 +836,10 @@ export async function fetchRecordActivityLogPage(
   ])
   const { index: revisionIndex, sortedRevisionIds } = revisionState
 
-  await populateUserLabelCache(fieldContext, revisionIndex, activityPage.nodes)
+  await Promise.all([
+    populateRelationLabelCache(fieldContext, revisionIndex),
+    hydrateActivityUsers(activityPage.nodes),
+  ])
 
   return {
     entries: mapActivitiesToEntries(

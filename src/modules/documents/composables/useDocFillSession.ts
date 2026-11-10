@@ -50,6 +50,8 @@ export function useDocFillSession(options: {
   const saving = ref(false)
   const error = ref<string | null>(null)
   const dirty = ref(false)
+  /** Set when Finish saved the doc but export attach failed. */
+  const attachWarning = ref<string | null>(null)
 
   const readOnly = computed(
     () => documentStatus.value === DOC_DOCUMENT_STATUS_COMPLETED,
@@ -237,6 +239,7 @@ export function useDocFillSession(options: {
   async function finish(): Promise<string> {
     saving.value = true
     error.value = null
+    attachWarning.value = null
     try {
       if (readOnly.value) {
         throw new Error(
@@ -254,6 +257,9 @@ export function useDocFillSession(options: {
         )
       }
 
+      // Values only (FieldsExport). Structure comes from the pinned template snapshot.
+      // `exportFields` collapses materialized `_source` section clones back to
+      // `sections.Name: [{…}, {…}]` so completed view can re-expand them.
       const values = await editorRef.value?.exportFields()
       if (!values) {
         throw new Error(t('documents.exportValuesError', 'Failed to export document values.'))
@@ -281,27 +287,38 @@ export function useDocFillSession(options: {
 
       const shouldAttach = options.attachFile?.value !== false
       if (shouldAttach) {
-        const fileId = await uploadDocumentExportArtifact({
-          doc: fullDoc,
-          mode: options.exportMode.value,
-          title: documentName.value || 'document',
-          parentCollection: options.collection.value,
-          parentId: options.recordId.value,
-        })
-
-        await saveDocValue(
-          {
-            templateId: options.templateId.value,
+        try {
+          const fileId = await uploadDocumentExportArtifact({
+            doc: fullDoc,
+            mode: options.exportMode.value,
+            title: documentName.value || 'document',
             parentCollection: options.collection.value,
             parentId: options.recordId.value,
-            values,
-            documentStatus: DOC_DOCUMENT_STATUS_COMPLETED,
-            templateSnapshotId: snapshotId,
-            completedDate: new Date().toISOString(),
-            outputFileId: fileId,
-          },
-          currentDocValueId.value,
-        )
+          })
+
+          await saveDocValue(
+            {
+              templateId: options.templateId.value,
+              parentCollection: options.collection.value,
+              parentId: options.recordId.value,
+              values,
+              documentStatus: DOC_DOCUMENT_STATUS_COMPLETED,
+              templateSnapshotId: snapshotId,
+              completedDate: new Date().toISOString(),
+              outputFileId: fileId,
+            },
+            currentDocValueId.value,
+          )
+        } catch (attachErr) {
+          // Document is already completed — keep Finish successful and warn about attach.
+          attachWarning.value =
+            attachErr instanceof Error
+              ? attachErr.message
+              : t(
+                  'documents.attachExportError',
+                  'Document saved, but export file could not be attached.',
+                )
+        }
       }
 
       documentStatus.value = DOC_DOCUMENT_STATUS_COMPLETED
@@ -385,6 +402,7 @@ export function useDocFillSession(options: {
     saving,
     error,
     dirty,
+    attachWarning,
     canSaveDraft,
     loadEditorState,
     saveDraft,

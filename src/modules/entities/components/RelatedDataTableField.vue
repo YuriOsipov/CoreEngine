@@ -45,6 +45,11 @@ import DocListReportDialog from '@/modules/documents/components/DocListReportDia
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
 import { useToast } from 'openvue/usetoast'
 import { useConfirm } from 'openvue/useconfirm'
+import {
+  dataTransferHasCoreEngineFile,
+  readCoreEngineFileDragData,
+} from '@/core/filesField'
+import { linkFileToRecord } from '@/core/graphql/filesProxy'
 
 interface SelectOption {
   label: string
@@ -115,6 +120,8 @@ const listToolbarActions = computed(
 const { t } = useTranslation()
 const toast = useToast()
 const confirm = useConfirm()
+const isDraggingCoreEngineFile = ref(false)
+const linkingCoreEngineFile = ref(false)
 
 const barcodeScanBusy = ref(false)
 const barcodeScanModeOn = ref(false)
@@ -126,8 +133,11 @@ const barcodeScanSettings = computed(() =>
 )
 const showBarcodeScan = computed(() => isBarcodeScanEnabled(barcodeScanSettings.value))
 
-const { canRead: canReadRelated, canDelete: canDeleteRelated } =
-  useEntityPermissions(() => props.field.relatedCollection)
+const {
+  ready: relatedPermissionsReady,
+  canRead: canReadRelated,
+  canDelete: canDeleteRelated,
+} = useEntityPermissions(() => props.field.relatedCollection)
 /** Junction create for M2M link; related-entity create for plain O2M New. */
 const permissionCollection = computed(() => {
   const target = relatedCreateTarget.value
@@ -219,6 +229,80 @@ const {
   },
 })
 
+function resolveRelatedRowFromDropTarget(
+  target: EventTarget | null,
+): Record<string, unknown> | null {
+  const rows = runtime.value?.rows ?? []
+  if (!rows.length || !(target instanceof Element)) return null
+  const tr = target.closest('tr')
+  if (!tr || !tr.parentElement) return null
+  const bodyRows = Array.from(tr.parentElement.querySelectorAll(':scope > tr'))
+  const index = bodyRows.indexOf(tr)
+  if (index < 0 || index >= rows.length) return null
+  return rows[index] ?? null
+}
+
+function handleCoreEngineFileDragOver(event: DragEvent): void {
+  if (!dataTransferHasCoreEngineFile(event.dataTransfer)) return
+  if (!props.field.relatedCollection || isM2MJunction.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  isDraggingCoreEngineFile.value = true
+}
+
+async function handleCoreEngineFileDrop(event: DragEvent): Promise<void> {
+  isDraggingCoreEngineFile.value = false
+  if (!props.field.relatedCollection || isM2MJunction.value) return
+  const coreEngineFile = readCoreEngineFileDragData(event.dataTransfer)
+  if (!coreEngineFile) return
+  event.preventDefault()
+
+  const row = resolveRelatedRowFromDropTarget(event.target)
+  const recordId = row?.id == null ? '' : String(row.id)
+  if (!recordId) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning', 'Warning'),
+      detail: t(
+        'filePreview.dropOnRelatedRow',
+        'Drop the file onto a related record row to link it.',
+      ),
+      life: 4000,
+    })
+    return
+  }
+
+  if (linkingCoreEngineFile.value) return
+  linkingCoreEngineFile.value = true
+  try {
+    await linkFileToRecord(coreEngineFile.id, {
+      collection: props.field.relatedCollection,
+      recordId,
+    })
+    toast.add({
+      severity: 'success',
+      summary: t('common.success', 'Success'),
+      detail: t(
+        'filePreview.linkSuccess',
+        'File linked to this record.',
+      ),
+      life: 3000,
+    })
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: t('filePreview.linkFailed', 'Link failed'),
+      detail:
+        err instanceof Error
+          ? err.message
+          : t('filePreview.linkFailedDetail', 'Could not link the selected file.'),
+      life: 8000,
+    })
+  } finally {
+    linkingCoreEngineFile.value = false
+  }
+}
+
 async function refreshRuntime(): Promise<void> {
   await reload(true)
 }
@@ -244,6 +328,7 @@ watch(
   () =>
     [
       props.active,
+      relatedPermissionsReady.value,
       canReadRelated.value,
       props.field.relatedCollection ?? '',
       props.parentName ?? '',
@@ -251,8 +336,8 @@ watch(
       String(props.refreshKey ?? ''),
       JSON.stringify(barcodeListFilter.value ?? null),
     ] as const,
-  ([active, canRead, related]) => {
-    if (!active || !canRead || !related) {
+  ([active, ready, canRead, related]) => {
+    if (!active || !ready || !canRead || !related) {
       runtime.value = null
       return
     }
@@ -682,7 +767,11 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
 </script>
 
 <template>
-  <div class="border border-surface-200 rounded-lg overflow-x-auto overflow-y-hidden">
+  <!-- No related-collection Read: omit the related list entirely. -->
+  <div
+    v-if="relatedPermissionsReady && canReadRelated"
+    class="border border-surface-200 rounded-lg overflow-x-auto overflow-y-hidden"
+  >
     <div class="flex items-center justify-between bg-surface-100 border-b border-surface-200 px-3 py-2">
       <span class="flex items-center gap-[0.35rem] text-surface-700 text-[0.9rem] font-semibold">
         <i
@@ -759,23 +848,7 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
       />
     </div>
 
-    <p
-      v-if="!canReadRelated"
-      class="text-muted-color text-[0.9rem] m-0 px-3 py-2"
-    >
-      {{
-        t(
-          'permissions.noReadAccess',
-          'You do not have permission to view {collection}.',
-          {
-            collection:
-              translatedLabel || field.label || field.relatedCollection || '',
-          },
-        )
-      }}
-    </p>
-
-    <p v-else-if="loading && !runtime" class="text-muted-color text-[0.9rem] m-0 px-3 py-2">
+    <p v-if="loading && !runtime" class="text-muted-color text-[0.9rem] m-0 px-3 py-2">
       {{ t('relatedDataTable.loadingMetadata', 'Loading related table metadata...') }}
     </p>
 
@@ -784,39 +857,52 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
     </p>
 
     <template v-else>
-      <CrmDataTable
-        ref="tableRef"
-        :rows="runtime?.rows ?? []"
-        :columns="runtime?.columns ?? []"
-        :collection="field.relatedCollection"
-        primary-key="id"
-        lazy
-        :has-more="false"
-        :loading="loading"
-        :max-local-rows="rowLimit"
-        :show-new-button="false"
-        :show-delete-button="canShowDelete"
-        :show-edit-record-action="!isM2MJunction"
-        :show-view-record-action="!isM2MJunction"
-        :record-links-enabled="!isM2MJunction"
-        :parent-name="runtime?.parentName"
-        :parent-id="runtime?.parentId"
-        :parent-collection="entity"
-        :parent-record="parentRecord"
-        :default-sort-field="tableSortField"
-        :default-sort-order="tableSortOrder"
-        :group-by="field.dataTable?.groupBy ?? null"
-        :record-link-field="field.dataTable?.recordLinkField ?? null"
-        :inline-edit-refresh="field.dataTable?.inlineEditRefresh ?? 'off'"
-        :inline-edit-refresh-fields="field.dataTable?.inlineEditRefreshFields ?? []"
-        :empty-message="resolvedEmptyMessage"
-        @sort-change="handleSortChange"
-        @view-record="emit('view-record', $event)"
-        @update:rows="updateRows"
-        @record-created="handleRelatedMutated"
-        @record-updated="handleRelatedUpdated"
-        @record-deleted="handleRelatedMutated"
-      />
+      <div
+        class="related-file-drop-target rounded-md transition-colors"
+        :class="
+          isDraggingCoreEngineFile
+            ? 'ring-2 ring-primary ring-offset-1 bg-primary-50/40'
+            : ''
+        "
+        @dragenter.prevent="handleCoreEngineFileDragOver"
+        @dragover="handleCoreEngineFileDragOver"
+        @dragleave.prevent="isDraggingCoreEngineFile = false"
+        @drop.prevent="handleCoreEngineFileDrop"
+      >
+        <CrmDataTable
+          ref="tableRef"
+          :rows="runtime?.rows ?? []"
+          :columns="runtime?.columns ?? []"
+          :collection="field.relatedCollection"
+          primary-key="id"
+          lazy
+          :has-more="false"
+          :loading="loading || linkingCoreEngineFile"
+          :max-local-rows="rowLimit"
+          :show-new-button="false"
+          :show-delete-button="canShowDelete"
+          :show-edit-record-action="!isM2MJunction"
+          :show-view-record-action="!isM2MJunction"
+          :record-links-enabled="!isM2MJunction"
+          :parent-name="runtime?.parentName"
+          :parent-id="runtime?.parentId"
+          :parent-collection="entity"
+          :parent-record="parentRecord"
+          :default-sort-field="tableSortField"
+          :default-sort-order="tableSortOrder"
+          :group-by="field.dataTable?.groupBy ?? null"
+          :record-link-field="field.dataTable?.recordLinkField ?? null"
+          :inline-edit-refresh="field.dataTable?.inlineEditRefresh ?? 'off'"
+          :inline-edit-refresh-fields="field.dataTable?.inlineEditRefreshFields ?? []"
+          :empty-message="resolvedEmptyMessage"
+          @sort-change="handleSortChange"
+          @view-record="emit('view-record', $event)"
+          @update:rows="updateRows"
+          @record-created="handleRelatedMutated"
+          @record-updated="handleRelatedUpdated"
+          @record-deleted="handleRelatedMutated"
+        />
+      </div>
     </template>
 
     <BatchInsertDialog

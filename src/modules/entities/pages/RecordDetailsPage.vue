@@ -12,6 +12,8 @@ import { useToast } from 'openvue/usetoast'
 import FormRenderer from '../components/FormRenderer.vue'
 import FormRendererLight from '../components/FormRendererLight.vue'
 import RecordPageRenderer from '../components/RecordPageRenderer.vue'
+import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
+import { isRecordNotFoundError } from '../utils/isRecordNotFoundError'
 import type {
   EntityAction,
   EntityLayoutSchema,
@@ -21,6 +23,7 @@ import type {
 } from '@/interfaces'
 import { loadEntityLayoutById } from '@/modules/config/services/layoutSettings'
 import { resolvePreferredBlockLayoutForCurrentUser } from '@/core/resolvePreferredBlockLayout'
+import { collectionExistsInRegistry } from '../services/collectionSchema'
 import {
   archiveObjectRecord,
   isRecordArchived,
@@ -38,17 +41,21 @@ import {
 } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
 import { renderTemplateLabel } from '../utils/recordDisplay'
-import { fetchCollectionDisplayTemplate } from '../services/collectionSchema'
+import {
+  fetchCollectionDisplayTemplate,
+  fetchRelatedCollectionOptionById,
+} from '../services/collectionSchema'
 import { useFavoriteContext } from '@/core/navigation/useFavoriteContext'
 import { buildChangedFormPayload } from '@/core/entityFormPayload'
-import { isEditableFormLayoutField } from '@/core/layoutFieldRules'
+import { createLayoutSchema } from '@/core/entityLayoutUtils'
+import { collectPathLayoutExtraFields } from '@/core/recordPagePath'
 import { prepareEntityFormDraft } from '@/core/entityFormValues'
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
+import DocViewDialog from '@/modules/documents/components/DocViewDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import ApplyTemplateDialog from '@/modules/projects/components/ApplyTemplateDialog.vue'
-import AppHeaderUtilities from '@/core/ui-kit/AppHeaderUtilities.vue'
 import {
   loadDocTemplateByIdForCurrentUser,
   loadPublishedDocTemplateOptions,
@@ -107,6 +114,27 @@ const parentPathPair = computed(() =>
 const parentCollectionLabel = useTranslatedCollection(
   () => parentPathPair.value?.collection ?? '',
 )
+const parentDisplayLabel = ref('')
+
+watch(
+  parentPathPair,
+  (parent) => {
+    parentDisplayLabel.value = ''
+    if (!parent) return
+    const { collection, id } = parent
+    void fetchRelatedCollectionOptionById(collection, id).then((option) => {
+      if (
+        parentPathPair.value?.collection !== collection ||
+        parentPathPair.value?.id !== id
+      ) {
+        return
+      }
+      const label = option?.label != null ? String(option.label).trim() : ''
+      parentDisplayLabel.value = label && label !== id ? label : id
+    })
+  },
+  { immediate: true },
+)
 
 // Back route = the path without the last collection/id pair.
 const backRoute = computed(() => {
@@ -127,7 +155,7 @@ const backLabel = computed(() => {
       '{collection} {id}',
       {
         collection: parentCollectionLabel.value || parent.collection,
-        id: parent.id,
+        id: parentDisplayLabel.value || parent.id,
       },
     )
   }
@@ -160,6 +188,11 @@ const fillTemplateId = ref('')
 const fillDocValueId = ref<string | null>(null)
 const fillExportMode = ref<'html' | 'pdf'>('pdf')
 const fillAttachFile = ref(true)
+const viewDialogVisible = ref(false)
+const viewTemplateId = ref('')
+const viewDocValueId = ref<string | null>(null)
+const viewMode = ref<'html' | 'pdf'>('html')
+const viewAutoSave = ref(false)
 const numberPromptVisible = ref(false)
 const numberPromptLabel = ref('')
 const numberPromptHeader = ref('')
@@ -167,7 +200,20 @@ const pendingBulkAction = ref<EntityAction | null>(null)
 const editError = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const recordMissing = ref(false)
+const collectionMissing = ref(false)
 const pathSaving = ref(false)
+const recordActionsVisible = computed(
+  () =>
+    canReadRecord.value &&
+    !recordMissing.value &&
+    !collectionMissing.value &&
+    !error.value &&
+    Boolean(layoutSchema.value),
+)
+const listBackRoute = computed(
+  () => `/object/${encodeURIComponent(detailCollectionName.value)}`,
+)
 const applyTemplateVisible = ref(false)
 let loadToken = 0
 const detailActions = ref<EntityAction[]>([])
@@ -300,43 +346,35 @@ onUnmounted(clearFavoriteContext)
 
 const editLayoutSchema = computed<EntityLayoutSchema | null>(() => {
   if (!layoutSchema.value) return null
-
-  return {
-    ...layoutSchema.value,
-    sections: layoutSchema.value.sections.map((section) => ({
-      ...section,
-      groups: section.groups
-        .map((group) => ({
-          ...group,
-          fields: group.fields.filter(
-            (field) =>
-              isEditableFormLayoutField(field) &&
-              field.component !== 'DataTable' &&
-              field.component !== 'Files' &&
-              field.component !== 'CrmTreeTable' &&
-              field.component !== 'CrmScheduler' &&
-              field.component !== 'CrmActivityLog' &&
-              field.component !== 'CrmDocEngine' &&
-              field.component !== 'M2ABuilder',
-          ),
-        }))
-        .filter((group) => group.fields.length > 0),
-    })),
-  }
+  return createLayoutSchema(layoutSchema.value)
 })
 
 watch(
   [detailCollectionName, detailRecordId, permissionsReady, canReadRecord],
   ([collection, id, ready, canRead]) => {
     if (!collection || !id || !ready) return
-    if (!canRead) {
-      recordData.value = {}
-      layoutSchema.value = null
-      loading.value = false
-      error.value = null
-      return
-    }
-    void loadRecordDetails(collection, id)
+    void (async () => {
+      collectionMissing.value = false
+      recordMissing.value = false
+      const exists = await collectionExistsInRegistry(collection)
+      if (detailCollectionName.value !== collection || detailRecordId.value !== id) return
+      if (!exists) {
+        collectionMissing.value = true
+        recordData.value = {}
+        layoutSchema.value = null
+        error.value = null
+        loading.value = false
+        return
+      }
+      if (!canRead) {
+        recordData.value = {}
+        layoutSchema.value = null
+        loading.value = false
+        error.value = null
+        return
+      }
+      void loadRecordDetails(collection, id)
+    })()
   },
   { immediate: true },
 )
@@ -345,6 +383,8 @@ async function loadRecordDetails(collection: string, id: string): Promise<void> 
   const token = ++loadToken
   loading.value = true
   error.value = null
+  recordMissing.value = false
+  collectionMissing.value = false
   layoutSchema.value = null
   pageLayoutSchema.value = null
   detailActions.value = []
@@ -352,6 +392,12 @@ async function loadRecordDetails(collection: string, id: string): Promise<void> 
   editDialogVisible.value = false
   editError.value = null
   try {
+    if (!(await collectionExistsInRegistry(collection))) {
+      if (token !== loadToken) return
+      collectionMissing.value = true
+      return
+    }
+
     const { pageLayout, blockLayout: schema } = await resolvePreferredBlockLayoutForCurrentUser(
       collection,
     )
@@ -375,7 +421,12 @@ async function loadRecordDetails(collection: string, id: string): Promise<void> 
       return
     }
 
-    const record = await fetchObjectRecordForEdit(collection, id, schema)
+    const record = await fetchObjectRecordForEdit(
+      collection,
+      id,
+      schema,
+      collectPathLayoutExtraFields(pageLayout),
+    )
     if (token !== loadToken) return
 
     layoutSchema.value = schema
@@ -385,6 +436,11 @@ async function loadRecordDetails(collection: string, id: string): Promise<void> 
     void trackRecentRecordView(collection, id, record)
   } catch (err) {
     if (token !== loadToken) return
+    if (isRecordNotFoundError(err)) {
+      recordMissing.value = true
+      error.value = null
+      return
+    }
     error.value =
       err instanceof Error
         ? err.message
@@ -398,20 +454,32 @@ async function loadRecordDetails(collection: string, id: string): Promise<void> 
 
 async function openEditDialog(): Promise<void> {
   if (!editLayoutSchema.value) return
-  const recordForEdit = await fetchObjectRecordForEdit(
-    detailCollectionName.value,
-    detailRecordId.value,
-    editLayoutSchema.value,
-  )
-  editDraft.value = await prepareEntityFormDraft(
-    detailCollectionName.value,
-    editLayoutSchema.value,
-    cloneRecord(recordForEdit),
-    recordForEdit,
-  )
-  editOriginalRecord.value = cloneRecord(recordForEdit)
-  editError.value = null
-  editDialogVisible.value = true
+  try {
+    const recordForEdit = await fetchObjectRecordForEdit(
+      detailCollectionName.value,
+      detailRecordId.value,
+      editLayoutSchema.value,
+    )
+    editDraft.value = await prepareEntityFormDraft(
+      detailCollectionName.value,
+      editLayoutSchema.value,
+      cloneRecord(recordForEdit),
+      recordForEdit,
+    )
+    editOriginalRecord.value = cloneRecord(recordForEdit)
+    editError.value = null
+    editDialogVisible.value = true
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        err instanceof Error
+          ? err.message
+          : t('recordDetails.failedLoad', 'Failed to load record details.'),
+      life: 6000,
+    })
+  }
 }
 
 function updateEditDialogVisible(visible: boolean): void {
@@ -684,24 +752,16 @@ function navigateToDocumentFill(
   })
 }
 
-function navigateToDocumentView(
+function openDocumentView(
   action: EntityAction,
   selectedTemplateId: string,
   docValueId?: string | null,
 ): void {
-  void router.push({
-    name: 'document-view',
-    params: {
-      collection: detailCollectionName.value,
-      id: detailRecordId.value,
-    },
-    query: {
-      template: selectedTemplateId,
-      mode: action.document?.viewMode === 'pdf' ? 'pdf' : 'html',
-      ...(docValueId ? { docValue: docValueId } : {}),
-      ...(action.document?.autoSave ? { autoSave: '1' } : {}),
-    },
-  })
+  viewTemplateId.value = selectedTemplateId
+  viewDocValueId.value = docValueId ?? null
+  viewMode.value = action.document?.viewMode === 'pdf' ? 'pdf' : 'html'
+  viewAutoSave.value = action.document?.autoSave === true
+  viewDialogVisible.value = true
 }
 
 function navigateToDocument(
@@ -710,7 +770,7 @@ function navigateToDocument(
   docValueId?: string | null,
 ): void {
   if (action.document?.skipInteractiveFill) {
-    navigateToDocumentView(action, selectedTemplateId, docValueId)
+    openDocumentView(action, selectedTemplateId, docValueId)
     return
   }
   navigateToDocumentFill(
@@ -932,29 +992,9 @@ async function handleBlocksSaved(payload: { field: string; value: unknown }): Pr
   }
 }
 
-/** Path stage/outcome fields may live only on the Page Layout, not the Block Layout. */
+/** Path stage/outcome + readonly-if fields may live only on the Page Layout. */
 function pathLayoutExtraFields(): LayoutFieldMetadata[] {
-  if (!pageLayoutSchema.value) return []
-  const fields: LayoutFieldMetadata[] = []
-  const seen = new Set<string>()
-  for (const region of pageLayoutSchema.value.regions) {
-    walkPageComponents(region.components, (component) => {
-      if (component.type !== 'path') return
-      for (const key of [component.field, component.terminalField]) {
-        const field = typeof key === 'string' ? key.trim() : ''
-        if (!field || seen.has(field)) continue
-        seen.add(field)
-        fields.push({
-          id: `path_extra_${field}`,
-          field,
-          label: field,
-          component: 'Select',
-          span: 6,
-        })
-      }
-    })
-  }
-  return fields
+  return collectPathLayoutExtraFields(pageLayoutSchema.value)
 }
 
 async function handlePathChange(payload: {
@@ -1060,15 +1100,15 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
 </script>
 
 <template>
-  <main class="app-shell">
-    <header class="app-header app-header--integrated">
+  <main class="app-shell app-shell--record-details">
+    <header class="app-header app-header--integrated record-details-header">
       <div class="app-header__nav-row">
-        <RouterLink :to="backRoute" class="nav-link">
+        <RouterLink :to="backRoute" class="nav-link record-details-header__back">
           {{ t('recordDetails.backTo', 'Back to {label}', { label: backLabel }) }}
         </RouterLink>
-        <div class="app-header-actions">
+        <div v-if="recordActionsVisible" class="app-header-actions">
           <div
-            v-if="canReadRecord && (detailCollectionName === 'patient' || detailCollectionName === 'pm_project_template' || detailCollectionName === PM_PROJECT_COLLECTION)"
+            v-if="detailCollectionName === 'patient' || detailCollectionName === 'pm_project_template' || detailCollectionName === PM_PROJECT_COLLECTION"
             class="app-header-actions__group"
           >
             <Button
@@ -1110,7 +1150,7 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
               @click="applyTemplateVisible = true"
             />
           </div>
-          <template v-if="canReadRecord && !pageHasHighlightsComponent">
+          <template v-if="!pageHasHighlightsComponent">
             <div class="app-header-actions__group">
               <Button
                 v-if="canUpdateRecord"
@@ -1148,22 +1188,36 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
               />
             </div>
           </template>
-          <AppHeaderUtilities />
         </div>
       </div>
     </header>
 
-    <section class="workspace-pane object-details-pane">
-      <div v-if="!permissionsReady" class="page-loading">
+    <section class="object-details-pane">
+      <div v-if="!permissionsReady" class="page-loading object-details-pane__state">
         <ProgressSpinner stroke-width="4" />
         <span>{{ t('permissions.checkingAccess', 'Checking access...') }}</span>
       </div>
+
+      <CrmNotFoundState
+        v-else-if="collectionMissing"
+        class="object-details-pane__state"
+        :title="t('objectList.notFoundTitle', 'Object not found')"
+        :detail="
+          t(
+            'objectList.notFoundDetail',
+            'There is no object named {collection}.',
+            { collection: detailCollectionName },
+          )
+        "
+        :back-label="t('app.backHome', 'Back to home')"
+        back-to="/"
+      />
 
       <Message
         v-else-if="!canReadRecord"
         severity="warn"
         :closable="false"
-        class="collections-message"
+        class="collections-message object-details-pane__state"
       >
         {{
           t(
@@ -1174,38 +1228,62 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
         }}
       </Message>
 
-      <div v-else-if="loading" class="page-loading">
+      <div v-else-if="loading" class="page-loading object-details-pane__state">
         <ProgressSpinner stroke-width="4" />
         <span>{{ t('recordDetails.loading', 'Loading record details...') }}</span>
       </div>
+
+      <CrmNotFoundState
+        v-else-if="recordMissing"
+        class="object-details-pane__state"
+        :title="t('recordDetails.notFoundTitle', 'Record not found')"
+        :detail="
+          t(
+            'recordDetails.notFoundDetail',
+            'This {collection} record does not exist or is no longer available.',
+            { collection: detailCollectionLabel || detailCollectionName },
+          )
+        "
+        :back-label="
+          t('recordDetails.backToList', 'Back to {collection}', {
+            collection: detailCollectionLabel || detailCollectionName,
+          })
+        "
+        :back-to="listBackRoute"
+      />
 
       <Message
         v-else-if="error"
         severity="error"
         :closable="false"
-        class="collections-message"
+        class="collections-message object-details-pane__state"
       >
         {{ error }}
       </Message>
 
       <template v-else>
-        <Message
-          v-if="actionError"
-          severity="error"
-          :closable="false"
-          class="collections-message"
+        <div
+          v-if="actionError || actionMessage"
+          class="object-details-pane__alerts"
         >
-          {{ actionError }}
-        </Message>
+          <Message
+            v-if="actionError"
+            severity="error"
+            :closable="false"
+            class="collections-message"
+          >
+            {{ actionError }}
+          </Message>
 
-        <Message
-          v-if="actionMessage"
-          severity="success"
-          :closable="false"
-          class="collections-message"
-        >
-          {{ actionMessage }}
-        </Message>
+          <Message
+            v-if="actionMessage"
+            severity="success"
+            :closable="false"
+            class="collections-message"
+          >
+            {{ actionMessage }}
+          </Message>
+        </div>
 
         <RecordPageRenderer
           v-if="pageLayoutSchema && layoutSchema"
@@ -1229,16 +1307,20 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
           @delete-record="deleteCurrentRecord"
         />
 
-        <FormRendererLight
+        <div
           v-else-if="layoutSchema"
-          :schema="layoutSchema"
-          :model-value="recordData"
-          :parent-id="detailRecordId"
-          :parent-name="detailCollectionName"
-          :m2a-editable="true"
-          @blocks-saved="handleBlocksSaved"
-          @related-changed="handleRelatedChanged"
-        />
+          class="object-details-pane__fallback"
+        >
+          <FormRendererLight
+            :schema="layoutSchema"
+            :model-value="recordData"
+            :parent-id="detailRecordId"
+            :parent-name="detailCollectionName"
+            :m2a-editable="true"
+            @blocks-saved="handleBlocksSaved"
+            @related-changed="handleRelatedChanged"
+          />
+        </div>
       </template>
     </section>
 
@@ -1265,8 +1347,7 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
         ref="editFormRendererRef"
         v-model="editDraft"
         :schema="editLayoutSchema"
-        :parent-id="detailRecordId"
-        :parent-name="detailCollectionName"
+        :record-id="detailRecordId"
       />
 
       <template #footer>
@@ -1318,6 +1399,17 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
       :doc-value-id="fillDocValueId"
       :export-mode="fillExportMode"
       :attach-file="fillAttachFile"
+    />
+
+    <DocViewDialog
+      v-if="viewTemplateId"
+      v-model:visible="viewDialogVisible"
+      :collection="detailCollectionName"
+      :record-id="detailRecordId"
+      :template-id="viewTemplateId"
+      :doc-value-id="viewDocValueId"
+      :view-mode="viewMode"
+      :auto-save="viewAutoSave"
     />
 
     <ActionNumberPromptDialog

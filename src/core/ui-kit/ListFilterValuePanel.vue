@@ -16,8 +16,8 @@ import {
   searchRelatedCollectionOptions,
 } from '@/modules/entities/services/collectionSchema'
 import {
-  filterOperatorLabel,
   conditionFieldSpanStyle,
+  filterOperatorLabel,
   filterConditionComponentProps,
   isAutoCompleteFilterComponent,
   isSelectFilterComponent,
@@ -210,7 +210,11 @@ function conditionComponent(condition: ValueConditionDraft) {
 function conditionComponentProps(
   condition: ValueConditionDraft,
 ): Record<string, unknown> {
-  return filterConditionComponentProps(condition, runtimeFieldProps)
+  return {
+    ...filterConditionComponentProps(condition, runtimeFieldProps),
+    size: 'small',
+    class: 'w-full min-w-0',
+  }
 }
 
 function isNoValueOperator(condition: ValueConditionDraft): boolean {
@@ -302,23 +306,32 @@ async function syncAutoCompleteSelections(
 </script>
 
 <template>
-  <section class="border border-surface-200 rounded-lg bg-surface-0 px-[0.75rem] py-[0.65rem]">
-    <div class="grid grid-cols-12 gap-3">
-      <div
-        v-for="condition in displayConditions"
-        :key="condition.id"
-        class="flex flex-col gap-[0.35rem] min-w-0"
-        :style="conditionFieldSpanStyle(condition)"
+  <section class="list-filter-value-panel grid w-full min-w-0 grid-cols-12 gap-x-3 gap-y-2">
+    <div
+      v-for="condition in displayConditions"
+      :key="condition.id"
+      class="list-filter-value-panel__field flex min-w-[12rem] flex-row items-center gap-2"
+      :style="conditionFieldSpanStyle(condition)"
+    >
+      <label
+        class="list-filter-value-panel__label shrink-0 text-surface-600 text-[0.75rem] font-medium leading-none whitespace-nowrap"
+        :title="`${condition.label} (${operatorLabel(condition.operator)})`"
       >
-        <label class="text-surface-700 text-[0.8rem] font-semibold leading-tight">
-          {{ condition.label }}
-          <span class="text-muted-color font-normal">({{ operatorLabel(condition.operator) }})</span>
-        </label>
+        {{ condition.label }}
+        <span
+          v-if="condition.required"
+          class="text-red-500"
+          :title="t('filter.requiredHint', 'Do not show results until this filter has a value')"
+        >*</span>
+      </label>
+      <div class="list-filter-value-panel__control relative min-w-[12rem] flex-1">
         <InputText
           v-if="isNoValueOperator(condition)"
           model-value=""
           disabled
-          :placeholder="t('filter.value', 'Value')"
+          size="small"
+          class="w-full"
+          :placeholder="operatorLabel(condition.operator)"
         />
         <component
           :is="conditionComponent(condition)"
@@ -347,11 +360,60 @@ async function syncAutoCompleteSelections(
         <InputText
           v-else
           :model-value="conditionStringValue(condition)"
+          size="small"
+          class="w-full"
           :placeholder="t('filter.value', 'Value')"
           @update:model-value="updateConditionValue(condition.id, $event)"
           @input="onNativeInput(condition.id, $event)"
         />
-      </div>  
-    </div>    
+      </div>
+    </div>
   </section>
 </template>
+
+<style scoped>
+.list-filter-value-panel {
+  position: relative;
+  z-index: 1;
+}
+
+.list-filter-value-panel__field {
+  /* Keep usable controls in narrow master panes / small Field width spans. */
+  min-width: 12rem;
+}
+
+.list-filter-value-panel__control {
+  min-width: 12rem;
+  overflow: visible;
+}
+
+/* Fill the control; do NOT min-width inner inputs — that pushes AutoComplete's
+   dropdown button outside the box in narrow detail-mode panes. */
+.list-filter-value-panel__control :deep(.p-inputtext),
+.list-filter-value-panel__control :deep(.p-select),
+.list-filter-value-panel__control :deep(.p-autocomplete),
+.list-filter-value-panel__control :deep(.p-datepicker),
+.list-filter-value-panel__control :deep(.p-inputnumber) {
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+.list-filter-value-panel__control :deep(.p-autocomplete),
+.list-filter-value-panel__control :deep(.p-select) {
+  display: flex;
+  position: relative;
+}
+
+.list-filter-value-panel__control :deep(.p-autocomplete-dropdown),
+.list-filter-value-panel__control :deep(.p-select-dropdown) {
+  flex-shrink: 0;
+}
+
+.list-filter-value-panel__control :deep(.p-autocomplete:has(.p-autocomplete-dropdown) .p-autocomplete-input),
+.list-filter-value-panel__control :deep(.p-autocomplete:has(.p-autocomplete-dropdown) .p-inputtext) {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 1%;
+}
+</style>

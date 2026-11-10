@@ -3,17 +3,149 @@
 Salesforce/Directus-style orchestration uses **n8n** for the graph and the **BFF** as the only write path into Postgres.
 
 ```text
-CRM record action
+CRM record action (Form Builder button)
   → POST /flows/trigger/:key   (JWT required)
       → app_flow_triggers handler=http
           → n8n webhook (+ X-CRM-Flow-Secret, X-CRM-Source: bff-flow)
 
+CRM record automation (Setup → Automations → Trigger flow)
+  → create/update/delete commits
+      → runLocalFlow(key)  (server-side, after save; failures are logged only)
+          → app_flow_triggers handler=http|update_record
+              → n8n webhook when handler=http
+
 n8n workflow
   → POST /auth/login           (n8n@system.local)
   → POST /graphql updateRecord (Bearer + X-CRM-Automation: n8n)
+  → POST /graphql generateDocument  (DocEngine; see generate-document-api.md)
 ```
 
 Do **not** let n8n write `crm_schema` with a Postgres node / service_role.
+
+Doc generation for automations / email: [`generate-document-api.md`](./generate-document-api.md)
+
+```http
+POST {{$env.BFF_URL}}/api/v1/documents/generate
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "collectionName": "opportunity",
+  "recordId": "{{$json.recordId}}",
+  "templateId": "{{$env.OPPORTUNITY_QUOTE_TEMPLATE_ID}}",
+  "outputFormat": "pdf"
+}
+```
+
+Phase 0 stub today (HTTP 501 until populate/PDF is implemented). GraphQL `generateDocument` remains available as the same contract.
+
+### REST records (n8n-friendly)
+
+All require `Authorization: Bearer {{access_token}}`. Prefer `X-CRM-Automation: n8n`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` / `POST` | `/api/v1/query` | SOQL subset (`q=SELECT …`) |
+| `GET` | `/api/v1/:collection` | List / select |
+| `GET` | `/api/v1/:collection/:id` | Read one (PK or `uniqueField:value`; `?expand=children` nests reverse-M2O + files) |
+| `POST` | `/api/v1/:collection` | Create |
+| `POST` | `/api/v1/:collection?upsert=true` | Upsert by `id` |
+| `POST` | `/api/v1/:collection?upsert=true&by=external_id` | Upsert by unique field |
+| `PUT` / `PATCH` | `/api/v1/:collection/:id` | Update (PK or `uniqueField:value`) |
+| `DELETE` | `/api/v1/:collection/:id` | Soft-delete (`?hard=true` = hard delete) |
+
+`:id` may be the primary key **or** any single-field unique index as `fieldName:value` (first colon separates; URL-encode the value). The field must have `is_unique` in Setup (or a 1-field unique group).
+
+**SOQL-style query** (compiled to CoreEngine `findMany` — not raw SQL)
+
+```http
+POST {{$env.BFF_URL}}/api/v1/query
+Authorization: Bearer {{access_token}}
+X-CRM-Automation: n8n
+Content-Type: application/json
+
+{
+  "q": "SELECT Id, Name, Parent.Id FROM Account WHERE Industry = 'Technology' ORDER BY AnnualRevenue DESC LIMIT 5"
+}
+```
+
+Or `GET {{$env.BFF_URL}}/api/v1/query?q=` + URL-encoded SOQL.
+
+Supported subset: `SELECT` fields/`*`/`*, relation.path` `FROM` entity, `WHERE` (`= != > >= < <= LIKE IN NOT IN IS NULL`, `AND`/`OR`, parentheses), `ORDER BY`, `LIMIT`, `OFFSET`. Identifiers are normalized to CoreEngine `api_name` (`Account`→`account`, `AnnualRevenue`→`annual_revenue`). Response: `{ collection, nodes, totalCount }`.
+
+**Read Account**
+
+```http
+GET {{$env.BFF_URL}}/api/v1/account/{{$json.record.account_id}}
+```
+
+Optional: `?fields=id,name,email`
+
+**Read / patch by unique field**
+
+```http
+GET {{$env.BFF_URL}}/api/v1/account/external_id:{{$json.externalId}}
+
+PATCH {{$env.BFF_URL}}/api/v1/account/external_id:{{$json.externalId}}
+Content-Type: application/json
+
+{ "phone": "+380..." }
+```
+
+**List opportunities**
+
+```http
+GET {{$env.BFF_URL}}/api/v1/opportunity?limit=20&sort=-date_created&filter={"account_id":{"_eq":"..."}}
+```
+
+(`filter` is URL-encoded JSON.)
+
+**Update / create**
+
+```http
+PATCH {{$env.BFF_URL}}/api/v1/account/{{id}}
+Content-Type: application/json
+
+{ "phone": "+380..." }
+```
+
+```http
+POST {{$env.BFF_URL}}/api/v1/account?upsert=true
+Content-Type: application/json
+
+{ "id": "...", "name": "Acme", "phone": "+380..." }
+```
+
+```http
+POST {{$env.BFF_URL}}/api/v1/account?upsert=true&by=external_id
+Content-Type: application/json
+
+{ "external_id": "EXT-123", "name": "Acme", "phone": "+380..." }
+```
+
+### Setup UI
+
+**Setup → Flows** manages `app_flow_triggers`: create a **key** (e.g. `test_hook`), set handler **HTTP**, paste the external URL, optionally set **Authentication** (None / Bearer / API key header / Basic). Then use that key in Object Manager → Automations → Trigger flow.
+
+Outbound http also adds `X-CRM-Source: bff-flow` and, when set, `X-CRM-Flow-Secret` from `N8N_WEBHOOK_SECRET`.
+
+### Record automation payload
+
+When an automation action `trigger_flow` matches, the BFF posts:
+
+```json
+{
+  "source": "record_automation",
+  "trigger": "create|update|delete",
+  "collection": "opportunity_item",
+  "recordId": "...",
+  "record": {},
+  "before": null,
+  "automation": { "id": "...", "name": "..." }
+}
+```
+
+Prefer `http` flow handlers from automations. An `update_record` handler can re-enter automations — use conditions / `requireChanged` carefully.
 
 ## Env (repo root `.env` and/or `crm-bff/.env`)
 
@@ -86,5 +218,6 @@ Headers on every GraphQL call:
 
 ## Later (not in this milestone)
 
-- Record create/update event hooks that skip when `automationSource` is set
+- `skipRecordAutomations` on flow-driven `update_record` writes to prevent loops
+- Durable outbox / retries for failed `trigger_flow` dispatches
 - Optional local step pipeline inside BFF when n8n is overkill

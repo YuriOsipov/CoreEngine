@@ -34,6 +34,8 @@ export interface ListFilterCondition {
   type?: string
   /** When false, condition applies in saved filter but is hidden from list-page value editor. */
   userVisible?: boolean
+  /** When true, list shows no rows until this condition has a non-empty value. */
+  required?: boolean
   /** Grid column span (1–12) on the list-page filter row layout. Default: 4. */
   fieldWidth?: number
 }
@@ -212,6 +214,7 @@ function normalizeSavedListFilter(
       value: condition.value,
       ...(condition.type ? { type: condition.type } : {}),
       ...(condition.userVisible === false ? { userVisible: false } : {}),
+      ...(condition.required === true ? { required: true } : {}),
       ...(normalizeConditionFieldWidth(condition.fieldWidth)
         ? { fieldWidth: normalizeConditionFieldWidth(condition.fieldWidth)! }
         : {}),

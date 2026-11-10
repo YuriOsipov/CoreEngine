@@ -2,6 +2,8 @@
 
 Catalog and promotion objects so seasonal / temporary discounts keep a full history.
 
+Commercial Sales overview (CRM portal + this pack): [`../sales/README.md`](../sales/README.md).
+
 ## Includes
 
 | Entity | Purpose |

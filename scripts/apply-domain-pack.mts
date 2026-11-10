@@ -1,5 +1,5 @@
 /**
- * Apply a Helix domain pack (sales | clinic | …) onto an already-provisioned kernel DB.
+ * Apply a CoreEngine domain pack (sales | clinic | …) onto an already-provisioned kernel DB.
  *
  * Usage (repo root):
  *   npm run platform:apply-pack -- sales

@@ -30,6 +30,8 @@ const props = withDefaults(
     showActions?: boolean
     m2aEditable?: boolean
     showViewAll?: boolean
+    /** View contexts: Image/files preview only (upload in edit form). */
+    filesReadonly?: boolean
   }>(),
   {
     active: true,
@@ -37,6 +39,7 @@ const props = withDefaults(
     showActions: false,
     m2aEditable: false,
     showViewAll: true,
+    filesReadonly: false,
   },
 )
 
@@ -99,6 +102,7 @@ function onViewRecord(row: Record<string, unknown>): void {
       :model-value="record ?? {}"
       :parent-id="recordId ?? undefined"
       :parent-name="collection"
+      :readonly="filesReadonly"
       @files-changed="emit('files-changed', $event)"
     />
 

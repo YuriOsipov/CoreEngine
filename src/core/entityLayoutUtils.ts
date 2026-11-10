@@ -17,10 +17,64 @@ import {
   relationRelatedCollection,
 } from '@/core/relationHelpers'
 
-export function createLayoutSchema(schema: EntityLayoutSchema): EntityLayoutSchema {
+const FILES_ASSET_COLLECTION = 'files'
+
+const DEFAULT_IMAGE_FILES_SETTINGS = {
+  multiple: false,
+  display: 'thumbnail' as const,
+  allowedMimeTypes: ['image/'],
+  previewSize: 'md' as const,
+  columns: [] as Array<{ field: string; header: string }>,
+}
+
+/**
+ * Image M2O → files can be stored as AutoComplete after relation hydrate.
+ * Restore the Files / single-image control for create, edit, and light forms.
+ */
+export function normalizeImageFilesLayoutField(
+  field: LayoutFieldMetadata,
+): LayoutFieldMetadata {
+  if (String(field.field || '').startsWith('files:')) return field
+  if (field.files?.multiple === true) return field
+
+  const related = String(field.relatedCollection || '').trim().toLowerCase()
+  const isFilesRelation = related === FILES_ASSET_COLLECTION
+  const isFilesComponent = field.component === 'Files'
+  if (!isFilesRelation && !isFilesComponent) return field
+
+  return {
+    ...field,
+    component: 'Files',
+    relatedCollection: field.relatedCollection || FILES_ASSET_COLLECTION,
+    files: {
+      ...DEFAULT_IMAGE_FILES_SETTINGS,
+      ...(field.files ?? {}),
+      multiple: false,
+    },
+  }
+}
+
+/** Ensure Image fields keep single-file Files settings across layout surfaces. */
+export function normalizeLayoutSchemaFilesFields(
+  schema: EntityLayoutSchema,
+): EntityLayoutSchema {
   return {
     ...schema,
     sections: schema.sections.map((section) => ({
+      ...section,
+      groups: section.groups.map((group) => ({
+        ...group,
+        fields: group.fields.map(normalizeImageFilesLayoutField),
+      })),
+    })),
+  }
+}
+
+export function createLayoutSchema(schema: EntityLayoutSchema): EntityLayoutSchema {
+  const normalized = normalizeLayoutSchemaFilesFields(schema)
+  return {
+    ...normalized,
+    sections: normalized.sections.map((section) => ({
       ...section,
       groups: section.groups
         .map((group) => ({
@@ -42,7 +96,22 @@ const CREATE_DIALOG_EXCLUDED_COMPONENTS = new Set([
   'M2ABuilder',
 ])
 
+/** Single Image / file field on a registry column (not shared Attachments). */
+function isEditableSingleFileField(field: LayoutFieldMetadata): boolean {
+  if (String(field.field || '').startsWith('files:')) return false
+  if (field.files?.multiple === true) return false
+  if (field.component === 'Files') return true
+  return (
+    String(field.relatedCollection || '').trim().toLowerCase() ===
+    FILES_ASSET_COLLECTION
+  )
+}
+
 export function isCreateDialogField(field: LayoutFieldMetadata): boolean {
+  // Single Image belongs in create/edit forms; multi-file Attachments do not.
+  if (isEditableSingleFileField(field)) {
+    return isEditableFormLayoutField(field)
+  }
   return (
     !CREATE_DIALOG_EXCLUDED_COMPONENTS.has(field.component) &&
     isEditableFormLayoutField(field)

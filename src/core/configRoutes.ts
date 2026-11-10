@@ -50,6 +50,11 @@ const configRoutes: RouteRecordRaw[] = [
         component: () => import('@/modules/config/pages/TaskSchedulerSetupPage.vue'),
       },
       {
+        path: 'flows',
+        name: 'setup-flows',
+        component: () => import('@/modules/config/pages/FlowTriggersSetupPage.vue'),
+      },
+      {
         path: 'archived',
         name: 'setup-archived',
         component: () => import('@/modules/config/pages/ArchivedRecordsSetupPage.vue'),
@@ -74,6 +79,26 @@ const configRoutes: RouteRecordRaw[] = [
         name: 'setup-documents',
         component: () =>
           import('@/modules/config/pages/DocumentTemplatesSetupPage.vue'),
+      },
+      {
+        path: 'reports',
+        name: 'setup-reports',
+        component: () => import('@/modules/config/pages/ReportsSetupPage.vue'),
+      },
+      {
+        path: 'reports/new',
+        name: 'setup-report-new',
+        component: () => import('@/modules/reports/pages/ReportDesignerPage.vue'),
+      },
+      {
+        path: 'reports/:settingId',
+        name: 'setup-report-edit',
+        component: () => import('@/modules/reports/pages/ReportDesignerPage.vue'),
+      },
+      {
+        path: 'dashboards',
+        name: 'setup-dashboards',
+        component: () => import('@/modules/config/pages/DashboardsSetupPage.vue'),
       },
       {
         path: 'projects',

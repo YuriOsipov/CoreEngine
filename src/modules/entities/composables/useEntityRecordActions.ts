@@ -1,5 +1,4 @@
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import type { EntityAction } from '@/interfaces'
@@ -20,7 +19,6 @@ export function useEntityRecordActions(options: {
   record: () => Record<string, unknown>
   onRefresh?: () => void | Promise<void>
 }) {
-  const router = useRouter()
   const confirm = useConfirm()
   const toast = useToast()
   const { t } = useTranslation()
@@ -42,6 +40,12 @@ export function useEntityRecordActions(options: {
   const fillDocValueId = ref<string | null>(null)
   const fillExportMode = ref<DocEngineExportMode>('pdf')
   const fillAttachFile = ref(true)
+
+  const viewDialogVisible = ref(false)
+  const viewTemplateId = ref('')
+  const viewDocValueId = ref<string | null>(null)
+  const viewMode = ref<DocEngineExportMode>('html')
+  const viewAutoSave = ref(false)
 
   const numberPromptVisible = ref(false)
   const numberPromptLabel = ref('')
@@ -171,24 +175,16 @@ export function useEntityRecordActions(options: {
     })
   }
 
-  function navigateToDocumentView(
+  function openDocumentView(
     action: EntityAction,
     selectedTemplateId: string,
     docValueId?: string | null,
   ): void {
-    void router.push({
-      name: 'document-view',
-      params: {
-        collection: collection.value,
-        id: recordId.value,
-      },
-      query: {
-        template: selectedTemplateId,
-        mode: action.document?.viewMode === 'pdf' ? 'pdf' : 'html',
-        ...(docValueId ? { docValue: docValueId } : {}),
-        ...(action.document?.autoSave ? { autoSave: '1' } : {}),
-      },
-    })
+    viewTemplateId.value = selectedTemplateId
+    viewDocValueId.value = docValueId ?? null
+    viewMode.value = action.document?.viewMode === 'pdf' ? 'pdf' : 'html'
+    viewAutoSave.value = action.document?.autoSave === true
+    viewDialogVisible.value = true
   }
 
   function navigateToDocument(
@@ -197,7 +193,7 @@ export function useEntityRecordActions(options: {
     docValueId?: string | null,
   ): void {
     if (action.document?.skipInteractiveFill) {
-      navigateToDocumentView(action, selectedTemplateId, docValueId)
+      openDocumentView(action, selectedTemplateId, docValueId)
       return
     }
     openDocumentFill(
@@ -412,6 +408,11 @@ export function useEntityRecordActions(options: {
     fillDocValueId,
     fillExportMode,
     fillAttachFile,
+    viewDialogVisible,
+    viewTemplateId,
+    viewDocValueId,
+    viewMode,
+    viewAutoSave,
     numberPromptVisible,
     numberPromptLabel,
     numberPromptHeader,

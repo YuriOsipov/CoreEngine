@@ -1,4 +1,4 @@
--- Helix platform kernel: extensions + helpers (empty customer DB)
+-- CoreEngine platform kernel: extensions + helpers (empty customer DB)
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE SCHEMA IF NOT EXISTS crm_schema;
 

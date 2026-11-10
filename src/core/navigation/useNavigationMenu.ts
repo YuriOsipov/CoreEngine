@@ -11,11 +11,11 @@ import {
   renameFavorite as renameFavoriteRecord,
   resolveNavigationForCurrentUser,
 } from './navigationService'
+import { filterNavigationByReadAccess } from './filterNavByPermissions'
 import { resolveNavTarget } from './navTargetRoute'
 import { useFavoriteContext } from './useFavoriteContext'
 
 const HOME_ICON = 'pi pi-home'
-const FAVORITES_ICON = 'pi pi-star'
 const FOLDER_ICON = 'pi pi-folder'
 
 const TARGET_ICONS: Record<NavTarget['kind'], string> = {
@@ -27,21 +27,21 @@ const TARGET_ICONS: Record<NavTarget['kind'], string> = {
   home: HOME_ICON,
 }
 
+/** Shared across App top bar + sidebar so favorites/nav stay in sync. */
+const app = shallowRef<NavigationApp | null>(null)
+const favorites = ref<NavLink[]>([])
+const menuItems = shallowRef<MenuItem[]>([])
+const loading = ref(false)
+const promptVisible = ref(false)
+const promptInitialLabel = ref('')
+const promptTarget = ref<NavTarget>({ kind: 'home' })
+let reloadPromise: Promise<void> | null = null
+
 export function useNavigationMenu() {
   const router = useRouter()
   const route = useRoute()
   const { t } = useTranslation()
   const { context } = useFavoriteContext()
-
-  const app = shallowRef<NavigationApp | null>(null)
-  const favorites = ref<NavLink[]>([])
-  const menuItems = shallowRef<MenuItem[]>([])
-  const loading = ref(false)
-
-  // Prompt state surfaced to AppSidebar via return value.
-  const promptVisible = ref(false)
-  const promptInitialLabel = ref('')
-  const promptTarget = ref<NavTarget>({ kind: 'home' })
 
   function navigate(target: NavTarget, homeTarget?: NavTarget): void {
     const resolved = resolveNavTarget(target, homeTarget)
@@ -108,45 +108,39 @@ export function useNavigationMenu() {
       ;(homeItem as MenuItem & { navTo?: RouteLocationRaw }).navTo = homeResolved.to
     }
 
-    const favoritesItem: MenuItem = {
-      key: '__favorites__',
-      label: t('navigation.favorites', 'Favorites'),
-      icon: FAVORITES_ICON,
-      items: favorites.value.length
-        ? favorites.value.map((link) => linkToMenuItem(link, homeTarget, link.id))
-        : [
-            {
-              key: '__favorites_empty__',
-              label: t('navigation.favoritesEmpty', 'No favorites yet'),
-              disabled: true,
-            },
-          ],
-    }
-
+    // Favorites live in the SF-style top bar — sidebar is Home + Workspace only.
     menuItems.value = [
       homeItem,
-      favoritesItem,
       ...(current?.items ?? []).map((item) => itemToMenuItem(item, homeTarget)),
     ]
   }
 
   async function reload(): Promise<void> {
+    if (reloadPromise) return reloadPromise
     loading.value = true
-    try {
-      const [resolvedApp, favoritesResult] = await Promise.all([
-        resolveNavigationForCurrentUser(),
-        loadFavorites(),
-      ])
-      app.value = resolvedApp
-      favorites.value = favoritesResult.items
-      buildMenu()
-    } catch {
-      app.value = null
-      favorites.value = []
-      menuItems.value = []
-    } finally {
-      loading.value = false
-    }
+    reloadPromise = (async () => {
+      try {
+        const [resolvedApp, favoritesResult] = await Promise.all([
+          resolveNavigationForCurrentUser(),
+          loadFavorites(),
+        ])
+        const filtered = await filterNavigationByReadAccess(
+          resolvedApp,
+          favoritesResult.items,
+        )
+        app.value = filtered.app
+        favorites.value = filtered.favorites
+        buildMenu()
+      } catch {
+        app.value = null
+        favorites.value = []
+        menuItems.value = []
+      } finally {
+        loading.value = false
+        reloadPromise = null
+      }
+    })()
+    return reloadPromise
   }
 
   async function removeFavoriteById(favoriteId: string): Promise<void> {
@@ -163,7 +157,7 @@ export function useNavigationMenu() {
 
   /**
    * Opens the label prompt pre-filled from the current page's context.
-   * AppSidebar listens to promptVisible and calls confirmAddFavorite on OK.
+   * Top bar listens to promptVisible and calls confirmAddFavorite on OK.
    */
   function requestAddFavorite(): void {
     const ctx = context.value
@@ -172,7 +166,6 @@ export function useNavigationMenu() {
       promptInitialLabel.value = ctx.defaultLabel
       promptTarget.value = ctx.target
     } else {
-      // Fallback: use the current route path as a generic URL target.
       const metaTitle = (route.meta as Record<string, unknown>).title
       promptInitialLabel.value =
         (typeof metaTitle === 'string' && metaTitle) ||
@@ -186,6 +179,32 @@ export function useNavigationMenu() {
 
   async function confirmAddFavorite(label: string): Promise<void> {
     const result = await addFavoriteRecord({ label, target: promptTarget.value })
+    favorites.value = result.items
+    buildMenu()
+  }
+
+  /** Add the current page using FavoriteContext (or route fallback) — no label dialog. */
+  async function addCurrentPageFavorite(): Promise<void> {
+    const ctx = context.value
+    if (ctx) {
+      const result = await addFavoriteRecord({
+        label: ctx.defaultLabel,
+        target: ctx.target,
+      })
+      favorites.value = result.items
+      buildMenu()
+      return
+    }
+
+    const metaTitle = (route.meta as Record<string, unknown>).title
+    const label =
+      (typeof metaTitle === 'string' && metaTitle) ||
+      (typeof route.name === 'string' && route.name) ||
+      route.fullPath
+    const result = await addFavoriteRecord({
+      label,
+      target: { kind: 'url', href: route.fullPath, external: false },
+    })
     favorites.value = result.items
     buildMenu()
   }
@@ -206,6 +225,7 @@ export function useNavigationMenu() {
     renameFavoriteById,
     requestAddFavorite,
     confirmAddFavorite,
+    addCurrentPageFavorite,
     goHome,
   }
 }

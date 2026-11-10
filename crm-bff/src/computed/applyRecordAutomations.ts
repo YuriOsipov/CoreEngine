@@ -22,10 +22,18 @@ export interface AutomationToast {
   message: string
 }
 
+export interface AutomationFlowTrigger {
+  flowKey: string
+  automationId: string
+  automationName: string
+}
+
 export interface ApplyRecordAutomationsResult {
   patch: Record<string, unknown>
   toasts: AutomationToast[]
   stopped: boolean
+  /** Collected trigger_flow actions — run after the write commits. */
+  flowTriggers: AutomationFlowTrigger[]
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -196,8 +204,10 @@ async function applyRuleSetFields(
 }
 
 function applyRuleActions(
+  rule: EntityRecordAutomation,
   actions: RecordAutomationAction[],
   toasts: AutomationToast[],
+  flowTriggers: AutomationFlowTrigger[],
 ): boolean {
   let shouldBreak = false
   for (const action of actions) {
@@ -207,6 +217,16 @@ function applyRuleActions(
       toasts.push({
         severity: action.severity === 'warn' ? 'warn' : 'info',
         message,
+      })
+      continue
+    }
+    if (action.type === 'trigger_flow') {
+      const flowKey = action.flowKey.trim()
+      if (!flowKey) continue
+      flowTriggers.push({
+        flowKey,
+        automationId: rule.id,
+        automationName: rule.name,
       })
       continue
     }
@@ -232,9 +252,10 @@ export function attachAutomationToasts(
 }
 
 /**
- * Merge matching automation setFields into the write patch and collect toasts.
- * Conditions evaluate against existing + current patch (after formulas).
+ * Merge matching automation setFields into the write patch and collect toasts /
+ * flow triggers. Conditions evaluate against existing + current patch (after formulas).
  * On delete, setFields are skipped; requireChanged is ignored.
+ * trigger_flow actions are collected here and must run after the write commits.
  *
  * setFields values support $NOW, $NULL, and computed templates such as
  * {{DATE_ADD_DAYS(project.date_start, offset_days)}}.
@@ -250,12 +271,13 @@ export async function applyRecordAutomations(
     (rule) => rule.enabled && rule.triggers.includes(trigger),
   )
   if (!enabled.length) {
-    return { patch: { ...patch }, toasts: [], stopped: false }
+    return { patch: { ...patch }, toasts: [], stopped: false, flowTriggers: [] }
   }
 
   const originalPatch = { ...patch }
   const next = { ...patch }
   const toasts: AutomationToast[] = []
+  const flowTriggers: AutomationFlowTrigger[] = []
   const nowIso = new Date().toISOString()
   const existingObj = existing ? asObject(existing) : null
   let stopped = false
@@ -270,12 +292,17 @@ export async function applyRecordAutomations(
     if (trigger !== 'delete') {
       await applyRuleSetFields(entityApiName, next, rule.setFields, nowIso, merged)
     }
-    const shouldBreak = applyRuleActions(rule.actions ?? [], toasts)
+    const shouldBreak = applyRuleActions(
+      rule,
+      rule.actions ?? [],
+      toasts,
+      flowTriggers,
+    )
     if (shouldBreak) {
       stopped = true
       break
     }
   }
 
-  return { patch: next, toasts, stopped }
+  return { patch: next, toasts, stopped, flowTriggers }
 }

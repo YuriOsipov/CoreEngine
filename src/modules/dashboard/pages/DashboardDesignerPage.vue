@@ -25,11 +25,23 @@ import {
   type DesignerPanelDraft,
 } from '../services/dashboardDesigner'
 
+const props = withDefaults(
+  defineProps<{
+    /** When true, omit page chrome for embedding under Setup. */
+    embedded?: boolean
+  }>(),
+  { embedded: false },
+)
+
 const { t } = useTranslation()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const confirm = useConfirm()
+
+const designerRouteName = computed(() =>
+  props.embedded ? 'setup-dashboards' : 'dashboard-design',
+)
 
 const summaries = ref<DashboardRecord[]>([])
 const draft = ref<DesignerDashboardDraft>(createEmptyDraft())
@@ -80,7 +92,7 @@ function startNew(): void {
   draft.value.name = t('dashboard.newDashboardName', 'New dashboard')
   draft.value.dirty = true
   selectedPanelId.value = null
-  void router.replace({ name: 'dashboard-design', query: {} })
+  void router.replace({ name: designerRouteName.value, query: {} })
 }
 
 async function selectDashboard(id: string): Promise<void> {
@@ -89,7 +101,7 @@ async function selectDashboard(id: string): Promise<void> {
     draft.value = await loadDesignerDraft(id)
     selectedPanelId.value = draft.value.panels[0]?.id ?? null
     if (route.query.id !== id) {
-      await router.replace({ name: 'dashboard-design', query: { id } })
+      await router.replace({ name: designerRouteName.value, query: { id } })
     }
   } catch (err) {
     toast.add({
@@ -164,7 +176,7 @@ async function save(): Promise<void> {
       null
     await reloadSummaries()
     await router.replace({
-      name: 'dashboard-design',
+      name: designerRouteName.value,
       query: { id: draft.value.id ?? undefined },
     })
     toast.add({
@@ -243,17 +255,34 @@ function onSelectDashboard(id: string | null): void {
 </script>
 
 <template>
-  <main class="app-shell dashboard-designer">
-    <header class="app-header">
-      <div class="app-header__row">
+  <component
+    :is="embedded ? 'section' : 'main'"
+    :class="embedded ? 'setup-dashboards-tab mt-6' : 'app-shell dashboard-designer'"
+  >
+    <header :class="embedded ? 'mb-4' : 'app-header'">
+      <div
+        class="app-header__row"
+        :class="{ 'items-start gap-3': embedded }"
+      >
         <div>
-          <h1>{{ t('dashboard.designerTitle', 'Dashboard designer') }}</h1>
-          <p>
+          <component :is="embedded ? 'h2' : 'h1'" class="m-0">
             {{
-              t(
-                'dashboard.designerSubtitle',
-                'Arrange Directus-compatible panels on a 60-column grid.',
-              )
+              embedded
+                ? t('setup.dashboards.title', 'Dashboards')
+                : t('dashboard.designerTitle', 'Dashboard designer')
+            }}
+          </component>
+          <p :class="embedded ? 'text-muted-color mt-1 mb-0' : undefined">
+            {{
+              embedded
+                ? t(
+                    'setup.dashboards.subtitle',
+                    'Design dashboard layouts and panels. Link them from Navigation when ready.',
+                  )
+                : t(
+                    'dashboard.designerSubtitle',
+                    'Arrange Directus-compatible panels on a 60-column grid.',
+                  )
             }}
           </p>
         </div>
@@ -363,5 +392,5 @@ function onSelectDashboard(id: string | null): void {
 
       <PanelOptionsForm :panel="selectedPanel" @update="updatePanel" />
     </section>
-  </main>
+  </component>
 </template>

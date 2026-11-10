@@ -27,14 +27,20 @@ import { buildFieldGroupSchema } from '@/modules/config/utils/recordPageFieldGro
 import { buildRecordPageFilesField } from '@/modules/config/utils/recordPageFiles'
 import { buildRecordPageActivityLogField } from '@/modules/config/utils/recordPageActivityLog'
 import type { CompactRecordDetailsRuntime } from '@/modules/entities/services/recordDetails'
-import { fetchFieldRuntimeMetadata } from '@/modules/entities/services/collectionSchema'
+import {
+  fetchCollectionDisplayTemplate,
+  fetchCollectionIcon,
+  fetchFieldRuntimeMetadata,
+} from '@/modules/entities/services/collectionSchema'
+import { renderTemplateLabel } from '@/modules/entities/utils/recordDisplay'
 import {
   loadDynamicPicklistOptions,
   parseDynamicPicklistSource,
   type DynamicPicklistSource,
 } from '@/core/dynamicPicklist'
-import { useTranslation } from '@/core/translation'
-import { useEntityPermissions } from '@/core/entityPermissions'
+import { useTranslation, useTranslatedCollection } from '@/core/translation'
+import { canReadEntity, useEntityPermissions } from '@/core/entityPermissions'
+import { isRecordPagePathReadonly } from '@/core/layoutFieldRules'
 
 type HighlightsBarAction =
   | { key: string; kind: 'edit' | 'delete' | 'restore'; label: string }
@@ -71,12 +77,53 @@ const emit = defineEmits<{
 const { t } = useTranslation()
 const { canUpdate: canUpdateRecord, canDelete: canDeleteRecord } =
   useEntityPermissions(() => props.collection)
+const collectionLabel = useTranslatedCollection(() => props.collection)
+const collectionIcon = ref<string | null>(null)
+const displayTemplate = ref<string | undefined>(undefined)
 const activeTabId = ref<string | null>(null)
 const overflowMenu = ref<{ toggle: (event: Event) => void } | null>(null)
 const pathSteps = ref<CrmStagePathStep[]>([])
 const pathTerminalSteps = ref<CrmStagePathStep[]>([])
 const pathLoading = ref(false)
 const pathError = ref<string | null>(null)
+
+const isPrimeCollectionIcon = computed(() => {
+  const icon = collectionIcon.value?.trim() ?? ''
+  if (!icon) return false
+  return icon.startsWith('pi ') || icon.startsWith('pi-') || /(^|\s)pi-/.test(icon)
+})
+
+const recordTitle = computed(() => {
+  const record = props.modelValue
+  const template = displayTemplate.value?.trim()
+  if (template) {
+    const label = renderTemplateLabel(template, record)
+    if (label) return label
+  }
+  const fallbackKeys = ['name', 'title', 'label'] as const
+  for (const key of fallbackKeys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number') return String(value)
+  }
+  return String(props.recordId || record.id || '')
+})
+
+watch(
+  () => props.collection,
+  (collection) => {
+    collectionIcon.value = null
+    displayTemplate.value = undefined
+    if (!collection) return
+    void fetchCollectionIcon(collection).then((icon) => {
+      if (props.collection === collection) collectionIcon.value = icon
+    })
+    void fetchCollectionDisplayTemplate(collection).then((template) => {
+      if (props.collection === collection) displayTemplate.value = template
+    })
+  },
+  { immediate: true },
+)
 
 const pathField = computed(() =>
   props.component.type === 'path' && props.component.field
@@ -117,7 +164,8 @@ const pathDisabled = computed(
     || !canUpdateRecord.value
     || pathLoading.value
     || Boolean(pathError.value)
-    || pathSteps.value.length === 0,
+    || pathSteps.value.length === 0
+    || isRecordPagePathReadonly(props.component, props.modelValue),
 )
 
 function normalizePathSteps(raw: unknown): CrmStagePathStep[] {
@@ -391,14 +439,17 @@ function fieldAsSchema(component: RecordPageComponent): EntityLayoutSchema | nul
 function relatedListFieldsFor(component: RecordPageComponent): LayoutFieldMetadata[] {
   const fromLayout = props.relatedListFields?.[component.id]
   if (fromLayout?.length) {
-    return fromLayout.map((field) => ({
-      ...field,
-      span: 12,
-    }))
+    return fromLayout
+      .filter((field) => canReadEntity(field.relatedCollection))
+      .map((field) => ({
+        ...field,
+        span: 12,
+      }))
   }
 
   // Legacy fallback: collection-only config without Block Layout fields.
   if (!component.relatedCollection) return []
+  if (!canReadEntity(component.relatedCollection)) return []
   return [
     {
       id: component.id,
@@ -446,12 +497,38 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
   <div class="record-page-component-view">
     <div
       v-if="component.type === 'highlights'"
-      class="rounded-lg border border-surface-200 bg-surface-0 p-4"
+      class="record-page-highlights rounded-lg border border-surface-200 bg-surface-0 p-4"
     >
       <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <h2 class="m-0 text-base font-semibold">
-          {{ component.label || t('recordPage.component.highlights', 'Highlights') }}
-        </h2>
+        <div class="record-page-highlights__identity flex min-w-0 items-start gap-3">
+          <div
+            class="record-page-highlights__icon flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary"
+            aria-hidden="true"
+          >
+            <i
+              v-if="collectionIcon && isPrimeCollectionIcon"
+              :class="collectionIcon"
+              class="text-lg"
+            />
+            <span
+              v-else-if="collectionIcon"
+              class="material-icons"
+              style="font-size: 1.35rem; line-height: 1"
+            >{{ collectionIcon }}</span>
+            <i
+              v-else
+              class="pi pi-box text-lg"
+            />
+          </div>
+          <div class="min-w-0">
+            <div class="record-page-highlights__object-name m-0 text-xs font-semibold uppercase tracking-wide text-muted-color">
+              {{ collectionLabel }}
+            </div>
+            <h1 class="record-page-highlights__record-title m-0 truncate text-xl font-bold leading-tight text-surface-900">
+              {{ recordTitle }}
+            </h1>
+          </div>
+        </div>
         <div class="flex flex-wrap items-center justify-end gap-2">
           <Button
             v-for="item in visibleHighlightsActions"
@@ -551,12 +628,8 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
       </div>
     </div>
 
-    <div
-      v-else-if="component.type === 'relatedList'"
-      class="rounded-lg border border-dashed border-surface-300 px-4 py-3 text-sm text-muted-color"
-    >
-      {{ t('recordPage.relatedListNotConfigured', 'No related lists on the selected Block Layout.') }}
-    </div>
+    <!-- relatedList with no readable fields: omit (permission filter or unconfigured). -->
+    <div v-else-if="component.type === 'relatedList'" class="hidden" aria-hidden="true" />
 
     <div
       v-else-if="component.type === 'files' && pageFilesField"
@@ -689,3 +762,9 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
     </div>
   </div>
 </template>
+
+<style scoped>
+.record-page-highlights__icon {
+  color: var(--p-primary-contrast-color, #fff);
+}
+</style>

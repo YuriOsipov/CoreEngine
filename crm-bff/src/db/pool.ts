@@ -4,7 +4,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// crm-bff/src/db -> repo root (Helix), not crm-bff/
+// crm-bff/src/db -> repo root (CoreEngine), not crm-bff/
 const repoRoot = resolve(__dirname, '../../..')
 
 loadEnv({ path: resolve(repoRoot, '.env') })

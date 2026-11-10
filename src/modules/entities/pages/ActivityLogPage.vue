@@ -8,6 +8,8 @@ export default {
 import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import ActivityLogField from '@/modules/entities/components/ActivityLogField.vue'
+import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
+import { isRecordNotFoundError } from '../utils/isRecordNotFoundError'
 import {
   ACTIVITY_LOG_PAGE_SIZE,
   DEFAULT_ACTIVITY_LOG_SETTINGS,
@@ -38,6 +40,10 @@ const activityField = ref<LayoutFieldMetadata | null>(null)
 const parentRecord = ref<Record<string, unknown>>({})
 const loading = ref(false)
 const error = ref<string | null>(null)
+const recordMissing = ref(false)
+const listBackRoute = computed(
+  () => `/object/${encodeURIComponent(collectionName.value)}`,
+)
 
 const { setFavoriteContext, clearFavoriteContext } = useFavoriteContext()
 
@@ -78,6 +84,7 @@ async function loadPage(collection: string, id: string): Promise<void> {
 
   loading.value = true
   error.value = null
+  recordMissing.value = false
   try {
     const [pageLayout, record] = await Promise.all([
       resolveRecordPageLayoutForCurrentUser(collection),
@@ -96,6 +103,11 @@ async function loadPage(collection: string, id: string): Promise<void> {
   } catch (loadError) {
     activityField.value = null
     parentRecord.value = {}
+    if (isRecordNotFoundError(loadError)) {
+      recordMissing.value = true
+      error.value = null
+      return
+    }
     error.value =
       loadError instanceof Error
         ? loadError.message
@@ -146,6 +158,24 @@ watch(
         <ProgressSpinner stroke-width="4" />
         <span>{{ t('activityLog.loading', 'Loading activity history…') }}</span>
       </div>
+
+      <CrmNotFoundState
+        v-else-if="recordMissing"
+        :title="t('recordDetails.notFoundTitle', 'Record not found')"
+        :detail="
+          t(
+            'recordDetails.notFoundDetail',
+            'This {collection} record does not exist or is no longer available.',
+            { collection: collectionLabel || collectionName },
+          )
+        "
+        :back-label="
+          t('recordDetails.backToList', 'Back to {collection}', {
+            collection: collectionLabel || collectionName,
+          })
+        "
+        :back-to="listBackRoute"
+      />
 
       <Message
         v-else-if="error"

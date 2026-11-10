@@ -659,6 +659,7 @@ function normalizeListFilterCondition(condition: ListFilterCondition): ListFilte
     value: condition.value,
     ...(condition.type ? { type: condition.type } : {}),
     ...(condition.userVisible === false ? { userVisible: false } : {}),
+    ...(condition.required === true ? { required: true } : {}),
     ...(normalizeConditionFieldWidth(condition.fieldWidth)
       ? { fieldWidth: normalizeConditionFieldWidth(condition.fieldWidth)! }
       : {}),

@@ -1,4 +1,4 @@
--- Helix platform kernel seed: admin + reserved PLATFORM objects + default language.
+-- CoreEngine platform kernel seed: admin + reserved PLATFORM objects + default language.
 -- Password is set by provision script (registry:set-user-password), not here.
 
 INSERT INTO public.supported_languages (code, label, is_default, is_active, sort)

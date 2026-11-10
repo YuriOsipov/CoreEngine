@@ -12,6 +12,11 @@ import {
 
 /** Normalized field-mapping config from `@docengine/editor` (type is no longer exported). */
 export type FieldMappingSpec = ReturnType<typeof normalizeFieldMappingSpec>
+import {
+  formatAddressMultiline,
+  isAddressFieldDefinition,
+  isAddressValueEmpty,
+} from '@/core/addressField'
 import { formatDateValue } from '@/core/dateFormatting'
 import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
 import { bridgeReadItem, bridgeReadItems } from '@/core/graphql/itemsBridge'
@@ -733,7 +738,13 @@ async function resolveM2ODisplayValue(
  * When a parent M2O must stay an object (nested column paths like `$item.group`),
  * stash the Display Template label here so `$item` can be rewritten to this key.
  */
-const HELIX_M2O_DISPLAY_LABEL = '__helixDisplayLabel'
+const COREENGINE_M2O_DISPLAY_LABEL = '__coreEngineDisplayLabel'
+/** Legacy stamp kept so saved DocEngine mappings still resolve. */
+const LEGACY_HELIX_M2O_DISPLAY_LABEL = '__helixDisplayLabel'
+
+function readM2ODisplayLabel(row: Record<string, unknown>): unknown {
+  return row[COREENGINE_M2O_DISPLAY_LABEL] ?? row[LEGACY_HELIX_M2O_DISPLAY_LABEL]
+}
 
 function pathHasNestedDependent(path: string, allPaths: string[]): boolean {
   const prefix = `${path}.`
@@ -800,10 +811,10 @@ async function transformTerminalM2OAtPath(
 
     if (mode === 'attachLabel') {
       if (current && typeof current === 'object' && !Array.isArray(current)) {
-        ;(current as Record<string, unknown>)[HELIX_M2O_DISPLAY_LABEL] = label
+        ;(current as Record<string, unknown>)[COREENGINE_M2O_DISPLAY_LABEL] = label
       } else if (current != null && current !== '') {
         // Scalar FK — keep id access via nested paths unavailable; still expose label.
-        payload[field] = { id: current, [HELIX_M2O_DISPLAY_LABEL]: label }
+        payload[field] = { id: current, [COREENGINE_M2O_DISPLAY_LABEL]: label }
       }
       return
     }
@@ -860,7 +871,7 @@ async function transformTerminalM2OAtPath(
 }
 
 /**
- * Rewrite whole-M2O column paths (`$item`) to `$item.__helixDisplayLabel` when
+ * Rewrite whole-M2O column paths (`$item`) to `$item.__coreEngineDisplayLabel` when
  * nested paths under that M2O are also mapped (object kept; label on the related row).
  */
 function rewriteWholeM2OColumnPathsForNesting(
@@ -877,14 +888,14 @@ function rewriteWholeM2OColumnPathsForNesting(
     if (!preservedObjectPaths.has(absolute)) return columnValue
     const suffix = format ? `#${format}` : ''
     if (path.startsWith('$payload')) {
-      return `${path}.${HELIX_M2O_DISPLAY_LABEL}${suffix}`
+      return `${path}.${COREENGINE_M2O_DISPLAY_LABEL}${suffix}`
     }
-    // `$item` → `$item.__helixDisplayLabel` (DocEngine reads related.item label).
+    // `$item` → `$item.__coreEngineDisplayLabel` (DocEngine reads related.item label).
     if (path === '$item' || path === 'item') {
-      return `$item.${HELIX_M2O_DISPLAY_LABEL}${suffix}`
+      return `$item.${COREENGINE_M2O_DISPLAY_LABEL}${suffix}`
     }
     const base = path.startsWith('$') ? path : `$${path}`
-    return `${base}.${HELIX_M2O_DISPLAY_LABEL}${suffix}`
+    return `${base}.${COREENGINE_M2O_DISPLAY_LABEL}${suffix}`
   }
 
   const visitColumnMap = (
@@ -1084,6 +1095,38 @@ function transformNumberDisplayAtPath(
   }
 }
 
+function transformAddressDisplayAtPath(
+  payload: Record<string, unknown>,
+  segments: string[],
+): void {
+  if (segments.length === 0) return
+
+  if (segments.length === 1) {
+    const field = segments[0]
+    const raw = payload[field]
+    if (raw == null || raw === '') return
+    // Already a display string (or unrelated scalar) — leave alone.
+    if (typeof raw !== 'object') return
+    payload[field] = isAddressValueEmpty(raw) ? '' : formatAddressMultiline(raw, '')
+    return
+  }
+
+  const [head, ...tail] = segments
+  const child = payload[head]
+  if (Array.isArray(child)) {
+    for (const row of child) {
+      if (row && typeof row === 'object' && !Array.isArray(row)) {
+        transformAddressDisplayAtPath(row as Record<string, unknown>, tail)
+      }
+    }
+    return
+  }
+
+  if (child && typeof child === 'object' && !Array.isArray(child)) {
+    transformAddressDisplayAtPath(child as Record<string, unknown>, tail)
+  }
+}
+
 /**
  * Format Currency / Number CRM fields in the mapping payload (e.g. always 2
  * fraction digits) so DocEngine table cells match list/detail display.
@@ -1129,6 +1172,54 @@ async function applyNumberDisplayFormats(
     if (!displayOptions) continue
 
     transformNumberDisplayAtPath(result, segments, displayOptions)
+  }
+
+  return result
+}
+
+/**
+ * Format Address CRM fields to multiline text before DocEngine mapping.
+ * Raw JSON address objects are otherwise treated as empty image values in preview.
+ */
+async function applyAddressDisplayFormats(
+  collection: string,
+  payload: Record<string, unknown>,
+  payloadPaths: string[],
+): Promise<Record<string, unknown>> {
+  const relations = await getCachedRelations()
+  const relatedRefs = await listParentRelatedCollections(collection)
+  const relatedByKey = new Map(
+    relatedRefs.map((entry) => [entry.relationKey, entry] as const),
+  )
+  const result = structuredClone(payload) as Record<string, unknown>
+  const addressFieldCache = new Map<string, boolean>()
+
+  for (const path of payloadPaths) {
+    const segments = path.split('.').filter(Boolean)
+    if (segments.length === 0) continue
+
+    const fieldName = segments[segments.length - 1]
+    const parentSegments = segments.slice(0, -1)
+    const ownerCollection = resolveCollectionForFieldPath(
+      collection,
+      parentSegments,
+      relations,
+      relatedByKey,
+    )
+    if (!ownerCollection) continue
+    if (m2oRelatedCollection(relations, ownerCollection, fieldName)) continue
+
+    const cacheKey = `${ownerCollection}:${fieldName}`
+    let isAddress = addressFieldCache.get(cacheKey)
+    if (isAddress === undefined) {
+      const fields = await getCachedCollectionFields(ownerCollection)
+      const definition = fields.find((field) => field.field === fieldName) ?? null
+      isAddress = definition ? isAddressFieldDefinition(definition) : false
+      addressFieldCache.set(cacheKey, isAddress)
+    }
+    if (!isAddress) continue
+
+    transformAddressDisplayAtPath(result, segments)
   }
 
   return result
@@ -1518,7 +1609,12 @@ export async function applyDocListFieldMapping(
     listPayload.records.map(async (row) => {
       const labeled = await applyM2ODisplayTemplates(collection, row, rowPaths)
       for (const path of labeled.preservedObjectPaths) preservedObjectPaths.add(path)
-      return applyNumberDisplayFormats(collection, labeled.payload, rowPaths)
+      const numbered = await applyNumberDisplayFormats(
+        collection,
+        labeled.payload,
+        rowPaths,
+      )
+      return applyAddressDisplayFormats(collection, numbered, rowPaths)
     }),
   )
   const nestingAwareMapping = rewriteWholeM2OColumnPathsForNesting(
@@ -1588,7 +1684,7 @@ function mappingSpecFromStored(
 
 /**
  * Resolve a relative table column path (`$item`, `$item.name`, `price`) against a row.
- * Matches Helix absolute joining (`$item.x` → row property `item.x`), not DocEngine's
+ * Matches CoreEngine absolute joining (`$item.x` → row property `item.x`), not DocEngine's
  * `$item` = current-row alias.
  */
 function resolveRowColumnValue(
@@ -1610,7 +1706,12 @@ function resolveRowColumnValue(
     if (current == null || typeof current !== 'object' || Array.isArray(current)) {
       return undefined
     }
-    current = (current as Record<string, unknown>)[segment]
+    const record = current as Record<string, unknown>
+    current =
+      record[segment] ??
+      (segment === COREENGINE_M2O_DISPLAY_LABEL
+        ? record[LEGACY_HELIX_M2O_DISPLAY_LABEL]
+        : undefined)
   }
   return current
 }
@@ -1624,7 +1725,7 @@ function displaySortKey(value: unknown): string {
     const row = value as Record<string, unknown>
     // Prefer Display Template stamp, then common label fields (Item often uses description).
     const label =
-      row[HELIX_M2O_DISPLAY_LABEL] ??
+      readM2ODisplayLabel(row) ??
       row.description ??
       row.name ??
       row.title ??
@@ -1733,7 +1834,9 @@ function rowsLookLikeItemGroupTreeRows(rows: unknown[]): boolean {
 function readTreeItemSortFromPayload(
   payload: Record<string, unknown>,
 ): DataTableSortConfig | null {
-  const raw = payload[ITEM_GROUP_TREE_ITEM_SORT_KEY]
+  const raw =
+    payload[ITEM_GROUP_TREE_ITEM_SORT_KEY] ??
+    payload['__helixItemGroupTreeItemSort']
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const field = typeof (raw as DataTableSortConfig).field === 'string'
     ? (raw as DataTableSortConfig).field.trim()
@@ -1768,7 +1871,7 @@ function itemPriceDisplaySortKey(
     if (fromPath) return fromPath
   }
   return displaySortKey(
-    row.helixItemLabel ?? row.helixItem_description ?? row[HELIX_M2O_DISPLAY_LABEL],
+    row.coreEngineItemLabel ?? row.helixItemLabel ?? row.coreEngineItem_description ?? row.helixItem_description ?? readM2ODisplayLabel(row),
   )
 }
 
@@ -1996,9 +2099,9 @@ function applyNumberDisplayToPriceRows(
 }
 
 /**
- * Ensure each price row has group_* stamps and `item.__helixDisplayLabel`
+ * Ensure each price row has group_* stamps and `item.__coreEngineDisplayLabel`
  * so `$item` / `$item.description` resolve from the real nested `item` object
- * (visible in the designer source schema — no synthetic helixItem_* paths).
+ * (visible in the designer source schema — no synthetic coreEngineItem_* paths).
  * Also formats Currency / Number fields (e.g. `price`) like the object list.
  */
 async function enrichItemGroupPriceRowsForDocuments(
@@ -2046,7 +2149,7 @@ async function enrichItemGroupPriceRowsForDocuments(
       if (label == null || label === '') continue
       if (current && typeof current === 'object' && !Array.isArray(current)) {
         const itemRow = current as Record<string, unknown>
-        itemRow[HELIX_M2O_DISPLAY_LABEL] = label
+        itemRow[COREENGINE_M2O_DISPLAY_LABEL] = label
         // Keep `$item.description` filled when Display Template is description.
         if (itemRow.description == null || itemRow.description === '') {
           itemRow.description = label
@@ -2055,7 +2158,7 @@ async function enrichItemGroupPriceRowsForDocuments(
         priceRow.item = {
           id: current,
           description: label,
-          [HELIX_M2O_DISPLAY_LABEL]: label,
+          [COREENGINE_M2O_DISPLAY_LABEL]: label,
         }
       }
     }
@@ -2631,7 +2734,12 @@ export async function applyDocFieldMapping(
     labeled.payload,
     payloadPaths,
   )
-  const resolvedPayload = sortMappedTableArrays(nestingAwareMapping, numbered)
+  const addressed = await applyAddressDisplayFormats(
+    collection,
+    numbered,
+    payloadPaths,
+  )
+  const resolvedPayload = sortMappedTableArrays(nestingAwareMapping, addressed)
   return applyFieldMapping(resolvedPayload, spec, template as never)
 }
 

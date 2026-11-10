@@ -15,6 +15,7 @@ import {
   upsertEntityAutomations,
   type EntityRecordAutomationDto,
 } from '@/core/graphql/recordAutomationsApi'
+import { flowTriggerKeyFromWebhook } from '@/core/graphql/flowsProxy'
 import { clearMetadataCache } from '@/modules/entities/services/collectionSchema'
 import SetupRecordAutomationEditorDialog, {
   type AutomationSetFieldRow,
@@ -385,22 +386,37 @@ async function save(): Promise<void> {
         }),
       requireChanged: rule.requireChanged.filter(Boolean),
       setFields: rowsToSetFields(setFieldRows.value[rule.id] ?? []),
-      actions: (rule.actions ?? [])
-        .map((action) =>
-          action.type === 'break'
-            ? { type: 'break' as const }
-            : {
-                type: 'notify' as const,
-                severity:
-                  action.severity === 'warn' ? ('warn' as const) : ('info' as const),
-                message: String(action.message || '').trim(),
-              },
-        )
-        .filter(
-          (action) =>
-            action.type === 'break' ||
-            (action.type === 'notify' && Boolean(action.message)),
-        ),
+      actions: (rule.actions ?? []).map((action) => {
+        if (action.type === 'break') return { type: 'break' as const }
+        if (action.type === 'trigger_flow') {
+          const raw = String(action.flowKey || '').trim()
+          const flowKey = flowTriggerKeyFromWebhook(raw)
+          if (raw && !flowKey) {
+            throw new Error(
+              t(
+                'setup.automations.flowKeyInvalid',
+                '"{value}" is not a CoreEngine flow key. Create the mapping under Setup → Flows, then enter that key here (e.g. test_hook).',
+                { value: raw },
+              ),
+            )
+          }
+          return {
+            type: 'trigger_flow' as const,
+            flowKey,
+          }
+        }
+        return {
+          type: 'notify' as const,
+          severity:
+            action.severity === 'warn' ? ('warn' as const) : ('info' as const),
+          message: String(action.message || '').trim(),
+        }
+      }).filter(
+        (action) =>
+          action.type === 'break' ||
+          (action.type === 'notify' && Boolean(action.message)) ||
+          (action.type === 'trigger_flow' && Boolean(action.flowKey)),
+      ),
     }))
     const invalid = payload.find(
       (rule) =>
@@ -410,7 +426,7 @@ async function save(): Promise<void> {
       throw new Error(
         t(
           'setup.automations.effectRequired',
-          'Each rule needs at least one field to set, or a notify/break action.',
+          'Each rule needs at least one field to set, or a notify / trigger flow / break action.',
         ),
       )
     }

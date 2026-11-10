@@ -1,4 +1,4 @@
-# Provision a new Helix customer database: platform kernel + documents pack
+# Provision a new CoreEngine customer database: platform kernel + documents pack
 # (+ optional vertical domain pack).
 #
 # Usage (repo root):

@@ -47,6 +47,8 @@ const OPERATOR_LABELS: Record<string, string> = {
 }
 
 export function isUserVisibleCondition(condition: ListFilterCondition): boolean {
+  // Required filters must remain editable on the list page.
+  if (condition.required === true) return true
   return condition.userVisible !== false
 }
 
@@ -69,6 +71,21 @@ export function isApplicableFilterCondition(
 ): boolean {
   if (NO_VALUE_OPERATORS.has(condition.operator)) return true
   return !isEmptyFilterValue(condition.value)
+}
+
+/**
+ * True when any required condition still needs a value (list must show no rows).
+ * `_null` / `_nnull` never need a value, so they are never unsatisfied.
+ */
+export function hasUnsatisfiedRequiredFilters(
+  conditions: Array<Pick<ListFilterCondition, 'required' | 'operator' | 'value'>>,
+): boolean {
+  return conditions.some(
+    (condition) =>
+      condition.required === true &&
+      !NO_VALUE_OPERATORS.has(condition.operator) &&
+      isEmptyFilterValue(condition.value),
+  )
 }
 
 function isDateLikeFieldType(type: string | undefined): boolean {
@@ -213,7 +230,9 @@ export function filterConditionComponentProps(
   if (condition.component === 'AutoComplete') {
     delete base.suggestions
     delete base.optionValue
+    base.dropdown = true
     base.showClear = true
+    base.appendTo = 'body'
   }
 
   if (condition.component === 'Select' || condition.component === 'Dropdown') {

@@ -163,8 +163,69 @@ export async function updateFileMetadata(
   return updateFileViaBff(fileId, payload)
 }
 
-export async function deleteFileViaBff(fileId: string): Promise<void> {
-  const response = await fetch(`${bffBaseUrl()}/files/${encodeURIComponent(fileId)}`, {
+export async function linkFileViaBff(
+  fileId: string,
+  parent: { collection: string; recordId: string | number },
+): Promise<UploadedFileAsset> {
+  const response = await fetch(
+    `${bffBaseUrl()}/files/${encodeURIComponent(fileId)}/link`,
+    {
+      method: 'POST',
+      headers: await authHeaders({
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      }),
+      body: JSON.stringify({
+        parent_collection: parent.collection,
+        parent_record_id: String(parent.recordId),
+      }),
+      credentials: 'include',
+    },
+  )
+
+  const payload = (await response.json().catch(() => null)) as
+    | (Partial<UploadedFileAsset> & { error?: string })
+    | null
+
+  if (!response.ok) {
+    throw new Error(payload?.error || `BFF file link HTTP ${response.status}`)
+  }
+
+  const id = String(payload?.id ?? fileId)
+  return {
+    id,
+    filename_download: payload?.filename_download,
+    type: payload?.type,
+    filesize: payload?.filesize,
+    title: payload?.title,
+    created_on: payload?.created_on,
+    uploaded_by: payload?.uploaded_by,
+  }
+}
+
+/** Link an existing file asset to another record — BFF only (does not move). */
+export async function linkFileToRecord(
+  fileId: string,
+  parent: { collection: string; recordId: string | number },
+): Promise<UploadedFileAsset> {
+  if (!canUseFilesProxy()) {
+    refuseLegacyFallback('linkFileToRecord')
+  }
+  return linkFileViaBff(fileId, parent)
+}
+
+export async function deleteFileViaBff(
+  fileId: string,
+  parent?: { collection: string; recordId: string | number } | null,
+): Promise<void> {
+  const search = new URLSearchParams()
+  if (parent?.collection && parent.recordId != null && parent.recordId !== '') {
+    search.set('parent_collection', parent.collection)
+    search.set('parent_record_id', String(parent.recordId))
+  }
+  const query = search.toString()
+  const url = `${bffBaseUrl()}/files/${encodeURIComponent(fileId)}${query ? `?${query}` : ''}`
+  const response = await fetch(url, {
     method: 'DELETE',
     headers: await authHeaders({ Accept: 'application/json' }),
     credentials: 'include',
@@ -175,12 +236,15 @@ export async function deleteFileViaBff(fileId: string): Promise<void> {
   }
 }
 
-/** Soft-delete a file asset — BFF only. */
-export async function deleteFile(fileId: string): Promise<void> {
+/** Soft-delete or unlink a file asset — BFF only. */
+export async function deleteFile(
+  fileId: string,
+  parent?: { collection: string; recordId: string | number } | null,
+): Promise<void> {
   if (!canUseFilesProxy()) {
     refuseLegacyFallback('deleteFile')
   }
-  await deleteFileViaBff(fileId)
+  await deleteFileViaBff(fileId, parent)
 }
 
 export async function readRecordFiles(

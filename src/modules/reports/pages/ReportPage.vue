@@ -6,33 +6,35 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import CrmVTablePivot from '@/core/ui-kit/CrmVTablePivot.vue'
-import ReportSettingsDesigner from '../components/ReportSettingsDesigner.vue'
 import { useTranslation } from '@/core/translation'
+import ReportDrillDownDialog from '../components/ReportDrillDownDialog.vue'
 import {
-  defaultReportDefinition,
   executeReport,
-  saveReport,
   listReports,
   normalizeReportDefinition,
+  pivotDimensionFields,
+  resolveReportDateGrains,
   type ReportDefinition,
+  type ReportPivotDrillDown,
   type ReportWithSetting,
 } from '../services/reportSettings'
 
 const { t } = useTranslation()
 const route = useRoute()
+const router = useRouter()
 const reports = ref<ReportWithSetting[]>([])
 const selectedSettingId = ref<string | null>(null)
 const draft = ref<ReportDefinition | null>(null)
 const draftSettingId = ref<string | number | null>(null)
 const rows = ref<Record<string, unknown>[]>([])
 const loading = ref(false)
-const saving = ref(false)
 const running = ref(false)
 const error = ref<string | null>(null)
 const status = ref<string | null>(null)
-const showConfiguration = ref(false)
+const drillDownVisible = ref(false)
+const drillDown = ref<ReportPivotDrillDown | null>(null)
 
 const reportOptions = computed(() =>
   reports.value.map((report) => ({
@@ -40,14 +42,30 @@ const reportOptions = computed(() =>
     value: String(report.settingId),
   })),
 )
-const canSave = computed(() =>
-  Boolean(
-    draft.value?.name &&
-      draft.value.collection &&
-      draft.value.pivot.values.length > 0,
-  ),
-)
+const drillDownTitle = computed(() => {
+  const reportTitle = draft.value?.title || t('reports.pivotTable', 'Pivot table')
+  return t('reports.drillDownTitle', 'Drill down · {title}', { title: reportTitle })
+})
+const drillDownFieldLabels = computed<Record<string, string>>(() => {
+  if (!draft.value) return {}
+  const labels: Record<string, string> = {}
+  for (const field of [
+    ...pivotDimensionFields(draft.value.pivot.rows),
+    ...pivotDimensionFields(draft.value.pivot.columns),
+    ...draft.value.pivot.values.map((value) => value.field),
+  ]) {
+    labels[field] = field
+  }
+  return labels
+})
 const canRun = computed(() => Boolean(draft.value?.collection && draft.value.pivot.values.length > 0))
+const editInSetupRoute = computed(() => {
+  if (!draftSettingId.value) return null
+  return {
+    name: 'setup-report-edit' as const,
+    params: { settingId: String(draftSettingId.value) },
+  }
+})
 
 onMounted(() => {
   void loadReportList()
@@ -82,60 +100,12 @@ async function selectReport(settingId: string): Promise<void> {
   if (!report) return
 
   draftSettingId.value = report.settingId
-  draft.value = normalizeReportDefinition(report.config)
+  draft.value = await resolveReportDateGrains(normalizeReportDefinition(report.config))
   rows.value = []
   status.value = null
   error.value = null
   if (canRun.value) {
     await runCurrentReport()
-  }
-}
-
-async function startNewReport(): Promise<void> {
-  draft.value = await defaultReportDefinition('')
-  draftSettingId.value = null
-  selectedSettingId.value = null
-  rows.value = []
-  showConfiguration.value = true
-  status.value = t('reports.newDraftCreated', 'New report draft created.')
-  error.value = null
-}
-
-async function saveCurrentReport(): Promise<void> {
-  if (!draft.value) return
-  if (!canSave.value) {
-    error.value = t(
-      'reports.enterRequired',
-      'Enter report title, source collection, and at least one pivot value.',
-    )
-    return
-  }
-  const duplicate = reports.value.find(
-    (report) =>
-      report.name === draft.value?.name &&
-      String(report.settingId) !== String(draftSettingId.value ?? ''),
-  )
-  if (duplicate) {
-    error.value = t('reports.duplicateName', 'Report name "{name}" already exists.', {
-      name: draft.value.name,
-    })
-    return
-  }
-
-  saving.value = true
-  error.value = null
-  status.value = null
-  try {
-    const saved = await saveReport(draft.value, draftSettingId.value)
-    draftSettingId.value = saved.settingId
-    selectedSettingId.value = String(saved.settingId)
-    await loadReportList()
-    await selectReport(String(saved.settingId))
-    status.value = t('reports.reportSaved', 'Report saved.')
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : t('reports.failedSave', 'Failed to save report.')
-  } finally {
-    saving.value = false
   }
 }
 
@@ -156,6 +126,16 @@ async function runCurrentReport(): Promise<void> {
     running.value = false
   }
 }
+
+function openDrillDown(payload: ReportPivotDrillDown): void {
+  drillDown.value = payload
+  drillDownVisible.value = true
+}
+
+function openInSetup(): void {
+  if (!editInSetupRoute.value) return
+  void router.push(editInSetupRoute.value)
+}
 </script>
 
 <template>
@@ -165,11 +145,13 @@ async function runCurrentReport(): Promise<void> {
         <div>
           <RouterLink to="/" class="nav-link">{{ t('common.allCollections', 'All collections') }}</RouterLink>
           <h1>{{ t('reports.title', 'Reports') }}</h1>
-          <p>{{ t('reports.subtitle', 'Build reports from registry records and review them as pivot tables.') }}</p>
+          <p>{{ t('reports.runSubtitle', 'Run pivot reports and drill into source records.') }}</p>
         </div>
       </div>
 
-      <div class="bg-surface-0 border border-surface-200 rounded-lg grid gap-4 grid-cols-[minmax(240px,420px)_minmax(0,1fr)] items-end mt-4 px-4 py-[0.85rem] max-[1100px]:grid-cols-1">
+      <div
+        class="bg-surface-0 border border-surface-200 rounded-lg grid gap-4 grid-cols-[minmax(240px,420px)_minmax(0,1fr)] items-end px-4 py-[0.85rem] mt-4 max-[1100px]:grid-cols-1"
+      >
         <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
           {{ t('reports.chooseReport', 'Choose report') }}
           <Select
@@ -187,31 +169,16 @@ async function runCurrentReport(): Promise<void> {
             :label="t('reports.refresh', 'Refresh')"
             size="small"
             text
-            :loading="loading"
-            @click="loadReportList"
+            :loading="loading || running"
+            @click="runCurrentReport"
           />
           <Button
-            :label="t('reports.newReport', 'New report')"
-            size="small"
-            @click="startNewReport"
-          />
-          <Button
-            v-if="draft"
-            :label="showConfiguration
-              ? t('reports.hideConfiguration', 'Hide configuration')
-              : t('reports.showConfiguration', 'Show configuration')"
+            v-if="editInSetupRoute"
+            :label="t('reports.editInSetup', 'Edit in Setup')"
             size="small"
             severity="secondary"
-            text
-            @click="showConfiguration = !showConfiguration"
-          />
-          <Button
-            v-if="draft"
-            :label="t('reports.saveReport', 'Save report')"
-            size="small"
-            :loading="saving"
-            :disabled="!canSave"
-            @click="saveCurrentReport"
+            outlined
+            @click="openInSetup"
           />
         </div>
       </div>
@@ -241,45 +208,39 @@ async function runCurrentReport(): Promise<void> {
 
     <section
       v-else
-      class="grid items-start gap-5 grid-cols-[minmax(340px,460px)_minmax(0,1fr)] mt-6 max-[1100px]:grid-cols-1"
-      :class="{ '!grid-cols-1': !showConfiguration }"
+      class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-4 grid gap-4 mt-6 max-h-[calc(100vh-9rem)] overflow-auto"
     >
-      <aside v-if="showConfiguration" class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-4 grid gap-4">
-        <Message
-          v-if="reports.length === 0 && !draft"
-          severity="info"
-          :closable="false"
-        >
-          {{ t('reports.noReportsConfigured', 'No reports configured yet. Create a new report to get started.') }}
-        </Message>
+      <div class="flex items-center gap-3 justify-between">
+        <h2 class="m-0">{{ draft?.title || t('reports.pivotTable', 'Pivot table') }}</h2>
+        <small v-if="draft?.name" class="text-muted-color">{{ draft.name }}</small>
+      </div>
 
-        <ReportSettingsDesigner
-          v-if="draft"
-          v-model="draft"
-        />
-      </aside>
-
-      <section class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-4 grid gap-4 max-h-[calc(100vh-9rem)] overflow-auto">
-        <div class="flex items-center gap-3 justify-between">
-          <h2 class="m-0">{{ draft?.title || t('reports.pivotTable', 'Pivot table') }}</h2>
-          <small v-if="draft?.name" class="text-muted-color">{{ draft.name }}</small>
-        </div>
-
-        <div v-if="running" class="page-loading">
-          <ProgressSpinner stroke-width="4" />
-          <span>{{ t('reports.runningReport', 'Running report...') }}</span>
-        </div>
-        <CrmVTablePivot
-          v-else-if="draft"
-          :rows="rows"
-          :pivot="draft.pivot"
-          :empty-message="t('reports.runEmptyMessage', 'Run the report to show pivot data.')"
-        />
-        <Message v-else severity="info" :closable="false">
-          {{ t('reports.chooseExistingOrCreate', 'Choose an existing report or create a new one.') }}
-        </Message>
-      </section>
+      <div v-if="running" class="page-loading">
+        <ProgressSpinner stroke-width="4" />
+        <span>{{ t('reports.runningReport', 'Running report...') }}</span>
+      </div>
+      <CrmVTablePivot
+        v-else-if="draft"
+        :rows="rows"
+        :pivot="draft.pivot"
+        :collection="draft.collection"
+        :empty-message="t('reports.runEmptyMessage', 'Run the report to show pivot data.')"
+        @drill-down="openDrillDown"
+      />
+      <Message v-else severity="info" :closable="false">
+        {{ t('reports.chooseExistingOrCreate', 'Choose an existing report or create a new one.') }}
+      </Message>
     </section>
+
+    <ReportDrillDownDialog
+      v-if="draft"
+      v-model:visible="drillDownVisible"
+      :title="drillDownTitle"
+      :collection="draft.collection"
+      :pivot="draft.pivot"
+      :rows="rows"
+      :drill-down="drillDown"
+      :field-labels="drillDownFieldLabels"
+    />
   </main>
 </template>
-

@@ -7,6 +7,10 @@ import type {
   DashboardPanelRecord,
   DashboardRecord,
 } from '@/interfaces'
+import {
+  loadReportPanelSeries,
+  type ReportPanelSeries,
+} from './panelReportSource'
 
 type AggregateFunction =
   | 'count'
@@ -145,6 +149,10 @@ export async function buildPanelRenderModel(
     }
   }
 
+  if (panelSourceType(options) === 'report') {
+    return buildReportPanelRender(panel, options)
+  }
+
   const query = panelQueryConfig(panel, options)
   if (!query) {
     return {
@@ -169,6 +177,133 @@ export async function buildPanelRenderModel(
       options,
     }
   }
+}
+
+async function buildReportPanelRender(
+  panel: DashboardPanelRecord,
+  options: Record<string, unknown> | null,
+): Promise<PanelRenderModel> {
+  const reportId = stringOption(options, ['reportId', 'report_id', 'report'])
+  if (!reportId) {
+    return {
+      kind: 'unsupported',
+      reason: 'Select a report for this panel.',
+      options,
+    }
+  }
+
+  try {
+    const series = await loadReportPanelSeries(reportId)
+    if (!series) {
+      return {
+        kind: 'unsupported',
+        reason: 'Report not found or has no pivot values.',
+        options,
+      }
+    }
+
+    const type = panel.type.toLowerCase()
+    const forceMetric =
+      type.includes('metric') ||
+      type.includes('stat') ||
+      type.includes('count')
+
+    if (forceMetric) {
+      return buildMetricFromReportSeries(panel, series)
+    }
+
+    if (series.labels.length === 0) {
+      return {
+        kind: 'unsupported',
+        reason: 'Report returned no data for this chart.',
+        options,
+      }
+    }
+
+    return buildChartFromReportSeries(panel, series, options)
+  } catch (err) {
+    return {
+      kind: 'unsupported',
+      reason: err instanceof Error ? err.message : 'Failed to load report panel data.',
+      options,
+    }
+  }
+}
+
+function buildMetricFromReportSeries(
+  panel: DashboardPanelRecord,
+  series: ReportPanelSeries,
+): PanelRenderModel {
+  const total = series.values.reduce((sum, value) => sum + value, 0)
+  return {
+    kind: 'metric',
+    label: panel.name || panel.note || series.title,
+    value: formatPanelValue(total),
+    detail: series.valueLabel,
+  }
+}
+
+function buildChartFromReportSeries(
+  panel: DashboardPanelRecord,
+  series: ReportPanelSeries,
+  options: Record<string, unknown> | null,
+): PanelRenderModel {
+  const chartType = chartTypeForPanel(panel.type, options)
+  const isCircular = ['pie', 'doughnut', 'polarArea'].includes(chartType)
+  const primaryColor = panelColor(panel, options)
+  const showLegend = booleanOption(options, ['showLegend', 'show_legend'])
+  const barColors = series.labels.map((label, index) =>
+    conditionalFillColor(options, primaryColor, label, series.values[index]),
+  )
+  const lineFillColor = transparentColor(primaryColor)
+
+  return {
+    kind: 'chart',
+    chartType,
+    data: {
+      labels: series.labels,
+      datasets: [
+        {
+          label: panel.name || series.title,
+          data: series.values,
+          backgroundColor: isCircular
+            ? series.labels.map((_, index) => CHART_COLORS[index % CHART_COLORS.length])
+            : chartType === 'line'
+              ? lineFillColor
+              : barColors,
+          borderColor: primaryColor,
+          borderRadius: chartType === 'bar' ? 6 : undefined,
+          fill: chartType === 'line',
+          tension: chartType === 'line' ? 0.35 : undefined,
+        },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: showLegend ?? isCircular,
+        },
+      },
+      scales: isCircular
+        ? undefined
+        : {
+            y: {
+              beginAtZero: true,
+            },
+          },
+    },
+  }
+}
+
+function panelSourceType(
+  options: Record<string, unknown> | null,
+): 'collection' | 'report' {
+  const explicit = stringOption(options, ['sourceType', 'source_type'])?.toLowerCase()
+  if (explicit === 'report') return 'report'
+  if (explicit === 'collection') return 'collection'
+  if (stringOption(options, ['reportId', 'report_id', 'report'])) return 'report'
+  return 'collection'
 }
 
 async function loadPanelAggregateRows(

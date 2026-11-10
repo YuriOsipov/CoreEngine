@@ -75,6 +75,11 @@ export interface CrmPromotedField {
    * Postgres ON DELETE action for M2O FKs. Defaults to RESTRICT when unset.
    */
   onDelete: OnDeleteAction | null
+  /**
+   * When true, list `search` may match this M2O via the related entity's
+   * Display Template (opt-in Setup → Use in search).
+   */
+  useInSearch: boolean
 }
 
 export interface CrmRecordRelation {
@@ -319,6 +324,7 @@ export async function loadPromotedFields(
     },
   ): void => {
     if (!shouldPromoteField(apiName, fieldType)) return
+    const useInSearch = opts.fieldOptions?.useInSearch === true
     if (seen.has(apiName)) {
       // Upgrade flags if we already promoted as a plain scalar.
       const existing = out.find((f) => f.apiName === apiName)
@@ -333,6 +339,7 @@ export async function loadPromotedFields(
         if (opts.onDelete && !existing.onDelete) {
           existing.onDelete = opts.onDelete
         }
+        if (useInSearch) existing.useInSearch = true
         existing.needsBtreeIndex =
           existing.needsBtreeIndex || existing.needsFkIndex
       }
@@ -354,6 +361,7 @@ export async function loadPromotedFields(
       canDeclareFk: Boolean(related),
       relatedEntityApiName: related,
       onDelete: opts.onDelete ?? null,
+      useInSearch: isFk && useInSearch,
     })
   }
 
@@ -518,34 +526,50 @@ export async function resolveRecordRelation(
   return value
 }
 
+/** Unwrap M2O / file link payloads (`{ id }`) before binding promoted columns. */
+function unwrapRelationBindValue(raw: unknown): unknown {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const id = (raw as { id?: unknown }).id
+    if (id !== undefined && id !== null && id !== '') return id
+  }
+  return raw
+}
+
 /** Coerce a JSONB scalar into a JS value suitable for a promoted column bind. */
 export function coercePromotedValue(
   field: CrmPromotedField,
   raw: unknown,
 ): unknown {
   if (raw === undefined || raw === null || raw === '') return null
+  // jsonb keeps nested objects; scalar columns need FK / link ids unwrapped.
+  const value =
+    field.pgType === 'jsonb' ? raw : unwrapRelationBindValue(raw)
+  if (value === undefined || value === null || value === '') return null
   if (isNumericPgType(field.pgType) || field.pgType === 'double precision') {
-    const n = typeof raw === 'number' ? raw : Number(String(raw))
+    const n = typeof value === 'number' ? value : Number(String(value))
     return Number.isFinite(n) ? n : null
   }
   switch (field.pgType) {
     case 'boolean': {
-      if (typeof raw === 'boolean') return raw
-      const s = String(raw).toLowerCase()
+      if (typeof value === 'boolean') return value
+      const s = String(value).toLowerCase()
       if (s === 'true' || s === '1') return true
       if (s === 'false' || s === '0') return false
       return null
     }
     case 'bigint': {
-      const n = typeof raw === 'number' ? raw : Number(String(raw))
+      const n = typeof value === 'number' ? value : Number(String(value))
       return Number.isFinite(n) ? Math.trunc(n) : null
     }
     case 'jsonb':
-      return typeof raw === 'string' ? raw : JSON.stringify(raw)
+      return typeof value === 'string' ? value : JSON.stringify(value)
     case 'date':
     case 'timestamptz':
     case 'text':
+    case 'uuid':
     default:
-      return String(raw)
+      // Never String(object) — that becomes "[object Object]" in UUID/text FKs.
+      if (typeof value === 'object') return null
+      return String(value)
   }
 }

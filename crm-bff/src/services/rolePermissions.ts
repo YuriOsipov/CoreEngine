@@ -3,7 +3,7 @@ import type { MeUser } from '../adapters/usersAdapter.js'
 import { fetchMe } from '../adapters/usersAdapter.js'
 import { REGISTRY_PLATFORM_ENTITIES } from '../schema/platformEntities.js'
 
-export type PermissionAction = 'create' | 'read' | 'update' | 'delete'
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'import' | 'export'
 
 /**
  * Objects hidden from the role permission matrix (platform + internal app
@@ -28,6 +28,8 @@ export interface RolePermissionRow {
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
+  canImport: boolean
+  canExport: boolean
 }
 
 export interface RolePermissionInput {
@@ -36,6 +38,8 @@ export interface RolePermissionInput {
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
+  canImport: boolean
+  canExport: boolean
 }
 
 /** Resolve app_roles.id from me.roleId (backend_role_id or uuid). */
@@ -66,8 +70,11 @@ export async function listRolePermissions(
     can_read: boolean
     can_update: boolean
     can_delete: boolean
+    can_import: boolean
+    can_export: boolean
   }>(
-    `SELECT entity_api_name, can_create, can_read, can_update, can_delete
+    `SELECT entity_api_name, can_create, can_read, can_update, can_delete,
+            can_import, can_export
      FROM public.role_permissions
      WHERE role_id = $1::uuid
      ORDER BY entity_api_name ASC`,
@@ -80,6 +87,8 @@ export async function listRolePermissions(
     canRead: Boolean(row.can_read),
     canUpdate: Boolean(row.can_update),
     canDelete: Boolean(row.can_delete),
+    canImport: Boolean(row.can_import),
+    canExport: Boolean(row.can_export),
   }))
 }
 
@@ -98,6 +107,8 @@ export async function replaceRolePermissions(
       canRead: Boolean(row.canRead),
       canUpdate: Boolean(row.canUpdate),
       canDelete: Boolean(row.canDelete),
+      canImport: Boolean(row.canImport),
+      canExport: Boolean(row.canExport),
     }))
     .filter(
       (row) =>
@@ -114,13 +125,21 @@ export async function replaceRolePermissions(
 
   for (const row of cleaned) {
     // Skip empty rows (no access) — absence means deny.
-    if (!row.canCreate && !row.canRead && !row.canUpdate && !row.canDelete) {
+    if (
+      !row.canCreate &&
+      !row.canRead &&
+      !row.canUpdate &&
+      !row.canDelete &&
+      !row.canImport &&
+      !row.canExport
+    ) {
       continue
     }
     await query(
       `INSERT INTO public.role_permissions (
-         role_id, entity_api_name, can_create, can_read, can_update, can_delete
-       ) VALUES ($1::uuid, $2, $3, $4, $5, $6)`,
+         role_id, entity_api_name, can_create, can_read, can_update, can_delete,
+         can_import, can_export
+       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`,
       [
         appRoleId,
         row.entityApiName,
@@ -128,6 +147,8 @@ export async function replaceRolePermissions(
         row.canRead,
         row.canUpdate,
         row.canDelete,
+        row.canImport,
+        row.canExport,
       ],
     )
   }
@@ -142,9 +163,10 @@ export async function seedFullPermissionsForRole(roleId: string): Promise<void> 
   const excluded = excludedEntityNames()
   await query(
     `INSERT INTO public.role_permissions (
-       role_id, entity_api_name, can_create, can_read, can_update, can_delete
+       role_id, entity_api_name, can_create, can_read, can_update, can_delete,
+       can_import, can_export
      )
-     SELECT $1::uuid, e.api_name, true, true, true, true
+     SELECT $1::uuid, e.api_name, true, true, true, true, true, true
      FROM public.entities e
      WHERE e.deleted_at IS NULL
        AND upper(COALESCE(e.backend_target, '')) <> 'PLATFORM'
@@ -176,14 +198,18 @@ async function loadPermissionFlags(
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
+  canImport: boolean
+  canExport: boolean
 } | null> {
   const rows = await query<{
     can_create: boolean
     can_read: boolean
     can_update: boolean
     can_delete: boolean
+    can_import: boolean
+    can_export: boolean
   }>(
-    `SELECT can_create, can_read, can_update, can_delete
+    `SELECT can_create, can_read, can_update, can_delete, can_import, can_export
      FROM public.role_permissions
      WHERE role_id = $1::uuid AND entity_api_name = $2
      LIMIT 1`,
@@ -196,6 +222,8 @@ async function loadPermissionFlags(
     canRead: Boolean(row.can_read),
     canUpdate: Boolean(row.can_update),
     canDelete: Boolean(row.can_delete),
+    canImport: Boolean(row.can_import),
+    canExport: Boolean(row.can_export),
   }
 }
 
@@ -238,7 +266,11 @@ export async function assertEntityPermission(
         ? flags.canRead
         : action === 'update'
           ? flags.canUpdate
-          : flags.canDelete
+          : action === 'delete'
+            ? flags.canDelete
+            : action === 'import'
+              ? flags.canImport
+              : flags.canExport
     : false
 
   if (!allowed) {

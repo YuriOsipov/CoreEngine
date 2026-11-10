@@ -42,6 +42,13 @@ export function buildComponentProps(
     // Form always controls clear; do not let field metadata hide it.
     delete base.showClear
   }
+  // Checkbox is a fixed-size control; fluid stretches / clips it in the form grid.
+  // Label `for` must target inputId (the real <input>), not the root id.
+  if (field.component === 'Checkbox' || field.component === 'ToggleSwitch') {
+    delete base.fluid
+    base.inputId = field.field
+    delete base.id
+  }
   if (isDateComponent(field.component) && field.format?.trim()) {
     base.dateFormat = primeVueDatePickerFormat(field.format)
   }

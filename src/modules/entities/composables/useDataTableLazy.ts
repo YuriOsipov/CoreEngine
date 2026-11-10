@@ -35,6 +35,8 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
   const error = ref<string | null>(null)
   const pageSize = ref(options.initialPageSize ?? 25)
   const activeSort = ref<DataTableSortConfig | null>(null)
+  /** UI column field for the sort indicator (may differ from server sort key). */
+  const activeSortColumnField = ref<string | null>(null)
   let loadToken = 0
 
   const tableDefaultSortField = computed(() =>
@@ -47,7 +49,9 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     options.disableGroupBy?.value ? null : options.settings.value?.groupBy ?? null,
   )
   const defaultSortField = computed(() =>
-    activeSort.value?.field ?? tableDefaultSortField.value,
+    activeSortColumnField.value
+      ?? activeSort.value?.field
+      ?? tableDefaultSortField.value,
   )
   const defaultSortOrder = computed<1 | -1 | null>(() =>
     activeSort.value?.order ?? tableDefaultSortOrder.value,
@@ -114,12 +118,13 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     }
   }
 
-  async function loadMore(payload: DataTableLoadMorePayload): Promise<void> {
+  async function loadMore(payload?: DataTableLoadMorePayload): Promise<void> {
     if (!runtime.value || loadingMore.value) return
     if (runtime.value.rows.length >= runtime.value.totalCount) return
 
     const token = loadToken
     const offset = runtime.value.rows.length
+    const limit = Math.max(1, payload?.limit ?? pageSize.value)
     loadingMore.value = true
     error.value = null
 
@@ -128,7 +133,7 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
       if (!settings) return
 
       const result = await options.fetchFn({
-        limit: payload.limit,
+        limit,
         offset,
         settings,
       })
@@ -170,7 +175,9 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
   function handleSortChange(payload: DataTableSortChangePayload): void {
     const order =
       payload.order === 1 || payload.order === -1 ? payload.order : null
-    const sortKey = payload.sortKey?.trim() || payload.field?.trim() || null
+    const uiField = payload.field?.trim() || null
+    const sortKey = payload.sortKey?.trim() || uiField
+    activeSortColumnField.value = uiField
     activeSort.value =
       sortKey && order ? { field: sortKey, order } : null
     void reload(true)
@@ -178,10 +185,12 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
 
   function resetSort(): void {
     activeSort.value = null
+    activeSortColumnField.value = null
   }
 
   function syncSortFromSettings(settings: DataTableSettings | null): void {
     activeSort.value = settings?.sort ?? null
+    activeSortColumnField.value = settings?.sort?.field ?? null
   }
 
   function updateRows(rows: Record<string, unknown>[]): void {

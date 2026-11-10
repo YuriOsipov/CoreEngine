@@ -13,6 +13,7 @@ import RecordEditDialog from '@/modules/entities/components/RecordEditDialog.vue
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
+import DocViewDialog from '@/modules/documents/components/DocViewDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import { useEntityRecordActions } from '@/modules/entities/composables/useEntityRecordActions'
 import type {
@@ -33,6 +34,7 @@ import {
   restoreObjectRecord,
   updateObjectRecord,
 } from '@/modules/entities/services/recordDetails'
+import { collectPathLayoutExtraFields } from '@/core/recordPagePath'
 
 const props = defineProps<{
   collection: string
@@ -94,6 +96,11 @@ const {
   fillDocValueId,
   fillExportMode,
   fillAttachFile,
+  viewDialogVisible,
+  viewTemplateId,
+  viewDocValueId,
+  viewMode,
+  viewAutoSave,
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
@@ -205,27 +212,7 @@ async function resolveDetailActions(
 }
 
 function pathLayoutExtraFields(): LayoutFieldMetadata[] {
-  if (!pageLayoutSchema.value) return []
-  const fields: LayoutFieldMetadata[] = []
-  const seen = new Set<string>()
-  for (const region of pageLayoutSchema.value.regions) {
-    walkPageComponents(region.components, (component) => {
-      if (component.type !== 'path') return
-      for (const key of [component.field, component.terminalField]) {
-        const field = typeof key === 'string' ? key.trim() : ''
-        if (!field || seen.has(field)) continue
-        seen.add(field)
-        fields.push({
-          id: `path_extra_${field}`,
-          field,
-          label: field,
-          component: 'Select',
-          span: 6,
-        })
-      }
-    })
-  }
-  return fields
+  return collectPathLayoutExtraFields(pageLayoutSchema.value)
 }
 
 async function loadFullPageDetail(collection: string, id: string): Promise<void> {
@@ -259,7 +246,12 @@ async function loadFullPageDetail(collection: string, id: string): Promise<void>
       return
     }
 
-    const record = await fetchObjectRecordForEdit(collection, id, schema)
+    const record = await fetchObjectRecordForEdit(
+      collection,
+      id,
+      schema,
+      collectPathLayoutExtraFields(pageLayout),
+    )
     if (token !== loadToken) return
 
     pageLayoutSchema.value = pageLayout
@@ -599,6 +591,17 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
       :doc-value-id="fillDocValueId"
       :export-mode="fillExportMode"
       :attach-file="fillAttachFile"
+    />
+
+    <DocViewDialog
+      v-if="hasParent && viewTemplateId"
+      v-model:visible="viewDialogVisible"
+      :collection="collection"
+      :record-id="recordId"
+      :template-id="viewTemplateId"
+      :doc-value-id="viewDocValueId"
+      :view-mode="viewMode"
+      :auto-save="viewAutoSave"
     />
 
     <ActionNumberPromptDialog

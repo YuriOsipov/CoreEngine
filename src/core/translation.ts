@@ -478,7 +478,21 @@ function readStoredLanguage(): TranslationLanguage {
   const stored =
     localStorage.getItem(TRANSLATION_LANGUAGE_STORAGE_KEY) ??
     localStorage.getItem(LEGACY_TRANSLATION_LANGUAGE_STORAGE_KEY)
-  return isSupportedLanguage(stored) ? stored : DEFAULT_TRANSLATION_LANGUAGE
+  if (isSupportedLanguage(stored)) return stored
+  // Org default is applied after loadCompanyProfile via applyOrgLanguageDefault().
+  return DEFAULT_TRANSLATION_LANGUAGE
+}
+
+/** Apply org company-profile language when the user has no sidebar preference. */
+export function applyOrgLanguageDefault(orgLanguage: TranslationLanguage): void {
+  const stored =
+    localStorage.getItem(TRANSLATION_LANGUAGE_STORAGE_KEY) ??
+    localStorage.getItem(LEGACY_TRANSLATION_LANGUAGE_STORAGE_KEY)
+  if (isSupportedLanguage(stored)) return
+  if (!isSupportedLanguage(orgLanguage)) return
+  if (language.value === orgLanguage) return
+  language.value = orgLanguage
+  void preloadTranslations(orgLanguage)
 }
 
 function isSupportedLanguage(value: unknown): value is TranslationLanguage {

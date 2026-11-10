@@ -10,6 +10,7 @@ import type { LayoutFieldChildLookup, LayoutFieldMetadata } from '@/interfaces'
 import {
   useChildLookupField,
   type ChildLookupFieldMode,
+  type ChildLookupValueInput,
 } from '@/core/useChildLookupField'
 
 const props = withDefaults(defineProps<{
@@ -27,6 +28,8 @@ const props = withDefaults(defineProps<{
   parentName?: string
   parentRecord?: Record<string, unknown>
   preferPicklist?: boolean
+  /** Force value-mode control; otherwise inferred from target field type. */
+  valueInput?: ChildLookupValueInput
   /** When true (edit), keep stored scalar on first hydrate. Create should leave false. */
   preserveDraftOnHydrate?: boolean
   options?: Array<{ label: string; value: unknown }>
@@ -59,8 +62,10 @@ const emit = defineEmits<{
 const {
   loading,
   resolvedMode,
+  resolvedValueInput,
   selectOptions,
   numericModelValue,
+  textModelValue,
   updateValue,
 } = useChildLookupField({
   modelValue: toRef(props, 'modelValue'),
@@ -77,6 +82,7 @@ const {
   parentName: toRef(props, 'parentName'),
   parentRecord: toRef(props, 'parentRecord'),
   preferPicklist: toRef(props, 'preferPicklist'),
+  valueInput: toRef(props, 'valueInput'),
   preserveDraftOnHydrate: toRef(props, 'preserveDraftOnHydrate'),
   preloadedOptions: toRef(props, 'options'),
   onUpdate: (value) => emit('update:modelValue', value),
@@ -103,6 +109,18 @@ const {
     @show="emit('overlay-show')"
     @hide="emit('overlay-hide')"
     @update:model-value="updateValue"
+  />
+  <InputText
+    v-else-if="resolvedValueInput === 'text'"
+    :id="inputId"
+    :model-value="textModelValue"
+    :disabled="disabled || loading"
+    :placeholder="placeholder"
+    :size="size"
+    :fluid="fluid"
+    :class="inputClass"
+    autocomplete="off"
+    @update:model-value="updateValue($event)"
   />
   <InputNumber
     v-else

@@ -9,6 +9,7 @@ import { computed, nextTick, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
 import CrmBarcodeScanToolbar from '@/core/ui-kit/CrmBarcodeScanToolbar.vue'
+import CrmListSearchField from '@/core/ui-kit/CrmListSearchField.vue'
 import CrmScheduler from '@/core/ui-kit/CrmScheduler.vue'
 import CrmTreeTable from '@/core/ui-kit/CrmTreeTable.vue'
 import ScheduleSlotGenerator from '@/core/ui-kit/ScheduleSlotGenerator.vue'
@@ -36,6 +37,7 @@ import {
 import {
   buildListFilter,
   buildListFilterMetaBlock,
+  hasUnsatisfiedRequiredFilters,
   isAutoCompleteFilterComponent,
   isSelectFilterComponent,
   isUserVisibleCondition,
@@ -99,12 +101,18 @@ import {
   useTranslatedCollection,
 } from '@/core/translation'
 import { useFavoriteContext } from '@/core/navigation/useFavoriteContext'
-import { useEntityPermissions } from '@/core/entityPermissions'
+import { canReadEntity, useEntityPermissions } from '@/core/entityPermissions'
 import { recordDetailRoute } from '@/core/compactRecordRoutes'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
+import CollectionImportExportDialog from '../components/CollectionImportExportDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
 import { applyBulkUpdateFilteredAction } from '../services/bulkUpdateFilteredAction'
+import {
+  collectionExistsInRegistry,
+  fetchCollectionIcon,
+} from '../services/collectionSchema'
+import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
 import { useToast } from 'openvue/usetoast'
 import { getPathValue, scalarId } from '../utils/recordDisplay'
 
@@ -116,6 +124,7 @@ const { t } = useTranslation()
 const toast = useToast()
 const confirm = useConfirm()
 const collectionName = computed(() => String(route.params.collection ?? ''))
+const importExportVisible = ref(false)
 const barcodeScanBusy = ref(false)
 const barcodeScanModeOn = ref(false)
 const barcodeListFilter = ref<Record<string, unknown> | null>(null)
@@ -129,11 +138,23 @@ const {
   ready: permissionsReady,
   canRead: canReadCollection,
   canCreate: canCreateCollection,
+  canUpdate: canUpdateCollection,
+  canImport: canImportCollection,
+  canExport: canExportCollection,
 } = useEntityPermissions(() => collectionName.value)
+const showImportExport = computed(
+  () =>
+    (canImportCollection.value &&
+      (canCreateCollection.value || canUpdateCollection.value)) ||
+    (canExportCollection.value && canReadCollection.value),
+)
+const collectionMissing = ref(false)
 const sideBySideCompactListRef = ref<{
   openCreateDialog: () => void
 } | null>(null)
 const sideBySideActionsMenu = ref<{ toggle: (event: Event) => void } | null>(null)
+/** Keep at least two primary actions as buttons; overflow the rest into a menu. */
+const SIDE_BY_SIDE_VISIBLE_ACTION_COUNT = 2
 const sideBySideActionItems = computed((): MenuItem[] => {
   const items: MenuItem[] = []
   if (canCreateCollection.value) {
@@ -164,12 +185,35 @@ const sideBySideActionItems = computed((): MenuItem[] => {
   }
   return items
 })
-const showSideBySideActionsMenu = computed(() => sideBySideActionItems.value.length > 0)
+const sideBySideVisibleActions = computed(() =>
+  sideBySideActionItems.value.slice(0, SIDE_BY_SIDE_VISIBLE_ACTION_COUNT),
+)
+const sideBySideOverflowActions = computed(() =>
+  sideBySideActionItems.value.slice(SIDE_BY_SIDE_VISIBLE_ACTION_COUNT),
+)
+const showSideBySideActionsMenu = computed(() => sideBySideOverflowActions.value.length > 0)
 
 function toggleSideBySideActionsMenu(event: Event): void {
   sideBySideActionsMenu.value?.toggle(event)
 }
+
+function runSideBySideMenuItem(item: MenuItem): void {
+  if (item.disabled) return
+  const command = item.command
+  if (typeof command === 'function') {
+    command({
+      originalEvent: new Event('click'),
+      item,
+    })
+  }
+}
 const collectionLabel = useTranslatedCollection(() => collectionName.value)
+const collectionIcon = ref<string | null>(null)
+const isPrimeCollectionIcon = computed(() => {
+  const icon = collectionIcon.value?.trim() ?? ''
+  if (!icon) return false
+  return icon.startsWith('pi ') || icon.startsWith('pi-') || /(^|\s)pi-/.test(icon)
+})
 const routeFilterId = computed(() =>
   route.params.filter_id ? String(route.params.filter_id) : null,
 )
@@ -226,6 +270,9 @@ const draftFilterValues = ref<Record<string, unknown>>({})
 const appliedFilterValues = ref<Record<string, unknown>>({})
 let filterReloadTimer: ReturnType<typeof setTimeout> | null = null
 let filterReloadBusyRetries = 0
+/** SF-style list search: draft input vs applied value sent to the BFF (Enter to search). */
+const listSearchQuery = ref('')
+const appliedListSearch = ref('')
 
 const isRecentlyViewedFilter = computed(
   () => selectedListFilter.value?.id === RECENTLY_VIEWED_FILTER_ID,
@@ -237,15 +284,30 @@ watchEffect(() => {
   const collection = collectionName.value
   if (!collection) return
   const filter = selectedListFilter.value
-  const viewName = filter && !isRecentlyViewedFilter.value ? filter.name : null
+  // Recently Viewed is the default landing; favorites omit it so the link opens the collection.
+  const viewId = filter && !isRecentlyViewedFilter.value ? filter.id : null
+  const viewName = viewId ? filter?.name ?? null : null
   const label = viewName
     ? `${collectionLabel.value} · ${viewName}`
     : collectionLabel.value
-  const target = viewName
-    ? { kind: 'object' as const, collection, filterName: viewName }
+  const target = viewId
+    ? { kind: 'object' as const, collection, viewId }
     : { kind: 'object' as const, collection }
   setFavoriteContext({ defaultLabel: label, target })
 })
+
+watch(
+  collectionName,
+  (collection) => {
+    collectionIcon.value = null
+    if (!collection) return
+    void fetchCollectionIcon(collection).then((icon) => {
+      if (collectionName.value === collection) collectionIcon.value = icon
+    })
+  },
+  { immediate: true },
+)
+
 onUnmounted(() => {
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
   clearFavoriteContext()
@@ -296,6 +358,11 @@ const effectiveFilterConditions = computed(() =>
 
 const visibleFilterConditions = computed(() =>
   (selectedListFilter.value?.conditions ?? []).filter(isUserVisibleCondition),
+)
+
+const requiredFiltersUnsatisfied = computed(() =>
+  !isVirtualListFilter.value &&
+  hasUnsatisfiedRequiredFilters(effectiveFilterConditions.value),
 )
 
 const showFilterValuePanel = computed(
@@ -513,6 +580,29 @@ const activeListFilter = computed<Record<string, unknown> | null>(() => {
   return buildListFilter(effectiveFilterConditions.value, f.logic)
 })
 
+const importExportListFilter = computed(
+  () =>
+    mergeRawListFilters(
+      activeListFilter.value,
+      barcodeListFilter.value,
+      treeGroupListFilter.value,
+    ) ?? null,
+)
+
+const importExportPreferredFields = computed(() =>
+  (objectList.value?.columns ?? [])
+    .map((column) => column.field)
+    .filter((field): field is string => typeof field === 'string' && Boolean(field.trim())),
+)
+
+function openImportExport(): void {
+  importExportVisible.value = true
+}
+
+function handleImportExportImported(): void {
+  handleRefreshFilterValues()
+}
+
 watch(
   selectedListFilter,
   (filter) => {
@@ -562,14 +652,22 @@ watch(
   { deep: true },
 )
 
-/** After rows render, filter inputs mount and may normalize values — re-query once. */
+/**
+ * After rows render, filter inputs may mount and normalize draft values that were
+ * ignored while `loading` was true. Re-query only when a filter panel exists and
+ * drafts actually changed (All records / Recently viewed have no panel).
+ */
 async function settleFilterPanelAfterLoad(): Promise<void> {
+  if (!showFilterValuePanel.value) return
+  const before = JSON.stringify(draftFilterValues.value)
   await nextTick()
   await new Promise<void>((resolve) => {
     setTimeout(resolve, 100)
   })
   if (!collectionName.value || !objectList.value) return
   if (loading.value || refreshingRecords.value) return
+  if (!showFilterValuePanel.value) return
+  if (JSON.stringify(draftFilterValues.value) === before) return
   syncInteractiveFilterValues()
   void loadRecords(collectionName.value, { inPlace: true })
 }
@@ -618,13 +716,25 @@ watch(
   [collectionName, routeFilterId, routeFilterName, permissionsReady, canReadCollection],
   ([collection, filterId, filterName, ready, canRead]) => {
     if (!collection || !ready) return
-    if (!canRead) {
-      objectList.value = null
-      error.value = null
-      loading.value = false
-      return
-    }
-    void loadListPage(collection, filterId, filterName)
+    void (async () => {
+      collectionMissing.value = false
+      const exists = await collectionExistsInRegistry(collection)
+      if (collectionName.value !== collection) return
+      if (!exists) {
+        collectionMissing.value = true
+        objectList.value = null
+        error.value = null
+        loading.value = false
+        return
+      }
+      if (!canRead) {
+        objectList.value = null
+        error.value = null
+        loading.value = false
+        return
+      }
+      void loadListPage(collection, filterId, filterName)
+    })()
   },
   { immediate: true },
 )
@@ -634,6 +744,17 @@ async function loadListPage(
   filterId: string | null,
   filterName: string | null = null,
 ): Promise<void> {
+  // Defense in depth: never fetch when the effective role cannot read.
+  if (!canReadEntity(collection)) {
+    objectList.value = null
+    error.value = null
+    loading.value = false
+    return
+  }
+  // View/collection navigation resets SF-style list search (not in-place refresh).
+  listSearchQuery.value = ''
+  appliedListSearch.value = ''
+
   const inPlace =
     objectList.value !== null &&
     objectList.value.collection === collection &&
@@ -729,7 +850,17 @@ async function resolveSelectedListView(
   }
   pinnedFilterId.value = resolvedPin
 
-  if (filterId === ALL_RECORDS_FILTER_ID) {
+  // Favorites previously stored the display name ("All records") instead of the
+  // predefined view id; map those legacy filterName links before lookup.
+  const resolvedFilterId =
+    filterId
+    ?? (filterName === ALL_RECORDS_FILTER_ID || filterName === ALL_RECORDS_FILTER.name
+      ? ALL_RECORDS_FILTER_ID
+      : filterName === RECENTLY_VIEWED_FILTER_ID || filterName === RECENTLY_VIEWED_FILTER.name
+        ? RECENTLY_VIEWED_FILTER_ID
+        : null)
+
+  if (resolvedFilterId === ALL_RECORDS_FILTER_ID) {
     selectedListFilter.value = ALL_RECORDS_FILTER
     tableSettings.value = await resolvePredefinedViewTableSettings(
       collection,
@@ -740,7 +871,7 @@ async function resolveSelectedListView(
     return
   }
 
-  if (filterId === RECENTLY_VIEWED_FILTER_ID) {
+  if (resolvedFilterId === RECENTLY_VIEWED_FILTER_ID) {
     selectedListFilter.value = RECENTLY_VIEWED_FILTER
     tableSettings.value = await resolvePredefinedViewTableSettings(
       collection,
@@ -754,16 +885,16 @@ async function resolveSelectedListView(
   const views = await resolveListViewsForCurrentUser(collection)
   if (isStaleToken(token)) return
 
-  if (filterId || filterName) {
-    const matched = filterId
-      ? views.find((view) => view.id === filterId)
+  if (resolvedFilterId || filterName) {
+    const matched = resolvedFilterId
+      ? views.find((view) => view.id === resolvedFilterId)
       : views.find((view) => view.name === filterName)
 
     if (!matched) {
       throw new Error(t(
         'objectList.savedFilterMissing',
         'Saved view "{id}" was not found.',
-        { id: filterId ?? filterName ?? '' },
+        { id: resolvedFilterId ?? filterName ?? '' },
       ))
     }
 
@@ -871,6 +1002,17 @@ async function loadRecords(
   }
 }
 
+function activeListSearch(): string | null {
+  const q = appliedListSearch.value.trim()
+  return q || null
+}
+
+function withListSearch<T extends { limit?: number; offset?: number }>(
+  options: T,
+): T & { search: string | null } {
+  return { ...options, search: activeListSearch() }
+}
+
 async function fetchListRecordsAsRuntime(
   collection: string,
   settings: DataTableSettings,
@@ -902,7 +1044,18 @@ async function fetchListRecords(
       collection,
       mergeRawListFilters(activeListFilter.value, barcodeListFilter.value),
       settings,
-      { ...options, limit: 0 },
+      withListSearch({ ...options, limit: 0 }),
+    )
+    return { ...empty, records: [], totalCount: 0 }
+  }
+
+  // Required filter empty → empty items (do not fetch unconstrained rows).
+  if (requiredFiltersUnsatisfied.value) {
+    const empty = await fetchObjectRecords(
+      collection,
+      mergeRawListFilters(activeListFilter.value, barcodeListFilter.value),
+      settings,
+      withListSearch({ ...options, limit: 0 }),
     )
     return { ...empty, records: [], totalCount: 0 }
   }
@@ -916,7 +1069,7 @@ async function fetchListRecords(
         treeGroupListFilter.value,
       ),
       settings,
-      options,
+      withListSearch(options),
     )
   }
 
@@ -926,6 +1079,7 @@ async function fetchListRecords(
     recent.ids,
     recent.totalCount,
     settings,
+    { search: activeListSearch() },
   )
   let withColumns = withRecentViewColumns(result, recent.views)
 
@@ -1231,6 +1385,7 @@ watch(collectionName, () => {
 
 function handleViewSelected(view: SavedListView | SavedListFilter | null): void {
   selectedListFilter.value = view
+  clearListSearch()
   barcodeListFilter.value = null
   barcodeToolbarRef.value?.markFilterActive(false)
   barcodeToolbarRefDetail.value?.markFilterActive(false)
@@ -1338,6 +1493,7 @@ function resolveListReportFilter(): Record<string, unknown> | null {
   const filter = selectedListFilter.value
   const conditions = resolveListReportConditions()
   if (!filter || !conditions) return null
+  if (hasUnsatisfiedRequiredFilters(conditions)) return null
   return buildListFilter(conditions, filter.logic)
 }
 
@@ -1405,6 +1561,11 @@ async function resolveListActionRecordIds(
     return []
   }
 
+  // Required filter empty → no matching ids (same as empty list).
+  if (requiredFiltersUnsatisfied.value) {
+    return []
+  }
+
   const listFilter =
     mergeRawListFilters(
       activeListFilter.value,
@@ -1415,15 +1576,36 @@ async function resolveListActionRecordIds(
     collectionName.value,
     listFilter,
     tableSettings.value,
-    {
+    withListSearch({
       limit,
       offset: 0,
-    },
+    }),
   )
   return list.records
     .map((row) => row[list.primaryKey])
     .filter((id) => id !== null && id !== undefined && id !== '')
     .map(String)
+}
+
+function clearListSearch(): void {
+  listSearchQuery.value = ''
+  appliedListSearch.value = ''
+}
+
+function applyListSearch(query: string): void {
+  if (!collectionName.value || !objectList.value) return
+  const next = query.trim()
+  if (next === appliedListSearch.value) return
+  appliedListSearch.value = next
+  listSearchQuery.value = next
+  void loadRecords(collectionName.value, { inPlace: true })
+}
+
+function handleListSearchClear(): void {
+  if (!appliedListSearch.value && !listSearchQuery.value) return
+  clearListSearch()
+  if (!collectionName.value || !objectList.value) return
+  void loadRecords(collectionName.value, { inPlace: true })
 }
 
 function runListToolbarAction(action: ListViewAction): void {
@@ -1760,53 +1942,117 @@ function syncListLayoutWithAvailableSettings(): void {
 <template>
   <main
     class="app-shell"
-    :class="{ 'app-shell--master-detail': isFillHeightLayout }"
+    :class="{ 'app-shell--master-detail': isFillHeightLayout && !collectionMissing }"
   >
-    <header class="app-header" :class="{ 'app-header--master-detail': isFillHeightLayout }">
+    <CrmNotFoundState
+      v-if="permissionsReady && collectionMissing"
+      class="object-list-not-found"
+      :title="t('objectList.notFoundTitle', 'Object not found')"
+      :detail="
+        t(
+          'objectList.notFoundDetail',
+          'There is no object named {collection}.',
+          { collection: collectionName },
+        )
+      "
+      :back-label="t('app.backHome', 'Back to home')"
+      back-to="/"
+    />
+
+    <template v-else>
+    <header
+      class="app-header mb-2"
+      :class="{ 'app-header--master-detail': isFillHeightLayout }"
+    >
       <div class="app-header__row">
         <div class="flex-1 min-w-0">
-          <RouterLink to="/" class="nav-link">
-            {{ t('common.allCollections', 'All collections') }}
-          </RouterLink>
           <div class="flex flex-wrap items-center gap-4 w-full">
-            <h1 class="m-0">{{ objectList?.label ?? collectionLabel }}</h1>
-            <div class="flex items-center gap-2 ml-auto">
-              <Button
-                :label="t('objectList.table', 'Table')"
-                size="small"
-                :severity="listLayout === 'table' ? undefined : 'secondary'"
-                :outlined="listLayout !== 'table'"
-                @click="listLayout = 'table'"
-              />
-              <Button
-                v-if="treeSettings"
-                :label="t('objectList.tree', 'Tree')"
-                size="small"
-                :severity="listLayout === 'tree' ? undefined : 'secondary'"
-                :outlined="listLayout !== 'tree'"
-                @click="listLayout = 'tree'"
-              />
-              <Button
-                v-if="schedulerSettings"
-                :label="t('scheduler.scheduler', 'Scheduler')"
-                size="small"
-                :severity="listLayout === 'scheduler' ? undefined : 'secondary'"
-                :outlined="listLayout !== 'scheduler'"
-                @click="listLayout = 'scheduler'"
-              />
+            <div class="object-list-title flex min-w-0 items-center gap-2.5">
+              <div
+                class="object-list-title__icon flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary"
+                aria-hidden="true"
+              >
+                <i
+                  v-if="collectionIcon && isPrimeCollectionIcon"
+                  :class="collectionIcon"
+                  class="text-base"
+                />
+                <span
+                  v-else-if="collectionIcon"
+                  class="material-icons"
+                  style="font-size: 1.2rem; line-height: 1"
+                >{{ collectionIcon }}</span>
+                <i
+                  v-else
+                  class="pi pi-box text-base"
+                />
+              </div>
+              <h1 class="m-0 truncate text-[1.25rem] leading-tight">
+                {{ objectList?.label ?? collectionLabel }}
+              </h1>
+            </div>
+            <div
+              v-if="treeSettings || schedulerSettings || detailPanelEnabled"
+              class="object-list-layout-toggle flex items-center gap-3 ml-auto"
+            >
+              <div
+                v-if="treeSettings || schedulerSettings"
+                class="flex items-center gap-1"
+              >
+                <Button
+                  type="button"
+                  icon="pi pi-table"
+                  size="small"
+                  :severity="listLayout === 'table' ? undefined : 'secondary'"
+                  :outlined="listLayout !== 'table'"
+                  :aria-label="t('objectList.table', 'Table')"
+                  :aria-pressed="listLayout === 'table'"
+                  v-tooltip.bottom="t('objectList.table', 'Table')"
+                  @click="listLayout = 'table'"
+                />
+                <Button
+                  v-if="treeSettings"
+                  type="button"
+                  icon="pi pi-sitemap"
+                  size="small"
+                  :severity="listLayout === 'tree' ? undefined : 'secondary'"
+                  :outlined="listLayout !== 'tree'"
+                  :aria-label="t('objectList.tree', 'Tree')"
+                  :aria-pressed="listLayout === 'tree'"
+                  v-tooltip.bottom="t('objectList.tree', 'Tree')"
+                  @click="listLayout = 'tree'"
+                />
+                <Button
+                  v-if="schedulerSettings"
+                  type="button"
+                  icon="pi pi-calendar"
+                  size="small"
+                  :severity="listLayout === 'scheduler' ? undefined : 'secondary'"
+                  :outlined="listLayout !== 'scheduler'"
+                  :aria-label="t('scheduler.scheduler', 'Scheduler')"
+                  :aria-pressed="listLayout === 'scheduler'"
+                  v-tooltip.bottom="t('scheduler.scheduler', 'Scheduler')"
+                  @click="listLayout = 'scheduler'"
+                />
+              </div>
+              <div
+                v-if="detailPanelEnabled"
+                class="flex items-center gap-2"
+              >
+                <ToggleSwitch
+                  v-model="showDetailPanel"
+                  input-id="object-list-show-detail-header"
+                />
+                <label
+                  for="object-list-show-detail-header"
+                  class="text-[0.85rem] whitespace-nowrap cursor-pointer"
+                >
+                  {{ t('objectList.showDetail', 'Show detail') }}
+                </label>
+              </div>
             </div>
           </div>
         </div>
-        <RouterLink
-          :to="{
-            name: 'setup-collection',
-            params: { collection: collectionName },
-            query: { layoutType: 'table' },
-          }"
-          class="nav-link"
-        >
-          {{ t('setup.title', 'Setup') }}
-        </RouterLink>
       </div>
     </header>
 
@@ -1881,6 +2127,7 @@ function syncListLayoutWithAvailableSettings(): void {
                 :has-more="listHasMore"
                 :loading-more="loadingMoreRecords"
                 :total-records="objectList.totalCount"
+                :page-size="pageSize"
                 :show-new-button="false"
                 :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
                 :reload-token="compactCardReloadToken"
@@ -1890,7 +2137,7 @@ function syncListLayoutWithAvailableSettings(): void {
                 @refreshed="handleRefreshFilterValues"
               >
                 <template #toolbar>
-                  <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                  <div class="object-list-toolbar-start flex w-full min-w-0 flex-col items-start gap-1.5">
                     <DataTableFilter
                       class="flex-shrink-0"
                       :collection="collectionName"
@@ -1899,14 +2146,6 @@ function syncListLayoutWithAvailableSettings(): void {
                       :show-builder="false"
                       @view-selected="handleViewSelected"
                       @pin-filter="handlePinFilter"
-                    />
-                    <ListFilterValuePanel
-                      v-if="showFilterValuePanel"
-                      v-model="draftFilterValues"
-                      class="flex-1 min-w-0"
-                      :collection="collectionName"
-                      :conditions="visibleFilterConditions"
-                      @values-change="scheduleDraftFilterReload"
                     />
                     <CrmBarcodeScanToolbar
                       v-if="showBarcodeScan"
@@ -1921,6 +2160,16 @@ function syncListLayoutWithAvailableSettings(): void {
                     />
                   </div>
                 </template>
+                <template #toolbar-filters>
+                  <ListFilterValuePanel
+                    v-if="showFilterValuePanel"
+                    v-model="draftFilterValues"
+                    class="w-full min-w-0"
+                    :collection="collectionName"
+                    :conditions="visibleFilterConditions"
+                    @values-change="scheduleDraftFilterReload"
+                  />
+                </template>
                 <template #toolbar-actions>
                   <CrmBarcodeScanToolbar
                     v-if="showBarcodeScan"
@@ -1929,25 +2178,15 @@ function syncListLayoutWithAvailableSettings(): void {
                     :settings="barcodeScanSettings"
                     :busy="barcodeScanBusy"
                   />
-                  <div class="flex items-center gap-2">
-                    <ToggleSwitch
-                      v-model="showDetailPanel"
-                      input-id="object-list-show-detail-master"
-                    />
-                    <label for="object-list-show-detail-master" class="text-[0.85rem] whitespace-nowrap">
-                      {{ t('objectList.showDetail', 'Show detail') }}
-                    </label>
-                  </div>
                   <Button
+                    v-for="(item, index) in sideBySideVisibleActions"
+                    :key="`side-by-side-action-${index}-${item.label ?? ''}`"
                     type="button"
-                    icon="pi pi-refresh"
+                    :label="typeof item.label === 'string' ? item.label : undefined"
+                    :icon="typeof item.icon === 'string' ? item.icon : undefined"
                     size="small"
-                    severity="secondary"
-                    outlined
-                    :loading="refreshingRecords"
-                    :aria-label="t('common.refresh', 'Refresh')"
-                    v-tooltip.bottom="t('common.refresh', 'Refresh')"
-                    @click="handleRefreshFilterValues"
+                    :disabled="Boolean(item.disabled)"
+                    @click="runSideBySideMenuItem(item)"
                   />
                   <Button
                     v-if="showSideBySideActionsMenu"
@@ -1962,8 +2201,37 @@ function syncListLayoutWithAvailableSettings(): void {
                   />
                   <Menu
                     ref="sideBySideActionsMenu"
-                    :model="sideBySideActionItems"
+                    :model="sideBySideOverflowActions"
                     popup
+                  />
+                </template>
+                <template #toolbar-tools>
+                  <CrmListSearchField
+                    v-model="listSearchQuery"
+                    @search="applyListSearch"
+                    @clear="handleListSearchClear"
+                  />
+                  <Button
+                    v-if="showImportExport"
+                    type="button"
+                    icon="pi pi-file-export"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :aria-label="t('objectList.importExport.title', 'Import / Export')"
+                    v-tooltip.bottom="t('objectList.importExport.title', 'Import / Export')"
+                    @click="openImportExport"
+                  />
+                  <Button
+                    type="button"
+                    icon="pi pi-refresh"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :loading="refreshingRecords"
+                    :aria-label="t('common.refresh', 'Refresh')"
+                    v-tooltip.bottom="t('common.refresh', 'Refresh')"
+                    @click="handleRefreshFilterValues"
                   />
                 </template>
               </ObjectListCompactCardList>
@@ -1989,7 +2257,7 @@ function syncListLayoutWithAvailableSettings(): void {
                 @record-restored="handleRefreshFilterValues"
               >
                 <template #toolbar>
-                  <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                  <div class="object-list-toolbar-start flex w-full min-w-0 flex-col items-start gap-1.5">
                     <DataTableFilter
                       class="flex-shrink-0"
                       :collection="collectionName"
@@ -1998,14 +2266,6 @@ function syncListLayoutWithAvailableSettings(): void {
                       :show-builder="false"
                       @view-selected="handleViewSelected"
                       @pin-filter="handlePinFilter"
-                    />
-                    <ListFilterValuePanel
-                      v-if="showFilterValuePanel"
-                      v-model="draftFilterValues"
-                      class="flex-1 min-w-0"
-                      :collection="collectionName"
-                      :conditions="visibleFilterConditions"
-                      @values-change="scheduleDraftFilterReload"
                     />
                     <CrmBarcodeScanToolbar
                       v-if="showBarcodeScan"
@@ -2019,6 +2279,16 @@ function syncListLayoutWithAvailableSettings(): void {
                       @clear-filter="clearBarcodeListFilter"
                     />
                   </div>
+                </template>
+                <template #toolbar-filters>
+                  <ListFilterValuePanel
+                    v-if="showFilterValuePanel"
+                    v-model="draftFilterValues"
+                    class="w-full min-w-0"
+                    :collection="collectionName"
+                    :conditions="visibleFilterConditions"
+                    @values-change="scheduleDraftFilterReload"
+                  />
                 </template>
                 <template #toolbar-actions>
                   <CrmBarcodeScanToolbar
@@ -2034,7 +2304,6 @@ function syncListLayoutWithAvailableSettings(): void {
                     :label="action.label"
                     :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
                     size="small"
-                    severity="secondary"
                     :loading="listReportLoading || listBulkRunning"
                     @click="runListToolbarAction(action)"
                   />
@@ -2046,20 +2315,33 @@ function syncListLayoutWithAvailableSettings(): void {
                     severity="secondary"
                     @click="slotGeneratorVisible = true"
                   />
-                  <div class="flex items-center gap-2">
-                    <ToggleSwitch
-                      v-model="showDetailPanel"
-                      input-id="object-list-show-detail-master-table"
-                    />
-                    <label for="object-list-show-detail-master-table" class="text-[0.85rem] whitespace-nowrap">
-                      {{ t('objectList.showDetail', 'Show detail') }}
-                    </label>
-                  </div>
+                </template>
+                <template #toolbar-tools>
+                  <CrmListSearchField
+                    v-model="listSearchQuery"
+                    @search="applyListSearch"
+                    @clear="handleListSearchClear"
+                  />
                   <Button
-                    :label="t('common.refresh', 'Refresh')"
+                    v-if="showImportExport"
+                    type="button"
+                    icon="pi pi-file-export"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :aria-label="t('objectList.importExport.title', 'Import / Export')"
+                    v-tooltip.bottom="t('objectList.importExport.title', 'Import / Export')"
+                    @click="openImportExport"
+                  />
+                  <Button
+                    type="button"
                     icon="pi pi-refresh"
                     size="small"
+                    severity="secondary"
+                    outlined
                     :loading="refreshingRecords"
+                    :aria-label="t('common.refresh', 'Refresh')"
+                    v-tooltip.bottom="t('common.refresh', 'Refresh')"
                     @click="handleRefreshFilterValues"
                   />
                 </template>
@@ -2114,7 +2396,7 @@ function syncListLayoutWithAvailableSettings(): void {
           @record-restored="handleRefreshFilterValues"
         >
           <template #toolbar>
-            <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+            <div class="object-list-toolbar-start flex w-full min-w-0 flex-col items-start gap-1.5">
               <DataTableFilter
                 class="flex-shrink-0"
                 :collection="collectionName"
@@ -2123,14 +2405,6 @@ function syncListLayoutWithAvailableSettings(): void {
                 :show-builder="false"
                 @view-selected="handleViewSelected"
                 @pin-filter="handlePinFilter"
-              />
-              <ListFilterValuePanel
-                v-if="showFilterValuePanel"
-                v-model="draftFilterValues"
-                class="flex-1 min-w-0"
-                :collection="collectionName"
-                :conditions="visibleFilterConditions"
-                @values-change="scheduleDraftFilterReload"
               />
               <CrmBarcodeScanToolbar
                 v-if="showBarcodeScan"
@@ -2144,6 +2418,16 @@ function syncListLayoutWithAvailableSettings(): void {
                 @clear-filter="clearBarcodeListFilter"
               />
             </div>
+          </template>
+          <template #toolbar-filters>
+            <ListFilterValuePanel
+              v-if="showFilterValuePanel"
+              v-model="draftFilterValues"
+              class="w-full min-w-0"
+              :collection="collectionName"
+              :conditions="visibleFilterConditions"
+              @values-change="scheduleDraftFilterReload"
+            />
           </template>
           <template #toolbar-actions>
             <CrmBarcodeScanToolbar
@@ -2159,7 +2443,6 @@ function syncListLayoutWithAvailableSettings(): void {
               :label="action.label"
               :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
               size="small"
-              severity="secondary"
               :loading="listReportLoading || listBulkRunning"
               @click="runListToolbarAction(action)"
             />
@@ -2171,23 +2454,33 @@ function syncListLayoutWithAvailableSettings(): void {
               severity="secondary"
               @click="slotGeneratorVisible = true"
             />
-            <div
-              v-if="detailPanelEnabled"
-              class="flex items-center gap-2"
-            >
-              <ToggleSwitch
-                v-model="showDetailPanel"
-                input-id="object-list-show-detail"
-              />
-              <label for="object-list-show-detail" class="text-[0.85rem] whitespace-nowrap">
-                {{ t('objectList.showDetail', 'Show detail') }}
-              </label>
-            </div>
+          </template>
+          <template #toolbar-tools>
+            <CrmListSearchField
+              v-model="listSearchQuery"
+              @search="applyListSearch"
+              @clear="handleListSearchClear"
+            />
             <Button
-              :label="t('common.refresh', 'Refresh')"
+              v-if="showImportExport"
+              type="button"
+              icon="pi pi-file-export"
+              size="small"
+              severity="secondary"
+              outlined
+              :aria-label="t('objectList.importExport.title', 'Import / Export')"
+              v-tooltip.bottom="t('objectList.importExport.title', 'Import / Export')"
+              @click="openImportExport"
+            />
+            <Button
+              type="button"
               icon="pi pi-refresh"
               size="small"
+              severity="secondary"
+              outlined
               :loading="refreshingRecords"
+              :aria-label="t('common.refresh', 'Refresh')"
+              v-tooltip.bottom="t('common.refresh', 'Refresh')"
               @click="handleRefreshFilterValues"
             />
           </template>
@@ -2271,7 +2564,7 @@ function syncListLayoutWithAvailableSettings(): void {
                       @record-deleted="handleTreeItemsChanged"
                     >
                       <template #toolbar>
-                        <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                        <div class="object-list-toolbar-start flex w-full min-w-0 flex-col items-start gap-1.5">
                           <DataTableFilter
                             class="flex-shrink-0"
                             :collection="collectionName"
@@ -2281,15 +2574,17 @@ function syncListLayoutWithAvailableSettings(): void {
                             @view-selected="handleViewSelected"
                             @pin-filter="handlePinFilter"
                           />
-                          <ListFilterValuePanel
-                            v-if="showFilterValuePanel"
-                            v-model="draftFilterValues"
-                            class="flex-1 min-w-0"
-                            :collection="collectionName"
-                            :conditions="visibleFilterConditions"
-                            @values-change="scheduleDraftFilterReload"
-                          />
                         </div>
+                      </template>
+                      <template #toolbar-filters>
+                        <ListFilterValuePanel
+                          v-if="showFilterValuePanel"
+                          v-model="draftFilterValues"
+                          class="w-full min-w-0"
+                          :collection="collectionName"
+                          :conditions="visibleFilterConditions"
+                          @values-change="scheduleDraftFilterReload"
+                        />
                       </template>
                       <template #toolbar-actions>
                         <Button
@@ -2298,27 +2593,36 @@ function syncListLayoutWithAvailableSettings(): void {
                           :label="action.label"
                           :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
                           size="small"
-                          severity="secondary"
                           :loading="listReportLoading || listBulkRunning"
                           @click="runListToolbarAction(action)"
                         />
-                        <div
-                          v-if="detailPanelEnabled"
-                          class="flex items-center gap-2"
-                        >
-                          <ToggleSwitch
-                            v-model="showDetailPanel"
-                            input-id="object-list-show-detail-tree"
-                          />
-                          <label for="object-list-show-detail-tree" class="text-[0.85rem] whitespace-nowrap">
-                            {{ t('objectList.showDetail', 'Show detail') }}
-                          </label>
-                        </div>
+                      </template>
+                      <template #toolbar-tools>
+                        <CrmListSearchField
+                          v-model="listSearchQuery"
+                          @search="applyListSearch"
+                          @clear="handleListSearchClear"
+                        />
                         <Button
-                          :label="t('common.refresh', 'Refresh')"
+                          v-if="showImportExport"
+                          type="button"
+                          icon="pi pi-file-export"
+                          size="small"
+                          severity="secondary"
+                          outlined
+                          :aria-label="t('objectList.importExport.title', 'Import / Export')"
+                          v-tooltip.bottom="t('objectList.importExport.title', 'Import / Export')"
+                          @click="openImportExport"
+                        />
+                        <Button
+                          type="button"
                           icon="pi pi-refresh"
                           size="small"
+                          severity="secondary"
+                          outlined
                           :loading="refreshingRecords"
+                          :aria-label="t('common.refresh', 'Refresh')"
+                          v-tooltip.bottom="t('common.refresh', 'Refresh')"
                           @click="handleRefreshFilterValues"
                         />
                       </template>
@@ -2379,7 +2683,7 @@ function syncListLayoutWithAvailableSettings(): void {
                 @record-deleted="handleTreeItemsChanged"
               >
                 <template #toolbar>
-                  <div class="flex flex-wrap items-end gap-3 w-full min-w-0">
+                  <div class="object-list-toolbar-start flex w-full min-w-0 flex-col items-start gap-1.5">
                     <DataTableFilter
                       class="flex-shrink-0"
                       :collection="collectionName"
@@ -2389,15 +2693,17 @@ function syncListLayoutWithAvailableSettings(): void {
                       @view-selected="handleViewSelected"
                       @pin-filter="handlePinFilter"
                     />
-                    <ListFilterValuePanel
-                      v-if="showFilterValuePanel"
-                      v-model="draftFilterValues"
-                      class="flex-1 min-w-0"
-                      :collection="collectionName"
-                      :conditions="visibleFilterConditions"
-                      @values-change="scheduleDraftFilterReload"
-                    />
                   </div>
+                </template>
+                <template #toolbar-filters>
+                  <ListFilterValuePanel
+                    v-if="showFilterValuePanel"
+                    v-model="draftFilterValues"
+                    class="w-full min-w-0"
+                    :collection="collectionName"
+                    :conditions="visibleFilterConditions"
+                    @values-change="scheduleDraftFilterReload"
+                  />
                 </template>
                 <template #toolbar-actions>
                   <Button
@@ -2406,27 +2712,36 @@ function syncListLayoutWithAvailableSettings(): void {
                     :label="action.label"
                     :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
                     size="small"
-                    severity="secondary"
                     :loading="listReportLoading || listBulkRunning"
                     @click="runListToolbarAction(action)"
                   />
-                  <div
-                    v-if="detailPanelEnabled"
-                    class="flex items-center gap-2"
-                  >
-                    <ToggleSwitch
-                      v-model="showDetailPanel"
-                      input-id="object-list-show-detail-tree-table"
-                    />
-                    <label for="object-list-show-detail-tree-table" class="text-[0.85rem] whitespace-nowrap">
-                      {{ t('objectList.showDetail', 'Show detail') }}
-                    </label>
-                  </div>
+                </template>
+                <template #toolbar-tools>
+                  <CrmListSearchField
+                    v-model="listSearchQuery"
+                    @search="applyListSearch"
+                    @clear="handleListSearchClear"
+                  />
                   <Button
-                    :label="t('common.refresh', 'Refresh')"
+                    v-if="showImportExport"
+                    type="button"
+                    icon="pi pi-file-export"
+                    size="small"
+                    severity="secondary"
+                    outlined
+                    :aria-label="t('objectList.importExport.title', 'Import / Export')"
+                    v-tooltip.bottom="t('objectList.importExport.title', 'Import / Export')"
+                    @click="openImportExport"
+                  />
+                  <Button
+                    type="button"
                     icon="pi pi-refresh"
                     size="small"
+                    severity="secondary"
+                    outlined
                     :loading="refreshingRecords"
+                    :aria-label="t('common.refresh', 'Refresh')"
+                    v-tooltip.bottom="t('common.refresh', 'Refresh')"
                     @click="handleRefreshFilterValues"
                   />
                 </template>
@@ -2480,6 +2795,16 @@ function syncListLayoutWithAvailableSettings(): void {
       :label="listBulkPromptLabel"
       @confirm="onListBulkPromptConfirm"
     />
+
+    <CollectionImportExportDialog
+      v-model:visible="importExportVisible"
+      :collection="collectionName"
+      :list-filter="importExportListFilter"
+      :list-search="appliedListSearch"
+      :preferred-fields="importExportPreferredFields"
+      @imported="handleImportExportImported"
+    />
+    </template>
   </main>
 </template>
 
@@ -2551,6 +2876,11 @@ function syncListLayoutWithAvailableSettings(): void {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+
+.object-list-tree-layout__items :deep(.crm-data-table__toolbar-filters),
+.object-list-tree-layout__items :deep(.list-filter-value-panel) {
+  padding-inline-start: 0.5rem;
 }
 
 .object-list-tree-layout__items :deep(.crm-data-table-wrap) {
@@ -2628,6 +2958,13 @@ function syncListLayoutWithAvailableSettings(): void {
   flex: 0 0 auto;
 }
 
+/* Narrow master pane: stack filter field label/input when space is tight. */
+.object-list-master-detail__master :deep(.list-filter-value-panel__field) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
 .object-list-master-detail__master :deep(.crm-data-table__scroll-panel) {
   flex: 1 1 auto;
   min-height: 0;
@@ -2644,6 +2981,10 @@ function syncListLayoutWithAvailableSettings(): void {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
+}
+
+.object-list-title__icon {
+  color: var(--p-primary-contrast-color, #fff);
 }
 </style>
 

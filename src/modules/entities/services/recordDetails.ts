@@ -15,6 +15,7 @@ import {
   loadCompactRecordDetailsSetting,
 } from '@/modules/config/services/layoutSettings'
 import {
+  fetchCollectionDisplayTemplate,
   fetchFieldRuntimeMetadata,
   fetchTranslatedFieldLabel,
   getCachedCollectionFields,
@@ -30,6 +31,8 @@ import {
 } from '@/core/dateFormatting'
 import {
   DISPLAY_FIELD_CANDIDATES,
+  extractRelationFieldId,
+  extractTemplateFields,
   formatDisplayValue,
   relatedRecordDisplayField,
 } from '../utils/recordDisplay'
@@ -201,6 +204,49 @@ function appendM2ORequestFields(
   }
 }
 
+async function appendDisplayTemplateRequestFields(
+  requestFields: Set<string>,
+  collection: string,
+  fields: FieldDefinition[],
+  relations: RelationDefinition[],
+): Promise<void> {
+  const template = await fetchCollectionDisplayTemplate(collection)
+  if (!template?.trim()) return
+
+  for (const path of extractTemplateFields(template)) {
+    const segments = path.split('.').filter(Boolean)
+    const root = segments[0]
+    if (!root || !collectionHasField(root, fields)) continue
+
+    if (segments.length === 1) {
+      if (isFieldM2O(collection, root, fields, relations)) {
+        const definition = fields.find((item) => keysEqual(item.field, root))
+        const relation = definition
+          ? findRelationForField(definition, relations)
+          : undefined
+        const relatedCollection = relation?.related_collection
+        const relatedFields = relatedCollection
+          ? await getCachedCollectionFields(relatedCollection)
+          : []
+        appendM2ORequestFields(
+          requestFields,
+          root,
+          relatedFields,
+          relatedCollection,
+        )
+      } else {
+        requestFields.add(root)
+      }
+      continue
+    }
+
+    requestFields.add(path)
+    if (isFieldM2O(collection, root, fields, relations)) {
+      requestFields.add(`${root}.id`)
+    }
+  }
+}
+
 async function collectLayoutRequestFields(
   collection: string,
   schema: EntityLayoutSchema,
@@ -219,6 +265,13 @@ async function collectLayoutRequestFields(
   for (const path of showIfRequestFields(collectShowIfFieldPaths(schema.sections))) {
     requestFields.add(path)
   }
+
+  await appendDisplayTemplateRequestFields(
+    requestFields,
+    collection,
+    fields,
+    relations,
+  )
 
   for (const field of layoutFields) {
     if (isClientOnlyLayoutField(field)) continue
@@ -457,10 +510,25 @@ async function displayCompactFieldValue(
     return formatDateValue(value, dateFormat)
   }
 
+  // File / M2O payloads often arrive as `{ id }` objects — never String(object).
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+    const fileLabel = record.filename_download ?? record.title ?? record.name
+    if (
+      (field.component === 'Files' ||
+        field.relatedCollection === 'files') &&
+      typeof fileLabel === 'string' &&
+      fileLabel.trim()
+    ) {
+      return fileLabel.trim()
+    }
+  }
+
+  const relationId = extractRelationFieldId(value)
   if (
     field.relatedCollection &&
-    (typeof value === 'string' || typeof value === 'number') &&
-    value !== ''
+    relationId !== null &&
+    relationId !== ''
   ) {
     const metadata = await fetchFieldRuntimeMetadata(
       collection,
@@ -469,10 +537,10 @@ async function displayCompactFieldValue(
     )
     const option = await fetchRelatedCollectionOptionById(
       field.relatedCollection,
-      value,
+      relationId,
       metadata.template,
     )
-    return option?.label ?? formatCompactValue(value)
+    return option?.label ?? formatCompactValue(relationId)
   }
 
   if (isChoiceComponent(field.component)) {

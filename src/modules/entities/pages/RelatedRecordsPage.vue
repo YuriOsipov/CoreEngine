@@ -12,6 +12,8 @@ import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
 import BatchInsertDialog from '../components/BatchInsertDialog.vue'
 import ObjectListDetailPanel from '../components/ObjectListDetailPanel.vue'
+import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
+import { isRecordNotFoundError } from '../utils/isRecordNotFoundError'
 import DataTableSettingsDesigner from '@/modules/config/components/DataTableSettingsDesigner.vue'
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
@@ -164,12 +166,6 @@ const backLinkLabel = computed(() => {
   return t('relatedRecords.backToLabel', 'Back to {label}', { label })
 })
 
-const relatedSubtitle = computed(() => {
-  const label = parentDisplayLabel.value
-  if (!label) return ''
-  return t('relatedRecords.subtitle', 'Related records for {label}.', { label })
-})
-
 const {
   runtime: relatedRuntime,
   loading,
@@ -197,6 +193,11 @@ const {
       offset,
     ),
 })
+
+const recordMissing = ref(false)
+const listBackRoute = computed(
+  () => `/object/${encodeURIComponent(collectionName.value)}`,
+)
 
 const legacyDetailPanelConfig = computed<ListViewDetailPanel | null>(() => {
   const panel = tableSettings.value?.detailPanel
@@ -303,6 +304,7 @@ watch(
       relatedRuntime.value = null
       loading.value = false
       error.value = null
+      recordMissing.value = false
       return
     }
     void loadRelatedRecords(collection, id, relatedCollection)
@@ -363,6 +365,7 @@ async function loadRelatedRecords(
   const token = nextLoadToken()
   loading.value = true
   error.value = null
+  recordMissing.value = false
   relatedRuntime.value = null
   selectedMasterRow.value = null
   pageListDetailPanel.value = null
@@ -370,6 +373,7 @@ async function loadRelatedRecords(
   listDetailActions.value = []
   listDetailLoadError.value = null
   parentBulkActions.value = []
+  parentRecord.value = {}
 
   try {
     const [[dataTableField, record, preferredParentLayout]] = await Promise.all([
@@ -415,6 +419,11 @@ async function loadRelatedRecords(
     relatedRuntime.value = result
   } catch (err) {
     if (isStaleToken(token)) return
+    if (isRecordNotFoundError(err)) {
+      recordMissing.value = true
+      error.value = null
+      return
+    }
     error.value =
       err instanceof Error
         ? err.message
@@ -579,63 +588,36 @@ async function handleBatchSubmitted(): Promise<void> {
             {{ backLinkLabel }}
           </RouterLink>
           <h1>{{ relatedCollectionLabel }}</h1>
-          <p v-if="relatedSubtitle">{{ relatedSubtitle }}</p>
         </div>
-        <RouterLink
-          :to="{
-            name: 'setup-collection',
-            params: { collection: relatedCollectionName },
-            query: { layoutType: 'table' },
-          }"
-          class="nav-link"
-        >
-          {{ t('setup.title', 'Setup') }}
-        </RouterLink>
       </div>
     </header>
 
     <section
+      v-if="!recordMissing && !hasParentEntityConfig"
       class="bg-surface-0 border border-surface-200 rounded-xl my-4 p-3"
       :class="{ 'related-records-toolbar--master-detail': isMasterDetailLayout }"
     >
       <div class="flex gap-3 justify-end items-center">
-        <template v-if="hasParentEntityConfig">
-          <span class="text-muted-color text-[0.8rem]">
-            {{ t('relatedRecords.managedInSetup', 'Columns configured in') }}
-          </span>
-          <RouterLink
-            :to="{
-              name: 'setup-collection',
-              params: { collection: collectionName },
-              query: { layoutType: 'entity' },
-            }"
-            class="nav-link text-[0.8rem]"
-          >
-            {{ t('relatedRecords.entityDesigner', 'Entity Designer') }}
-          </RouterLink>
-        </template>
-        <template v-else>
-          <Button
-            :label="showTableSettings
-              ? t('relatedRecords.hideTableSettings', 'Hide table settings')
-              : t('relatedRecords.tableSettings', 'Table settings')"
-            size="small"
-            text
-            @click="showTableSettings = !showTableSettings"
-          />
-          <Button
-            v-if="showTableSettings"
-            :label="t('relatedRecords.saveTableSettings', 'Save table settings')"
-            size="small"
-            :loading="tableSettingsSaving"
-            :disabled="!tableSettings"
-            @click="saveCurrentTableSettings"
-          />
-        </template>
+        <Button
+          :label="showTableSettings
+            ? t('relatedRecords.hideTableSettings', 'Hide table settings')
+            : t('relatedRecords.tableSettings', 'Table settings')"
+          size="small"
+          text
+          @click="showTableSettings = !showTableSettings"
+        />
+        <Button
+          v-if="showTableSettings"
+          :label="t('relatedRecords.saveTableSettings', 'Save table settings')"
+          size="small"
+          :loading="tableSettingsSaving"
+          :disabled="!tableSettings"
+          @click="saveCurrentTableSettings"
+        />
       </div>
 
       <DataTableSettingsDesigner
-        v-if="!hasParentEntityConfig && showTableSettings && tableSettings"
+        v-if="showTableSettings && tableSettings"
         v-model="tableSettings"
         :collection="relatedCollectionName"
         hide-batch-insert
@@ -670,6 +652,24 @@ async function handleBatchSubmitted(): Promise<void> {
         <ProgressSpinner stroke-width="4" />
         <span>{{ t('relatedRecords.loading', 'Loading related records...') }}</span>
       </div>
+
+      <CrmNotFoundState
+        v-else-if="recordMissing"
+        :title="t('recordDetails.notFoundTitle', 'Record not found')"
+        :detail="
+          t(
+            'recordDetails.notFoundDetail',
+            'This {collection} record does not exist or is no longer available.',
+            { collection: collectionLabel || collectionName },
+          )
+        "
+        :back-label="
+          t('recordDetails.backToList', 'Back to {collection}', {
+            collection: collectionLabel || collectionName,
+          })
+        "
+        :back-to="listBackRoute"
+      />
 
       <Message
         v-else-if="error"

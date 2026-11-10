@@ -73,6 +73,19 @@ const itemSummary = computed(() =>
   }),
 )
 
+function accountabilityLabel(value: string | null): string {
+  if (value === null) {
+    return t('setup.entityParameters.accountabilityNone', 'Do Not Track')
+  }
+  if (value === 'activity') {
+    return t('setup.entityParameters.accountabilityActivity', 'Track Activity')
+  }
+  return t(
+    'setup.entityParameters.accountabilityAll',
+    'Track Activity & Revisions',
+  )
+}
+
 async function loadCollections(opts?: { refresh?: boolean }): Promise<void> {
   const refresh = opts?.refresh !== false
   if (refresh) loading.value = true
@@ -272,8 +285,8 @@ watch(
         field="label"
         :header="t('setup.columnLabel', 'Label')"
         sortable
-        style="width: 20rem"
-        header-style="width: 20rem"
+        style="width: 14rem"
+        header-style="width: 14rem"
       >
         <template #body="{ data }">
           <div class="setup-objects-label">
@@ -289,16 +302,6 @@ watch(
               />
               <span>{{ data.label }}</span>
             </RouterLink>
-            <Tag
-              v-if="data.internal"
-              severity="secondary"
-              :value="t('setup.entityParameters.internal', 'Internal')"
-            />
-            <Tag
-              v-if="data.hidden"
-              severity="warn"
-              :value="t('setup.objects.hidden', 'Hidden')"
-            />
           </div>
         </template>
       </Column>
@@ -306,18 +309,76 @@ watch(
         field="value"
         :header="t('setup.columnApiName', 'API Name')"
         sortable
-        style="width: 14rem"
-        header-style="width: 14rem"
+        style="width: 11rem"
+        header-style="width: 11rem"
       />
       <Column
         field="description"
         :header="t('setup.columnDescription', 'Description')"
+        style="width: 12rem"
+        header-style="width: 12rem"
       >
         <template #body="{ data }">
           {{
             data.description
               || t('setup.objectDescriptionEmpty', '—')
           }}
+        </template>
+      </Column>
+      <Column
+        field="displayTemplate"
+        :header="t('setup.entityParameters.displayTemplate', 'Display Template')"
+        sortable
+        style="width: 12rem"
+        header-style="width: 12rem"
+      >
+        <template #body="{ data }">
+          <code
+            v-if="data.displayTemplate"
+            class="setup-objects-template"
+          >{{ data.displayTemplate }}</code>
+          <span v-else>{{ t('setup.objectDescriptionEmpty', '—') }}</span>
+        </template>
+      </Column>
+      <Column
+        field="accountability"
+        :header="t('setup.objects.columnAccountability', 'Activity Tracking')"
+        sortable
+        style="width: 12rem"
+        header-style="width: 12rem"
+      >
+        <template #body="{ data }">
+          {{ accountabilityLabel(data.accountability) }}
+        </template>
+      </Column>
+      <Column
+        field="hidden"
+        :header="t('setup.entityParameters.hidden', 'Hide within the App')"
+        sortable
+        style="width: 8rem"
+        header-style="width: 8rem"
+      >
+        <template #body="{ data }">
+          <i
+            v-if="data.hidden"
+            class="pi pi-check"
+            aria-hidden="true"
+          />
+        </template>
+      </Column>
+      <Column
+        field="internal"
+        :header="t('setup.entityParameters.internal', 'Internal')"
+        sortable
+        style="width: 6rem"
+        header-style="width: 6rem"
+      >
+        <template #body="{ data }">
+          <i
+            v-if="data.internal"
+            class="pi pi-check"
+            aria-hidden="true"
+          />
         </template>
       </Column>
       <Column
@@ -370,5 +431,10 @@ watch(
 
 .setup-objects-label__icon {
   font-size: 0.95rem;
+}
+
+.setup-objects-template {
+  font-size: 0.85rem;
+  word-break: break-word;
 }
 </style>

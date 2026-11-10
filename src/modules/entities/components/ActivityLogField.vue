@@ -326,64 +326,57 @@ watch(scrollPanel, (panel, previous) => {
             >
               {{ t('activityLog.noDeltaDetails', 'No field-level changes recorded.') }}
             </div>
-            <ul
+            <DataTable
               v-else
-              class="m-0 pl-0 list-none flex flex-col gap-3 text-sm"
+              :value="data.deltas"
+              data-key="field"
+              size="small"
+              class="activity-log-deltas-table"
             >
-              <li
-                v-for="delta in data.deltas"
-                :key="`${data.id}-${delta.field}`"
-                class="activity-log-delta"
+              <Column
+                field="label"
+                :header="t('activityLog.columnField', 'Field')"
+                style="min-width: 7rem; width: 28%"
               >
-                <div class="font-medium mb-1">
-                  {{ delta.label }}
-                </div>
-                <template v-if="hasDeltaChange(delta)">
-                  <div class="activity-log-delta__block">
-                    <div class="activity-log-delta__label text-muted-color">
-                      {{ t('activityLog.previousValue', 'Previous') }}
-                    </div>
-                    <pre
-                      v-if="isMultilineValue(delta.previousValue)"
-                      class="activity-log-delta__pre"
-                    >{{ delta.previousValue }}</pre>
-                    <div
-                      v-else
-                      class="activity-log-delta__value text-muted-color"
-                    >
-                      {{ delta.previousValue }}
-                    </div>
-                  </div>
-                  <div class="activity-log-delta__block">
-                    <div class="activity-log-delta__label text-muted-color">
-                      {{ t('activityLog.newValue', 'New') }}
-                    </div>
-                    <pre
-                      v-if="isMultilineValue(delta.value)"
-                      class="activity-log-delta__pre"
-                    >{{ delta.value }}</pre>
-                    <div
-                      v-else
-                      class="activity-log-delta__value"
-                    >
-                      {{ delta.value }}
-                    </div>
-                  </div>
+                <template #body="{ data: delta }">
+                  <span class="font-medium">{{ delta.label }}</span>
                 </template>
-                <template v-else>
+              </Column>
+              <Column
+                :header="t('activityLog.columnOriginalValue', 'Original Value')"
+                style="min-width: 6rem; width: 36%"
+              >
+                <template #body="{ data: delta }">
+                  <pre
+                    v-if="hasDeltaChange(delta) && isMultilineValue(delta.previousValue)"
+                    class="activity-log-delta__pre"
+                  >{{ delta.previousValue }}</pre>
+                  <span
+                    v-else
+                    class="activity-log-delta__value text-muted-color"
+                  >
+                    {{ hasDeltaChange(delta) ? delta.previousValue : '—' }}
+                  </span>
+                </template>
+              </Column>
+              <Column
+                :header="t('activityLog.columnNewValue', 'New Value')"
+                style="min-width: 6rem; width: 36%"
+              >
+                <template #body="{ data: delta }">
                   <pre
                     v-if="isMultilineValue(delta.value)"
                     class="activity-log-delta__pre"
                   >{{ delta.value }}</pre>
-                  <div
+                  <span
                     v-else
                     class="activity-log-delta__value"
                   >
-                    {{ delta.value }}
-                  </div>
+                    {{ delta.value || '—' }}
+                  </span>
                 </template>
-              </li>
-            </ul>
+              </Column>
+            </DataTable>
           </div>
         </template>
       </DataTable>
@@ -421,13 +414,12 @@ watch(scrollPanel, (panel, previous) => {
   word-break: break-word;
 }
 
-.activity-log-delta__block + .activity-log-delta__block {
-  margin-top: 0.5rem;
+.activity-log-deltas-table {
+  width: 100%;
 }
 
-.activity-log-delta__label {
-  font-size: 0.75rem;
-  margin-bottom: 0.15rem;
+.activity-log-deltas-table :deep(.p-datatable-tbody > tr > td) {
+  vertical-align: top;
 }
 
 .activity-log-delta__value {
@@ -436,11 +428,11 @@ watch(scrollPanel, (panel, previous) => {
 
 .activity-log-delta__pre {
   margin: 0;
-  max-height: 14rem;
+  max-height: 8rem;
   overflow: auto;
-  padding: 0.5rem 0.65rem;
+  padding: 0.35rem 0.5rem;
   border: 1px solid var(--p-content-border-color, #e5e7eb);
-  border-radius: 0.4rem;
+  border-radius: 0.35rem;
   background: var(--p-surface-50, #f8fafc);
   font-size: 0.75rem;
   line-height: 1.35;

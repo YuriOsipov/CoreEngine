@@ -245,6 +245,8 @@ export interface RolePermissionDto {
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
+  canImport: boolean
+  canExport: boolean
 }
 
 export interface PermissionEntityDto {
@@ -261,6 +263,8 @@ const ROLE_PERMISSIONS_QUERY = /* GraphQL */ `
       canRead
       canUpdate
       canDelete
+      canImport
+      canExport
     }
   }
 `
@@ -286,6 +290,8 @@ const REPLACE_ROLE_PERMISSIONS = /* GraphQL */ `
       canRead
       canUpdate
       canDelete
+      canImport
+      canExport
     }
   }
 `

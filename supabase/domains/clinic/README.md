@@ -1,6 +1,6 @@
 # Clinic domain pack
 
-Minimum Clinic app configuration on top of the Helix platform kernel.
+Minimum Clinic app configuration on top of the CoreEngine platform kernel.
 
 ## Includes
 

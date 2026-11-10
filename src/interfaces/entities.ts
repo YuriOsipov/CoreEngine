@@ -158,6 +158,8 @@ export interface DataTableNumberDisplayOptions {
   prefix?: string
   suffix?: string
   decimalPlaces?: number
+  /** When true and no field affix, format with org currency (Intl). */
+  useOrgCurrency?: boolean
 }
 
 export interface DataTableColumnConfig {

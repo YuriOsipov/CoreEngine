@@ -94,7 +94,9 @@ export function defaultOptionsForType(
   switch (type) {
     case 'metric':
       return {
+        sourceType: 'collection',
         collection: '',
+        reportId: '',
         field: '*',
         function: 'count',
         filter: {},
@@ -103,7 +105,9 @@ export function defaultOptionsForType(
     case 'line-chart':
     case 'pie-chart':
       return {
+        sourceType: 'collection',
         collection: '',
+        reportId: '',
         xAxis: '',
         yAxis: '',
         aggregation: 'count',

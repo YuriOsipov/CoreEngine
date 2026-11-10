@@ -13,13 +13,16 @@ import { useTranslation } from '@/core/translation'
 import { listUserCollections } from '@/modules/entities/services/collectionSchema'
 import {
   listReportFieldTreeNodes,
+  normalizePivotSort,
   normalizeReportName,
   type ReportAggregate,
   type ReportDefinition,
   type ReportFieldOption,
   type ReportFieldTreeNode,
   type ReportFilterCondition,
+  type ReportPivotDimension,
   type ReportPivotValue,
+  type ReportSortDirection,
 } from '../services/reportSettings'
 
 const { t } = useTranslation()
@@ -57,6 +60,10 @@ const aggregateOptions: Array<{ label: string; value: ReportAggregate }> = [
   { label: t('reports.average', 'Average'), value: 'avg' },
   { label: t('reports.min', 'Min'), value: 'min' },
   { label: t('reports.max', 'Max'), value: 'max' },
+]
+const sortOptions: Array<{ label: string; value: ReportSortDirection }> = [
+  { label: t('reports.sortAscShort', 'Asc'), value: 'asc' },
+  { label: t('reports.sortDescShort', 'Desc'), value: 'desc' },
 ]
 
 onMounted(() => {
@@ -135,7 +142,7 @@ function updateCollection(collection: string): void {
     collection,
     conditions: [],
     pivot: {
-      rows: ['id'],
+      rows: [{ field: 'id', sort: 'asc' }],
       columns: [],
       values: [{ field: 'id', aggregate: 'count' }],
     },
@@ -189,31 +196,33 @@ function updateConditionField(
   })
 }
 
-function rowFieldLabel(field: string): string {
-  return fields.value.find((item) => item.field === field)?.label ?? field
-}
-
-function columnFieldLabel(field: string): string {
-  return fields.value.find((item) => item.field === field)?.label ?? field
-}
-
 function replaceRowField(index: number, value: string | string[]): void {
   const field = singleFieldValue(value)
+  if (!field) return
   updatePivot({
     rows: report.value.pivot.rows.map((item, itemIndex) =>
-      itemIndex === index ? field : item,
-    ).filter(Boolean),
+      itemIndex === index ? { ...item, field } : item,
+    ),
+  })
+}
+
+function updateRowSort(index: number, sort: unknown): void {
+  updatePivot({
+    rows: report.value.pivot.rows.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, sort: normalizePivotSort(sort) } : item,
+    ),
   })
 }
 
 function addRowField(): void {
-  const existing = new Set(report.value.pivot.rows)
+  const existing = new Set(report.value.pivot.rows.map((item) => item.field))
   const firstAvailable =
     fields.value.find((field) => !existing.has(field.field))?.field ??
     fields.value[0]?.field ??
     ''
+  if (!firstAvailable) return
   updatePivot({
-    rows: [...report.value.pivot.rows, firstAvailable],
+    rows: [...report.value.pivot.rows, { field: firstAvailable, sort: 'asc' }],
   })
 }
 
@@ -223,27 +232,37 @@ function removeRowField(index: number): void {
   })
 }
 
-function reorderRowFields(rows: string[]): void {
+function reorderRowFields(rows: ReportPivotDimension[]): void {
   updatePivot({ rows: [...rows] })
 }
 
 function replaceColumnField(index: number, value: string | string[]): void {
   const field = singleFieldValue(value)
+  if (!field) return
   updatePivot({
     columns: report.value.pivot.columns.map((item, itemIndex) =>
-      itemIndex === index ? field : item,
-    ).filter(Boolean),
+      itemIndex === index ? { ...item, field } : item,
+    ),
+  })
+}
+
+function updateColumnSort(index: number, sort: unknown): void {
+  updatePivot({
+    columns: report.value.pivot.columns.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, sort: normalizePivotSort(sort) } : item,
+    ),
   })
 }
 
 function addColumnField(): void {
-  const existing = new Set(report.value.pivot.columns)
+  const existing = new Set(report.value.pivot.columns.map((item) => item.field))
   const firstAvailable =
     fields.value.find((field) => !existing.has(field.field))?.field ??
     fields.value[0]?.field ??
     ''
+  if (!firstAvailable) return
   updatePivot({
-    columns: [...report.value.pivot.columns, firstAvailable],
+    columns: [...report.value.pivot.columns, { field: firstAvailable, sort: 'asc' }],
   })
 }
 
@@ -253,7 +272,7 @@ function removeColumnField(index: number): void {
   })
 }
 
-function reorderColumnFields(columns: string[]): void {
+function reorderColumnFields(columns: ReportPivotDimension[]): void {
   updatePivot({ columns: [...columns] })
 }
 
@@ -389,11 +408,14 @@ function singleFieldValue(value: string | string[]): string {
 
     <template v-else>
       <section class="border-t border-surface-200 grid gap-3 pt-4">
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center justify-between gap-2">
           <h3 class="m-0">{{ t('reports.filters', 'Filters') }}</h3>
           <Button
-            :label="t('reports.addCondition', 'Add condition')"
+            icon="pi pi-plus"
             size="small"
+            text
+            :aria-label="t('reports.addCondition', 'Add condition')"
+            :title="t('reports.addCondition', 'Add condition')"
             @click="addCondition"
           />
         </div>
@@ -414,26 +436,37 @@ function singleFieldValue(value: string | string[]): string {
           <div
             v-for="condition in report.conditions"
             :key="condition.id"
-            class="grid gap-2 grid-cols-[minmax(140px,1fr)_180px_minmax(160px,1fr)_auto] items-center max-[760px]:grid-cols-1"
+            class="grid gap-2 border border-surface-100 rounded-md p-2"
           >
-            <ReportFieldSelector
-              :model-value="condition.field"
-              :collection="report.collection"
-              :placeholder="t('reports.selectField', 'Select field')"
-              @update:model-value="updateConditionField(condition, $event)"
-              @fields-loaded="mergeLoadedFields"
-            />
-            <Select
-              :model-value="condition.operator"
-              :options="conditionOptions"
-              option-label="label"
-              option-value="value"
-              @update:model-value="updateCondition(condition, { operator: String($event) })"
-            />
+            <div class="grid gap-2 grid-cols-[minmax(0,1fr)_7.5rem_auto] items-center">
+              <ReportFieldSelector
+                :model-value="condition.field"
+                :collection="report.collection"
+                :placeholder="t('reports.selectField', 'Select field')"
+                @update:model-value="updateConditionField(condition, $event)"
+                @fields-loaded="mergeLoadedFields"
+              />
+              <Select
+                :model-value="condition.operator"
+                :options="conditionOptions"
+                option-label="label"
+                option-value="value"
+                class="w-full"
+                @update:model-value="updateCondition(condition, { operator: String($event) })"
+              />
+              <Button
+                icon="pi pi-trash"
+                text
+                severity="danger"
+                :aria-label="t('common.remove', 'Remove')"
+                @click="removeCondition(condition)"
+              />
+            </div>
             <InputText
               v-if="isNoValueOperator(condition)"
               model-value=""
               disabled
+              class="w-full"
               :placeholder="t('reports.value', 'Value')"
             />
             <CrmAutoComplete
@@ -446,15 +479,9 @@ function singleFieldValue(value: string | string[]): string {
             <InputText
               v-else
               :model-value="condition.value === null || condition.value === undefined ? '' : String(condition.value)"
+              class="w-full"
               :placeholder="t('reports.value', 'Value')"
               @update:model-value="updateCondition(condition, { value: String($event) })"
-            />
-            <Button
-              icon="pi pi-trash"
-              text
-              severity="danger"
-              :aria-label="t('common.remove', 'Remove')"
-              @click="removeCondition(condition)"
             />
           </div>
         </div>
@@ -465,12 +492,14 @@ function singleFieldValue(value: string | string[]): string {
           <h3 class="m-0">{{ t('reports.pivot', 'Pivot') }}</h3>
         </div>
 
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center justify-between gap-2">
           <h4 class="m-0">{{ t('reports.rowFields', 'Row fields') }}</h4>
           <Button
-            :label="t('reports.addRowField', 'Add row field')"
+            icon="pi pi-plus"
             size="small"
             text
+            :aria-label="t('reports.addRowField', 'Add row field')"
+            :title="t('reports.addRowField', 'Add row field')"
             @click="addRowField"
           />
         </div>
@@ -492,9 +521,9 @@ function singleFieldValue(value: string | string[]): string {
           @change="reorderRowFields(report.pivot.rows)"
         >
           <div
-            v-for="(field, index) in report.pivot.rows"
-            :key="`${field || 'empty'}_${index}`"
-            class="grid items-center gap-2 grid-cols-[auto_minmax(220px,1fr)_minmax(120px,180px)_auto] max-[760px]:grid-cols-1"
+            v-for="(dimension, index) in report.pivot.rows"
+            :key="`${dimension.field || 'empty'}_${index}`"
+            class="grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_6rem_auto]"
           >
             <button
               type="button"
@@ -504,15 +533,22 @@ function singleFieldValue(value: string | string[]): string {
               ⠿
             </button>
             <ReportFieldSelector
-              :model-value="field"
+              :model-value="dimension.field"
               :collection="report.collection"
               :placeholder="t('reports.selectRowField', 'Select row field')"
               @update:model-value="replaceRowField(index, $event)"
               @fields-loaded="mergeLoadedFields"
             />
-            <span class="text-muted-color text-[0.85rem]">
-              {{ rowFieldLabel(field) }}
-            </span>
+            <Select
+              :model-value="dimension.sort ?? 'asc'"
+              :options="sortOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              :placeholder="t('reports.sort', 'Sort')"
+              :aria-label="t('reports.sort', 'Sort')"
+              @update:model-value="updateRowSort(index, $event)"
+            />
             <Button
               icon="pi pi-trash"
               text
@@ -523,12 +559,14 @@ function singleFieldValue(value: string | string[]): string {
           </div>
         </VueDraggableNext>
 
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center justify-between gap-2">
           <h4 class="m-0">{{ t('reports.columnFields', 'Column fields') }}</h4>
           <Button
-            :label="t('reports.addColumnField', 'Add column field')"
+            icon="pi pi-plus"
             size="small"
             text
+            :aria-label="t('reports.addColumnField', 'Add column field')"
+            :title="t('reports.addColumnField', 'Add column field')"
             @click="addColumnField"
           />
         </div>
@@ -550,9 +588,9 @@ function singleFieldValue(value: string | string[]): string {
           @change="reorderColumnFields(report.pivot.columns)"
         >
           <div
-            v-for="(field, index) in report.pivot.columns"
-            :key="`${field || 'empty'}_${index}`"
-            class="grid items-center gap-2 grid-cols-[auto_minmax(220px,1fr)_minmax(120px,180px)_auto] max-[760px]:grid-cols-1"
+            v-for="(dimension, index) in report.pivot.columns"
+            :key="`${dimension.field || 'empty'}_${index}`"
+            class="grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_6rem_auto]"
           >
             <button
               type="button"
@@ -562,15 +600,22 @@ function singleFieldValue(value: string | string[]): string {
               ⠿
             </button>
             <ReportFieldSelector
-              :model-value="field"
+              :model-value="dimension.field"
               :collection="report.collection"
               :placeholder="t('reports.selectColumnField', 'Select column field')"
               @update:model-value="replaceColumnField(index, $event)"
               @fields-loaded="mergeLoadedFields"
             />
-            <span class="text-muted-color text-[0.85rem]">
-              {{ columnFieldLabel(field) }}
-            </span>
+            <Select
+              :model-value="dimension.sort ?? 'asc'"
+              :options="sortOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              :placeholder="t('reports.sort', 'Sort')"
+              :aria-label="t('reports.sort', 'Sort')"
+              @update:model-value="updateColumnSort(index, $event)"
+            />
             <Button
               icon="pi pi-trash"
               text
@@ -581,12 +626,14 @@ function singleFieldValue(value: string | string[]): string {
           </div>
         </VueDraggableNext>
 
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center justify-between gap-2">
           <h4 class="m-0">{{ t('reports.values', 'Values') }}</h4>
           <Button
-            :label="t('reports.addValue', 'Add value')"
+            icon="pi pi-plus"
             size="small"
             text
+            :aria-label="t('reports.addValue', 'Add value')"
+            :title="t('reports.addValue', 'Add value')"
             @click="addValue"
           />
         </div>
@@ -595,7 +642,7 @@ function singleFieldValue(value: string | string[]): string {
           <div
             v-for="value in report.pivot.values"
             :key="`${value.field}_${value.aggregate}`"
-            class="grid gap-2 grid-cols-[minmax(180px,1fr)_minmax(140px,180px)_auto] max-[760px]:grid-cols-1"
+            class="grid items-center gap-2 grid-cols-[minmax(0,1fr)_6.5rem_auto]"
           >
             <ReportFieldSelector
               :model-value="value.field"
@@ -610,6 +657,7 @@ function singleFieldValue(value: string | string[]): string {
               :options="aggregateOptions"
               option-label="label"
               option-value="value"
+              class="w-full"
               @update:model-value="updateValueAggregate(value, $event)"
             />
             <Button

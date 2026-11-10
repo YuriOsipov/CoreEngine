@@ -33,10 +33,11 @@ const FIELD_TYPES = new Set([
   'ALIAS',
 ])
 
-/** UI aliases accepted then stored as STRING / JSON. */
+/** UI aliases accepted then stored as STRING / JSON / UUID. */
 const FIELD_TYPE_ALIASES: Record<string, string> = {
   TEXT: 'STRING',
   ADDRESS: 'JSON',
+  IMAGE: 'UUID',
 }
 
 const RELATION_KINDS = new Set(['M2O', 'O2M', 'M2M', 'M2A'])

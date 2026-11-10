@@ -66,6 +66,7 @@ const props = defineProps<{
     value: unknown
     type?: string
     userVisible?: boolean
+    required?: boolean
     fieldWidth?: number
   }> | null
   /** List layout / view id — used to reload Filter conditions when opening Template. */
@@ -504,6 +505,7 @@ const templateEditorListContext = ref<{
     value: unknown
     type?: string
     userVisible?: boolean
+    required?: boolean
     fieldWidth?: number
   }> | null
   parentCollection?: string | null
@@ -874,6 +876,7 @@ async function resolveListActionFilterConditions(): Promise<Array<{
   value: unknown
   type?: string
   userVisible?: boolean
+  required?: boolean
   fieldWidth?: number
 }> | null> {
   if (props.listViewConditions?.length) {

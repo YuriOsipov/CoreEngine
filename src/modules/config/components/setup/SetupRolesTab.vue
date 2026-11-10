@@ -23,6 +23,14 @@ import {
 } from '@/core/graphql/userAdminApi'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
 
+type PermissionFlag =
+  | 'canCreate'
+  | 'canRead'
+  | 'canUpdate'
+  | 'canDelete'
+  | 'canImport'
+  | 'canExport'
+
 interface PermissionMatrixRow {
   entityApiName: string
   label: string
@@ -31,6 +39,8 @@ interface PermissionMatrixRow {
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
+  canImport: boolean
+  canExport: boolean
 }
 
 const { t } = useTranslation()
@@ -95,6 +105,8 @@ function buildMatrix(
       canRead: Boolean(granted?.canRead),
       canUpdate: Boolean(granted?.canUpdate),
       canDelete: Boolean(granted?.canDelete),
+      canImport: Boolean(granted?.canImport),
+      canExport: Boolean(granted?.canExport),
     }
   })
 }
@@ -134,6 +146,8 @@ function openCreate(): void {
     row.canRead = true
     row.canUpdate = true
     row.canDelete = true
+    row.canImport = true
+    row.canExport = true
   }
   dialogVisible.value = true
 }
@@ -163,17 +177,40 @@ function setAll(action: 'all' | 'none' | 'read'): void {
       row.canRead = true
       row.canUpdate = true
       row.canDelete = true
+      row.canImport = true
+      row.canExport = true
     } else if (action === 'none') {
       row.canCreate = false
       row.canRead = false
       row.canUpdate = false
       row.canDelete = false
+      row.canImport = false
+      row.canExport = false
     } else {
       row.canCreate = false
       row.canRead = true
       row.canUpdate = false
       row.canDelete = false
+      row.canImport = false
+      row.canExport = false
     }
+  }
+}
+
+/** True when every visible (filtered) row has this flag on. */
+function columnAllEnabled(flag: PermissionFlag): boolean {
+  const rows = filteredMatrix.value
+  return rows.length > 0 && rows.every((row) => row[flag])
+}
+
+/**
+ * Toggle one permission column for all currently visible rows.
+ * If all are on → turn off; otherwise turn all on.
+ */
+function toggleColumn(flag: PermissionFlag): void {
+  const enable = !columnAllEnabled(flag)
+  for (const row of filteredMatrix.value) {
+    row[flag] = enable
   }
 }
 
@@ -204,6 +241,8 @@ async function save(): Promise<void> {
           canRead: row.canRead,
           canUpdate: row.canUpdate,
           canDelete: row.canDelete,
+          canImport: row.canImport,
+          canExport: row.canExport,
         })),
       )
     }
@@ -264,7 +303,7 @@ onMounted(() => {
           {{
             t(
               'setup.roles.hint',
-              'User groups with collection Create / Read / Update / Delete permissions.',
+              'User groups with collection Create / Read / Update / Delete / Import / Export permissions.',
             )
           }}
         </p>
@@ -372,7 +411,7 @@ onMounted(() => {
           ? t('setup.roles.edit', 'Edit role')
           : t('setup.roles.new', 'New role')
       "
-      :style="{ width: 'min(56rem, 96vw)' }"
+      :style="{ width: 'min(72rem, 98vw)' }"
       :dismissable-mask="true"
     >
       <div class="flex flex-col gap-3">
@@ -465,10 +504,22 @@ onMounted(() => {
                 </div>
               </template>
             </Column>
-            <Column
-              :header="t('setup.roles.canCreate', 'Create')"
-              style="width: 5.5rem; text-align: center"
-            >
+            <Column style="width: 5.5rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="t('setup.roles.toggleColumnHint', 'Click to toggle this column for all filtered objects')"
+                  @click="toggleColumn('canCreate')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canCreate')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canCreate', 'Create') }}</span>
+                </button>
+              </template>
               <template #body="{ data }">
                 <Checkbox
                   v-model="data.canCreate"
@@ -476,10 +527,22 @@ onMounted(() => {
                 />
               </template>
             </Column>
-            <Column
-              :header="t('setup.roles.canRead', 'Read')"
-              style="width: 5.5rem; text-align: center"
-            >
+            <Column style="width: 5.5rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="t('setup.roles.toggleColumnHint', 'Click to toggle this column for all filtered objects')"
+                  @click="toggleColumn('canRead')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canRead')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canRead', 'Read') }}</span>
+                </button>
+              </template>
               <template #body="{ data }">
                 <Checkbox
                   v-model="data.canRead"
@@ -487,10 +550,22 @@ onMounted(() => {
                 />
               </template>
             </Column>
-            <Column
-              :header="t('setup.roles.canUpdate', 'Update')"
-              style="width: 5.5rem; text-align: center"
-            >
+            <Column style="width: 5.5rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="t('setup.roles.toggleColumnHint', 'Click to toggle this column for all filtered objects')"
+                  @click="toggleColumn('canUpdate')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canUpdate')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canUpdate', 'Update') }}</span>
+                </button>
+              </template>
               <template #body="{ data }">
                 <Checkbox
                   v-model="data.canUpdate"
@@ -498,13 +573,71 @@ onMounted(() => {
                 />
               </template>
             </Column>
-            <Column
-              :header="t('setup.roles.canDelete', 'Delete')"
-              style="width: 5.5rem; text-align: center"
-            >
+            <Column style="width: 5.5rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="t('setup.roles.toggleColumnHint', 'Click to toggle this column for all filtered objects')"
+                  @click="toggleColumn('canDelete')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canDelete')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canDelete', 'Delete') }}</span>
+                </button>
+              </template>
               <template #body="{ data }">
                 <Checkbox
                   v-model="data.canDelete"
+                  binary
+                />
+              </template>
+            </Column>
+            <Column style="width: 5.5rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="t('setup.roles.toggleColumnHint', 'Click to toggle this column for all filtered objects')"
+                  @click="toggleColumn('canImport')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canImport')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canImport', 'Import') }}</span>
+                </button>
+              </template>
+              <template #body="{ data }">
+                <Checkbox
+                  v-model="data.canImport"
+                  binary
+                />
+              </template>
+            </Column>
+            <Column style="width: 5.5rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="t('setup.roles.toggleColumnHint', 'Click to toggle this column for all filtered objects')"
+                  @click="toggleColumn('canExport')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canExport')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canExport', 'Export') }}</span>
+                </button>
+              </template>
+              <template #body="{ data }">
+                <Checkbox
+                  v-model="data.canExport"
                   binary
                 />
               </template>
@@ -530,3 +663,28 @@ onMounted(() => {
     </Dialog>
   </section>
 </template>
+
+<style scoped>
+.setup-roles-col-toggle {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.15rem 0.25rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1.1;
+}
+
+.setup-roles-col-toggle:hover {
+  color: var(--p-primary-color, #3b82f6);
+}
+
+.setup-roles-col-toggle :deep(.p-checkbox) {
+  pointer-events: none;
+}
+</style>

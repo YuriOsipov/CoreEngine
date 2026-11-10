@@ -35,6 +35,13 @@ export interface O2MRelationMeta {
   sortField: string | null
 }
 
+/** Child entity that has an M2O FK pointing at this parent (reverse of M2O). */
+export interface ReverseM2OChildMeta {
+  childEntityApiName: string
+  /** FK field on the child (e.g. opportunity_id). */
+  fkFieldApiName: string
+}
+
 interface RelationCacheEntry {
   m2o: M2ORelationMeta[]
   m2a: M2ARelationMeta[]
@@ -44,9 +51,14 @@ interface RelationCacheEntry {
 
 const RELATION_TTL_MS = 30_000
 const relationCache = new Map<string, RelationCacheEntry>()
+const reverseChildCache = new Map<
+  string,
+  { rows: ReverseM2OChildMeta[]; expiresAt: number }
+>()
 
 export function clearRecordRelationsCache(): void {
   relationCache.clear()
+  reverseChildCache.clear()
 }
 
 function readMetaString(
@@ -81,6 +93,58 @@ export async function loadO2MRelations(
 ): Promise<O2MRelationMeta[]> {
   const bundle = await loadEntityRelations(entityApiName)
   return bundle.o2m
+}
+
+/**
+ * Entities that reference `entityApiName` via an M2O FK
+ * (e.g. quote.opportunity_id → opportunity).
+ */
+export async function loadReverseM2OChildren(
+  entityApiName: string,
+): Promise<ReverseM2OChildMeta[]> {
+  const parent = String(entityApiName || '').trim()
+  if (!parent) return []
+  const cached = reverseChildCache.get(parent)
+  if (cached && cached.expiresAt > Date.now()) return cached.rows
+
+  const rows = await query<{
+    child_api_name: string
+    fk_field: string
+  }>(
+    `SELECT e.api_name AS child_api_name,
+            f.api_name AS fk_field
+     FROM public.relations r
+     JOIN public.fields f ON f.id = r.field_id
+     JOIN public.entities e ON e.id = r.entity_id AND e.deleted_at IS NULL
+     LEFT JOIN public.entities related
+       ON related.id = r.related_entity_id AND related.deleted_at IS NULL
+     WHERE upper(COALESCE(r.kind, '')) = 'M2O'
+       AND e.api_name <> $1
+       AND (
+         related.api_name = $1
+         OR COALESCE(r.meta->>'one_collection', '') = $1
+       )
+     ORDER BY e.api_name ASC, f.api_name ASC`,
+    [parent],
+  )
+
+  const out: ReverseM2OChildMeta[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const child = String(row.child_api_name || '').trim()
+    const fk = String(row.fk_field || '').trim()
+    if (!child || !fk) continue
+    const key = `${child}|${fk}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ childEntityApiName: child, fkFieldApiName: fk })
+  }
+
+  reverseChildCache.set(parent, {
+    rows: out,
+    expiresAt: Date.now() + RELATION_TTL_MS,
+  })
+  return out
 }
 
 async function loadEntityRelations(

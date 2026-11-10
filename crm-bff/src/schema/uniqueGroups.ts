@@ -39,7 +39,8 @@ export function parseUniqueGroupsFromConfig(backendConfig: unknown): EntityUniqu
     const fields = Array.isArray(row.fields)
       ? row.fields.map(String).map((f) => f.trim()).filter(Boolean)
       : []
-    if (!fields.length) continue
+    // Composite groups only — single-field uniqueness lives on fields.is_unique.
+    if (fields.length < 2) continue
     const nameRaw =
       typeof row.name === 'string' && row.name.trim()
         ? row.name.trim()
@@ -49,6 +50,36 @@ export function parseUniqueGroupsFromConfig(backendConfig: unknown): EntityUniqu
     if (seen.has(key)) continue
     seen.add(key)
     out.push({ name, fields })
+  }
+  return out
+}
+
+/** Collect 1-field uniqueGroups from raw backend_config (pre-normalization leftovers). */
+export function parseSingleFieldUniqueGroupsFromConfig(
+  backendConfig: unknown,
+): EntityUniqueGroup[] {
+  const config = asObject(backendConfig)
+  const raw = config.uniqueGroups
+  if (!Array.isArray(raw)) return []
+  const out: EntityUniqueGroup[] = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const fields = Array.isArray(row.fields)
+      ? row.fields.map(String).map((f) => f.trim()).filter(Boolean)
+      : []
+    if (fields.length !== 1) continue
+    const field = fields[0]!
+    if (seen.has(field)) continue
+    seen.add(field)
+    out.push({
+      name:
+        typeof row.name === 'string' && row.name.trim()
+          ? sanitizeIndexPart(row.name.trim()) || `field_${sanitizeIndexPart(field)}`
+          : `field_${sanitizeIndexPart(field)}`,
+      fields: [field],
+    })
   }
   return out
 }
@@ -228,17 +259,24 @@ export async function applyUniqueIndexActions(
   }
 }
 
-/** Persist uniqueGroups into entities.backend_config (replaces uniqueGroups key only). */
+/**
+ * Promote leftover 1-field uniqueGroups onto fields.is_unique, then persist
+ * only composite groups (2+ fields) into backend_config.uniqueGroups.
+ */
 export async function saveEntityUniqueGroups(
   entityApiName: string,
   groups: EntityUniqueGroup[],
 ): Promise<EntityUniqueGroup[]> {
-  const normalized = groups
-    .map((g) => ({
-      name: sanitizeIndexPart(g.name || g.fields.join('_')) || 'group',
-      fields: g.fields.map((f) => f.trim()).filter(Boolean),
-    }))
-    .filter((g) => g.fields.length > 0)
+  const prepared = groups.map((g) => ({
+    name: sanitizeIndexPart(g.name || g.fields.join('_')) || 'group',
+    fields: g.fields.map((f) => f.trim()).filter(Boolean),
+  }))
+
+  for (const group of prepared.filter((g) => g.fields.length === 1)) {
+    await setFieldIsUnique(entityApiName, group.fields[0]!, true)
+  }
+
+  const normalized = prepared.filter((g) => g.fields.length >= 2)
 
   const patch = JSON.stringify({ uniqueGroups: normalized })
   await query(
@@ -249,6 +287,33 @@ export async function saveEntityUniqueGroups(
     [entityApiName, patch],
   )
   return normalized
+}
+
+/**
+ * Strip duplicated 1-field uniqueGroups from every entity config, promoting
+ * those fields to fields.is_unique. Returns number of entities updated.
+ */
+export async function cleanupSingleFieldUniqueGroupsEverywhere(): Promise<number> {
+  const entities = await query<{ api_name: string; backend_config: unknown }>(
+    `SELECT api_name, backend_config
+     FROM public.entities
+     WHERE deleted_at IS NULL
+       AND backend_config ? 'uniqueGroups'`,
+  )
+  let updated = 0
+  for (const row of entities) {
+    const singles = parseSingleFieldUniqueGroupsFromConfig(row.backend_config)
+    const composites = parseUniqueGroupsFromConfig(row.backend_config)
+    if (!singles.length) continue
+    for (const group of singles) {
+      await setFieldIsUnique(row.api_name, group.fields[0]!, true)
+    }
+    await saveEntityUniqueGroups(row.api_name, composites)
+    const actions = await planUniqueIndexActions(row.api_name)
+    await applyUniqueIndexActions(actions)
+    updated += 1
+  }
+  return updated
 }
 
 export async function setFieldIsUnique(

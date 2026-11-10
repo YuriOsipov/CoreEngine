@@ -1,17 +1,63 @@
-# Helix — multi-purpose platform
+# CoreEngine — multi-purpose platform
 
-Vue 3 + Vite + TypeScript + OpenVue. Schema-driven objects, layouts, documents, projects, and reports via GraphQL BFF + Supabase registry.
+Vue 3 + Vite + TypeScript + OpenVue. Schema-driven objects, layouts, documents, dashboards, and reports via GraphQL BFF + Supabase registry — with domain packs for vertical starters (Sales, Clinic, Pricing, Documents).
+
+## Capability overview
+
+How CoreEngine maps to common platform checklist items today:
+
+| Area | CoreEngine today |
+|------|-------------|
+| **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks** (scheduled jobs). Visual multi-step designer lives in **n8n** (or similar), not inside CoreEngine. |
+| **Permissions** | Partial — granular **roles** with **object**-level create/read/update/delete/import/export. No field-level or record-level (sharing/owner) security yet; layout show/readonly rules are UI/record-value, not FLS. |
+| **Authentication** | Partial — local email/password via BFF JWT (`/auth/login`, refresh). **No** SSO / OAuth / MFA / enterprise IdP yet. |
+| **Version control** | Partial — schemas, layouts, roles, and templates ship as **domain packs** (JSON under `supabase/domains/`) with `platform:export-pack` / `apply-pack`; versioned in **git**. No in-app config revision UI. |
+| **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
+| **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, in-process **scheduled jobs**. Failures are logged only. |
+| **Reliable automation** | **Open (critical)** — no durable job queue, retry policies, dead-letter queue, execution history / monitoring, or idempotency keys yet. For resilient multi-step runs, use **n8n** (or similar) against CoreEngine APIs today. |
+| **Validation & business rules** | **Open** — field required / unique / unique groups and record-automation conditions exist; no first-class configurable validation rules engine or declarative business-rule designer beyond that. |
+| **Admin config audit** | **Open** — record **Activity & Revision Tracking** covers business data; no audit history yet for administrative configuration changes (entities, fields, layouts, roles, automations, etc.). |
+| **Integrations** | Partial — GraphQL BFF + REST CRUD, SOQL-style `/api/v1/query`, document generate, n8n runbook, optional Hasura/Directus record backends. No first-party SaaS connector catalog. |
 
 ## Features
 
 ### Schema-driven UI
 - Object Manager, role-scoped Block Layouts, list/tree/table designers, and Form Builder canvas.
 - **Custom palette blocks** (Attachments, DocEngine, Tree table picker, Scheduler) can be placed more than once on a Block Layout — they stay available after drop.
+- Block Layout **show / readonly conditions** on fields and groups (visibility and editability driven by record values).
+- **Inline editor** in object / related lists for editing cells without opening the record.
+- **Child value lookup** on fields — resolve a value from a related / child collection (with optional parent-field filters), e.g. Item Price → Price by Item and Account price group.
+- **Soft delete** for entities — records are marked deleted (and filtered from default lists) instead of permanently removed, with restore where supported.
+
+### Application builder
+- **Dashboards** — Setup designer + runtime metric/chart/label panels.
+- **Navigation apps** — role-scoped folders, entity lists, dashboards, reports, and home routes.
+- **Record / form / list / tree** pages driven by `layout_settings` (no hard-coded detail forms).
+
+### Automation & workflows
+- **Record automations** on create/update/delete: conditions (AND/OR, require-changed), set fields, notify, break, trigger a flow key.
+- **Setup → Flows** — named `app_flow_triggers` (`http` webhook to n8n/external URL, or `update_record`). Prefer keys over raw URLs in automations.
+- **Setup → Tasks** — scheduled background jobs (e.g. Sync promo prices, notifications via flow triggers).
+- Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL ([`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md)).
+
+### Permissions & authentication
+- **Roles** with per-entity CRUD (+ import/export) matrix; admins bypass; role preview in the UI.
+- **Auth:** BFF local login (`VITE_AUTH_MODE=bff`) issuing Bearer access + refresh tokens. Automation users: `npm run registry:seed-n8n-automation-user`.
 
 ### Documents & list reports
 - Setup → Document Templates with Field Mapping against live or sample `$payload`.
 - **List Document report** actions build one DocEngine document from filtered / visible list rows (`$payload.records`, `$payload.meta.filter`).
 - HTML and PDF preview expand **array-sourced sections** so each mapped group instance renders (not only the first).
+- Server generate for automations: `POST /api/v1/documents/generate` ([`docs/generate-document-api.md`](docs/generate-document-api.md)).
+
+### Reports
+- Pivot / report views with a **drill-down** option to open the source records behind a summarized cell.
+
+### Import / export
+- Import and export support for moving records in and out of schema-driven objects.
+
+### Activity & Revision Tracking
+- Per-entity accountability (activity only, or activity + revisions) for audit history on create/update/delete.
 
 ### Tree price lists (Item Price / Item group)
 - Virtual payload for Tree mode Field Mapping:
@@ -24,6 +70,14 @@ Vue 3 + Vite + TypeScript + OpenVue. Schema-driven objects, layouts, documents, 
 
 ### Platform kernel & packs
 - New customer DB = new Postgres; kernel in `supabase/migrations/`, vertical packs in `supabase/domains/` (Sales, Clinic, Pricing, Documents).
+- Pack JSON (entities, roles, layouts, optional records) is the portable baseline — export from a live DB with `npm run platform:export-pack`, version in git, apply with provision / `platform:apply-pack`.
+- **CoreEngine Sales** (`sales` + `pricing`) is the commercial CRM/catalog starter; see [`supabase/README.md`](supabase/README.md) and [`supabase/domains/sales/README.md`](supabase/domains/sales/README.md).
+
+### Integrations (BFF REST / GraphQL)
+- Bearer JWT records API: `/api/v1/:collection` CRUD (PK or `uniqueField:value`), SOQL-style `GET|POST /api/v1/query`, and `POST /api/v1/documents/generate`.
+- **Record + children in one call:** `GET /api/v1/:collection/:id?expand=children` returns the parent plus `_children` (every entity with an M2O FK to that record, e.g. Opportunity → `quote`) and `_files` (attachments). Optional `childLimit`, `expand=children,nofiles`.
+- GraphQL at `/graphql` for the Vue app and advanced clients; optional Hasura / Directus as entity record backends.
+- n8n: webhook ← CoreEngine flow key; login + REST/GraphQL write-back. Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
 
 ## Setup
 
@@ -59,6 +113,7 @@ See [`supabase/README.md`](supabase/README.md) for the platform kernel + domain 
 | `VITE_AUTH_MODE` | `bff` — login via BFF `/auth/login` |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase / PostgREST (optional registry REST) |
 | `DIRECTUS_RUNTIME` | Must be `off` (legacy HTTP SDK refuse; GraphQL adapter is separate) |
+| `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset). Record and document email stays in n8n |
 
 ## Scripts
 

@@ -2,6 +2,7 @@
  * Record automations — admin rules in entities.backend_config.automations.
  * Applied on create/update/delete after formulas (see applyRecordAutomations).
  */
+import { flowTriggerKeyFromWebhook } from '../flows/flowKey.js'
 import { query } from '../db/pool.js'
 
 export type RecordAutomationTrigger = 'create' | 'update' | 'delete'
@@ -16,6 +17,11 @@ export type RecordAutomationAction =
       message: string
     }
   | { type: 'break' }
+  | {
+      type: 'trigger_flow'
+      /** Local app_flow_triggers key (or /flows/trigger/{key}). */
+      flowKey: string
+    }
 
 export interface RecordAutomationCondition {
   field: string
@@ -40,7 +46,7 @@ export interface EntityRecordAutomation {
   requireChanged: string[]
   /** Field → value. Special: $NOW, $NULL, or {{DATE_ADD_DAYS(...)}} templates */
   setFields: Record<string, unknown>
-  /** Side effects after a match (notify toast, break chain). */
+  /** Side effects after a match (notify toast, trigger flow, break chain). */
   actions: RecordAutomationAction[]
 }
 
@@ -142,6 +148,19 @@ function parseActions(raw: unknown): RecordAutomationAction[] {
       out.push({ type: 'break' })
       continue
     }
+    if (
+      type === 'trigger_flow' ||
+      type === 'triggerflow' ||
+      type === 'flow'
+    ) {
+      const rawKey = String(
+        row.flowKey ?? row.flow_key ?? row.webhook ?? '',
+      ).trim()
+      const flowKey = flowTriggerKeyFromWebhook(rawKey)
+      if (!flowKey) continue
+      out.push({ type: 'trigger_flow', flowKey })
+      continue
+    }
     if (type === 'notify') {
       const severityRaw = String(row.severity || 'info')
         .trim()
@@ -233,11 +252,33 @@ export async function loadEntityAutomations(
   return parseAutomationsFromConfig(entities[0]?.backend_config)
 }
 
+function assertValidFlowActions(automations: EntityRecordAutomation[]): void {
+  for (const rule of automations) {
+    for (const action of rule.actions ?? []) {
+      if (action.type !== 'trigger_flow') continue
+      const raw = String(action.flowKey || '').trim()
+      if (!raw) {
+        throw new Error(
+          `Automation "${rule.name || rule.id}": Trigger flow requires a flow key.`,
+        )
+      }
+      if (!flowTriggerKeyFromWebhook(raw)) {
+        throw new Error(
+          `Automation "${rule.name || rule.id}": "${raw}" is not a CoreEngine flow key. ` +
+            `Use an app_flow_triggers key (e.g. my-hook), or /flows/trigger/my-hook. ` +
+            `Register external URLs as handler=http in app_flow_triggers.`,
+        )
+      }
+    }
+  }
+}
+
 /** Persist automations into entities.backend_config (replaces automations key only). */
 export async function saveEntityAutomations(
   entityApiName: string,
   automations: EntityRecordAutomation[],
 ): Promise<EntityRecordAutomation[]> {
+  assertValidFlowActions(automations)
   const prepared = automations
     .map((rule, index) => ({
       id: sanitizeId(rule.id || `auto_${index + 1}`) || `auto_${index + 1}`,

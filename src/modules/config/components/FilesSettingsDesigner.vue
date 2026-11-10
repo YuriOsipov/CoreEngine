@@ -11,12 +11,15 @@ import type {
   FilesDisplay,
   FilesSettings,
   FileDisplayColumn,
+  ImagePreviewSize,
 } from '@/interfaces'
-import { AVAILABLE_FILE_COLUMNS } from '@/interfaces'
+import { AVAILABLE_FILE_COLUMNS, IMAGE_PREVIEW_SIZE_OPTIONS } from '@/interfaces'
 import { useTranslation } from '@/core/translation'
 
 const props = defineProps<{
   modelValue: FilesSettings
+  /** Image Setup fields: lock to single image, hide gallery options. */
+  imageMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,17 +28,38 @@ const emit = defineEmits<{
 
 const { t } = useTranslation()
 
-const DISPLAY_OPTIONS = computed<Array<{ label: string; value: FilesDisplay }>>(() => [
-  { label: t('filesSettings.thumbnail', 'Thumbnail grid'), value: 'thumbnail' },
-  { label: t('filesSettings.list', 'File list'), value: 'list' },
-  { label: t('filesSettings.gallery', 'Full gallery'), value: 'gallery' },
-])
+const DISPLAY_OPTIONS = computed<Array<{ label: string; value: FilesDisplay }>>(() => {
+  if (props.imageMode) {
+    return [
+      { label: t('filesSettings.imagePreview', 'Image preview'), value: 'thumbnail' },
+    ]
+  }
+  return [
+    { label: t('filesSettings.thumbnail', 'Thumbnail grid'), value: 'thumbnail' },
+    { label: t('filesSettings.list', 'File list'), value: 'list' },
+    { label: t('filesSettings.gallery', 'Full gallery'), value: 'gallery' },
+  ]
+})
 
 const COMMON_MIME_HINTS = [
   { label: t('filesSettings.imagesOnly', 'Images only'), value: 'image/' },
   { label: t('filesSettings.pdfOnly', 'PDF only'), value: 'application/pdf' },
   { label: t('filesSettings.docsOnly', 'Documents'), value: 'application/' },
 ]
+
+const PREVIEW_SIZE_OPTIONS = computed(() =>
+  IMAGE_PREVIEW_SIZE_OPTIONS.map((option) => ({
+    value: option.value,
+    label:
+      option.value === 'sm'
+        ? t('filesSettings.previewSizeSm', 'Small')
+        : option.value === 'md'
+          ? t('filesSettings.previewSizeMd', 'Medium')
+          : option.value === 'lg'
+            ? t('filesSettings.previewSizeLg', 'Large')
+            : t('filesSettings.previewSizeFill', 'Fill width'),
+  })),
+)
 
 const displayMode = computed<FilesDisplay>({
   get: () => props.modelValue.display,
@@ -48,6 +72,17 @@ const mimeInput = computed({
     const allowedMimeTypes = raw.split(',').map((s) => s.trim()).filter(Boolean)
     emit('update:modelValue', { ...props.modelValue, allowedMimeTypes })
   },
+})
+
+const previewSize = computed<ImagePreviewSize>({
+  get: () => {
+    const value = props.modelValue.previewSize
+    return value === 'sm' || value === 'md' || value === 'lg' || value === 'fill'
+      ? value
+      : 'md'
+  },
+  set: (value: ImagePreviewSize) =>
+    emit('update:modelValue', { ...props.modelValue, previewSize: value }),
 })
 
 const multiple = computed({
@@ -82,7 +117,10 @@ function onAddColumn(event: { value?: FileDisplayColumn | null }): void {
 
 <template>
   <div class="grid gap-3">
-    <div class="grid gap-2">
+    <div
+      v-if="!imageMode"
+      class="grid gap-2"
+    >
       <label class="text-[0.85rem] font-medium">{{ t('filesSettings.display', 'Display') }}</label>
       <Select
         v-model="displayMode"
@@ -92,15 +130,56 @@ function onAddColumn(event: { value?: FileDisplayColumn | null }): void {
         class="w-full"
       />
     </div>
+    <small
+      v-else
+      class="text-muted-color"
+    >
+      {{
+        t(
+          'filesSettings.imageModeHint',
+          'Shows a single image preview with upload / replace. Format and max size are set in Setup → General.',
+        )
+      }}
+    </small>
 
-    <div class="flex items-center gap-2">
+    <div
+      v-if="imageMode"
+      class="grid gap-2"
+    >
+      <label class="text-[0.85rem] font-medium">
+        {{ t('filesSettings.previewSize', 'Preview size') }}
+      </label>
+      <Select
+        v-model="previewSize"
+        :options="PREVIEW_SIZE_OPTIONS"
+        option-label="label"
+        option-value="value"
+        class="w-full"
+      />
+      <small class="text-muted-color">
+        {{
+          t(
+            'filesSettings.previewSizeHint',
+            'Controls how large the image preview appears on the form and detail view.',
+          )
+        }}
+      </small>
+    </div>
+
+    <div
+      v-if="!imageMode"
+      class="flex items-center gap-2"
+    >
       <Checkbox v-model="multiple" binary input-id="files-multiple" />
       <label for="files-multiple" class="text-[0.85rem]">
         {{ t('filesSettings.multiple', 'Allow multiple files') }}
       </label>
     </div>
 
-    <div class="grid gap-2">
+    <div
+      v-if="!imageMode"
+      class="grid gap-2"
+    >
       <label class="text-[0.85rem] font-medium">
         {{ t('filesSettings.mimeTypes', 'Allowed MIME types') }}
       </label>
@@ -118,7 +197,10 @@ function onAddColumn(event: { value?: FileDisplayColumn | null }): void {
       </div>
     </div>
 
-    <div class="grid gap-2">
+    <div
+      v-if="!imageMode"
+      class="grid gap-2"
+    >
       <label class="text-[0.85rem] font-medium">
         {{ t('filesSettings.columns', 'Metadata columns') }}
       </label>

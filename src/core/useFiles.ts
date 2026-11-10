@@ -233,6 +233,15 @@ export function fileColumnHeader(
   return entry ? t(entry[0], entry[1]) : fallback
 }
 
+const LEGACY_FILE_LIST_COLUMNS = ['type', 'filesize', 'created_on', 'uploaded_by'] as const
+
+function isLegacyFileListColumns(columns: Array<{ field: string }>): boolean {
+  return (
+    columns.length === LEGACY_FILE_LIST_COLUMNS.length &&
+    columns.every((column, index) => column.field === LEGACY_FILE_LIST_COLUMNS[index])
+  )
+}
+
 export function fileColumns(
   field: LayoutFieldMetadata,
   t: (key: string, fallback?: string) => string,
@@ -240,13 +249,14 @@ export function fileColumns(
   const configured = (filesSettings(field)?.columns ?? []).filter(
     (c) => c.field !== 'filename_download',
   )
-  if (configured.length) return configured
-  return [
-    { field: 'type',       header: t('filePreview.field.type', 'Type') },
-    { field: 'filesize',   header: t('filePreview.field.size', 'Size') },
+  // Title is rendered as a dedicated link column in AttachedDataTableField.
+  const defaults = [
+    { field: 'description', header: t('filePreview.field.description', 'Description') },
+    { field: 'filesize', header: t('filePreview.field.size', 'Size') },
     { field: 'created_on', header: t('filePreview.field.uploaded', 'Uploaded') },
-    { field: 'uploaded_by', header: t('filePreview.field.uploadedBy', 'Uploaded By') },
   ]
+  if (!configured.length || isLegacyFileListColumns(configured)) return defaults
+  return configured
 }
 
 // ── Composable ───────────────────────────────────────────────────────────────

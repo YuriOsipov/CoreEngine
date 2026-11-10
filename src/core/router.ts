@@ -16,6 +16,12 @@ export const router = createRouter({
     ...dashboardRoutes,
     ...reportRoutes,
     ...projectRoutes,
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/modules/config/pages/NotFoundPage.vue'),
+      meta: { title: 'Page not found' },
+    },
   ],
 })
 

@@ -5,6 +5,7 @@ export default {
 </script>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { Dropdown as FloatingDropdown } from 'floating-vue'
 import type { RouteLocationRaw } from 'vue-router'
 import { RouterLink } from 'vue-router'
@@ -13,7 +14,11 @@ import Column from 'openvue/column'
 import DataTable from 'openvue/datatable'
 import CompactRecordTooltip from '@/modules/entities/components/CompactRecordTooltip.vue'
 import CrmHtmlCell from '@/core/ui-kit/CrmHtmlCell.vue'
-import { isHtmlEditorColumn } from '@/core/fieldHelpers'
+import {
+  coerceBooleanDisplayValue,
+  isBooleanColumn,
+  isHtmlEditorColumn,
+} from '@/core/fieldHelpers'
 import { useTranslation } from '@/core/translation'
 import type { LayoutFieldChildLookup } from '@/interfaces/config'
 import type { PrimeVueComponentType } from '@/interfaces/entities'
@@ -54,6 +59,10 @@ const props = defineProps<{
   paginator?: boolean
   activeRowsPerPage: number
   isCompact?: boolean
+  /** Salesforce-style leftmost record index (1-based within loaded rows). */
+  showRowNumbers?: boolean
+  /** Added to the 0-based body index (e.g. paginator page offset). */
+  rowNumberOffset?: number
   isSelectionEnabled?: boolean
   isMultipleSelection?: boolean
   selection: Record<string, unknown> | Record<string, unknown>[] | null
@@ -77,6 +86,7 @@ const props = defineProps<{
   isNumericColumn?: (column: CrmDataTableGridColumn) => boolean
   resolveCellValue: (row: Record<string, unknown>, column: CrmDataTableGridColumn) => unknown
   formatValue: (value: unknown, column: CrmDataTableGridColumn) => string
+  formatCellTitle?: (value: unknown, column: CrmDataTableGridColumn) => string
   canLinkM2OCell: (column: CrmDataTableGridColumn, value: unknown) => boolean
   relatedRecordRoute: (
     column: CrmDataTableGridColumn,
@@ -108,6 +118,29 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
+
+/** Client paginator page start index (lazy lists keep 0 — rows are already sliced). */
+const paginatorFirst = ref(0)
+
+const tableStyle = { minWidth: '100%' }
+
+watch(
+  () => [props.paginator, props.lazy, props.activeRowsPerPage, props.tableRows.length] as const,
+  () => {
+    if (!props.paginator || props.lazy) {
+      paginatorFirst.value = 0
+      return
+    }
+    const maxFirst = Math.max(0, props.tableRows.length - 1)
+    if (paginatorFirst.value > maxFirst) {
+      paginatorFirst.value = 0
+    }
+  },
+)
+
+function handlePage(event: { first?: number }): void {
+  paginatorFirst.value = typeof event.first === 'number' ? event.first : 0
+}
 
 function measureCellRect(event: Event): DOMRect {
   const target = event.currentTarget ?? event.target
@@ -178,6 +211,12 @@ function handleEditButton(
   event.preventDefault()
   emitEditRequest(row, column, event)
 }
+
+function rowNumberLabel(index: number): number {
+  const pageOffset =
+    props.paginator && !props.lazy ? paginatorFirst.value : 0
+  return (props.rowNumberOffset ?? 0) + pageOffset + index + 1
+}
 </script>
 
 <template>
@@ -213,7 +252,7 @@ function handleEditButton(
     :reorderable-columns="reorderableColumns"
     :resizable-columns="resizableColumns"
     column-resize-mode="expand"
-    table-style="min-width: 100%"
+    :table-style="tableStyle"
     @update:expanded-row-groups="emit('update:expandedRowGroups', $event)"
     @update:selection="emit('update:selection', $event)"
     @sort="emit('sort', $event)"
@@ -221,10 +260,32 @@ function handleEditButton(
     @column-resize-end="emit('column-resize-end', $event)"
     @row-select="emit('row-select', $event)"
     @row-unselect="emit('row-unselect', $event)"
+    @page="handlePage"
   >
     <template v-if="isRowGroupingActive" #groupheader="{ data }">
       <span class="crm-data-table__group-header-label">{{ formatGroupHeader(data) }}</span>
     </template>
+    <Column
+      v-if="showRowNumbers"
+      column-key="row-number"
+      :reorderable-column="false"
+      header=""
+      header-class="crm-data-table__row-number-header"
+      body-class="crm-data-table__row-number-body"
+      header-style="width: 2.75rem; min-width: 2.75rem; max-width: 3.25rem"
+      style="width: 2.75rem; min-width: 2.75rem; max-width: 3.25rem"
+    >
+      <template #body="{ index }">
+        <span
+          class="crm-data-table__row-number"
+          :aria-label="
+            t('datatable.rowNumberAria', 'Row {n}', { n: rowNumberLabel(index) })
+          "
+        >
+          {{ rowNumberLabel(index) }}
+        </span>
+      </template>
+    </Column>
     <Column
       v-if="isMultipleSelection"
       selection-mode="multiple"
@@ -238,7 +299,6 @@ function handleEditButton(
       :key="resolveColumnKey(column)"
       :column-key="resolveColumnKey(column)"
       :field="column.field"
-      :header="column.header"
       :sortable="sortableColumns"
       :reorderable-column="!column.autoRecordId"
       :align="isNumericColumn?.(column) ? 'right' : undefined"
@@ -246,6 +306,14 @@ function handleEditButton(
       :header-style="columnStyle(column)"
       :style="columnStyle(column)"
     >
+      <template #header>
+        <span
+          class="crm-data-table__header-label"
+          :title="column.header"
+        >
+          {{ column.header }}
+        </span>
+      </template>
       <template #body="{ data }">
         <slot
           name="cell"
@@ -299,9 +367,23 @@ function handleEditButton(
               v-else-if="isHtmlEditorColumn(column) && !column.recordLink"
               :html="String(resolveCellValue(data, column) ?? '')"
             />
+            <Checkbox
+              v-else-if="isBooleanColumn(column)"
+              class="crm-data-table__cell-checkbox"
+              :model-value="coerceBooleanDisplayValue(resolveCellValue(data, column))"
+              binary
+              :tabindex="-1"
+              :aria-label="column.header || column.field"
+            />
             <span
               v-else
               class="crm-data-table__cell-text"
+              :title="
+                (formatCellTitle ?? formatValue)(
+                  resolveCellValue(data, column),
+                  column,
+                )
+              "
             >
               {{ formatValue(resolveCellValue(data, column), column) }}
             </span>
@@ -399,10 +481,50 @@ function handleEditButton(
   cursor: pointer;
 }
 
+.crm-data-table__row-number {
+  color: var(--p-surface-500, #64748b);
+  display: block;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: right;
+  user-select: none;
+  width: 100%;
+}
+
+.crm-data-table :deep(.crm-data-table__row-number-header),
+.crm-data-table :deep(.crm-data-table__row-number-body) {
+  padding-left: 0.35rem;
+  padding-right: 0.5rem;
+}
+
 .crm-data-table :deep(.p-datatable-thead > tr > th) {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.crm-data-table :deep(.p-datatable-column-header-content) {
+  align-items: center;
+  display: flex;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.crm-data-table__header-label {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.crm-data-table :deep(.p-datatable-sort-icon),
+.crm-data-table :deep(.p-sortable-column-icon) {
+  flex-shrink: 0;
 }
 
 .crm-data-table :deep(.p-datatable-column-resizer) {
@@ -433,9 +555,17 @@ function handleEditButton(
 }
 
 .crm-data-table__cell-text {
+  display: block;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crm-data-table__cell-checkbox {
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .crm-data-table__cell--editable {

@@ -17,6 +17,10 @@ export type EntityRecordAutomationActionDto =
       message: string
     }
   | { type: 'break' }
+  | {
+      type: 'trigger_flow'
+      flowKey: string
+    }
 
 export interface EntityRecordAutomationDto {
   id: string
@@ -56,6 +60,7 @@ const ENTITY_AUTOMATIONS_QUERY = /* GraphQL */ `
           type
           severity
           message
+          flowKey
         }
       }
       fields {
@@ -94,6 +99,7 @@ const UPSERT_AUTOMATIONS = /* GraphQL */ `
         type
         severity
         message
+        flowKey
       }
     }
   }
@@ -168,15 +174,20 @@ export async function upsertEntityAutomations(
       })),
       requireChanged: rule.requireChanged,
       setFields: rule.setFields ?? {},
-      actions: (rule.actions ?? []).map((action) =>
-        action.type === 'break'
-          ? { type: 'break' }
-          : {
-              type: 'notify',
-              severity: action.severity === 'warn' ? 'warn' : 'info',
-              message: action.message,
-            },
-      ),
+      actions: (rule.actions ?? []).map((action) => {
+        if (action.type === 'break') return { type: 'break' as const }
+        if (action.type === 'trigger_flow') {
+          return {
+            type: 'trigger_flow' as const,
+            flowKey: String(action.flowKey || '').trim(),
+          }
+        }
+        return {
+          type: 'notify' as const,
+          severity: action.severity === 'warn' ? ('warn' as const) : ('info' as const),
+          message: action.message,
+        }
+      }),
     })),
   })
   return (data.upsertEntityAutomations ?? []).map((rule, index) => ({

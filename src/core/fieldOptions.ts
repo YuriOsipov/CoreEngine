@@ -26,7 +26,12 @@ function isSelectableField(field: FieldDefinition): boolean {
     }
   }
   const iface = String(field.meta?.interface ?? '').toLowerCase()
-  return iface.includes('calculated') || iface.includes('formula') || iface.includes('computed')
+  return (
+    iface.includes('calculated') ||
+    iface.includes('formula') ||
+    iface.includes('computed') ||
+    iface.includes('currency')
+  )
 }
 
 export function fieldSelectOptions(fields: FieldDefinition[]): FieldOption[] {

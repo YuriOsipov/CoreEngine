@@ -84,6 +84,7 @@ export async function resolveRelatedListDataTableField(
 
   const consider = (field: LayoutFieldMetadata | null | undefined): LayoutFieldMetadata | null => {
     if (!field || !isDataTableField(field)) return null
+    if (!keysEqual(field.relatedCollection ?? '', related)) return null
     if (hasListDocumentActions(field)) return field
     if (!fallback) fallback = field
     return null

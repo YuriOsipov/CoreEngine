@@ -5,8 +5,9 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useTranslation } from '@/core/translation'
+import { scheduleFeatureAvailable } from '../../services/scheduleFeature'
 import {
   SETUP_COLLECTION_NAV,
   type SetupCollectionSection,
@@ -21,13 +22,22 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
+const scheduleAvailable = ref(false)
+
+onMounted(() => {
+  void scheduleFeatureAvailable().then((available) => {
+    scheduleAvailable.value = available
+  })
+})
 
 const items = computed(() =>
-  SETUP_COLLECTION_NAV.map((entry) => ({
-    id: entry.id,
-    label: t(entry.labelKey, entry.defaultLabel),
-    group: entry.group,
-  })),
+  SETUP_COLLECTION_NAV
+    .filter((entry) => entry.id !== 'scheduler' || scheduleAvailable.value)
+    .map((entry) => ({
+      id: entry.id,
+      label: t(entry.labelKey, entry.defaultLabel),
+      group: entry.group,
+    })),
 )
 
 function select(id: SetupCollectionSection): void {

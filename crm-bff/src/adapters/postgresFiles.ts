@@ -196,15 +196,198 @@ export async function postgresListFilesByParent(
   const parentCollection = collection.trim()
   const parentRecordId = recordId.trim()
   if (!parentCollection || !parentRecordId) return []
+  const fileAliasSelect = `f.id::text AS id, f.backend_target, f.backend_file_id, f.filename, f.mime_type,
+            f.filesize, f.title, f.uploaded_by::text AS uploaded_by, f.created_at::text AS created_at, f.meta,
+            f.parent_collection, f.parent_record_id`
   return query<RegistryFileRow>(
     `SELECT ${FILE_ROW_SELECT}
      FROM public.files
      WHERE deleted_at IS NULL
        AND parent_collection = $1
        AND parent_record_id = $2
+     UNION
+     SELECT ${fileAliasSelect}
+     FROM public.files f
+     INNER JOIN public.file_record_links l ON l.file_id = f.id
+     WHERE f.deleted_at IS NULL
+       AND l.parent_collection = $1
+       AND l.parent_record_id = $2
      ORDER BY created_at DESC`,
     [parentCollection, parentRecordId],
   )
+}
+
+/** Link an existing files registry row to another parent without moving it. */
+export async function postgresLinkFileToParent(input: {
+  fileId: string
+  parentCollection: string
+  parentRecordId: string
+  createdBy?: string | null
+}): Promise<{ row: RegistryFileRow; created: boolean }> {
+  const parentCollection = input.parentCollection.trim()
+  const parentRecordId = input.parentRecordId.trim()
+  if (!parentCollection || !parentRecordId) {
+    throw new Error('parent_collection and parent_record_id are required')
+  }
+
+  const row = await postgresFindFileRow(input.fileId)
+  if (!row) throw new Error(`File not found: ${input.fileId}`)
+
+  if (
+    row.parent_collection === parentCollection &&
+    row.parent_record_id === parentRecordId
+  ) {
+    return { row, created: false }
+  }
+
+  const existing = await query<{ id: string }>(
+    `SELECT id::text AS id
+     FROM public.file_record_links
+     WHERE file_id = $1::uuid
+       AND parent_collection = $2
+       AND parent_record_id = $3
+     LIMIT 1`,
+    [row.id, parentCollection, parentRecordId],
+  )
+  if (existing[0]) return { row, created: false }
+
+  await query(
+    `INSERT INTO public.file_record_links (
+       file_id, parent_collection, parent_record_id, created_by
+     ) VALUES ($1::uuid, $2, $3, $4::uuid)
+     ON CONFLICT (file_id, parent_collection, parent_record_id) DO NOTHING`,
+    [row.id, parentCollection, parentRecordId, input.createdBy ?? null],
+  )
+  return { row, created: true }
+}
+
+/** Remove a secondary link; returns true when a link row was deleted. */
+export async function postgresUnlinkFileFromParent(input: {
+  fileId: string
+  parentCollection: string
+  parentRecordId: string
+}): Promise<boolean> {
+  const parentCollection = input.parentCollection.trim()
+  const parentRecordId = input.parentRecordId.trim()
+  if (!parentCollection || !parentRecordId) return false
+
+  const row = await postgresFindFileRow(input.fileId)
+  if (!row) return false
+
+  const deleted = await query<{ id: string }>(
+    `DELETE FROM public.file_record_links
+     WHERE file_id = $1::uuid
+       AND parent_collection = $2
+       AND parent_record_id = $3
+     RETURNING id::text AS id`,
+    [row.id, parentCollection, parentRecordId],
+  )
+  return Boolean(deleted[0])
+}
+
+export async function postgresFileHasParentLink(input: {
+  fileId: string
+  parentCollection: string
+  parentRecordId: string
+}): Promise<'primary' | 'link' | null> {
+  const parentCollection = input.parentCollection.trim()
+  const parentRecordId = input.parentRecordId.trim()
+  if (!parentCollection || !parentRecordId) return null
+
+  const row = await postgresFindFileRow(input.fileId)
+  if (!row) return null
+
+  if (
+    row.parent_collection === parentCollection &&
+    row.parent_record_id === parentRecordId
+  ) {
+    return 'primary'
+  }
+
+  const links = await query<{ id: string }>(
+    `SELECT id::text AS id
+     FROM public.file_record_links
+     WHERE file_id = $1::uuid
+       AND parent_collection = $2
+       AND parent_record_id = $3
+     LIMIT 1`,
+    [row.id, parentCollection, parentRecordId],
+  )
+  return links[0] ? 'link' : null
+}
+
+export type PostgresListFilesParams = {
+  search?: string | null
+  /** Exact MIME types and/or prefixes ending with `/` (e.g. `image/`). */
+  mimeTypes?: string[] | null
+  limit?: number
+  offset?: number
+}
+
+/** Browse registry files for pickers (search + optional MIME filter). */
+export async function postgresListFiles(
+  params: PostgresListFilesParams = {},
+): Promise<{ rows: RegistryFileRow[]; totalCount: number }> {
+  const where: string[] = ['deleted_at IS NULL']
+  const values: unknown[] = []
+  let index = 1
+
+  const search = String(params.search || '').trim()
+  if (search) {
+    where.push(
+      `(COALESCE(filename, '') ILIKE $${index} OR COALESCE(title, '') ILIKE $${index})`,
+    )
+    values.push(`%${search.replace(/[%_]/g, '\\$&')}%`)
+    index += 1
+  }
+
+  const mimeTypes = (params.mimeTypes ?? [])
+    .map((mime) => String(mime || '').trim())
+    .filter(Boolean)
+  if (mimeTypes.length) {
+    const mimeClauses: string[] = []
+    for (const mime of mimeTypes) {
+      const normalized = mime === 'image' ? 'image/' : mime
+      if (normalized.endsWith('/')) {
+        mimeClauses.push(`COALESCE(mime_type, '') ILIKE $${index}`)
+        values.push(`${normalized.replace(/[%_]/g, '\\$&')}%`)
+      } else {
+        mimeClauses.push(`LOWER(COALESCE(mime_type, '')) = LOWER($${index})`)
+        values.push(normalized)
+      }
+      index += 1
+    }
+    where.push(`(${mimeClauses.join(' OR ')})`)
+  }
+
+  const whereSql = where.join(' AND ')
+  const limit =
+    typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit >= 0
+      ? Math.min(Math.trunc(params.limit), 100)
+      : 48
+  const offset =
+    typeof params.offset === 'number' && Number.isFinite(params.offset) && params.offset > 0
+      ? Math.trunc(params.offset)
+      : 0
+
+  const countRows = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM public.files
+     WHERE ${whereSql}`,
+    values,
+  )
+  const totalCount = Number(countRows[0]?.count ?? 0)
+
+  const rows = await query<RegistryFileRow>(
+    `SELECT ${FILE_ROW_SELECT}
+     FROM public.files
+     WHERE ${whereSql}
+     ORDER BY created_at DESC
+     LIMIT $${index} OFFSET $${index + 1}`,
+    [...values, limit, offset],
+  )
+
+  return { rows, totalCount: Number.isFinite(totalCount) ? totalCount : rows.length }
 }
 
 export async function postgresSoftDeleteFile(id: string): Promise<boolean> {

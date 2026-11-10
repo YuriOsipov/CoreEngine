@@ -311,6 +311,7 @@ async function restoreRecordConfirmed(recordId: string | number): Promise<void> 
       v-model="formDraft"
       :schema="editLayoutSchema"
       :record-id="recordId ?? undefined"
+      :parent-name="collection"
       :readonly-fields="readonlyFields"
     />
 

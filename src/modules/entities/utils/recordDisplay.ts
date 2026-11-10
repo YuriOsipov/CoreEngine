@@ -4,6 +4,10 @@ import {
   type DynamicTranslationContext,
 } from '@/core/translation'
 import { formatLocalizedDateTime } from '@/core/dateFormatting'
+import {
+  formatOrgCurrencyValue,
+  isOrgCurrencyPlaceholderAffix,
+} from '@/core/orgLocale'
 import { keysEqual, resolveRecordKey } from '@/core/utils/object'
 
 export const DISPLAY_FIELD_CANDIDATES = [
@@ -230,6 +234,8 @@ export interface NumberDisplayOptions {
   prefix?: string
   suffix?: string
   decimalPlaces?: number
+  /** When true and no field affix, format with org currency (Intl). */
+  useOrgCurrency?: boolean
 }
 
 /** Resolve Currency / Number interface options for list and read-only display. */
@@ -250,7 +256,9 @@ export function resolveNumberDisplayOptions(
   const isNumberIface =
     iface.includes('number') || iface.includes('numeric') || iface.includes('slider')
 
-  const suffixRaw = options.suffix ?? options.currency
+  // Legacy field options often store ISO codes as suffix ("USD") — ignore those
+  // for currency interfaces and use org currency symbol as prefix instead.
+  const suffixRaw = isCurrency ? options.suffix : (options.suffix ?? options.currency)
   const prefixRaw = options.prefix
   const placesRaw =
     options.scale ?? options.decimalPlaces ?? options.minFractionDigits
@@ -264,7 +272,11 @@ export function resolveNumberDisplayOptions(
   const suffix = typeof suffixRaw === 'string' ? suffixRaw.trim() : ''
   const prefix = typeof prefixRaw === 'string' ? prefixRaw.trim() : ''
   const hasPlaces = Number.isFinite(places)
-  const hasAffix = Boolean(suffix || prefix)
+  // Ignore leftover `$` / `USD` / `€` markers — company currency is authoritative.
+  const customAffix = isCurrency
+    ? Boolean(prefix && !isOrgCurrencyPlaceholderAffix(prefix))
+    : Boolean(suffix || prefix)
+  const hasAffix = isCurrency ? customAffix : Boolean(suffix || prefix)
 
   // FLOAT/DECIMAL always get display options (scale defaults to 2).
   if (
@@ -278,8 +290,14 @@ export function resolveNumberDisplayOptions(
   if (!isFloatLike && !isCurrency && !hasAffix && !hasPlaces) return null
 
   const resolved: NumberDisplayOptions = {}
-  if (prefix) resolved.prefix = prefix
-  if (suffix) resolved.suffix = suffix
+  if (isCurrency) {
+    // Default: live org currency sign as prefix (e.g. €53.27).
+    resolved.useOrgCurrency = !customAffix
+    if (customAffix && prefix) resolved.prefix = prefix
+  } else {
+    if (prefix) resolved.prefix = prefix
+    if (suffix) resolved.suffix = suffix
+  }
   if (hasPlaces) {
     resolved.decimalPlaces = Math.min(38, Math.max(0, Math.trunc(places)))
   } else if (isCurrency || isFloatLike) {
@@ -299,12 +317,19 @@ export function formatNumberDisplayValue(
   const num = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(num)) return null
 
+  // Currency → org sign as prefix (`$53.27`), never `53.27 USD`.
+  if (options.useOrgCurrency) {
+    return formatOrgCurrencyValue(num, {
+      decimalPlaces: options.decimalPlaces,
+    })
+  }
+
+  const prefix = options.prefix ?? ''
+  const suffix = options.suffix ?? ''
   const formatted =
     typeof options.decimalPlaces === 'number'
       ? num.toFixed(options.decimalPlaces)
       : String(num)
-  const prefix = options.prefix ?? ''
-  const suffix = options.suffix ?? ''
   if (!prefix && !suffix) return formatted
   if (prefix && suffix) return `${prefix}${formatted} ${suffix}`.trim()
   if (prefix) return `${prefix}${formatted}`

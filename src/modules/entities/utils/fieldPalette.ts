@@ -16,4 +16,6 @@ export interface PaletteItem {
   blockLayoutId?: string
   /** true for multi-file (special: 'files'), false for single-file (special: 'file'). */
   multiple?: boolean
+  /** MIME accept list for Files fields (e.g. image-only). */
+  allowedMimeTypes?: string[]
 }

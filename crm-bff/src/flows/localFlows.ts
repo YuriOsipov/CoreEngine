@@ -1,6 +1,7 @@
 import { updateRecord } from '../adapters/recordsAdapter.js'
 import { query } from '../db/pool.js'
 import { outboundHttpFlowHeaders } from './flowAuth.js'
+import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
 
 export type FlowHandlerKind = 'ack' | 'http' | 'update_record'
 
@@ -65,7 +66,8 @@ async function runHttpHandler(
       if (typeof value === 'string') headers[headerKey] = value
     }
   }
-  const outboundHeaders = outboundHttpFlowHeaders(headers)
+  const withAuth = applyHttpFlowAuthHeaders(headers, config.auth)
+  const outboundHeaders = outboundHttpFlowHeaders(withAuth)
 
   const upstream = await fetch(url, {
     method,
@@ -188,7 +190,7 @@ export async function runLocalFlow(
   if (!trigger) {
     throw new LocalFlowError(
       404,
-      `Flow "${trimmed}" is not registered. Insert into public.app_flow_triggers (handler ack|http|update_record).`,
+      `Flow "${trimmed}" is not registered. Create it in Setup → Flows (handler http|update_record).`,
     )
   }
 

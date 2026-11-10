@@ -108,12 +108,12 @@ export async function fetchChildLookupRows(
     return { rows: [], valueField }
   }
   const extraFilter = resolveChildLookupExtraFilter(lookup.filter, filterContext)
-  const sourceFilter = childSourceEqualityFilter(lookup, source)
 
   const fields = await collectionFields(lookup.collection)
   if (!fields) return { rows: [], valueField: '' }
 
   const valueField = resolveFieldPath(fields, lookup.valueField)
+  const sourceFilter = childSourceEqualityFilter(lookup, source, fields)
   const filter = mergeFilters(sourceFilter, extraFilter)
   if (!filter) return { rows: [], valueField: '' }
 
@@ -183,12 +183,12 @@ export async function fetchChildLookupPicklistOptions(
     return []
   }
   const extraFilter = resolveChildLookupExtraFilter(lookup.filter, filterContext)
-  const sourceFilter = childSourceEqualityFilter(lookup, source)
 
   const fields = await collectionFields(lookup.collection)
   if (!fields) return []
 
   const valueField = resolveFieldPath(fields, lookup.valueField)
+  const sourceFilter = childSourceEqualityFilter(lookup, source, fields)
   const labelMetadata = await lookupLabelMetadata(lookup.collection, fields, valueField, collectionFields)
   const filter = mergeFilters(sourceFilter, extraFilter)
   if (!filter) return []
@@ -312,10 +312,12 @@ export function isChildLookupQueryReady(lookup: LayoutFieldChildLookup): boolean
 function childSourceEqualityFilter(
   lookup: LayoutFieldChildLookup,
   source: string | number | null,
+  fields?: FieldDefinition[] | null,
 ): Record<string, unknown> | null {
   const childSourceField = lookup.childSourceField?.trim()
   if (!childSourceField || source === null) return null
-  return { [childSourceField]: { _eq: source } }
+  const resolved = resolveFieldPath(fields ?? null, childSourceField)
+  return { [resolved]: { _eq: source } }
 }
 
 function mergeFilters(

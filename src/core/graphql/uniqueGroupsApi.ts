@@ -43,7 +43,7 @@ const ENTITY_UNIQUE_GROUPS_QUERY = /* GraphQL */ `
   query EntityUniqueGroups($apiName: String!) {
     entitySchema(apiName: $apiName) {
       apiName
-      uniqueGroups { name fields }
+      backendConfig
       fields {
         apiName
         label
@@ -56,8 +56,71 @@ const ENTITY_UNIQUE_GROUPS_QUERY = /* GraphQL */ `
   }
 `
 
+/** Composite unique groups only (2+ fields) from entities.backend_config. */
+export function parseConfigUniqueGroups(backendConfig: unknown): EntityUniqueGroupDto[] {
+  if (!backendConfig || typeof backendConfig !== 'object' || Array.isArray(backendConfig)) {
+    return []
+  }
+  const raw = (backendConfig as Record<string, unknown>).uniqueGroups
+  if (!Array.isArray(raw)) return []
+  const out: EntityUniqueGroupDto[] = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const fields = Array.isArray(row.fields)
+      ? row.fields.map(String).map((f) => f.trim()).filter(Boolean)
+      : []
+    if (fields.length < 2) continue
+    const name =
+      typeof row.name === 'string' && row.name.trim()
+        ? row.name.trim()
+        : fields.join('_')
+    const key = `${name}:${fields.join(',')}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ name, fields })
+  }
+  return out
+}
+
+/** Leftover 1-field groups wrongly stored in backend_config.uniqueGroups. */
+export function parseConfigSingleFieldUniqueGroups(
+  backendConfig: unknown,
+): EntityUniqueGroupDto[] {
+  if (!backendConfig || typeof backendConfig !== 'object' || Array.isArray(backendConfig)) {
+    return []
+  }
+  const raw = (backendConfig as Record<string, unknown>).uniqueGroups
+  if (!Array.isArray(raw)) return []
+  const out: EntityUniqueGroupDto[] = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const fields = Array.isArray(row.fields)
+      ? row.fields.map(String).map((f) => f.trim()).filter(Boolean)
+      : []
+    if (fields.length !== 1) continue
+    const field = fields[0]!
+    if (seen.has(field)) continue
+    seen.add(field)
+    out.push({
+      name:
+        typeof row.name === 'string' && row.name.trim()
+          ? row.name.trim()
+          : `field_${field}`,
+      fields: [field],
+    })
+  }
+  return out
+}
+
 export async function fetchEntityUniqueGroups(apiName: string): Promise<{
+  /** Raw composite groups from backend_config (not effective merge with is_unique). */
   uniqueGroups: EntityUniqueGroupDto[]
+  /** 1-field config leftovers that should be healed into is_unique. */
+  legacySingleFieldGroups: EntityUniqueGroupDto[]
   fields: Array<{
     apiName: string
     label: string
@@ -66,13 +129,14 @@ export async function fetchEntityUniqueGroups(apiName: string): Promise<{
     hidden: boolean
     isSystem: boolean
   }>
+  backendConfig: unknown
 }> {
   if (!featureFlags.schemaFromGraphQL) {
     refuseLegacyFallback('fetchEntityUniqueGroups')
   }
   const data = await graphqlRequest<{
     entitySchema: {
-      uniqueGroups: EntityUniqueGroupDto[]
+      backendConfig: unknown
       fields: Array<{
         apiName: string
         label: string
@@ -83,9 +147,12 @@ export async function fetchEntityUniqueGroups(apiName: string): Promise<{
       }>
     }
   }>(ENTITY_UNIQUE_GROUPS_QUERY, { apiName })
+  const backendConfig = data.entitySchema.backendConfig ?? {}
   return {
-    uniqueGroups: data.entitySchema.uniqueGroups ?? [],
+    uniqueGroups: parseConfigUniqueGroups(backendConfig),
+    legacySingleFieldGroups: parseConfigSingleFieldUniqueGroups(backendConfig),
     fields: data.entitySchema.fields ?? [],
+    backendConfig,
   }
 }
 

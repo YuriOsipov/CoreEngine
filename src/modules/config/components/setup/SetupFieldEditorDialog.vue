@@ -33,6 +33,24 @@ import {
   filterPairsFromFilter,
   type FilterPair,
 } from '@/core/relatedTransferFilterPairs'
+import { isOrgCurrencyPlaceholderAffix } from '@/core/orgLocale'
+import { FILES_ASSET_COLLECTION } from '@/core/filesField'
+
+const DEFAULT_IMAGE_FILES_OPTIONS = {
+  multiple: false,
+  display: 'thumbnail' as const,
+  allowedMimeTypes: ['image/'] as string[],
+  columns: [] as string[],
+}
+
+function isFileImageInterface(iface: string | null | undefined): boolean {
+  const value = normalizeFieldInterface(iface || '').toLowerCase()
+  return (
+    value === 'file' ||
+    value === 'file-image' ||
+    value.includes('file-image')
+  )
+}
 
 interface ChoiceRow {
   text: string
@@ -70,6 +88,10 @@ const emit = defineEmits<{
 
 const { t } = useTranslation()
 
+function hintTooltip(value: string) {
+  return { value, class: 'property-hint-tooltip' }
+}
+
 const form = reactive({
   apiName: '',
   label: '',
@@ -82,6 +104,8 @@ const form = reactive({
   hidden: false,
   isUnique: false,
   isIndexed: false,
+  /** M2O only: include related Display Template in list search. */
+  useInSearch: false,
   sort: 0,
   isLookup: false,
   /** none | M2O | M2M */
@@ -193,6 +217,7 @@ const isFormulaType = computed(() => form.type === 'FORMULA')
 const isRollupType = computed(() => form.type === 'ROLLUP')
 const isAutoNumberType = computed(() => form.type === 'AUTO_NUMBER')
 const isAddressType = computed(() => form.type === 'ADDRESS')
+const isImageType = computed(() => form.type === 'IMAGE')
 const isJsonType = computed(() => form.type === 'JSON')
 const isJsonList = computed(
   () => isJsonType.value && normalizeFieldInterface(form.interface) === 'json-list',
@@ -214,6 +239,7 @@ const computeMode = computed<ComputeMode>(() => {
 const storageType = computed(() => {
   if (isAutoNumberType.value) return 'STRING'
   if (isAddressType.value) return 'JSON'
+  if (isImageType.value) return 'UUID'
   return isComputed.value ? form.resultType : form.type
 })
 
@@ -286,6 +312,7 @@ const supportsChildLookup = computed(
     !isM2MRelation.value &&
     !isComputed.value &&
     !isAddressType.value &&
+    !isImageType.value &&
     !isJsonType.value,
 )
 
@@ -385,6 +412,10 @@ const typeOptions = computed(() => {
       value: 'ADDRESS',
     },
     {
+      label: t('setup.fields.typeImage', 'Image'),
+      value: 'IMAGE',
+    },
+    {
       label: t('setup.fields.typeJson', 'JSON'),
       value: 'JSON',
     },
@@ -422,6 +453,14 @@ const interfaceOptions = computed(() => {
       {
         label: t('setup.fields.ifaceAddress', 'Address'),
         value: 'address',
+      },
+    ]
+  }
+  if (isImageType.value) {
+    return [
+      {
+        label: t('setup.fields.ifaceImage', 'Image'),
+        value: 'file-image',
       },
     ]
   }
@@ -513,6 +552,7 @@ const showDefaultValue = computed(
     !form.isLookup &&
     !isComputed.value &&
     !isAddressType.value &&
+    !isImageType.value &&
     !isJsonType.value,
 )
 
@@ -920,11 +960,13 @@ function defaultInterfaceFor(type: string, isLookup: boolean): string {
       return 'input'
     case 'FORMULA':
     case 'ROLLUP':
-      return 'calculated'
+      return 'input'
     case 'AUTO_NUMBER':
       return 'input'
     case 'ADDRESS':
       return 'address'
+    case 'IMAGE':
+      return 'file-image'
     case 'JSON':
       return 'json-list'
     default:
@@ -941,11 +983,26 @@ function ensureInterfaceValid(): void {
     form.interface = 'address'
     return
   }
-  if (isComputed.value) {
-    form.interface = 'calculated'
+  if (isImageType.value) {
+    form.interface = 'file-image'
     return
   }
   form.interface = normalizeFieldInterface(form.interface)
+  // Legacy formula/rollup rows used interface "calculated"; map to a real display iface.
+  if (
+    isComputed.value &&
+    (form.interface === 'calculated' ||
+      form.interface.toLowerCase().includes('calculated') ||
+      form.interface.toLowerCase().includes('formula') ||
+      form.interface.toLowerCase().includes('computed'))
+  ) {
+    form.interface =
+      storageType.value === 'FLOAT' &&
+      String(form.currencySuffix || '').trim()
+        ? 'currency'
+        : interfaceOptions.value[0]?.value ??
+          defaultInterfaceFor(storageType.value, form.isLookup)
+  }
   const allowed = interfaceOptions.value.map((o) => o.value)
   if (!allowed.includes(form.interface)) {
     form.interface =
@@ -1298,13 +1355,20 @@ function resetFromProps(): void {
     const display = props.field.displayOptions ?? {}
     form.apiName = props.field.apiName
     form.label = props.field.label
+    const relatedApi = String(props.field.relatedEntityApiName || '').trim()
+    const isImageField =
+      isFileImageInterface(props.field.interface) &&
+      (!relatedApi || keysEqual(relatedApi, FILES_ASSET_COLLECTION))
     form.isLookup =
-      props.field.relationKind === 'M2O' || props.field.relationKind === 'M2M'
+      !isImageField &&
+      (props.field.relationKind === 'M2O' || props.field.relationKind === 'M2M')
     form.relationKind =
-      props.field.relationKind === 'M2O' || props.field.relationKind === 'M2M'
-        ? props.field.relationKind
-        : 'none'
-    form.relatedEntity = props.field.relatedEntityApiName
+      isImageField
+        ? 'none'
+        : props.field.relationKind === 'M2O' || props.field.relationKind === 'M2M'
+          ? props.field.relationKind
+          : 'none'
+    form.relatedEntity = isImageField ? null : props.field.relatedEntityApiName
     form.onDelete =
       props.field.onDelete === 'CASCADE' ||
       props.field.onDelete === 'SET NULL' ||
@@ -1348,6 +1412,9 @@ function resetFromProps(): void {
     ) {
       form.type = 'ADDRESS'
       form.resultType = 'FLOAT'
+    } else if (isImageField) {
+      form.type = 'IMAGE'
+      form.resultType = 'FLOAT'
     } else {
       form.type = props.field.type === 'ALIAS' ? 'STRING' : props.field.type
       form.resultType = 'FLOAT'
@@ -1355,6 +1422,9 @@ function resetFromProps(): void {
     form.interface = normalizeFieldInterface(props.field.interface || 'input')
     if (form.type === 'ADDRESS') {
       form.interface = 'address'
+    }
+    if (form.type === 'IMAGE') {
+      form.interface = 'file-image'
     }
     form.required = props.field.required
     form.readonly = props.field.readonly
@@ -1364,6 +1434,8 @@ function resetFromProps(): void {
       Boolean(props.field.isIndexed) ||
       props.field.relationKind === 'M2O' ||
       Boolean(props.field.isUnique)
+    form.useInSearch =
+      props.field.relationKind === 'M2O' && options.useInSearch === true
     form.sort = props.field.sort
     form.applyDdl = true
     form.defaultValue = readDefaultFromOptions(options)
@@ -1445,7 +1517,15 @@ function resetFromProps(): void {
       form.dateFormat = 'other'
       form.dateFormatCustom = format
     }
-    form.currencySuffix = String(options.suffix ?? options.currency ?? '')
+    // Prefer custom prefix; ignore leftover `$` / ISO markers (company currency is default).
+    const prefixOverride = String(options.prefix ?? '').trim()
+    const legacySuffix = String(options.suffix ?? options.currency ?? '').trim()
+    form.currencySuffix =
+      prefixOverride && !isOrgCurrencyPlaceholderAffix(prefixOverride)
+        ? prefixOverride
+        : legacySuffix && !isOrgCurrencyPlaceholderAffix(legacySuffix)
+          ? legacySuffix
+          : ''
     form.numericPrecision = clampNumericPrecision(options.precision ?? 18)
     form.decimalPlaces = clampNumericScale(
       options.scale ?? options.decimalPlaces ?? options.minFractionDigits ?? 2,
@@ -1483,6 +1563,7 @@ function resetFromProps(): void {
   form.hidden = false
   form.isUnique = false
   form.isIndexed = false
+  form.useInSearch = false
   form.sort = 0
   form.isLookup = false
   form.relationKind = 'none'
@@ -1632,8 +1713,16 @@ function buildOptionsAndDisplay(): {
     options.maxFractionDigits = scale
   }
 
-  if (isCurrency.value && form.currencySuffix.trim()) {
-    options.suffix = form.currencySuffix.trim()
+  if (isCurrency.value) {
+    const override = form.currencySuffix.trim()
+    // Custom symbol → prefix. Blank / `$` / ISO → follow company currency.
+    if (override && !isOrgCurrencyPlaceholderAffix(override)) {
+      options.prefix = override
+    } else {
+      delete options.prefix
+    }
+    delete options.suffix
+    delete options.currency
   }
 
   if (isDateLike.value) {
@@ -1690,6 +1779,15 @@ function buildOptionsAndDisplay(): {
     options.computeMode = 'none'
   }
 
+  if (form.relationKind === 'M2O' && form.useInSearch) {
+    options.useInSearch = true
+  }
+
+  if (isImageType.value) {
+    // Format / max size are org General settings — field only marks Image M2O.
+    options.files = { ...DEFAULT_IMAGE_FILES_OPTIONS }
+  }
+
   return { options, displayOptions }
 }
 
@@ -1712,6 +1810,15 @@ watch(
   () => [form.type, form.isLookup, form.relationKind, form.resultType] as const,
   (next, prev) => {
     void next
+    if (isImageType.value) {
+      form.interface = 'file-image'
+      form.isLookup = false
+      form.relatedEntity = null
+      form.relationKind = 'none'
+      form.isIndexed = true
+      form.useInSearch = false
+      return
+    }
     if (form.relationKind === 'M2M') {
       form.interface = 'list-m2m'
       return
@@ -1721,6 +1828,7 @@ watch(
       form.isIndexed = true
       return
     }
+    form.useInSearch = false
     if (isComputed.value) {
       form.readonly = true
       form.required = false
@@ -1731,8 +1839,8 @@ watch(
         form.isLookup = false
         return
       }
-      form.interface = 'calculated'
       if (!form.resultType) form.resultType = 'FLOAT'
+      ensureInterfaceValid()
       if (isRollupType.value) {
         void loadRelatedChildEntities()
       }
@@ -1856,8 +1964,9 @@ function submit(): void {
 
   const { options, displayOptions } = buildOptionsAndDisplay()
   // Virtual rollups → ALIAS (no column). Physical → result type column.
-  const resolvedType =
-    form.relationKind === 'M2O'
+  const resolvedType = isImageType.value
+    ? 'UUID'
+    : form.relationKind === 'M2O'
       ? 'UUID'
       : form.relationKind === 'M2M'
         ? 'ALIAS'
@@ -1873,8 +1982,9 @@ function submit(): void {
     apiName,
     label: form.label.trim() || apiName,
     type: resolvedType,
-    interface:
-      form.relationKind === 'M2O'
+    interface: isImageType.value
+      ? 'file-image'
+      : form.relationKind === 'M2O'
         ? 'select-dropdown-m2o'
         : form.relationKind === 'M2M'
           ? 'list-m2m'
@@ -1882,17 +1992,20 @@ function submit(): void {
             ? 'input'
             : isAddressType.value
               ? 'address'
-              : isComputed.value
-                ? 'calculated'
-                : normalizeFieldInterface(
-                    form.interface.trim() || defaultInterfaceFor(resolvedType, false),
-                  ),
+              : normalizeFieldInterface(
+                  form.interface.trim() ||
+                    defaultInterfaceFor(
+                      isComputed.value ? storageType.value : resolvedType,
+                      false,
+                    ),
+                ),
     required: isComputed.value || form.relationKind === 'M2M' ? false : form.required,
     readonly: isComputed.value ? true : form.readonly,
     hidden: form.hidden,
     isUnique: isAutoNumberType.value ? true : form.isUnique,
     isIndexed:
       isAutoNumberType.value ||
+      isImageType.value ||
       form.relationKind === 'M2O' ||
       form.isUnique ||
       form.isIndexed,
@@ -1901,7 +2014,15 @@ function submit(): void {
     displayOptions,
   }
 
-  if (form.relationKind === 'M2O') {
+  if (isImageType.value) {
+    input.relationKind = 'M2O'
+    input.relatedEntity = FILES_ASSET_COLLECTION
+    input.type = 'UUID'
+    input.interface = 'file-image'
+    input.relationMeta = {
+      on_delete: form.onDelete || 'SET NULL',
+    }
+  } else if (form.relationKind === 'M2O') {
     input.relationKind = 'M2O'
     input.relatedEntity = form.relatedEntity
     input.type = 'UUID'
@@ -1980,7 +2101,7 @@ function submit(): void {
       </div>
 
       <div
-        v-if="!isAutoNumberType && !isNameField && !isAddressType && !isJsonType"
+        v-if="!isAutoNumberType && !isNameField && !isAddressType && !isImageType && !isJsonType"
         class="flex flex-col gap-1"
       >
         <label>{{ t('setup.fields.relationType', 'Relationship') }}</label>
@@ -2259,6 +2380,20 @@ function submit(): void {
         </div>
 
         <div
+          v-if="isImageType"
+          class="flex flex-col gap-1"
+        >
+          <small class="text-muted-color">
+            {{
+              t(
+                'setup.fields.imageHint',
+                'Stores a single image file linked to the Files object. Format and max size are set in Setup → General. Preview size is configured on the Block Layout.',
+              )
+            }}
+          </small>
+        </div>
+
+        <div
           v-if="isJsonType"
           class="flex flex-col gap-1"
         >
@@ -2273,7 +2408,7 @@ function submit(): void {
         </div>
 
         <div
-          v-if="!isComputed && !isAddressType"
+          v-if="!isAutoNumberType && !isAddressType && !isImageType"
           class="flex flex-col gap-1"
         >
           <label>{{ t('setup.fields.interface', 'Interface') }}</label>
@@ -2606,11 +2741,33 @@ function submit(): void {
         v-if="isCurrency"
         class="setup-field-editor__currency flex flex-col gap-1"
       >
-        <label>{{ t('setup.fields.currencySuffix', 'Currency suffix') }}</label>
+        <label class="inline-flex items-center gap-1">
+          {{ t('setup.fields.currencySymbolOverride', 'Currency symbol override') }}
+          <button
+            type="button"
+            class="setup-field-editor__hint"
+            v-tooltip.bottom="
+              hintTooltip(
+                t(
+                  'setup.fields.currencySymbolOverrideHint',
+                  'Leave blank to use the Company Information currency as a prefix (e.g. $53.27). Do not enter ISO codes like USD.',
+                ),
+              )
+            "
+            :aria-label="t('common.moreInfo', 'More information')"
+          >
+            i
+          </button>
+        </label>
         <InputText
           v-model="form.currencySuffix"
           class="w-full"
-          placeholder="₴ / USD / €"
+          :placeholder="
+            t(
+              'setup.fields.currencySymbolOverridePlaceholder',
+              'Blank = company currency ($)',
+            )
+          "
         />
       </div>
 
@@ -2740,7 +2897,31 @@ function submit(): void {
           />
           <label for="field-indexed">{{ t('setup.fields.indexed', 'Indexed') }}</label>
         </div>
+        <div
+          v-if="isM2ORelation"
+          class="flex items-center gap-2"
+        >
+          <Checkbox
+            v-model="form.useInSearch"
+            binary
+            input-id="field-use-in-search"
+          />
+          <label for="field-use-in-search">{{
+            t('setup.fields.useInSearch', 'Use in search')
+          }}</label>
+        </div>
       </div>
+      <p
+        v-if="isM2ORelation"
+        class="m-0 text-sm text-muted-color"
+      >
+        {{
+          t(
+            'setup.fields.useInSearchHint',
+            'When enabled, list search matches the related object Display Template (not the raw ID).',
+          )
+        }}
+      </p>
 
       <div
         v-if="supportsChildLookup"
@@ -2862,6 +3043,24 @@ function submit(): void {
 
 .setup-field-editor__numeric :deep(.p-inputnumber) {
   width: 100%;
+}
+
+.setup-field-editor__hint {
+  align-items: center;
+  background: var(--p-surface-100, #f1f5f9);
+  border: 1px solid var(--p-surface-300, #cbd5e1);
+  border-radius: 999px;
+  color: var(--p-surface-600, #475569);
+  cursor: help;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  height: 1.1rem;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 1.1rem;
 }
 
 .setup-field-picklist__list {

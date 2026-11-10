@@ -66,6 +66,28 @@ export function filesSettings(
   return field.files
 }
 
+/**
+ * Single-file M2O field (Image / file-image) — FK column on the parent,
+ * not the shared `files:{collection}` attachments list.
+ */
+export function isSingleFileField(field: LayoutFieldMetadata): boolean {
+  if (!isFilesField(field)) return false
+  if (String(field.field || '').startsWith('files:')) return false
+  // Explicit multi-file Attachments only; missing `multiple` still means Image.
+  return filesSettings(field)?.multiple !== true
+}
+
+/** Single-file field constrained to images (Setup Image / file-image). */
+export function isImageField(field: LayoutFieldMetadata): boolean {
+  if (!isSingleFileField(field)) return false
+  const mimes = filesSettings(field)?.allowedMimeTypes ?? []
+  // Empty MIME list: Setup Image is the only single-file Files field today.
+  if (!mimes.length) return true
+  return mimes.every(
+    (mime) => mime === 'image' || mime.startsWith('image/'),
+  )
+}
+
 export function isActivityLogField(field: LayoutFieldMetadata): boolean {
   return field.component === 'CrmActivityLog'
 }
@@ -96,6 +118,17 @@ export function isCheckboxField(field: LayoutFieldMetadata): boolean {
   return field.component === 'Checkbox'
 }
 
+/** Boolean UI components rendered as checkboxes in lists and forms. */
+export function isBooleanColumn(column: { component?: string | null }): boolean {
+  return column.component === 'Checkbox' || column.component === 'ToggleSwitch'
+}
+
+export function coerceBooleanDisplayValue(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1' || value === 'true') return true
+  return false
+}
+
 export function isHtmlEditorField(field: LayoutFieldMetadata): boolean {
   return isHtmlEditorComponent(field.component)
 }
@@ -107,7 +140,8 @@ export function isFullWidthLayoutField(field: LayoutFieldMetadata): boolean {
     isM2ABuilderField(field) ||
     isTreeTableField(field) ||
     isSchedulerField(field) ||
-    isFilesField(field) ||
+    // Multi-file Attachments stay full-width; single Image sits like a normal field.
+    (isFilesField(field) && !isSingleFileField(field)) ||
     isActivityLogField(field) ||
     isDocEngineField(field) ||
     isHtmlEditorField(field) ||
@@ -213,4 +247,39 @@ export function formatChoiceValue(
   }
 
   return labels[String(value)] ?? formatFallback(value)
+}
+
+/** Integer / float / decimal / biginteger (case-insensitive). */
+export function isNumericFieldType(type: string | null | undefined): boolean {
+  const normalized = String(type ?? '').toLowerCase()
+  return (
+    normalized === 'integer' ||
+    normalized === 'biginteger' ||
+    normalized === 'float' ||
+    normalized === 'decimal' ||
+    normalized === 'number'
+  )
+}
+
+/**
+ * Global rule: numeric and currency fields align right in tables.
+ * Matches InputNumber / currency interfaces and numeric storage types.
+ */
+export function isNumericFieldDefinition(
+  field: {
+    type?: string | null
+    meta?: { interface?: string | null } | null
+    component?: string | null
+  } | null | undefined,
+): boolean {
+  if (!field) return false
+  if (field.component === 'InputNumber') return true
+  if (isNumericFieldType(field.type)) return true
+  const iface = String(field.meta?.interface ?? '').toLowerCase()
+  return (
+    iface.includes('currency') ||
+    iface.includes('number') ||
+    iface.includes('numeric') ||
+    iface.includes('slider')
+  )
 }

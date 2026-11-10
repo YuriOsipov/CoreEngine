@@ -5,19 +5,48 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type {
   EntityRecordAutomationCondition,
   FieldDefinition,
+  PrimeVueComponentType,
   RelationDefinition,
 } from '@/interfaces'
 import { useTranslation } from '@/core/translation'
 import { nestedFieldOptions } from '@/core/fieldOptions'
 import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
 import {
+  filterConditionComponentProps,
+  isAutoCompleteFilterComponent,
+  resolveFilterValueComponent,
+} from '@/core/listFilterUtils'
+import { resolvePrimeVueComponent } from '@/core/primevue'
+import {
+  listFilterableFields,
+  type FilterableField,
+} from '@/modules/config/services/listFilterSettings'
+import {
+  fetchFieldRuntimeMetadata,
+  fetchRelatedCollectionOptionById,
   getCachedCollectionFields,
   getCachedRelations,
+  searchRelatedCollectionOptions,
 } from '@/modules/entities/services/collectionSchema'
+
+interface SelectOption {
+  label: string
+  value: string | number
+}
+
+interface ConditionFieldMeta {
+  field: string
+  type: string
+  component: PrimeVueComponentType
+  relatedCollection?: string
+  /** Collection that owns the leaf field (may differ for nested paths). */
+  hostCollection: string
+  leafField: string
+}
 
 const props = withDefaults(
   defineProps<{
@@ -53,6 +82,13 @@ const emptyLabel = computed(() =>
 
 const fieldOptions = ref<{ label: string; value: string }[]>([])
 const fieldsLoading = ref(false)
+const relations = ref<RelationDefinition[]>([])
+const filterableByCollection = ref<Record<string, FilterableField[]>>({})
+const fieldMetaByPath = ref<Map<string, ConditionFieldMeta>>(new Map())
+const runtimeFieldProps = reactive<Record<string, Record<string, unknown>>>({})
+const autoCompleteTemplates = reactive<Record<string, string | undefined>>({})
+const autoCompleteSuggestions = reactive<Record<number, SelectOption[]>>({})
+const autoCompleteSelections = reactive<Record<number, SelectOption | null>>({})
 
 const noValueOperators = new Set(['_null', '_nnull'])
 
@@ -83,10 +119,28 @@ const logicModel = computed({
   set: (value: 'and' | 'or') => emit('update:logic', value),
 })
 
+async function ensureFilterableFields(collection: string): Promise<FilterableField[]> {
+  const slug = collection.trim()
+  if (!slug) return []
+  const cached = filterableByCollection.value[slug]
+  if (cached) return cached
+  try {
+    const fields = await listFilterableFields(slug)
+    filterableByCollection.value = {
+      ...filterableByCollection.value,
+      [slug]: fields,
+    }
+    return fields
+  } catch {
+    return []
+  }
+}
+
 async function loadFields(collection: string): Promise<void> {
   const slug = collection.trim()
   if (!slug) {
     fieldOptions.value = []
+    relations.value = []
     return
   }
   fieldsLoading.value = true
@@ -96,12 +150,12 @@ async function loadFields(collection: string): Promise<void> {
       getCachedRelations(),
     ])
     const schemaFields = schemaFieldsRaw as unknown as FieldDefinition[]
-    const relations = relationsRaw as unknown as RelationDefinition[]
+    relations.value = relationsRaw as unknown as RelationDefinition[]
 
     const relatedCollections = schemaFields
       .map(
         (field) =>
-          relatedCollectionForCollectionField(relations, slug, field.field) ||
+          relatedCollectionForCollectionField(relations.value, slug, field.field) ||
           field.schema?.foreign_key_table ||
           '',
       )
@@ -124,10 +178,11 @@ async function loadFields(collection: string): Promise<void> {
       schemaFields,
       nestedFieldsByCollection,
       (field) =>
-        relatedCollectionForCollectionField(relations, slug, field.field) ||
+        relatedCollectionForCollectionField(relations.value, slug, field.field) ||
         field.schema?.foreign_key_table ||
         '',
     )
+    await ensureFilterableFields(slug)
   } catch {
     fieldOptions.value = []
   } finally {
@@ -135,10 +190,184 @@ async function loadFields(collection: string): Promise<void> {
   }
 }
 
+function resolveHostCollection(path: string): { hostCollection: string; leafField: string } | null {
+  const parts = String(path ?? '')
+    .split('.')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return null
+  if (parts.length === 1) {
+    return { hostCollection: props.collection.trim(), leafField: parts[0] }
+  }
+
+  let host = props.collection.trim()
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const related =
+      relatedCollectionForCollectionField(relations.value, host, parts[i]) || ''
+    if (!related) return null
+    host = related
+  }
+  return { hostCollection: host, leafField: parts[parts.length - 1] }
+}
+
+async function loadConditionFieldMetadata(): Promise<void> {
+  const collection = props.collection.trim()
+  const needed = Array.from(
+    new Set(
+      props.conditions
+        .filter((condition) => condition.valueSource !== 'field')
+        .map((condition) => String(condition.field ?? '').trim())
+        .filter(Boolean),
+    ),
+  )
+  if (!collection || needed.length === 0) {
+    fieldMetaByPath.value = new Map()
+    return
+  }
+
+  if (relations.value.length === 0) {
+    try {
+      relations.value = (await getCachedRelations()) as unknown as RelationDefinition[]
+    } catch {
+      relations.value = []
+    }
+  }
+
+  const nextMeta = new Map<string, ConditionFieldMeta>()
+  for (const path of needed) {
+    const resolved = resolveHostCollection(path)
+    if (!resolved) continue
+    const fields = await ensureFilterableFields(resolved.hostCollection)
+    const match = fields.find((field) => field.field === resolved.leafField)
+    if (!match) continue
+
+    nextMeta.set(path, {
+      field: path,
+      type: match.type,
+      component: match.component,
+      relatedCollection: match.relatedCollection,
+      hostCollection: resolved.hostCollection,
+      leafField: resolved.leafField,
+    })
+
+    try {
+      const metadata = await fetchFieldRuntimeMetadata(
+        resolved.hostCollection,
+        resolved.leafField,
+        match.component,
+      )
+      runtimeFieldProps[path] = metadata.props
+      autoCompleteTemplates[path] = metadata.template
+    } catch {
+      runtimeFieldProps[path] = {}
+    }
+  }
+
+  fieldMetaByPath.value = nextMeta
+  await syncAutoCompleteSelections()
+}
+
+function conditionFieldMeta(field: string): ConditionFieldMeta | undefined {
+  return fieldMetaByPath.value.get(field)
+}
+
+function conditionValueComponent(field: string) {
+  const meta = conditionFieldMeta(field)
+  if (!meta?.component) return null
+  return resolvePrimeVueComponent(
+    resolveFilterValueComponent(meta.component, runtimeFieldProps[field]),
+  )
+}
+
+function conditionValueProps(field: string): Record<string, unknown> {
+  const meta = conditionFieldMeta(field)
+  if (!meta) return { fluid: true }
+  return filterConditionComponentProps(
+    { field, component: meta.component },
+    runtimeFieldProps,
+  )
+}
+
+function isAutoCompleteConditionField(field: string): boolean {
+  const meta = conditionFieldMeta(field)
+  return Boolean(meta && isAutoCompleteFilterComponent(meta.component))
+}
+
+async function searchConditionRelatedOptions(
+  index: number,
+  condition: EntityRecordAutomationCondition,
+  event: { query?: string },
+): Promise<void> {
+  const meta = conditionFieldMeta(condition.field)
+  if (!meta?.relatedCollection) {
+    autoCompleteSuggestions[index] = []
+    return
+  }
+  autoCompleteSuggestions[index] = await searchRelatedCollectionOptions(
+    meta.relatedCollection,
+    event.query ?? '',
+    autoCompleteTemplates[condition.field],
+  )
+}
+
+function updateAutoCompleteConditionValue(
+  index: number,
+  value: SelectOption | null,
+): void {
+  autoCompleteSelections[index] = value
+  patchCondition(index, { value: value?.value ?? null })
+}
+
+async function syncAutoCompleteSelections(): Promise<void> {
+  for (let index = 0; index < props.conditions.length; index += 1) {
+    const condition = props.conditions[index]
+    if (
+      !condition ||
+      condition.valueSource === 'field' ||
+      noValueOperators.has(condition.operator) ||
+      !isAutoCompleteConditionField(condition.field)
+    ) {
+      autoCompleteSelections[index] = null
+      continue
+    }
+
+    const meta = conditionFieldMeta(condition.field)
+    const value = condition.value
+    if (
+      !meta?.relatedCollection ||
+      (typeof value !== 'string' && typeof value !== 'number')
+    ) {
+      autoCompleteSelections[index] = null
+      continue
+    }
+
+    autoCompleteSelections[index] = await fetchRelatedCollectionOptionById(
+      meta.relatedCollection,
+      value,
+      autoCompleteTemplates[condition.field],
+    )
+  }
+}
+
 watch(
   () => props.collection,
   (collection) => {
+    filterableByCollection.value = {}
     void loadFields(collection)
+  },
+  { immediate: true },
+)
+
+watch(
+  () =>
+    props.conditions
+      .map(
+        (condition) =>
+          `${condition.field}:${condition.valueSource ?? 'literal'}:${condition.operator}`,
+      )
+      .join('|'),
+  () => {
+    void loadConditionFieldMetadata()
   },
   { immediate: true },
 )
@@ -153,7 +382,7 @@ function addCondition(): void {
     {
       field: fieldOptions.value[0]?.value ?? '',
       operator: '_eq',
-      value: '',
+      value: null,
       valueSource: 'literal',
       compareField: null,
     },
@@ -162,6 +391,8 @@ function addCondition(): void {
 
 function removeCondition(index: number): void {
   emitConditions(props.conditions.filter((_, i) => i !== index))
+  delete autoCompleteSelections[index]
+  delete autoCompleteSuggestions[index]
 }
 
 function patchCondition(
@@ -180,9 +411,11 @@ function onFieldChange(index: number, field: string): void {
   if (!condition) return
   patchCondition(index, {
     field,
-    value: condition.valueSource === 'field' ? undefined : '',
+    value: condition.valueSource === 'field' ? undefined : null,
     compareField: condition.valueSource === 'field' ? condition.compareField : null,
   })
+  autoCompleteSelections[index] = null
+  autoCompleteSuggestions[index] = []
 }
 
 function onOperatorChange(index: number, operator: string): void {
@@ -198,9 +431,10 @@ function onValueSourceChange(index: number, source: string): void {
   const valueSource = source === 'field' ? 'field' : 'literal'
   patchCondition(index, {
     valueSource,
-    value: valueSource === 'literal' ? '' : undefined,
+    value: valueSource === 'literal' ? null : undefined,
     compareField: valueSource === 'field' ? (props.conditions[index]?.compareField ?? null) : null,
   })
+  autoCompleteSelections[index] = null
 }
 
 function conditionValueText(condition: EntityRecordAutomationCondition): string {
@@ -311,6 +545,27 @@ function conditionValueText(condition: EntityRecordAutomationCondition): string 
           @update:model-value="
             patchCondition(index, { compareField: String($event ?? '') || null })
           "
+        />
+        <component
+          :is="conditionValueComponent(condition.field)"
+          v-else-if="
+            conditionValueComponent(condition.field) &&
+            !isAutoCompleteConditionField(condition.field)
+          "
+          :model-value="condition.value"
+          v-bind="conditionValueProps(condition.field)"
+          class="show-if-row__value"
+          @update:model-value="patchCondition(index, { value: $event })"
+        />
+        <component
+          :is="conditionValueComponent(condition.field)"
+          v-else-if="conditionValueComponent(condition.field)"
+          :model-value="autoCompleteSelections[index]"
+          :suggestions="autoCompleteSuggestions[index] ?? []"
+          v-bind="conditionValueProps(condition.field)"
+          class="show-if-row__value"
+          @update:model-value="updateAutoCompleteConditionValue(index, $event)"
+          @complete="searchConditionRelatedOptions(index, condition, $event)"
         />
         <InputText
           v-else

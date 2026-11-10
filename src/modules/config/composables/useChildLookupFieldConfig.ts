@@ -122,6 +122,7 @@ export function useChildLookupFieldConfig(options: {
           (collection) =>
             !keysEqual(collection.value, collectionOf()) &&
             !keysEqual(collection.value, valueCollection) &&
+            !keysEqual(collection.value, source) &&
             childCollectionHasRelationTo(relationDefinitions.value, collection.value, source) &&
             (!valueCollection ||
               childCollectionHasRelationTo(
@@ -142,6 +143,18 @@ export function useChildLookupFieldConfig(options: {
           value: valueCollection,
         }
       return [relatedOption, ...bridgeOptions]
+    }
+
+    // Scalar fields may query the source M2O target directly (e.g. Message.email
+    // from Contact via Message.contact), same pattern as Price → Item Price when a
+    // bridge exists — fall back to the source object itself when the value lives there.
+    if (source) {
+      const sourceOption =
+        collectionOptions.value.find((collection) => keysEqual(collection.value, source)) ?? {
+          label: humanizeFieldName(source),
+          value: source,
+        }
+      return [sourceOption, ...bridgeOptions]
     }
 
     return bridgeOptions
@@ -410,6 +423,33 @@ export function useChildLookupFieldConfig(options: {
       }
     }
 
+    const sourceDef = entityFields.value.find((field) => field.field === inferredSourceName)
+    const sourceRel = sourceDef
+      ? findRelationForField(sourceDef, relations)
+      : undefined
+    const sourceColl = sourceRel ? relationRelatedCollection(sourceRel) : ''
+
+    // Direct source-object mode: scalar field looks up a value on the source M2O
+    // target itself (e.g. Contact.email via Message.contact).
+    if (sourceColl && keysEqual(settings.collection, sourceColl)) {
+      const childDefs = await getCachedCollectionFields(settings.collection)
+      const primaryKey =
+        childDefs.find((field) => field.schema?.is_primary_key)?.field ?? 'id'
+      const targetName = fieldApiNameOf()
+      const label = fieldLabelOf()
+      const exact = childDefs.find((field) => keysEqual(field.field, targetName))
+      const byNote = childDefs.find((field) =>
+        keysEqual(field.meta?.note?.trim() || '', label || ''),
+      )
+      return {
+        ...settings,
+        sourceField: inferredSourceName || settings.sourceField,
+        childSourceField: settings.childSourceField || primaryKey,
+        valueField: settings.valueField || exact?.field || byNote?.field || '',
+        parentField: settings.parentField || '',
+      }
+    }
+
     const childRelations = relations.filter((relation) =>
       keysEqual(relationManyCollection(relation), settings.collection),
     )
@@ -418,11 +458,6 @@ export function useChildLookupFieldConfig(options: {
         ? keysEqual(relationRelatedCollection(relation), valueCollection)
         : false,
     )
-    const sourceDef = entityFields.value.find((field) => field.field === inferredSourceName)
-    const sourceRel = sourceDef
-      ? findRelationForField(sourceDef, relations)
-      : undefined
-    const sourceColl = sourceRel ? relationRelatedCollection(sourceRel) : ''
     const sourceRelation = sourceColl
       ? childRelations.find(
           (relation) =>
@@ -488,10 +523,11 @@ export function useChildLookupFieldConfig(options: {
       return rel ? relationRelatedCollection(rel) : ''
     })()
     const valueCollection = relatedEntityOf() ?? ''
-    const options = sourceColl
+    const bridgeOptions = sourceColl
       ? collectionOptions.value.filter(
           (collection) =>
             !keysEqual(collection.value, collectionOf()) &&
+            !keysEqual(collection.value, sourceColl) &&
             childCollectionHasRelationTo(
               relationDefinitions.value,
               collection.value,
@@ -505,10 +541,23 @@ export function useChildLookupFieldConfig(options: {
               )),
         )
       : []
+    const selectable = [
+      ...(sourceColl
+        ? [
+            collectionOptions.value.find((collection) =>
+              keysEqual(collection.value, sourceColl),
+            ) ?? { label: humanizeFieldName(sourceColl), value: sourceColl },
+          ]
+        : []),
+      ...bridgeOptions,
+    ]
+    // Prefer an existing valid choice, then bridge tables (Price → Item Price),
+    // then the source M2O target itself (Email → Contact).
     const preferredCollection =
-      settings.collection && options.some((option) => keysEqual(option.value, settings.collection))
+      settings.collection &&
+      selectable.some((option) => keysEqual(option.value, settings.collection))
         ? settings.collection
-        : options[0]?.value ?? ''
+        : bridgeOptions[0]?.value ?? sourceColl ?? ''
 
     const inferred = await inferSettings({
       ...settings,

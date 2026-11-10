@@ -3,6 +3,7 @@ import {
   buildTemplateExport,
   isDocExport,
   isSectionInstanceArray,
+  materializeRepeatableSectionInstances,
   normalizeDocumentValues,
   stripValuesFromBlocks,
 } from '@docengine/editor'
@@ -53,6 +54,63 @@ export interface RenderableDocPreview {
   repeatableSectionInstances?: Record<string, unknown[]>
 }
 
+const SOURCE_CLONE_SECTION_RE = /^(.*)__src(\d+)$/
+
+/**
+ * Rebuild `sections.Name: [{…},{…}]` when Finish previously exported clones as
+ * sibling keys (`items`, `items__src1`, …) because `_sourceInstanceOf` markers
+ * were stripped before collapse.
+ */
+export function regroupSourceSectionClones(
+  sections: Record<string, unknown>,
+): Record<string, unknown> {
+  const cloneEntries: Array<{ sourceName: string; index: number; key: string; value: unknown }> =
+    []
+  for (const [key, value] of Object.entries(sections)) {
+    const match = SOURCE_CLONE_SECTION_RE.exec(key)
+    if (!match) continue
+    cloneEntries.push({
+      sourceName: match[1]!,
+      index: Number(match[2]),
+      key,
+      value,
+    })
+  }
+  if (cloneEntries.length === 0) return sections
+
+  const next: Record<string, unknown> = { ...sections }
+  const bySource = new Map<string, typeof cloneEntries>()
+  for (const entry of cloneEntries) {
+    const list = bySource.get(entry.sourceName) ?? []
+    list.push(entry)
+    bySource.set(entry.sourceName, list)
+  }
+
+  for (const [sourceName, clones] of bySource) {
+    const base = next[sourceName]
+    if (isSectionInstanceArray(base)) {
+      for (const clone of clones) delete next[clone.key]
+      continue
+    }
+
+    const instances: unknown[] = []
+    if (base && typeof base === 'object' && !Array.isArray(base)) {
+      instances.push(base)
+    }
+    for (const clone of [...clones].sort((a, b) => a.index - b.index)) {
+      if (clone.value && typeof clone.value === 'object' && !Array.isArray(clone.value)) {
+        instances.push(clone.value)
+      }
+      delete next[clone.key]
+    }
+    if (instances.length > 0) {
+      next[sourceName] = instances
+    }
+  }
+
+  return next
+}
+
 /**
  * Attach section instance arrays from a FieldsExport so DocEngine preview/PDF
  * can expand `_source: $payload.item_group_tree_rows` (Group + `$children` table)
@@ -65,7 +123,7 @@ export function previewExtrasFromFieldsExport(
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return {}
   }
-  const sections = raw as Record<string, unknown>
+  const sections = regroupSourceSectionClones(raw as Record<string, unknown>)
   const repeatableSectionInstances: Record<string, unknown[]> = {}
   for (const [name, value] of Object.entries(sections)) {
     if (isSectionInstanceArray(value) && value.length > 0) {
@@ -110,6 +168,7 @@ export function buildRenderableDocument(
   structureBody: Record<string, unknown>,
   savedValues?: Record<string, unknown> | null,
 ): RenderableDocPreview {
+  // Draft Save stores a full DocExport (already materialized section clones).
   if (savedValues && isDocExport(savedValues)) {
     return {
       time: typeof savedValues.time === 'number' ? savedValues.time : Date.now(),
@@ -141,11 +200,22 @@ export function buildRenderableDocument(
     shape.fieldSchemas as never,
   )
 
+  // Finish stores FieldsExport (`sections.Name: [{…}, {…}]`). Preview/PDF need
+  // those arrays as `repeatableSectionInstances`, and fill-style materialize so
+  // completed HTML view shows every `_source` group (not only instances[0]).
+  const extras = previewExtrasFromFieldsExport(savedValues)
+  const materialized = materializeRepeatableSectionInstances(
+    merged.blocks as never,
+    merged.fieldSchemas as never,
+    (extras.sections ?? null) as never,
+  )
+
   return {
     time: Date.now(),
-    blocks: merged.blocks,
-    fieldSchemas: merged.fieldSchemas as Record<string, unknown>,
+    blocks: materialized.blocks,
+    fieldSchemas: materialized.fieldSchemas as Record<string, unknown>,
     pageSetup,
+    ...extras,
   }
 }
 
@@ -161,18 +231,34 @@ export async function buildPopulatedDocument(
   const pageSetup = (body.pageSetup as Record<string, unknown>) ?? {}
 
   if (savedValues && Object.keys(savedValues).length > 0) {
+    if (isDocExport(savedValues)) {
+      return {
+        time: typeof savedValues.time === 'number' ? savedValues.time : Date.now(),
+        blocks: (savedValues.blocks as unknown[]) ?? [],
+        fieldSchemas: (savedValues.fieldSchemas as Record<string, unknown>) ?? {},
+        pageSetup: (savedValues.pageSetup as Record<string, unknown>) ?? pageSetup,
+        fieldsExport: savedValues,
+      }
+    }
+
     const blocks = mappingTemplate.blocks as never
     const fieldSchemas = mappingTemplate.fieldSchemas as never
     const values = normalizeDocumentValues(savedValues as never, blocks, fieldSchemas)
     const merged = applyDocumentValues(blocks, values, fieldSchemas)
+    const extras = previewExtrasFromFieldsExport(savedValues)
+    const materialized = materializeRepeatableSectionInstances(
+      merged.blocks as never,
+      merged.fieldSchemas as never,
+      (extras.sections ?? null) as never,
+    )
 
     return {
       time: Date.now(),
-      blocks: merged.blocks,
-      fieldSchemas: merged.fieldSchemas as Record<string, unknown>,
+      blocks: materialized.blocks,
+      fieldSchemas: materialized.fieldSchemas as Record<string, unknown>,
       pageSetup,
       fieldsExport: savedValues,
-      ...previewExtrasFromFieldsExport(savedValues),
+      ...extras,
     }
   }
 

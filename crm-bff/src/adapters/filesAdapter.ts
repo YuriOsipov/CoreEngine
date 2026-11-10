@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import {
+  postgresFileHasParentLink,
   postgresFindFileRow,
   postgresFindFileRows,
+  postgresLinkFileToParent,
+  postgresListFiles,
   postgresListFilesByParent,
   postgresSoftDeleteFile,
+  postgresUnlinkFileFromParent,
   postgresUpdateFileMeta,
   postgresUpsertFile,
   toFileAssetShape,
@@ -32,7 +36,7 @@ function useSupabaseUploads(): boolean {
 function requireSupabaseFiles(purpose: string): void {
   if (useSupabaseUploads() && isSupabaseStorageConfigured()) return
   throw new Error(
-    `Files backend refused (${purpose}): configure Supabase Storage or set FILES_BACKEND=supabase.`,
+    `Files backend refused (${purpose}): set SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY) plus VITE_SUPABASE_URL, and FILES_BACKEND=supabase.`,
   )
 }
 
@@ -281,7 +285,69 @@ export async function listRecordFiles(
   return expanded.map((row) => projectFields(row, fields))
 }
 
-export async function deleteFileRecord(id: string): Promise<boolean> {
+export async function listFiles(params: {
+  search?: string | null
+  mimeTypes?: string[] | null
+  fields?: string[] | null
+  limit?: number
+  offset?: number
+}): Promise<{ nodes: Record<string, unknown>[]; totalCount: number }> {
+  const listed = await postgresListFiles({
+    search: params.search,
+    mimeTypes: params.mimeTypes,
+    limit: params.limit,
+    offset: params.offset,
+  })
+  const shaped = listed.rows.map((row) => toFileAssetShape(row))
+  const expanded = await expandUploadedBy(shaped, params.fields)
+  return {
+    nodes: expanded.map((row) => projectFields(row, params.fields)),
+    totalCount: listed.totalCount,
+  }
+}
+
+export async function linkFileToRecord(input: {
+  fileId: string
+  parentCollection: string
+  parentRecordId: string
+  createdBy?: string | null
+}): Promise<Record<string, unknown>> {
+  const linked = await postgresLinkFileToParent(input)
+  const [shaped] = await expandUploadedBy(
+    [toFileAssetShape(linked.row, input.fileId)],
+    [
+      'id',
+      'uploaded_by.id',
+      'uploaded_by.first_name',
+      'uploaded_by.last_name',
+      'uploaded_by.email',
+    ],
+  )
+  return shaped ?? toFileAssetShape(linked.row, input.fileId)
+}
+
+/**
+ * Remove from a parent: secondary links are unlinked only; primary parent
+ * (or no parent context) soft-deletes the registry row.
+ */
+export async function deleteFileRecord(
+  id: string,
+  parent?: { collection: string; recordId: string } | null,
+): Promise<boolean> {
+  if (parent?.collection && parent.recordId) {
+    const kind = await postgresFileHasParentLink({
+      fileId: id,
+      parentCollection: parent.collection,
+      parentRecordId: parent.recordId,
+    })
+    if (kind === 'link') {
+      return postgresUnlinkFileFromParent({
+        fileId: id,
+        parentCollection: parent.collection,
+        parentRecordId: parent.recordId,
+      })
+    }
+  }
   return postgresSoftDeleteFile(id)
 }
 

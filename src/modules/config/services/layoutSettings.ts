@@ -328,6 +328,8 @@ export async function buildCompactDetailsSchema(
 
   function appendLayoutField(field: LayoutFieldMetadata): void {
     if (field.component === 'BlockLayout') return
+    // Image / Files are not useful as compact text (FK UUID or attachment list).
+    if (isCompactExcludedMediaField(field)) return
 
     if (field.component === 'DataTable') {
       if (field.relatedCollection && !seenCounts.has(field.field)) {
@@ -1021,6 +1023,17 @@ function normalizeLayoutField(
   }
 }
 
+/** Image / Files / files M2O — exclude from compact highlights text. */
+function isCompactExcludedMediaField(field: {
+  component?: string
+  relatedCollection?: string | null
+  field?: string
+}): boolean {
+  if (field.component === 'Files') return true
+  if (String(field.field || '').startsWith('files:')) return true
+  return String(field.relatedCollection || '').trim().toLowerCase() === 'files'
+}
+
 function normalizeCompactRecordDetailsSchema(
   collection: string,
   schema: CompactRecordDetailsSchema,
@@ -1028,7 +1041,9 @@ function normalizeCompactRecordDetailsSchema(
   return {
     entity: collection,
     version: schema.version ?? 1,
-    fields: Array.isArray(schema.fields) ? schema.fields : [],
+    fields: (Array.isArray(schema.fields) ? schema.fields : []).filter(
+      (field) => !isCompactExcludedMediaField(field),
+    ),
     relatedCounts: Array.isArray(schema.relatedCounts) ? schema.relatedCounts : [],
   }
 }

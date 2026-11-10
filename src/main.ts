@@ -7,10 +7,12 @@ import FloatingVue from 'floating-vue'
 import App from './App.vue'
 import { router } from './core/router'
 import {
+  applyOrgLanguageDefault,
   getTranslationLanguage,
   preloadTranslations,
   type TranslationLanguage,
 } from './core/translation'
+import { getOrgLanguage, loadCompanyProfile } from './core/orgLocale'
 import '@/core/docengine/registerDocEngineFields'
 import './style.css'
 import '@fontsource/inter/400.css'
@@ -24,6 +26,13 @@ import 'quill/dist/quill.snow.css'
 void bootstrap()
 
 async function bootstrap(): Promise<void> {
+  try {
+    await loadCompanyProfile()
+    applyOrgLanguageDefault(getOrgLanguage())
+  } catch {
+    // Offline / BFF down: keep browser defaults until Setup is available.
+  }
+
   const language = getTranslationLanguage()
   await preloadTranslations(language)
 

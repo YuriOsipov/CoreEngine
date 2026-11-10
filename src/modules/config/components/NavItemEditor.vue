@@ -15,6 +15,7 @@ import {
   listNavReports,
   type NavPickerOption,
 } from '@/core/navigation/navigationPickers'
+import CrmIconPicker from '@/core/ui-kit/CrmIconPicker.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -206,13 +207,9 @@ function close(): void {
 
       <div class="flex flex-col gap-1">
         <label class="text-surface-700 text-[0.8rem] font-semibold">
-          {{ t('navigation.itemIcon', 'Icon (PrimeVue class)') }}
+          {{ t('navigation.itemIcon', 'Icon') }}
         </label>
-        <InputText
-          v-model="item.icon"
-          placeholder="pi pi-briefcase"
-          fluid
-        />
+        <CrmIconPicker v-model="item.icon" />
       </div>
 
       <template v-if="isLink">

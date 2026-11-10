@@ -11,8 +11,21 @@ import { getCachedCollectionFields, getCachedRelations } from '@/modules/entitie
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 import { collectSourceTokenFields } from '@/modules/entities/utils/relatedTransferFilters'
 import { extractRelationFieldId, scalarId } from '@/modules/entities/utils/recordDisplay'
+import { keysEqual } from '@/core/utils/object'
 
 export type ChildLookupFieldMode = 'picklist' | 'value' | 'auto'
+export type ChildLookupValueInput = 'number' | 'text'
+
+const NUMERIC_FIELD_TYPES = new Set([
+  'integer',
+  'biginteger',
+  'bigInteger',
+  'float',
+  'decimal',
+  'number',
+  'double',
+  'numeric',
+])
 
 export interface UseChildLookupFieldOptions {
   modelValue: Ref<unknown>
@@ -29,6 +42,8 @@ export interface UseChildLookupFieldOptions {
   parentName?: Ref<string | undefined>
   parentRecord?: Ref<Record<string, unknown> | undefined>
   preferPicklist?: Ref<boolean | undefined>
+  /** Force value-mode control; otherwise inferred from target field type. */
+  valueInput?: Ref<ChildLookupValueInput | undefined>
   preloadedOptions?: Ref<Array<{ label: string; value: unknown }> | undefined>
   /**
    * Edit forms only: keep a stored scalar on first hydrate.
@@ -76,6 +91,7 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
   const loadKey = ref('')
   const fetchedOptions = ref<Array<{ label: string; value: unknown }>>([])
   const fieldIsM2O = ref<boolean | undefined>(undefined)
+  const inferredValueInput = ref<ChildLookupValueInput | undefined>(undefined)
   const lastSyncedSourceValue = ref<string | number | null>(null)
   const lastSyncedPicklistContext = ref<string | null>(null)
 
@@ -102,6 +118,25 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
     return options.preferPicklist?.value ? 'picklist' : 'value'
   })
 
+  const resolvedValueInput = computed<ChildLookupValueInput>(() => {
+    if (options.valueInput?.value === 'number' || options.valueInput?.value === 'text') {
+      return options.valueInput.value
+    }
+    const target = options.targetField?.value ?? ''
+    const layoutField = options.fields?.value?.find((field) =>
+      keysEqual(field.field, target),
+    )
+    // Prefer layout component so string fields (Email) never mount as InputNumber
+    // and immediately clear the looked-up value.
+    if (layoutField?.component === 'InputNumber') return 'number'
+    if (layoutField?.component === 'InputText' || layoutField?.component === 'Textarea') {
+      return 'text'
+    }
+    if (inferredValueInput.value) return inferredValueInput.value
+    // Price-style defaults historically assumed numbers; keep that when unknown.
+    return 'number'
+  })
+
   const selectOptions = computed(() => {
     if (options.preloadedOptions?.value !== undefined) {
       return options.preloadedOptions.value
@@ -114,6 +149,12 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
     if (value === null || value === undefined || value === '') return null
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
+  })
+
+  const textModelValue = computed(() => {
+    const value = options.modelValue.value
+    if (value === null || value === undefined) return ''
+    return String(value)
   })
 
   const fetchContext = computed(() => ({
@@ -172,8 +213,9 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
   async function syncFieldM2O(): Promise<void> {
     const collection = options.entityCollection?.value
     const fieldName = options.targetField?.value
-    if (!collection || !fieldName || options.mode.value !== 'auto') {
+    if (!collection || !fieldName) {
       fieldIsM2O.value = undefined
+      inferredValueInput.value = undefined
       return
     }
 
@@ -181,7 +223,14 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
       getCachedCollectionFields(collection),
       getCachedRelations(),
     ])
-    fieldIsM2O.value = isFieldM2O(collection, fieldName, definitions, relations)
+    if (options.mode.value === 'auto') {
+      fieldIsM2O.value = isFieldM2O(collection, fieldName, definitions, relations)
+    } else {
+      fieldIsM2O.value = undefined
+    }
+    const definition = definitions.find((field) => keysEqual(field.field, fieldName))
+    const type = String(definition?.type ?? '').trim()
+    inferredValueInput.value = NUMERIC_FIELD_TYPES.has(type) ? 'number' : 'text'
   }
 
   async function syncFieldState(): Promise<void> {
@@ -425,8 +474,10 @@ export function useChildLookupField(options: UseChildLookupFieldOptions) {
   return {
     loading,
     resolvedMode,
+    resolvedValueInput,
     selectOptions,
     numericModelValue,
+    textModelValue,
     updateValue,
   }
 }

@@ -24,6 +24,7 @@ import type {
   SavedNavigationApp,
 } from '@/interfaces'
 import { NAV_MAX_DEPTH } from '@/interfaces'
+import { legacyFilterNameToViewId } from './navTargetRoute'
 
 /** Namespace tag stored in the `collection` field to group all navigation rows. */
 export const NAV_NAMESPACE = 'crm_navigation'
@@ -88,17 +89,25 @@ function parseBody<T>(body: NavSettingRecord['body']): T | null {
 function normalizeTarget(target: unknown): NavTarget {
   const value = (target && typeof target === 'object' ? target : {}) as Record<string, unknown>
   switch (value.kind) {
-    case 'object':
+    case 'object': {
+      const collection = String(value.collection ?? '')
+      const viewId =
+        typeof value.viewId === 'string' && value.viewId
+          ? value.viewId
+          : typeof value.filterName === 'string'
+            ? legacyFilterNameToViewId(value.filterName)
+            : undefined
+      const filterName =
+        !viewId && typeof value.filterName === 'string' && value.filterName
+          ? value.filterName
+          : undefined
       return {
         kind: 'object',
-        collection: String(value.collection ?? ''),
-        ...(typeof value.viewId === 'string' && value.viewId
-          ? { viewId: value.viewId }
-          : {}),
-        ...(typeof value.filterName === 'string' && value.filterName
-          ? { filterName: value.filterName }
-          : {}),
+        collection,
+        ...(viewId ? { viewId } : {}),
+        ...(filterName ? { filterName } : {}),
       }
+    }
     case 'dashboard':
       return { kind: 'dashboard', dashboardId: String(value.dashboardId ?? '') }
     case 'reports':

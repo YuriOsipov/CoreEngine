@@ -5,7 +5,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SetupCollectionNav from '../components/setup/SetupCollectionNav.vue'
 import SetupEntityParametersPanel from '../components/setup/SetupEntityParametersPanel.vue'
@@ -15,9 +15,11 @@ import SetupLayoutListPanel from '../components/setup/SetupLayoutListPanel.vue'
 import SetupRecordAutomationsPanel from '../components/setup/SetupRecordAutomationsPanel.vue'
 import { useSetupCollectionSectionSync } from '../composables/useSetupCollectionSectionSync'
 import { useSetupLayoutList } from '../composables/useSetupLayoutList'
+import { scheduleFeatureAvailable } from '../services/scheduleFeature'
 import { useTranslation } from '@/core/translation'
 import { listUserCollections } from '@/modules/entities/services/collectionSchema'
 import {
+  DEFAULT_SETUP_SECTION,
   isSetupLayoutSection,
   routeQueryCollectionSection,
   type SetupCollectionSection,
@@ -33,6 +35,7 @@ const section = ref<SetupCollectionSection>(routeQueryCollectionSection(route))
 const collectionLabel = ref(collection.value)
 const editorVisible = ref(false)
 const editorLayoutId = ref<string | null>(null)
+const scheduleAvailable = ref(false)
 
 // Document Templates moved to App Setup — redirect legacy deep links.
 watch(
@@ -47,6 +50,15 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(() => {
+  void scheduleFeatureAvailable().then((available) => {
+    scheduleAvailable.value = available
+    if (!available && section.value === 'scheduler') {
+      section.value = DEFAULT_SETUP_SECTION
+    }
+  })
+})
 
 useSetupCollectionSectionSync(section)
 

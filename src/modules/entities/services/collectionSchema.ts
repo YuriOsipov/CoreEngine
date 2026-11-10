@@ -36,6 +36,10 @@ import {
   fieldDateDisplayFormat,
   primeVueDatePickerFormat,
 } from '@/core/dateFormatting'
+import {
+  getOrgCurrencySymbol,
+  isOrgCurrencyPlaceholderAffix,
+} from '@/core/orgLocale'
 import { FILES_ASSET_COLLECTION, isFilesAssetCollection, resolveFilesRelatedCollection } from '@/core/filesField'
 import { parseDynamicPicklistSource } from '@/core/dynamicPicklist'
 import {
@@ -144,6 +148,16 @@ export async function getCachedCollections(): Promise<CollectionDefinition[]> {
   refuseLegacyFallback('getCachedCollections')
 }
 
+/** True when `collection` is registered (case-insensitive). */
+export async function collectionExistsInRegistry(
+  collection: string,
+): Promise<boolean> {
+  const name = String(collection || '').trim()
+  if (!name) return false
+  const collections = await getCachedCollections()
+  return collections.some((row) => keysEqual(row.collection, name))
+}
+
 export async function fetchCollectionIcon(collectionName: string): Promise<string | null> {
   const collections = await getCachedCollections()
   return collections.find((c) => c.collection === collectionName)?.meta?.icon ?? null
@@ -215,6 +229,9 @@ export interface UserCollectionOption {
   value: string
   description: string
   icon: string | null
+  displayTemplate: string | null
+  /** `all` | `activity` | null (do not track). */
+  accountability: string | null
   internal: boolean
   hidden: boolean
 }
@@ -235,14 +252,25 @@ export async function listUserCollections(options?: {
   })
 
   const mapped = await Promise.all(
-    visibleCollections.map(async (c) => ({
-      value: c.collection,
-      label: await translateCollection(c.collection, c),
-      description: c.meta?.description?.trim() || '',
-      icon: c.meta?.icon ?? null,
-      internal: isInternalCollection(c),
-      hidden: c.meta?.hidden === true,
-    })),
+    visibleCollections.map(async (c) => {
+      const raw = c.meta?.accountability
+      const accountability: string | null =
+        raw === null ? null : raw === 'activity' ? 'activity' : 'all'
+      const template = c.meta?.display_template
+      return {
+        value: c.collection,
+        label: await translateCollection(c.collection, c),
+        description: c.meta?.description?.trim() || '',
+        icon: c.meta?.icon ?? null,
+        displayTemplate:
+          typeof template === 'string' && template.trim()
+            ? template.trim()
+            : null,
+        accountability,
+        internal: isInternalCollection(c),
+        hidden: c.meta?.hidden === true,
+      }
+    }),
   )
 
   return mapped.sort((a, b) => a.label.localeCompare(b.label))
@@ -544,7 +572,9 @@ export async function resolveAttachedFilesCollection(
   }
   const entity = entityCollection?.trim() ?? ''
   let related = field.relatedCollection?.trim() ?? ''
-  if (entity && filesSettings(field)?.multiple !== false) {
+  // Multi-file Attachments only — Image / single-file M2O must resolve to `files`.
+  // Treat missing `multiple` as single (same as isSingleFileField).
+  if (entity && filesSettings(field)?.multiple === true) {
     if (!related || isFilesAssetCollection(related)) {
       const child = await resolveObjectFilesChild(entity)
       if (child?.relatedCollection) return child.relatedCollection
@@ -979,7 +1009,8 @@ export async function fetchFieldRuntimeMetadata(
   if (component === 'InputNumber') {
     const options = (definition.meta?.options ?? {}) as Record<string, unknown>
     const iface = String(definition.meta?.interface || '').toLowerCase()
-    const suffix = options.suffix ?? options.currency
+    const isCurrency = iface.includes('currency')
+    const suffix = isCurrency ? options.suffix : (options.suffix ?? options.currency)
     const prefix = options.prefix
     const placesRaw =
       options.scale ?? options.decimalPlaces ?? options.minFractionDigits
@@ -990,18 +1021,33 @@ export async function fetchFieldRuntimeMetadata(
           ? Number(placesRaw)
           : NaN
 
-    if (typeof suffix === 'string' && suffix.trim()) {
-      props.suffix = suffix.trim()
-    }
-    if (typeof prefix === 'string' && prefix.trim()) {
-      props.prefix = prefix.trim()
+    if (isCurrency) {
+      // Live org currency sign as prefix; ignore leftover `$` / ISO markers.
+      const customPrefix =
+        typeof prefix === 'string' &&
+        prefix.trim() &&
+        !isOrgCurrencyPlaceholderAffix(prefix)
+          ? prefix.trim()
+          : ''
+      if (customPrefix) {
+        props.prefix = customPrefix
+      } else {
+        props.prefix = getOrgCurrencySymbol()
+      }
+    } else {
+      if (typeof suffix === 'string' && suffix.trim()) {
+        props.suffix = suffix.trim()
+      }
+      if (typeof prefix === 'string' && prefix.trim()) {
+        props.prefix = prefix.trim()
+      }
     }
     if (Number.isFinite(places)) {
       const n = Math.min(38, Math.max(0, Math.trunc(places)))
       props.minFractionDigits = n
       props.maxFractionDigits = n
     } else if (
-      iface.includes('currency') ||
+      isCurrency ||
       definition.type === 'float' ||
       definition.type === 'decimal'
     ) {

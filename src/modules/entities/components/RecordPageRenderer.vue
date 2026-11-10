@@ -22,6 +22,10 @@ import {
   fetchCompactRecordDetails,
   type CompactRecordDetailsRuntime,
 } from '@/modules/entities/services/recordDetails'
+import {
+  canReadEntity,
+  ensureEntityPermissions,
+} from '@/core/entityPermissions'
 import { useTranslation } from '@/core/translation'
 
 const props = defineProps<{
@@ -162,11 +166,14 @@ async function hydrateRelatedListFields(): Promise<void> {
   const relatedComponents = allComponents().filter(
     (component) => component.type === 'relatedList',
   )
+  await ensureEntityPermissions()
   const next: Record<string, LayoutFieldMetadata[]> = {}
   await Promise.all(
     relatedComponents.map(async (component) => {
       const schema = await resolveRelatedListBlockLayout(component)
-      next[component.id] = listBlockLayoutRelatedListFields(schema)
+      next[component.id] = listBlockLayoutRelatedListFields(schema).filter((field) =>
+        canReadEntity(field.relatedCollection),
+      )
     }),
   )
   relatedListFields.value = next
@@ -249,7 +256,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 </script>
 
 <template>
-  <div class="record-page-runtime flex flex-col gap-4">
+  <div class="record-page-runtime flex min-h-full flex-col gap-3">
     <section
       v-if="headerRegion && headerRegion.components.length > 0"
       class="record-page-runtime__region record-page-runtime__region--header grid grid-cols-12 content-start gap-3"
@@ -384,6 +391,14 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 </template>
 
 <style scoped>
+.record-page-runtime {
+  background: var(--p-surface-50, #f8fafc);
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 100%;
+  padding: 0.65rem 0.75rem 1rem;
+}
+
 .record-page-runtime__body--with-sidebar {
   grid-template-columns:
     minmax(0, var(--record-page-main-pct, 50%))

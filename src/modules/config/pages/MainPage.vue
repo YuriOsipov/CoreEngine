@@ -8,6 +8,7 @@ export default {
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
+import { resolveAppHomeRoute } from '@/core/navigation/resolveAppHomeRoute'
 import {
   listReadableCollections,
   type ReadableCollectionOption,
@@ -38,6 +39,12 @@ onMounted(async () => {
   loading.value = true
   error.value = null
   try {
+    const homeRoute = await resolveAppHomeRoute()
+    if (homeRoute) {
+      await router.replace(homeRoute)
+      return
+    }
+
     collections.value = await listReadableCollections()
     if (collections.value.length === 0) {
       error.value = t(

@@ -1,5 +1,7 @@
 import type { RouteLocationRaw } from 'vue-router'
 import type { NavTarget } from '@/interfaces'
+import { ALL_RECORDS_FILTER_ID, ALL_RECORDS_FILTER } from '@/modules/config/services/listFilterSettings'
+import { RECENTLY_VIEWED_FILTER_ID, RECENTLY_VIEWED_FILTER } from '@/modules/dashboard/services/recentRecords'
 
 /** Landing route used when a Home target is left unresolved. */
 export const NAV_HOME_FALLBACK: RouteLocationRaw = { path: '/' }
@@ -9,6 +11,18 @@ export interface ResolvedNavTarget {
   to?: RouteLocationRaw
   /** External URL, when the target opens a new tab. */
   href?: string
+}
+
+/** Maps legacy object favorites that stored a display name to a view id. */
+export function legacyFilterNameToViewId(filterName: string | undefined): string | undefined {
+  if (!filterName) return undefined
+  if (filterName === ALL_RECORDS_FILTER_ID || filterName === ALL_RECORDS_FILTER.name) {
+    return ALL_RECORDS_FILTER_ID
+  }
+  if (filterName === RECENTLY_VIEWED_FILTER_ID || filterName === RECENTLY_VIEWED_FILTER.name) {
+    return RECENTLY_VIEWED_FILTER_ID
+  }
+  return undefined
 }
 
 /**
@@ -35,6 +49,46 @@ function toInternalPath(href: string): string | null {
   }
 }
 
+/** Normalize a path/fullPath for favorite ↔ current-page comparison. */
+export function normalizeFavoriteRouteKey(path: string): string {
+  const trimmed = path.trim()
+  if (!trimmed) return '/'
+  try {
+    const parsed = new URL(trimmed, window.location.origin)
+    const key = `${parsed.pathname}${parsed.search}`.replace(/\/+$/, '')
+    return key || '/'
+  } catch {
+    const key = trimmed.split('#')[0]?.replace(/\/+$/, '') ?? ''
+    return key || '/'
+  }
+}
+
+/**
+ * True when a favorite target resolves to the same in-app location as `fullPath`.
+ */
+export function favoriteTargetMatchesRoute(
+  target: NavTarget,
+  fullPath: string,
+  homeTarget?: NavTarget,
+  resolve: (to: RouteLocationRaw) => { fullPath: string } = (to) =>
+    ({ fullPath: typeof to === 'string' ? to : String((to as { path?: string }).path ?? '/') }),
+): boolean {
+  const currentKey = normalizeFavoriteRouteKey(fullPath)
+  const resolved = resolveNavTarget(target, homeTarget)
+  if (resolved.to) {
+    try {
+      return normalizeFavoriteRouteKey(resolve(resolved.to).fullPath) === currentKey
+    } catch {
+      return false
+    }
+  }
+  if (resolved.href) {
+    const internal = toInternalPath(resolved.href)
+    return internal ? normalizeFavoriteRouteKey(internal) === currentKey : false
+  }
+  return false
+}
+
 /**
  * Maps a navigation target to a router location (or external href).
  * `homeTarget` resolves the fixed Home entry to the app's configured landing.
@@ -44,10 +98,11 @@ export function resolveNavTarget(
   homeTarget?: NavTarget,
 ): ResolvedNavTarget {
   switch (target.kind) {
-    case 'object':
-      if (target.viewId) {
+    case 'object': {
+      const viewId = target.viewId ?? legacyFilterNameToViewId(target.filterName)
+      if (viewId) {
         return {
-          to: { name: 'object-list-filter', params: { collection: target.collection, filter_id: target.viewId } },
+          to: { name: 'object-list-filter', params: { collection: target.collection, filter_id: viewId } },
         }
       }
       return {
@@ -58,6 +113,7 @@ export function resolveNavTarget(
             }
           : { name: 'object-list', params: { collection: target.collection } },
       }
+    }
     case 'dashboard':
       return { to: { path: '/dashboards', query: { id: target.dashboardId } } }
     case 'reports':

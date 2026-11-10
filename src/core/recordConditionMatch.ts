@@ -25,7 +25,19 @@ function addShowIfPaths(
   }
 }
 
-/** Field paths referenced by tab/group show-if conditions (supports `item.result_type`). */
+/** Field paths referenced by a single condition list (show-if / readonly-if). */
+export function collectConditionFieldPaths(
+  conditions: EntityRecordAutomationCondition[] | null | undefined,
+): string[] {
+  const paths = new Set<string>()
+  addShowIfPaths(paths, conditions)
+  return Array.from(paths)
+}
+
+/**
+ * Field paths referenced by tab/group show-if and field readonly-if conditions
+ * (supports nested paths like `item.result_type`).
+ */
 export function collectShowIfFieldPaths(
   sections: LayoutSection[] | null | undefined,
 ): string[] {
@@ -34,6 +46,9 @@ export function collectShowIfFieldPaths(
     addShowIfPaths(paths, section.showIf)
     for (const group of section.groups ?? []) {
       addShowIfPaths(paths, group.showIf)
+      for (const field of group.fields ?? []) {
+        addShowIfPaths(paths, field.readonlyIf)
+      }
     }
   }
   return Array.from(paths)

@@ -31,6 +31,8 @@ const props = withDefaults(
     hasMore?: boolean
     loadingMore?: boolean
     totalRecords?: number
+    /** Page size for infinite scroll load-more (matches CrmDataTable lazy). */
+    pageSize?: number
     showNewButton?: boolean
     emptyMessage?: string
     /** Bump to invalidate compact field cache (e.g. after list refresh). */
@@ -45,6 +47,7 @@ const props = withDefaults(
     hasMore: false,
     loadingMore: false,
     totalRecords: 0,
+    pageSize: 25,
     showNewButton: false,
     emptyMessage: '',
     reloadToken: 0,
@@ -55,7 +58,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:selection': [row: Record<string, unknown> | null]
-  'load-more': []
+  'load-more': [payload: { offset: number; limit: number }]
   refreshed: []
 }>()
 
@@ -236,7 +239,10 @@ function onScroll(event: Event): void {
   if (!props.hasMore || props.loadingMore || props.loading) return
   const el = event.target as HTMLElement
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
-    emit('load-more')
+    emit('load-more', {
+      offset: props.rows.length,
+      limit: Math.max(1, props.pageSize),
+    })
   }
 }
 
@@ -257,20 +263,48 @@ defineExpose({
 <template>
   <div class="object-list-compact-cards flex h-full min-h-0 flex-col overflow-hidden">
     <div
-      v-if="showNewButtonEffective || $slots.toolbar || $slots['toolbar-actions']"
-      class="object-list-compact-cards__toolbar flex flex-shrink-0 flex-wrap items-end justify-between gap-2 border-b border-surface-200 px-2 py-2 dark:border-surface-700"
+      v-if="
+        showNewButtonEffective ||
+        $slots.toolbar ||
+        $slots['toolbar-actions'] ||
+        $slots['toolbar-filters'] ||
+        $slots['toolbar-tools']
+      "
+      class="object-list-compact-cards__toolbar flex flex-shrink-0 flex-col gap-2 border-b border-surface-200 px-2 py-2 dark:border-surface-700"
     >
-      <div class="min-w-0 flex-1">
-        <slot name="toolbar" />
+      <div class="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <slot name="toolbar" />
+        </div>
+        <div
+          v-if="$slots['toolbar-actions'] || showNewButtonEffective"
+          class="flex flex-wrap items-center justify-end gap-2"
+        >
+          <slot name="toolbar-actions" />
+          <Button
+            v-if="showNewButtonEffective"
+            :label="t('common.new', 'New')"
+            size="small"
+            @click="openCreateDialog"
+          />
+        </div>
       </div>
-      <div class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
-        <slot name="toolbar-actions" />
-        <Button
-          v-if="showNewButtonEffective"
-          :label="t('common.new', 'New')"
-          size="small"
-          @click="openCreateDialog"
-        />
+      <div
+        v-if="$slots['toolbar-filters'] || $slots['toolbar-tools']"
+        class="object-list-compact-cards__toolbar-secondary flex min-w-0 flex-nowrap items-center justify-between gap-2"
+      >
+        <div
+          v-if="$slots['toolbar-filters']"
+          class="object-list-compact-cards__toolbar-filters min-w-0 flex-1"
+        >
+          <slot name="toolbar-filters" />
+        </div>
+        <div
+          v-if="$slots['toolbar-tools']"
+          class="object-list-compact-cards__toolbar-tools flex shrink-0 flex-wrap items-center justify-end gap-2"
+        >
+          <slot name="toolbar-tools" />
+        </div>
       </div>
     </div>
 

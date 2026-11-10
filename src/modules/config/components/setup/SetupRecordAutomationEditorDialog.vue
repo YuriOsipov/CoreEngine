@@ -145,15 +145,20 @@ function cloneRule(rule: EntityRecordAutomationDto): EntityRecordAutomationDto {
 function cloneActions(
   actions: EntityRecordAutomationActionDto[] | undefined,
 ): EntityRecordAutomationActionDto[] {
-  return (actions ?? []).map((action) =>
-    action.type === 'break'
-      ? { type: 'break' }
-      : {
-          type: 'notify',
-          severity: action.severity === 'warn' ? 'warn' : 'info',
-          message: action.message,
-        },
-  )
+  return (actions ?? []).map((action) => {
+    if (action.type === 'break') return { type: 'break' as const }
+    if (action.type === 'trigger_flow') {
+      return {
+        type: 'trigger_flow' as const,
+        flowKey: String(action.flowKey || ''),
+      }
+    }
+    return {
+      type: 'notify' as const,
+      severity: action.severity === 'warn' ? ('warn' as const) : ('info' as const),
+      message: action.message,
+    }
+  })
 }
 
 function cloneSetRows(rows: AutomationSetFieldRow[]): AutomationSetFieldRow[] {
@@ -354,6 +359,15 @@ function addNotifyAction(): void {
     type: 'notify',
     severity: 'info',
     message: '',
+  })
+}
+
+function addTriggerFlowAction(): void {
+  if (!draft.value) return
+  if (!draft.value.actions) draft.value.actions = []
+  draft.value.actions.push({
+    type: 'trigger_flow',
+    flowKey: '',
   })
 }
 
@@ -702,7 +716,7 @@ watch(
             :aria-label="t('common.hint', 'Hint')"
             v-tooltip.bottom="hintTooltip(t(
               'setup.automations.actionsHint',
-              'Optional. Notify shows a toast to the current user. Break stops later rules.',
+              'Optional. Notify shows a toast to the current user. Trigger flow needs a key from Setup → Flows (not an external URL). Break stops later rules.',
             ))"
           />
           <div class="ml-auto flex flex-wrap gap-1">
@@ -713,6 +727,14 @@ watch(
               severity="secondary"
               text
               @click="addNotifyAction"
+            />
+            <Button
+              :label="t('setup.automations.addFlow', 'Add flow')"
+              icon="pi pi-plus"
+              size="small"
+              severity="secondary"
+              text
+              @click="addTriggerFlowAction"
             />
             <Button
               :label="t('setup.automations.addBreak', 'Add break')"
@@ -747,6 +769,22 @@ watch(
               class="setup-automation-row__value"
               :placeholder="
                 t('setup.automations.notifyMessagePlaceholder', 'Toast message')
+              "
+            />
+          </template>
+          <template v-else-if="action.type === 'trigger_flow'">
+            <Tag
+              :value="t('setup.automations.actionTriggerFlow', 'Trigger flow')"
+              severity="success"
+            />
+            <InputText
+              v-model="action.flowKey"
+              class="setup-automation-row__value"
+              :placeholder="
+                t(
+                  'setup.automations.flowKeyPlaceholder',
+                  'my-webhook-key or /flows/trigger/my-webhook-key',
+                )
               "
             />
           </template>

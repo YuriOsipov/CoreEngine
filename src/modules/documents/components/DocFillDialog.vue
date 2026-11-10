@@ -65,6 +65,7 @@ const {
   saving,
   error,
   dirty,
+  attachWarning,
   canSaveDraft,
   saveDraft,
   finish,
@@ -135,17 +136,30 @@ async function onSaveDraft(): Promise<void> {
 async function onFinish(): Promise<void> {
   try {
     const id = await finish()
-    toast.add({
-      severity: 'success',
-      summary: t('documents.finishedSaved', 'Document completed'),
-      detail: props.attachFile !== false
-        ? t(
-          'documents.finishedSavedDetail',
-          'Document saved and export attached to the record.',
-        )
-        : t('documents.finishedSavedDetailNoAttach', 'Document saved.'),
-      life: 4000,
-    })
+    if (attachWarning.value) {
+      toast.add({
+        severity: 'warn',
+        summary: t('documents.finishedSaved', 'Document completed'),
+        detail: t(
+          'documents.finishedSavedAttachWarn',
+          'Document saved, but export could not be attached: {reason}',
+          { reason: attachWarning.value },
+        ),
+        life: 7000,
+      })
+    } else {
+      toast.add({
+        severity: 'success',
+        summary: t('documents.finishedSaved', 'Document completed'),
+        detail: props.attachFile !== false
+          ? t(
+            'documents.finishedSavedDetail',
+            'Document saved and export attached to the record.',
+          )
+          : t('documents.finishedSavedDetailNoAttach', 'Document saved.'),
+        life: 4000,
+      })
+    }
     emit('saved', id, 'completed')
     emit('update:visible', false)
   } catch {
@@ -628,7 +642,7 @@ function onDialogVisible(value: boolean): void {
 
 /*
  * Fill mode (no design panels): DocEngine only enables editor scroll under `.page > …`.
- * Helix hosts the editor in a dialog, so mirror that scroll contract here.
+ * CoreEngine hosts the editor in a dialog, so mirror that scroll contract here.
  */
 :deep(.design-shell:not(.design-shell--active)) {
   display: flex;

@@ -298,6 +298,29 @@ export function buildPaletteItemFromField(
   if (component === 'Files') {
     const special = normalizeSpecial(field.meta?.special)
     item.multiple = special.includes('files')
+    const iface = String(field.meta?.interface || '').toLowerCase()
+    const options =
+      field.meta?.options && typeof field.meta.options === 'object'
+        ? (field.meta.options as Record<string, unknown>)
+        : null
+    const filesOpt =
+      options?.files && typeof options.files === 'object'
+        ? (options.files as Record<string, unknown>)
+        : null
+    const fromOptions = Array.isArray(filesOpt?.allowedMimeTypes)
+      ? (filesOpt!.allowedMimeTypes as unknown[])
+          .map((v) => String(v || '').trim())
+          .filter(Boolean)
+      : []
+    if (fromOptions.length) {
+      item.allowedMimeTypes = fromOptions
+    } else if (
+      special.includes('file') &&
+      (iface === 'file-image' || iface.includes('file-image'))
+    ) {
+      item.allowedMimeTypes = ['image/']
+    }
+    // maxFileSizeMb lives on Setup options; palette does not need it for drag/drop.
     if (special.includes('file') && relation?.related_collection) {
       item.relatedCollection = relation.related_collection
     } else if (special.includes('files')) {

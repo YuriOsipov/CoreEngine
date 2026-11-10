@@ -5,56 +5,118 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { ReportPivotSettings, ReportPivotValue } from '@/modules/reports/services/reportSettings'
+import { computed, ref, watch } from 'vue'
+import type {
+  ReportPivotDimension,
+  ReportPivotDrillDown,
+  ReportPivotSettings,
+  ReportPivotValue,
+  ReportSortDirection,
+} from '@/modules/reports/services/reportSettings'
+import {
+  normalizePivotSort,
+  normalizeSortRowsByTotal,
+} from '@/modules/reports/services/reportSettings'
+import { buildDrillDownFromPaths } from '@/modules/reports/services/reportDrillDown'
+import {
+  formatReportAggregateValue,
+  resolveReportValueDisplayOptions,
+} from '@/modules/reports/services/reportCellDisplay'
+import { dimensionDisplayValue } from '@/modules/reports/services/reportVTableAdapter'
+import type { NumberDisplayOptions } from '@/modules/entities/utils/recordDisplay'
 import { getPathValue } from '@/modules/entities/utils/recordDisplay'
 import { useTranslation } from '@/core/translation'
 
 interface PivotColumn {
   key: string
   label: string
+  values: string[]
 }
 
 interface PivotRow {
   key: string
   labels: string[]
+  pathValues: string[]
   cells: Record<string, string>
+  cellRecordIds: Record<string, Array<string | number>>
   total: string
+  totalValue: number
 }
 
 const props = defineProps<{
   rows: Record<string, unknown>[]
   pivot: ReportPivotSettings
+  collection?: string
   emptyMessage?: string
 }>()
 
+const emit = defineEmits<{
+  drillDown: [payload: ReportPivotDrillDown]
+}>()
+
 const { t } = useTranslation()
-const rowFields = computed(() => props.pivot.rows ?? [])
-const columnFields = computed(() => props.pivot.columns ?? [])
+const valueDisplayByField = ref<Record<string, NumberDisplayOptions>>({})
+const rowDimensions = computed(() => props.pivot.rows ?? [])
+const columnDimensions = computed(() => props.pivot.columns ?? [])
+const rowSort = computed<ReportSortDirection>(() =>
+  normalizePivotSort(props.pivot.rows?.[0]?.sort),
+)
+const columnSort = computed<ReportSortDirection>(() =>
+  normalizePivotSort(props.pivot.columns?.[0]?.sort),
+)
+const sortRowsByTotal = computed(() =>
+  normalizeSortRowsByTotal(props.pivot.sortRowsByTotal),
+)
 const value = computed<ReportPivotValue>(() =>
   props.pivot.values?.[0] ?? { field: 'id', aggregate: 'count' },
 )
+const totalLabel = computed(() => t('reports.total', 'Total'))
+const emptyLabel = computed(() => t('reports.emptyValue', '(empty)'))
+
+watch(
+  () => [props.collection, props.pivot.values] as const,
+  async ([collection, values]) => {
+    if (!collection) {
+      valueDisplayByField.value = {}
+      return
+    }
+    const fields = (values ?? [])
+      .map((item) => item.field)
+      .filter((field) => Boolean(field && field !== '*'))
+    valueDisplayByField.value = await resolveReportValueDisplayOptions(collection, fields).catch(
+      () => ({}),
+    )
+  },
+  { immediate: true, deep: true },
+)
+
 const pivotColumns = computed<PivotColumn[]>(() => {
-  if (columnFields.value.length === 0) {
-    return [{ key: '__total__', label: t('reports.total', 'Total') }]
+  if (columnDimensions.value.length === 0) {
+    return [{ key: '__total__', label: totalLabel.value, values: [] }]
   }
 
-  const columns = new Map<string, string>()
+  const columns = new Map<string, PivotColumn>()
   for (const row of props.rows) {
-    const key = groupKey(row, columnFields.value)
-    columns.set(key, groupLabel(row, columnFields.value))
+    const values = groupValues(row, columnDimensions.value)
+    const key = values.join('::')
+    columns.set(key, {
+      key,
+      label: values.join(' / '),
+      values,
+    })
   }
 
-  return Array.from(columns.entries())
-    .map(([key, label]) => ({ key, label }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+  return Array.from(columns.values()).sort((a, b) =>
+    compareLabels(a.label, b.label, columnSort.value),
+  )
 })
+
 const pivotRows = computed<PivotRow[]>(() => {
   const groups = new Map<string, Record<string, unknown>[]>()
-  const fields = rowFields.value
+  const dimensions = rowDimensions.value
 
   for (const row of props.rows) {
-    const key = fields.length ? groupKey(row, fields) : '__all__'
+    const key = dimensions.length ? groupKey(row, dimensions) : '__all__'
     const rows = groups.get(key) ?? []
     rows.push(row)
     groups.set(key, rows)
@@ -63,52 +125,106 @@ const pivotRows = computed<PivotRow[]>(() => {
   return Array.from(groups.entries())
     .map(([key, groupRows]) => {
       const first = groupRows[0] ?? {}
+      const pathValues = dimensions.length
+        ? groupValues(first, dimensions)
+        : [t('reports.allRecords', 'All records')]
       const cells: Record<string, string> = {}
+      const cellRecordIds: Record<string, Array<string | number>> = {}
       for (const column of pivotColumns.value) {
         const cellRows = column.key === '__total__'
           ? groupRows
-          : groupRows.filter((row) => groupKey(row, columnFields.value) === column.key)
+          : groupRows.filter((row) => groupKey(row, columnDimensions.value) === column.key)
         cells[column.key] = formatAggregate(cellRows, value.value)
+        cellRecordIds[column.key] = cellRows
+          .map((row) => row.id)
+          .filter((id): id is string | number => id !== null && id !== undefined && id !== '')
       }
 
+      const totalValue = computeAggregate(groupRows, value.value)
       return {
         key,
-        labels: fields.length ? groupLabels(first, fields) : [t('reports.allRecords', 'All records')],
+        labels: pathValues,
+        pathValues,
         cells,
+        cellRecordIds,
         total: formatAggregate(groupRows, value.value),
+        totalValue,
       }
     })
-    .sort((a, b) => a.labels.join(' / ').localeCompare(b.labels.join(' / ')))
+    .sort((a, b) => {
+      const totalSort = sortRowsByTotal.value
+      if (totalSort) {
+        return compareNumbers(a.totalValue, b.totalValue, totalSort)
+      }
+      return compareLabels(a.labels.join(' / '), b.labels.join(' / '), rowSort.value)
+    })
 })
+
 const grandTotal = computed(() => formatAggregate(props.rows, value.value))
 
-function groupKey(row: Record<string, unknown>, fields: string[]): string {
-  return fields.map((field) => valueKey(getPathValue(row, field))).join('::')
+function compareLabels(a: string, b: string, sort: ReportSortDirection): number {
+  const result = a.localeCompare(b)
+  return sort === 'desc' ? -result : result
 }
 
-function groupLabel(row: Record<string, unknown>, fields: string[]): string {
-  return fields.map((field) => valueLabel(getPathValue(row, field))).join(' / ')
+function compareNumbers(a: number, b: number, sort: ReportSortDirection): number {
+  const result = a - b
+  return sort === 'desc' ? -result : result
 }
 
-function groupLabels(row: Record<string, unknown>, fields: string[]): string[] {
-  return fields.map((field) => valueLabel(getPathValue(row, field)))
+function groupKey(row: Record<string, unknown>, dimensions: ReportPivotDimension[]): string {
+  return groupValues(row, dimensions).join('::')
+}
+
+function groupValues(
+  row: Record<string, unknown>,
+  dimensions: ReportPivotDimension[],
+): string[] {
+  return dimensions.map((dimension) =>
+    dimensionDisplayValue(
+      getPathValue(row, dimension.field),
+      emptyLabel.value,
+      dimension.dateGrain,
+    ),
+  )
 }
 
 function formatAggregate(rows: Record<string, unknown>[], pivotValue: ReportPivotValue): string {
+  const aggregateValue = computeAggregate(rows, pivotValue)
+  if (pivotValue.aggregate !== 'count' && rows.length === 0) return ''
+  if (
+    pivotValue.aggregate !== 'count' &&
+    rows
+      .map((row) => numericValue(getPathValue(row, pivotValue.field)))
+      .every((item) => item === null)
+  ) {
+    return ''
+  }
+  return formatReportAggregateValue(
+    aggregateValue,
+    pivotValue.aggregate,
+    valueDisplayByField.value[pivotValue.field],
+  )
+}
+
+function computeAggregate(
+  rows: Record<string, unknown>[],
+  pivotValue: ReportPivotValue,
+): number {
+  if (pivotValue.aggregate === 'count') return rows.length
+
   const values = rows
     .map((row) => numericValue(getPathValue(row, pivotValue.field)))
     .filter((item): item is number => item !== null)
 
-  if (pivotValue.aggregate === 'count') return String(rows.length)
-  if (values.length === 0) return ''
-
-  if (pivotValue.aggregate === 'sum') return formatNumber(values.reduce((sum, item) => sum + item, 0))
+  if (values.length === 0) return 0
+  if (pivotValue.aggregate === 'sum') return values.reduce((sum, item) => sum + item, 0)
   if (pivotValue.aggregate === 'avg') {
-    return formatNumber(values.reduce((sum, item) => sum + item, 0) / values.length)
+    return values.reduce((sum, item) => sum + item, 0) / values.length
   }
-  if (pivotValue.aggregate === 'min') return formatNumber(Math.min(...values))
-  if (pivotValue.aggregate === 'max') return formatNumber(Math.max(...values))
-  return ''
+  if (pivotValue.aggregate === 'min') return Math.min(...values)
+  if (pivotValue.aggregate === 'max') return Math.max(...values)
+  return 0
 }
 
 function numericValue(value: unknown): number | null {
@@ -120,31 +236,16 @@ function numericValue(value: unknown): number | null {
   return null
 }
 
-function valueKey(value: unknown): string {
-  if (value === null || value === undefined || value === '') return t('reports.emptyValue', '(empty)')
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    return String(record.id ?? record.name ?? record.title ?? JSON.stringify(record))
-  }
-  return String(value)
-}
-
-function valueLabel(value: unknown): string {
-  if (value === null || value === undefined || value === '') return t('reports.emptyValue', '(empty)')
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    if (record.__crmValueType === 'm2o' && record.label !== undefined && record.label !== null) {
-      return String(record.label)
-    }
-    return String(record.name ?? record.title ?? record.label ?? record.id ?? JSON.stringify(record))
-  }
-  return String(value)
-}
-
-function formatNumber(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+function handleCellClick(row: PivotRow, column: PivotColumn): void {
+  const payload = buildDrillDownFromPaths(
+    props.pivot,
+    rowDimensions.value.length ? row.pathValues : [],
+    column.key === '__total__' ? [] : column.values,
+    row.cellRecordIds[column.key] ?? [],
+    totalLabel.value,
+  )
+  if (!payload) return
+  emit('drillDown', payload)
 }
 </script>
 
@@ -164,7 +265,7 @@ function formatNumber(value: number): string {
             <th v-for="column in pivotColumns" :key="column.key">
               {{ column.label }}
             </th>
-            <th v-if="pivotColumns.length > 1">{{ t('reports.total', 'Total') }}</th>
+            <th v-if="pivotColumns.length > 1">{{ totalLabel }}</th>
           </tr>
         </thead>
         <tbody>
@@ -180,7 +281,12 @@ function formatNumber(value: number): string {
               </td>
             </template>
             <th v-else>{{ row.labels[0] }}</th>
-            <td v-for="column in pivotColumns" :key="column.key">
+            <td
+              v-for="column in pivotColumns"
+              :key="column.key"
+              :class="{ 'crm-pivot-table__value': column.key !== '__total__' }"
+              @click="handleCellClick(row, column)"
+            >
               {{ row.cells[column.key] }}
             </td>
             <td v-if="pivotColumns.length > 1">{{ row.total }}</td>
@@ -188,7 +294,7 @@ function formatNumber(value: number): string {
         </tbody>
         <tfoot>
           <tr>
-            <th :colspan="Math.max(1, rowFields.length)">{{ t('reports.total', 'Total') }}</th>
+            <th :colspan="Math.max(1, rowFields.length)">{{ totalLabel }}</th>
             <td
               v-for="column in pivotColumns"
               :key="column.key"
@@ -240,6 +346,17 @@ function formatNumber(value: number): string {
   text-align: left;
 }
 
+.crm-pivot-table__value {
+  color: #1d4ed8;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.crm-pivot-table__value:hover {
+  background: #f8fafc;
+}
+
 .crm-pivot-table thead th {
   background: #f1f5f9;
   color: #1e293b;
@@ -255,5 +372,4 @@ function formatNumber(value: number): string {
   border-bottom: 0;
   font-weight: 700;
 }
-
 </style>

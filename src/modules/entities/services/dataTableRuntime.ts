@@ -25,6 +25,7 @@ import { isUsersAssetCollection } from '@/core/usersField'
 import type {
   DataTableColumnConfig,
   DataTableSettings,
+  DataTableSortConfig,
   CollectionDefinition,
   FieldDefinition,
   RelationDefinition,
@@ -41,7 +42,11 @@ import {
   relatedRecordLabel,
   resolveNumberDisplayOptions,
 } from '../utils/recordDisplay'
-import { dataTableSortQuery, usesPrimaryKeyRecordLink } from './tableSettings'
+import {
+  dataTableSortQuery,
+  resolveNameLinkSortFields,
+  usesPrimaryKeyRecordLink,
+} from './tableSettings'
 import {
   fetchCollectionDisplayTemplate,
   getCachedCollectionFields,
@@ -74,6 +79,8 @@ export interface FetchDataTableOptions {
   limit?: number
   offset?: number
   listFilter?: Record<string, unknown> | null
+  /** Server-side list search (ANDed with listFilter by the BFF). */
+  search?: string | null
   parentCollection?: string
   parentId?: string | number
   recordIds?: string[]
@@ -118,6 +125,25 @@ interface PreparedDataTableContext {
   allFields?: FieldDefinition[]
 }
 
+/** Expand auto Name sorts onto Display Template fields when present. */
+async function resolveDataTableSortConfig(
+  collection: string,
+  sort: DataTableSortConfig | null,
+  recordLinkField: string | null | undefined,
+  primaryKey: string,
+): Promise<DataTableSortConfig | null> {
+  if (!sort?.field?.trim()) return sort
+  if (!usesPrimaryKeyRecordLink(recordLinkField, primaryKey)) return sort
+  if (sort.field.trim() !== 'name') return sort
+
+  const template = await fetchCollectionDisplayTemplate(collection)
+  const fields = resolveNameLinkSortFields('name', template)
+  if (fields.length === 0 || (fields.length === 1 && fields[0] === 'name')) {
+    return sort
+  }
+  return { ...sort, field: fields.join(',') }
+}
+
 export async function fetchDataTableRuntime(
   options: FetchDataTableOptions,
 ): Promise<DataTableRuntime> {
@@ -136,9 +162,15 @@ export async function fetchDataTableRuntime(
   } = context
 
   const filterQuery = buildFetchFilterQuery(options, fields, context.relations, context.parentRelation)
+  const sortConfig = await resolveDataTableSortConfig(
+    options.collection,
+    options.settings?.sort ?? null,
+    options.settings?.recordLinkField,
+    primaryKey,
+  )
   const sortParams = dataTableSortQuery(
     options.settings?.groupBy,
-    options.settings?.sort,
+    sortConfig,
     fieldByName,
   )
   const hasDbSort = Object.keys(sortParams).length > 0
@@ -176,12 +208,14 @@ export async function fetchDataTableRuntime(
       ? (readQuery.fields as string[])
       : requestFields
 
+    const search = options.search?.trim() || null
     const page = await bridgeReadItemsPage(
       collection,
       {
         filter,
         fields: selectFields,
         sort: sort ?? undefined,
+        search,
         limit: Number(readQuery.limit ?? limit),
         offset:
           readQuery.offset === undefined ? undefined : Number(readQuery.offset),
@@ -579,14 +613,34 @@ export async function resolveDataTableColumns(
       : fields
           .filter((field) => {
             if (excludeHiddenFields && field.meta?.hidden) return false
-            // Skip relation aliases; keep live rollup aliases (mapped as calculated).
-            if (
-              field.type === 'alias' &&
-              !String(field.meta?.interface ?? '')
-                .toLowerCase()
-                .includes('calculated')
-            ) {
-              return false
+            // Skip relation aliases; keep live rollup aliases (computed / currency display).
+            if (field.type === 'alias') {
+              const opts = field.meta?.options
+              const mode =
+                opts && typeof opts === 'object'
+                  ? String(
+                      (opts as Record<string, unknown>).computeMode ??
+                        (opts as Record<string, unknown>).compute_mode ??
+                        '',
+                    )
+                      .trim()
+                      .toLowerCase()
+                  : ''
+              const iface = String(field.meta?.interface ?? '').toLowerCase()
+              const isLiveRollup =
+                mode === 'rollup' ||
+                (opts &&
+                  typeof opts === 'object' &&
+                  Boolean(
+                    (opts as Record<string, unknown>).rollup &&
+                      typeof (opts as Record<string, unknown>).rollup ===
+                        'object',
+                  )) ||
+                iface.includes('calculated') ||
+                iface.includes('formula') ||
+                iface.includes('computed') ||
+                iface.includes('currency')
+              if (!isLiveRollup) return false
             }
             if (['user_updated', 'date_updated'].includes(field.field)) return false
             if (defaultExcludedField === field.field) return false
@@ -622,13 +676,15 @@ export async function resolveDataTableColumns(
     const isDateType = ['date', 'dateTime', 'timestamp'].includes(labelDefinition.type)
     // DATE must stay date-only. Do not apply related-list `dateFormatDefault`
     // (`short`), which uses locale date+time and shows "12:00 AM" for midnight.
+    // Never date-format non-date fields: auto-number names like "0068" parse as
+    // year 68 via `new Date('0068')` and render as "Jan 1, 68".
     const format = isDateType
       ? (effectiveDateDisplayFormat(column.format, labelDefinition) ??
           (labelDefinition.type === 'date'
             ? defaultDateDisplayFormat()
             : (dateFormatDefault ??
                 defaultDateTimeDisplayFormat({ includeSeconds: false }))))
-      : effectiveDateDisplayFormat(column.format, labelDefinition)
+      : undefined
 
     const numberDisplay = resolveNumberDisplayOptions(labelDefinition)
 

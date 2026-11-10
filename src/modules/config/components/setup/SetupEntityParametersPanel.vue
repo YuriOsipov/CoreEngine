@@ -15,8 +15,13 @@ import {
   updateEntityMeta,
   type EntityAccountability,
 } from '@/core/graphql/entityMetaApi'
+import CrmIconPicker from '@/core/ui-kit/CrmIconPicker.vue'
 import { clearMetadataCache } from '@/modules/entities/services/collectionSchema'
 import SetupUniqueGroupsPanel from './SetupUniqueGroupsPanel.vue'
+
+function hintTooltip(value: string) {
+  return { value, class: 'property-hint-tooltip' }
+}
 
 const props = defineProps<{
   collection: string
@@ -28,6 +33,9 @@ const toast = useToast()
 const loading = ref(false)
 const saving = ref(false)
 
+/** Select cannot use null as option-value (treated as cleared). Map null ↔ 'none'. */
+type AccountabilityUi = 'all' | 'activity' | 'none'
+
 const form = reactive({
   apiName: '',
   label: '',
@@ -36,7 +44,7 @@ const form = reactive({
   displayFields: [] as string[],
   hidden: false,
   internal: false,
-  accountability: 'all' as EntityAccountability,
+  accountability: 'all' as AccountabilityUi,
 })
 
 const fieldOptions = ref<Array<{ label: string; value: string }>>([])
@@ -55,9 +63,17 @@ const accountabilityOptions = computed(() => [
   },
   {
     label: t('setup.entityParameters.accountabilityNone', 'Do Not Track'),
-    value: null,
+    value: 'none',
   },
 ])
+
+function toAccountabilityUi(value: EntityAccountability): AccountabilityUi {
+  return value === null ? 'none' : value
+}
+
+function fromAccountabilityUi(value: AccountabilityUi): EntityAccountability {
+  return value === 'none' ? null : value
+}
 
 function showError(err: unknown, summary?: string): void {
   toast.add({
@@ -80,7 +96,7 @@ async function load(): Promise<void> {
     form.displayFields = tokensToTemplateFields(data.displayTemplate)
     form.hidden = data.hidden
     form.internal = data.internal
-    form.accountability = data.accountability
+    form.accountability = toAccountabilityUi(data.accountability)
     fieldOptions.value = data.fields
       .filter((f) => f.apiName !== 'id' && f.type.toUpperCase() !== 'ALIAS')
       .map((f) => ({
@@ -107,7 +123,7 @@ async function save(): Promise<void> {
       displayTemplate: templateFieldsToTokens(form.displayFields) || null,
       hidden: form.hidden,
       internal: form.internal,
-      accountability: form.accountability,
+      accountability: fromAccountabilityUi(form.accountability),
     })
     clearMetadataCache()
     toast.add({
@@ -209,29 +225,23 @@ onMounted(() => {
       </div>
 
       <div class="flex flex-col gap-1">
-        <label>{{ t('setup.entityParameters.icon', 'Icon') }}</label>
-        <div class="flex items-center gap-2">
-          <i
-            v-if="form.icon.trim()"
-            :class="form.icon.trim()"
-            class="setup-entity-parameters__icon-preview"
-            aria-hidden="true"
+        <label class="inline-flex items-center gap-1">
+          {{ t('setup.entityParameters.icon', 'Icon') }}
+          <button
+            type="button"
+            class="setup-entity-parameters__hint"
+            v-tooltip.bottom="
+              hintTooltip(
+                t(
+                  'setup.entityParameters.iconHint',
+                  'Pick a PrimeIcon from the list (same icons used in navigation and menus).',
+                ),
+              )
+            "
+            :aria-label="t('common.moreInfo', 'More information')"
           />
-          <InputText
-            v-model="form.icon"
-            class="w-full"
-            placeholder="pi pi-box"
-            autocomplete="off"
-          />
-        </div>
-        <small class="text-muted-color">
-          {{
-            t(
-              'setup.entityParameters.iconHint',
-              'PrimeIcons class, e.g. pi pi-box',
-            )
-          }}
-        </small>
+        </label>
+        <CrmIconPicker v-model="form.icon" />
       </div>
 
       <div class="flex flex-col gap-1">
@@ -330,10 +340,33 @@ onMounted(() => {
   max-width: 40rem;
 }
 
-.setup-entity-parameters__icon-preview {
-  flex-shrink: 0;
-  font-size: 1.25rem;
-  width: 1.5rem;
-  text-align: center;
+.setup-entity-parameters__hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(55, 53, 47, 0.4);
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(55, 53, 47, 0.55);
+  font-size: 0.58rem;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+}
+
+.setup-entity-parameters__hint::before {
+  content: 'i';
+}
+
+:global(.property-hint-tooltip),
+:global(.property-hint-tooltip .p-tooltip-text) {
+  max-width: 16rem;
+  white-space: normal;
+  line-height: 1.4;
 }
 </style>

@@ -1,6 +1,7 @@
 import {
   readSettingRecord,
   readSettingRecords,
+  writeSettingDelete,
   writeSettingUpsert,
 } from '@/core/graphql/settingRecordsBridge'
 import { bridgeReadItems } from '@/core/graphql/itemsBridge'
@@ -9,6 +10,7 @@ import type {
   RelationDefinition,
 } from '@/interfaces'
 import {
+  fetchCollectionDisplayTemplate,
   getCachedCollectionFields,
   getCachedFields,
   getCachedRelations,
@@ -33,11 +35,20 @@ import {
   setPathValue,
   shouldUseTemplateForRelatedLabel,
 } from '@/modules/entities/utils/recordDisplay'
+import {
+  defaultDateGrainForField,
+  normalizePivotDateGrain,
+  type ReportDateGrain,
+} from './reportDateGrain'
 
 const SETTINGS_GROUP = 'report'
 const SETTINGS_SUB_GROUP = 'full'
+const FOLDER_SUB_GROUP = 'folder'
+const FOLDER_ENTITY_API_NAME = '_report_folder'
 
 export type ReportAggregate = 'count' | 'sum' | 'avg' | 'min' | 'max'
+export type ReportSortDirection = 'asc' | 'desc'
+export type { ReportDateGrain }
 
 export interface ReportFilterCondition {
   id: string
@@ -51,10 +62,34 @@ export interface ReportPivotValue {
   aggregate: ReportAggregate
 }
 
+export interface ReportPivotDimension {
+  field: string
+  sort?: ReportSortDirection
+  /** When set, date/datetime values are bucketed (Day / Week / Month / Quarter / Year). */
+  dateGrain?: ReportDateGrain | null
+}
+
 export interface ReportPivotSettings {
-  rows: string[]
-  columns: string[]
+  rows: ReportPivotDimension[]
+  columns: ReportPivotDimension[]
   values: ReportPivotValue[]
+  /**
+   * When set, order pivot rows by the row Total (first value aggregate)
+   * instead of by row field labels.
+   */
+  sortRowsByTotal?: ReportSortDirection | null
+}
+
+export interface ReportPivotPathSegment {
+  field: string
+  value: string
+  dateGrain?: ReportDateGrain | null
+}
+
+export interface ReportPivotDrillDown {
+  rowPath: ReportPivotPathSegment[]
+  columnPath: ReportPivotPathSegment[]
+  recordIds: Array<string | number>
 }
 
 export interface ReportDefinition {
@@ -66,6 +101,19 @@ export interface ReportDefinition {
   conditions: ReportFilterCondition[]
   pivot: ReportPivotSettings
   limit?: number
+  /** Flat folder id from report folder settings; null = unfiled. */
+  folderId?: string | null
+}
+
+export interface ReportFolder {
+  settingId: string
+  id: string
+  name: string
+}
+
+interface ReportFolderBody {
+  id: string
+  name: string
 }
 
 export interface ReportSettingRecord {
@@ -149,6 +197,94 @@ export async function listReports(): Promise<ReportWithSetting[]> {
       }
     })
     .sort((a, b) => a.title.localeCompare(b.title))
+}
+
+export async function getReportBySettingId(
+  settingId: string | number,
+): Promise<ReportWithSetting | null> {
+  const reports = await listReports()
+  return reports.find((report) => String(report.settingId) === String(settingId)) ?? null
+}
+
+export async function deleteReport(settingId: string | number): Promise<void> {
+  await writeSettingDelete(String(settingId))
+}
+
+export async function listReportFolders(): Promise<ReportFolder[]> {
+  const records = await readSettingRecords<{
+    id: number | string
+    name: string
+    body?: ReportFolderBody | string | null
+  }>({
+    groups: [SETTINGS_GROUP],
+    subGroup: FOLDER_SUB_GROUP,
+  })
+
+  return records
+    .map((record) => {
+      const body = parseFolderBody(record.body)
+      const id = String(body.id || record.id)
+      const name = String(body.name || record.name || id).trim() || id
+      return {
+        settingId: String(record.id),
+        id,
+        name,
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export async function saveReportFolder(
+  folder: { id?: string; name: string },
+  settingId?: string | null,
+): Promise<ReportFolder> {
+  const name = folder.name.trim()
+  if (!name) throw new Error('Folder name is required')
+  const id = String(folder.id || `folder_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`)
+  const body: ReportFolderBody = { id, name }
+  const savedId = await writeSettingUpsert({
+    settingId: settingId ? String(settingId) : null,
+    entityApiName: FOLDER_ENTITY_API_NAME,
+    groupKey: SETTINGS_GROUP,
+    subGroup: FOLDER_SUB_GROUP,
+    name: normalizeReportName(name) || id,
+    body: body as unknown as Record<string, unknown>,
+  })
+  return { settingId: String(savedId), id, name }
+}
+
+export async function deleteReportFolder(settingId: string): Promise<void> {
+  const folders = await listReportFolders()
+  const folder = folders.find((item) => item.settingId === settingId)
+  if (!folder) {
+    await writeSettingDelete(settingId)
+    return
+  }
+
+  const reports = await listReports()
+  const members = reports.filter((report) => report.config.folderId === folder.id)
+  for (const report of members) {
+    await saveReport(
+      {
+        ...report.config,
+        folderId: null,
+      },
+      report.settingId,
+    )
+  }
+  await writeSettingDelete(settingId)
+}
+
+function parseFolderBody(body: ReportFolderBody | string | null | undefined): Partial<ReportFolderBody> {
+  if (!body) return {}
+  if (typeof body === 'string') {
+    try {
+      return JSON.parse(body) as Partial<ReportFolderBody>
+    } catch {
+      return {}
+    }
+  }
+  return body
 }
 
 export async function listReportFields(
@@ -254,6 +390,47 @@ export async function executeReport(
   return renderReportRows(rows, request.m2o)
 }
 
+/** Fill Month (etc.) on date/datetime dimensions that have no dateGrain yet. */
+export async function resolveReportDateGrains(
+  report: ReportDefinition,
+): Promise<ReportDefinition> {
+  const config = normalizeReportDefinition(report)
+  const unresolved = [...config.pivot.rows, ...config.pivot.columns].filter(
+    (dimension) => dimension.field && !normalizePivotDateGrain(dimension.dateGrain),
+  )
+  if (unresolved.length === 0 || !config.collection) return config
+
+  const relations = await getCachedRelations()
+  const grainByField = new Map<string, ReportDateGrain>()
+  await Promise.all(
+    unresolved.map(async (dimension) => {
+      const field = await resolveFieldPath(config.collection, dimension.field, relations)
+      if (!field) return
+      const relation = findRelationForField(field, relations)
+      const component = mapFieldTypeToComponent(field, relation)
+      const dateGrain = defaultDateGrainForField(field.type, component)
+      if (dateGrain) grainByField.set(dimension.field, dateGrain)
+    }),
+  )
+  if (grainByField.size === 0) return config
+
+  const patch = (dimensions: ReportPivotDimension[]): ReportPivotDimension[] =>
+    dimensions.map((dimension) => {
+      if (normalizePivotDateGrain(dimension.dateGrain)) return dimension
+      const dateGrain = grainByField.get(dimension.field)
+      return dateGrain ? { ...dimension, dateGrain } : dimension
+    })
+
+  return {
+    ...config,
+    pivot: {
+      ...config.pivot,
+      rows: patch(config.pivot.rows),
+      columns: patch(config.pivot.columns),
+    },
+  }
+}
+
 export async function defaultReportDefinition(
   collection = '',
 ): Promise<ReportDefinition> {
@@ -268,11 +445,12 @@ export async function defaultReportDefinition(
     filterLogic: 'and',
     conditions: [],
     pivot: {
-      rows: firstField ? [firstField] : [],
+      rows: firstField ? [{ field: firstField, sort: 'asc' }] : [],
       columns: [],
       values: [{ field: firstField, aggregate: 'count' }],
     },
     limit: -1,
+    folderId: null,
   })
 }
 
@@ -304,6 +482,12 @@ export function normalizeReportDefinition(
         }))
     : []
 
+  const folderIdRaw = report?.folderId ?? fallback.folderId
+  const folderId =
+    folderIdRaw === null || folderIdRaw === undefined || folderIdRaw === ''
+      ? null
+      : String(folderIdRaw)
+
   return {
     id: String(report?.id || fallback.id || `report_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`),
     name,
@@ -312,12 +496,51 @@ export function normalizeReportDefinition(
     filterLogic: report?.filterLogic === 'or' ? 'or' : 'and',
     conditions,
     pivot: {
-      rows: normalizeStringList(pivot.rows),
-      columns: normalizeStringList(pivot.columns),
+      rows: normalizePivotDimensions(pivot.rows),
+      columns: normalizePivotDimensions(pivot.columns),
       values,
+      sortRowsByTotal: normalizeSortRowsByTotal(pivot.sortRowsByTotal),
     },
     limit: normalizeLimit(report?.limit),
+    folderId,
   }
+}
+
+export function pivotDimensionFields(
+  dimensions: ReportPivotDimension[] | undefined | null,
+): string[] {
+  return (dimensions ?? [])
+    .map((dimension) => dimension.field)
+    .filter((field) => Boolean(field?.trim()))
+}
+
+export function normalizePivotSort(value: unknown): ReportSortDirection {
+  return value === 'desc' ? 'desc' : 'asc'
+}
+
+export function normalizeSortRowsByTotal(value: unknown): ReportSortDirection | null {
+  return value === 'asc' || value === 'desc' ? value : null
+}
+
+export function normalizePivotDimensions(value: unknown): ReportPivotDimension[] {
+  if (!Array.isArray(value)) return []
+
+  const dimensions: ReportPivotDimension[] = []
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim()) {
+      dimensions.push({ field: item.trim(), sort: 'asc', dateGrain: null })
+      continue
+    }
+    if (!item || typeof item !== 'object') continue
+    const field = String((item as ReportPivotDimension).field ?? '').trim()
+    if (!field) continue
+    dimensions.push({
+      field,
+      sort: normalizePivotSort((item as ReportPivotDimension).sort),
+      dateGrain: normalizePivotDateGrain((item as ReportPivotDimension).dateGrain),
+    })
+  }
+  return dimensions
 }
 
 export function buildReportFilter(
@@ -367,13 +590,23 @@ function parseReportBody(record: ReportSettingRecord): Partial<ReportDefinition>
 
 async function reportQueryRequest(report: ReportDefinition): Promise<ReportQueryRequest> {
   const fields = new Set([
-    ...report.pivot.rows,
-    ...report.pivot.columns,
+    'id',
+    ...pivotDimensionFields(report.pivot.rows),
+    ...pivotDimensionFields(report.pivot.columns),
     ...report.pivot.values.map((value) => value.field),
     ...report.conditions.map((condition) => condition.field),
   ].filter(Boolean))
 
-  if (fields.size === 0 && report.collection) {
+  if (report.collection) {
+    const displayTemplate = await fetchCollectionDisplayTemplate(report.collection).catch(() => undefined)
+    if (displayTemplate) {
+      for (const field of extractTemplateFields(displayTemplate)) {
+        fields.add(field)
+      }
+    }
+  }
+
+  if (fields.size <= 1 && report.collection) {
     const metadata = await listFilterableFields(report.collection).catch(() => [])
     for (const field of metadata.slice(0, 8)) {
       fields.add(field.field)
@@ -659,12 +892,6 @@ function isM2ORelation(
   return Boolean(relation?.related_collection) && (
     special.includes('m2o') || Boolean(relation?.related_collection)
   )
-}
-
-function normalizeStringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : []
 }
 
 function normalizeConditionValue(condition: ReportFilterCondition): unknown {

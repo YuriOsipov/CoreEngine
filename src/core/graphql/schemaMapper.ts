@@ -145,8 +145,13 @@ export function mapRegistryEntityToCollection(
         translation: row.label,
       })),
       unique_groups: entity.uniqueGroups ?? [],
+      // null = Do Not Track; only default to 'all' when the key is unset.
       accountability:
-        entity.accountability ?? entity.backendConfig?.accountability ?? 'all',
+        entity.accountability !== undefined
+          ? entity.accountability
+          : entity.backendConfig && 'accountability' in entity.backendConfig
+            ? (entity.backendConfig.accountability as string | null)
+            : 'all',
       internal:
         entity.internal === true ||
         entity.backendConfig?.internal === true,

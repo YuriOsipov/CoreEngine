@@ -208,8 +208,9 @@ export async function saveDocTemplate(
       './docTemplateSnapshotService'
     )
     await createSnapshotFromTemplateRecord(saved)
-  } catch {
+  } catch (err) {
     // Snapshot is best-effort for older DBs; fill Finish can still create one.
+    console.warn('[documents] Failed to create template snapshot', err)
   }
 
   return saved

@@ -1,4 +1,9 @@
-import type { EntityLayoutSchema, LayoutFieldMetadata } from '@/interfaces'
+import type {
+  EntityLayoutSchema,
+  LayoutFieldMetadata,
+  RecordPageComponent,
+} from '@/interfaces'
+import { matchRecordConditions } from '@/core/recordConditionMatch'
 
 export const SYSTEM_AUDIT_FIELDS = [
   'user_created',
@@ -37,9 +42,52 @@ export function isEditableFormLayoutField(field: LayoutFieldMetadata): boolean {
   return true
 }
 
-export function isWritableLayoutField(field: LayoutFieldMetadata): boolean {
+/**
+ * Whether a layout field is read-only for the given record (toggle and/or
+ * readonlyIf conditions). Empty readonlyIf = no conditional effect.
+ */
+export function isLayoutFieldReadonly(
+  field: LayoutFieldMetadata,
+  record?: Record<string, unknown> | null,
+): boolean {
+  if (field.readonly === true) return true
+  const conditions = Array.isArray(field.readonlyIf)
+    ? field.readonlyIf.filter((condition) => String(condition?.field ?? '').trim())
+    : []
+  if (conditions.length === 0) return false
+  if (!record) return false
+  return matchRecordConditions(record, conditions, field.readonlyIfLogic ?? 'and')
+}
+
+/** Path (and similar) record-page components: always-on toggle and/or readonlyIf. */
+export function isRecordPagePathReadonly(
+  component: Pick<
+    RecordPageComponent,
+    'readonly' | 'readonlyIf' | 'readonlyIfLogic'
+  >,
+  record?: Record<string, unknown> | null,
+): boolean {
+  if (component.readonly === true) return true
+  const conditions = Array.isArray(component.readonlyIf)
+    ? component.readonlyIf.filter((condition) =>
+        String(condition?.field ?? '').trim(),
+      )
+    : []
+  if (conditions.length === 0) return false
+  if (!record) return false
+  return matchRecordConditions(
+    record,
+    conditions,
+    component.readonlyIfLogic ?? 'and',
+  )
+}
+
+export function isWritableLayoutField(
+  field: LayoutFieldMetadata,
+  record?: Record<string, unknown> | null,
+): boolean {
   if (isSystemAuditLayoutField(field)) return false
-  if (field.readonly === true) return false
+  if (isLayoutFieldReadonly(field, record)) return false
   return true
 }
 

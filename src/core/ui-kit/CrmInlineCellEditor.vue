@@ -156,6 +156,8 @@ async function loadFieldMetadata(): Promise<void> {
       numberMinFractionDigits.value = 0
       numberMaxFractionDigits.value = 5
     }
+    // Fraction/prefix updates can remount InputNumber after the initial focus.
+    void nextTick(() => focusEditor())
     return
   }
 
@@ -210,11 +212,19 @@ async function loadFieldMetadata(): Promise<void> {
 function focusEditor(): void {
   const root = rootEl.value
   if (!root) return
-  const input = root.querySelector<HTMLInputElement>(
-    'input.p-autocomplete-input, input.p-inputtext, input, textarea',
+  const input = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    'input.p-autocomplete-input, input.p-inputnumber-input, input.p-inputtext, input:not([type="checkbox"]), textarea',
   )
   if (!input) return
   input.focus()
+  // Spreadsheet-style: replace current value on first keystroke.
+  if (typeof input.select === 'function') {
+    input.select()
+    // InputNumber can reformat on focus and clear selection; re-select next frame.
+    requestAnimationFrame(() => {
+      if (document.activeElement === input) input.select()
+    })
+  }
 }
 
 function updateValue(value: unknown): void {

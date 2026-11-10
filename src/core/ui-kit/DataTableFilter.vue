@@ -74,6 +74,7 @@ interface FilterConditionDraft extends Omit<ListFilterCondition, 'value'> {
   relatedCollection?: string
   value: unknown
   userVisible?: boolean
+  required?: boolean
   fieldWidth?: number
 }
 
@@ -126,7 +127,7 @@ const showDesigner = ref(false)
 const filterPanelCollapsed = ref(true)
 
 function toEmittedFilterConditions(
-  source: Array<Pick<ListFilterCondition, 'id' | 'field' | 'operator' | 'value' | 'type' | 'userVisible' | 'fieldWidth'>>,
+  source: Array<Pick<ListFilterCondition, 'id' | 'field' | 'operator' | 'value' | 'type' | 'userVisible' | 'required' | 'fieldWidth'>>,
 ): ListFilterCondition[] {
   return source.map((condition) => ({
     id: condition.id,
@@ -135,6 +136,7 @@ function toEmittedFilterConditions(
     value: condition.value,
     ...(condition.type ? { type: condition.type } : {}),
     ...(condition.userVisible === false ? { userVisible: false } : {}),
+    ...(condition.required === true ? { required: true } : {}),
     ...(condition.fieldWidth ? { fieldWidth: condition.fieldWidth } : {}),
   }))
 }
@@ -414,6 +416,7 @@ function cloneField(field: DraggableFilterField): FilterConditionDraft {
     operator: '_eq',
     value: defaultConditionValue(field),
     userVisible: true,
+    required: false,
     fieldWidth: DEFAULT_FILTER_FIELD_WIDTH,
   }
 }
@@ -435,6 +438,12 @@ onBeforeUnmount(() => {
 
 function removeCondition(index: number): void {
   conditions.value.splice(index, 1)
+}
+
+/** Required filters must stay user-visible so the value can be entered on the list page. */
+function setConditionRequired(condition: FilterConditionDraft, required: boolean): void {
+  condition.required = required
+  if (required) condition.userVisible = true
 }
 
 function clearBuilder(): void {
@@ -694,6 +703,7 @@ async function saveView(): Promise<void> {
           : normalizeConditionValue(condition),
         ...(condition.type ? { type: condition.type } : {}),
         ...(condition.userVisible === false ? { userVisible: false } : {}),
+        ...(condition.required === true ? { required: true } : {}),
         ...(condition.fieldWidth && condition.fieldWidth !== DEFAULT_FILTER_FIELD_WIDTH
           ? { fieldWidth: resolveConditionFieldWidth(condition.fieldWidth) }
           : {}),
@@ -765,6 +775,7 @@ function loadViewIntoDesigner(view: SavedListView): void {
       component: field?.component ?? 'InputText',
       relatedCollection: field?.relatedCollection,
       userVisible: condition.userVisible !== false,
+      required: condition.required === true,
       fieldWidth: resolveConditionFieldWidth(condition.fieldWidth),
       value:
         condition.value === null || condition.value === undefined
@@ -1091,33 +1102,32 @@ async function syncAutoCompleteSelections(
 
     <div
       v-else
-      class="flex items-end flex-wrap justify-start gap-3"
+      class="flex items-center flex-wrap justify-start gap-3"
       :class="props.showBuilder === false ? 'mt-0' : 'mt-4'"
     >
-      <div class="flex flex-col gap-[0.35rem]">
-        <label class="text-surface-700 text-[0.8rem] font-semibold leading-tight">
-          {{ t('view.listView', 'View') }}
-        </label>
-        <div class="flex items-center gap-2">
-          <Select
-            :model-value="selectedFilterIdModel ?? ''"
-            :options="savedFilterOptions"
-            option-label="label"
-            option-value="value"
-            :class="props.showBuilder === false ? 'min-w-[220px]' : 'min-w-[260px]'"
-            @update:model-value="selectSavedFilter(String($event ?? ''))"
-          />
-          <Button
-            :icon="isCurrentFilterPinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'"
-            size="small"
-            text
-            :disabled="!selectedFilterIdModel"
-            :title="isCurrentFilterPinned
-              ? t('view.unpinView', 'Unpin default view')
-              : t('view.pinView', 'Pin as default view for this collection')"
-            @click="togglePinFilter"
-          />
-        </div>
+      <div
+        class="list-view-picker flex items-center gap-1"
+        :class="{ 'list-view-picker--plain': props.showBuilder === false }"
+      >
+        <Select
+          :model-value="selectedFilterIdModel ?? ''"
+          :options="savedFilterOptions"
+          option-label="label"
+          option-value="value"
+          :aria-label="t('view.listView', 'View')"
+          :class="props.showBuilder === false ? 'list-view-picker__select' : 'min-w-[260px]'"
+          @update:model-value="selectSavedFilter(String($event ?? ''))"
+        />
+        <Button
+          :icon="isCurrentFilterPinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'"
+          size="small"
+          text
+          :disabled="!selectedFilterIdModel"
+          :title="isCurrentFilterPinned
+            ? t('view.unpinView', 'Unpin default view')
+            : t('view.pinView', 'Pin as default view for this collection')"
+          @click="togglePinFilter"
+        />
       </div>
       <div
         v-if="props.showBuilder !== false"
@@ -1342,8 +1352,18 @@ async function syncAutoCompleteSelections(
                   class="list-filter-condition__meta inline-flex shrink-0 items-center gap-1.5 text-[0.75rem] text-surface-600"
                   :title="t('filter.userVisible', 'Visible to users')"
                 >
-                  <ToggleSwitch v-model="condition.userVisible" />
+                  <ToggleSwitch v-model="condition.userVisible" :disabled="condition.required === true" />
                   <span class="list-filter-condition__meta-label">{{ t('filter.userVisible', 'Visible') }}</span>
+                </label>
+                <label
+                  class="list-filter-condition__meta inline-flex shrink-0 items-center gap-1.5 text-[0.75rem] text-surface-600"
+                  :title="t('filter.requiredHint', 'Do not show results until this filter has a value')"
+                >
+                  <ToggleSwitch
+                    :model-value="condition.required === true"
+                    @update:model-value="setConditionRequired(condition, $event === true)"
+                  />
+                  <span class="list-filter-condition__meta-label">{{ t('filter.required', 'Required') }}</span>
                 </label>
                 <label class="list-filter-condition__meta inline-flex shrink-0 items-center gap-1 text-[0.75rem] text-surface-600">
                   <span class="list-filter-condition__meta-label">{{ t('filter.fieldWidth', 'Width') }}</span>
@@ -1392,10 +1412,43 @@ async function syncAutoCompleteSelections(
   flex-direction: column;
   gap: 0.25rem;
   flex-shrink: 0;
-  width: 100%;
+  width: auto;
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+/* Salesforce-style list view name: bold label, no chrome. */
+.list-view-picker--plain :deep(.p-select) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-width: 0;
+  padding-inline: 0.15rem;
+}
+
+.list-view-picker--plain :deep(.p-select:not(.p-disabled):hover),
+.list-view-picker--plain :deep(.p-select.p-focus) {
+  background: var(--p-content-hover-background, rgba(15, 23, 42, 0.04));
+  border: 0;
+  box-shadow: none;
+}
+
+.list-view-picker--plain :deep(.p-select-label) {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  padding-block: 0.15rem;
+  padding-inline: 0.1rem 0.2rem;
+}
+
+.list-view-picker--plain :deep(.p-select-dropdown) {
+  width: 1.65rem;
+}
+
+.list-view-picker--plain :deep(.p-select-dropdown-icon) {
+  font-size: 0.95rem;
 }
 
 .list-view-toolbar {

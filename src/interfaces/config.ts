@@ -30,25 +30,60 @@ export interface M2ASettings {
   rowLimit?: number
 }
 
+/** Preview footprint for single Image fields in forms / light view. */
+export type ImagePreviewSize = 'sm' | 'md' | 'lg' | 'fill'
+
 export interface FilesSettings {
   /** true = O2M multiple files (special: 'files'), false = single file (special: 'file'). */
   multiple: boolean
   /** Visual layout used by the form renderer. */
   display: FilesDisplay
-  /** Allowed MIME type prefixes, e.g. ['image/', 'application/pdf']. Empty = all types. */
+  /**
+   * Allowed MIME type prefixes, e.g. ['image/', 'application/pdf']. Empty = all types.
+   * For Image fields this is owned by Setup (field meta); layout may mirror it.
+   */
   allowedMimeTypes: string[]
+  /**
+   * Optional max upload size in megabytes. `null` / omitted / `0` = no extra limit
+   * (server still enforces its own cap). Owned by Setup for Image fields.
+   */
+  maxFileSizeMb?: number | null
+  /**
+   * Layout-only: how large the Image preview renders (Small / Medium / Large / Fill).
+   * Defaults to medium.
+   */
+  previewSize?: ImagePreviewSize | null
   /** Ordered list of metadata columns shown per file item. */
   columns: FileDisplayColumn[]
 }
 
+/** Common image formats for Image field settings. */
+export const IMAGE_FORMAT_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: 'JPEG', value: 'image/jpeg' },
+  { label: 'PNG', value: 'image/png' },
+  { label: 'GIF', value: 'image/gif' },
+  { label: 'WebP', value: 'image/webp' },
+  { label: 'SVG', value: 'image/svg+xml' },
+]
+
+export const IMAGE_PREVIEW_SIZE_OPTIONS: Array<{
+  label: string
+  value: ImagePreviewSize
+}> = [
+  { label: 'Small', value: 'sm' },
+  { label: 'Medium', value: 'md' },
+  { label: 'Large', value: 'lg' },
+  { label: 'Fill width', value: 'fill' },
+]
+
 export const AVAILABLE_FILE_COLUMNS: FileDisplayColumn[] = [
   { field: 'filename_download', header: 'Name' },
   { field: 'title', header: 'Title' },
-  { field: 'type', header: 'Type' },
+  { field: 'description', header: 'Description' },
   { field: 'filesize', header: 'Size' },
   { field: 'created_on', header: 'Uploaded' },
+  { field: 'type', header: 'Type' },
   { field: 'uploaded_by', header: 'Uploaded By' },
-  { field: 'description', header: 'Description' },
   { field: 'location', header: 'Location' },
   { field: 'tags', header: 'Tags' },
   { field: 'width', header: 'Width' },
@@ -191,6 +226,13 @@ export interface LayoutFieldMetadata {
   /** When true, field is read-only in edit/create forms but still shown on detail view. */
   readonly?: boolean
   /**
+   * When set, field becomes read-only in edit/create forms if these record-value
+   * conditions match. Empty / omitted = no conditional effect (use {@link readonly}).
+   */
+  readonlyIf?: EntityRecordAutomationCondition[]
+  /** How to combine {@link readonlyIf} conditions. Default: `and`. */
+  readonlyIfLogic?: 'and' | 'or' | string
+  /**
    * Compact / Page Layout: Setting id of a Block Layout (`entity` / `full`)
    * referenced by a `BlockLayout` canvas component.
    */
@@ -328,6 +370,11 @@ export type EntityRecordAutomationAction =
       message: string
     }
   | { type: 'break' }
+  | {
+      type: 'trigger_flow'
+      /** Local app_flow_triggers key (or /flows/trigger/{key}). */
+      flowKey: string
+    }
 
 export interface EntityRecordAutomation {
   id: string
@@ -449,6 +496,18 @@ export interface RecordPageComponent {
    * Other terminal values are styled as failure (red).
    */
   successTerminalValues?: string[]
+  /**
+   * Path only: always read-only (stage clicks disabled), same semantics as
+   * Block Layout field {@link LayoutFieldMetadata.readonly}.
+   */
+  readonly?: boolean
+  /**
+   * Path only: become read-only when these record-value conditions match.
+   * Empty / omitted = no conditional effect (use {@link readonly}).
+   */
+  readonlyIf?: EntityRecordAutomationCondition[]
+  /** How to combine {@link readonlyIf} conditions. Default: `and`. */
+  readonlyIfLogic?: 'and' | 'or' | string
   /** PrimeVue component for `field` components. */
   fieldComponent?: PrimeVueComponentType
   /** Grid column span (1–12) for `field` components. */

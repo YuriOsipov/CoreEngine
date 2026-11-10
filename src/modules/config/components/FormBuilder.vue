@@ -55,7 +55,12 @@ import {
 } from '@/modules/entities/services/collectionSchema'
 import { DIALOG_SORTABLE_ATTRS } from '../utils/dialogSortable'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
-import { filesSettings, isFilesField, isM2ABuilderField } from '@/core/fieldHelpers'
+import {
+  filesSettings,
+  isFilesField,
+  isImageField,
+  isM2ABuilderField,
+} from '@/core/fieldHelpers'
 import {
   DEFAULT_DOC_ENGINE_SETTINGS,
   normalizeDocEngineSettings,
@@ -436,8 +441,13 @@ async function loadFieldPalette(collection: string): Promise<void> {
       buildLivePalette(collection),
       buildRelatedObjectPalette(collection),
     ])
-    // Files/Attachments live under Custom (shared Files object), not Fields/Related.
-    allPaletteItems.value = fields.filter((item) => item.component !== 'Files')
+    // Shared multi-file Attachments live under Custom. Single-file Image
+    // fields (file-image / multiple:false) stay in Available fields.
+    allPaletteItems.value = fields.filter(
+      (item) =>
+        item.component !== 'Files' ||
+        (item.multiple === false && !String(item.fieldKey || '').startsWith('files:')),
+    )
     allRelatedObjectItems.value = relatedObjects.filter(
       (item) => item.component !== 'Files',
     )
@@ -806,6 +816,22 @@ const configReadonly = computed({
   set: (readonly: boolean) => {
     if (!selectedFieldId.value) return
     updateField(selectedFieldId.value, { readonly })
+  },
+})
+const configReadonlyIf = computed({
+  get: (): EntityRecordAutomationCondition[] => selectedField.value?.readonlyIf ?? [],
+  set: (readonlyIf: EntityRecordAutomationCondition[]) => {
+    if (!selectedFieldId.value) return
+    updateField(selectedFieldId.value, {
+      readonlyIf: readonlyIf.length > 0 ? readonlyIf : undefined,
+    })
+  },
+})
+const configReadonlyIfLogic = computed({
+  get: () => (selectedField.value?.readonlyIfLogic === 'or' ? 'or' : 'and'),
+  set: (readonlyIfLogic: 'and' | 'or') => {
+    if (!selectedFieldId.value) return
+    updateField(selectedFieldId.value, { readonlyIfLogic })
   },
 })
 
@@ -1257,16 +1283,56 @@ const configActionIncludeRecord = computed({
 })
 
 const configFilesSettings = computed<FilesSettings>({
-  get: () =>
-    (selectedField.value ? filesSettings(selectedField.value) : undefined) ?? {
-      multiple: false,
-      display: 'thumbnail',
-      allowedMimeTypes: [],
-      columns: [],
-    },
+  get: () => {
+    const current =
+      (selectedField.value ? filesSettings(selectedField.value) : undefined) ?? {
+        multiple: false,
+        display: 'thumbnail' as const,
+        allowedMimeTypes: [] as string[],
+        columns: [],
+      }
+    if (selectedField.value && isImageField(selectedField.value)) {
+      const previewSize =
+        current.previewSize === 'sm' ||
+        current.previewSize === 'md' ||
+        current.previewSize === 'lg' ||
+        current.previewSize === 'fill'
+          ? current.previewSize
+          : 'md'
+      return {
+        ...current,
+        multiple: false,
+        display: 'thumbnail',
+        // Format / max size live on Setup field meta — keep layout mime for runtime fallback.
+        allowedMimeTypes: current.allowedMimeTypes.length
+          ? current.allowedMimeTypes
+          : ['image/'],
+        previewSize,
+      }
+    }
+    return current
+  },
   set: (files: FilesSettings) => {
     if (!selectedFieldId.value) return
-    updateField(selectedFieldId.value, { files })
+    const next =
+      selectedField.value && isImageField(selectedField.value)
+        ? {
+            ...files,
+            multiple: false,
+            display: 'thumbnail' as const,
+            allowedMimeTypes: files.allowedMimeTypes.length
+              ? files.allowedMimeTypes
+              : ['image/'],
+            previewSize:
+              files.previewSize === 'sm' ||
+              files.previewSize === 'md' ||
+              files.previewSize === 'lg' ||
+              files.previewSize === 'fill'
+                ? files.previewSize
+                : 'md',
+          }
+        : files
+    updateField(selectedFieldId.value, { files: next })
   },
 })
 
@@ -1837,9 +1903,14 @@ function clonePaletteItem(item: PaletteItem): LayoutFieldMetadata {
     field: fieldKey,
     label: item.label,
     component: item.component,
-    span: ['DataTable', 'CrmTreeTable', 'CrmScheduler', 'CrmActivityLog', 'CrmDocEngine', 'Files', 'M2ABuilder'].includes(item.component)
-      ? 12
-      : 6,
+    span:
+      item.component === 'Files' && item.multiple === false
+        ? 6
+        : ['DataTable', 'CrmTreeTable', 'CrmScheduler', 'CrmActivityLog', 'CrmDocEngine', 'Files', 'M2ABuilder'].includes(
+              item.component,
+            )
+          ? 12
+          : 6,
     relatedCollection: item.relatedCollection,
     dataTable:
       item.component === 'DataTable'
@@ -1853,7 +1924,10 @@ function clonePaletteItem(item: PaletteItem): LayoutFieldMetadata {
         ? {
             multiple: item.multiple ?? false,
             display: 'thumbnail',
-            allowedMimeTypes: [],
+            allowedMimeTypes: item.allowedMimeTypes?.length
+              ? [...item.allowedMimeTypes]
+              : [],
+            previewSize: item.multiple === false ? 'md' : undefined,
             columns: [],
           }
         : undefined,
@@ -1904,7 +1978,14 @@ function clonePaletteItem(item: PaletteItem): LayoutFieldMetadata {
   }
 }
 
-function paletteIcon(component: string): string {
+function paletteIcon(item: Pick<PaletteItem, 'component' | 'multiple' | 'allowedMimeTypes'>): string {
+  if (
+    item.component === 'Files' &&
+    item.multiple === false &&
+    (item.allowedMimeTypes?.some((mime) => mime.startsWith('image/')) ?? false)
+  ) {
+    return 'pi-image'
+  }
   const icons: Record<string, string> = {
     InputText: 'pi-file',
     InputNumber: 'pi-hashtag',
@@ -1932,7 +2013,7 @@ function paletteIcon(component: string): string {
     SensitivityMatrix: 'pi-table',
     BlockLayout: 'pi-th-large',
   }
-  return icons[component] ?? 'pi-file'
+  return icons[item.component] ?? 'pi-file'
 }
 
 function updateField(
@@ -2369,7 +2450,7 @@ function hintTooltip(value: string) {
               :title="element.fieldKey"
             >
               <span class="palette-card__drag palette-card__drag--muted" aria-hidden="true">⠿</span>
-              <i class="palette-card__icon pi" :class="paletteIcon(element.component)" aria-hidden="true" />
+              <i class="palette-card__icon pi" :class="paletteIcon(element)" aria-hidden="true" />
               <span class="flex-1 min-w-0 truncate text-[0.84rem] leading-tight">
                 {{ element.label }}
               </span>
@@ -2394,7 +2475,7 @@ function hintTooltip(value: string) {
               :title="element.fieldKey"
             >
               <span class="palette-card__drag" aria-hidden="true">⠿</span>
-              <i class="palette-card__icon pi" :class="paletteIcon(element.component)" aria-hidden="true" />
+              <i class="palette-card__icon pi" :class="paletteIcon(element)" aria-hidden="true" />
               <span class="flex-1 min-w-0 truncate text-[0.84rem] text-surface-800 leading-tight">
                 {{ element.label }}
               </span>
@@ -2649,6 +2730,13 @@ function hintTooltip(value: string) {
                 </div>
                 <div v-else-if="isDocEngineField(element)" class="canvas-datatable">
                   <span>{{ t('formBuilder.docEngine', 'DocEngine') }}</span>
+                </div>
+                <div
+                  v-else-if="isImageField(element)"
+                  class="canvas-datatable canvas-image-field"
+                >
+                  <i class="pi pi-image" aria-hidden="true" />
+                  {{ t('formBuilder.imagePreview', 'Image') }}
                 </div>
                 <div v-else-if="isFilesField(element)" class="canvas-datatable">
                   <i class="pi pi-paperclip" aria-hidden="true" />
@@ -3269,12 +3357,6 @@ function hintTooltip(value: string) {
           @update:conditions="configTabShowIf = $event"
           @update:logic="configTabShowIfLogic = $event"
         />
-        <p class="m-0 text-[0.8rem] text-muted-color">
-          {{ t('formBuilder.tabId', 'Tab id') }}: <code>{{ selectedTab.id }}</code>
-        </p>
-        <p class="m-0 text-[0.8rem] text-muted-color">
-          {{ t('treeSettings.group', 'Group') }}: <code>{{ selectedTab.groups.length }}</code>
-        </p>
         <div class="flex flex-wrap gap-2">
           <Button
             :label="t('formBuilder.removeTab', 'Remove tab')"
@@ -3333,12 +3415,6 @@ function hintTooltip(value: string) {
           @update:conditions="configGroupShowIf = $event"
           @update:logic="configGroupShowIfLogic = $event"
         />
-        <p class="m-0 text-[0.8rem] text-muted-color">
-          {{ t('formBuilder.groupId', 'Group id') }}: <code>{{ selectedGroup.id }}</code>
-        </p>
-        <p class="m-0 text-[0.8rem] text-muted-color">
-          {{ t('formBuilder.fields', 'Fields') }}: <code>{{ selectedGroup.fields.length }}</code>
-        </p>
         <div class="flex flex-wrap gap-2">
           <Button
             :label="t('formBuilder.removeGroup', 'Remove group')"
@@ -3420,6 +3496,16 @@ function hintTooltip(value: string) {
           {{ t('formBuilder.readOnlyField', 'Read-only in edit forms') }}
           <ToggleSwitch v-model="configReadonly" />
         </label>
+        <LayoutShowIfEditor
+          v-if="selectedFieldSupportsReadonly"
+          :collection="collection"
+          :conditions="configReadonlyIf"
+          :logic="configReadonlyIfLogic"
+          :title="t('formBuilder.readOnlyIf', 'Read-only when')"
+          :empty-text="t('formBuilder.readOnlyIfEmpty', 'No conditions — use the toggle above for always read-only.')"
+          @update:conditions="configReadonlyIf = $event"
+          @update:logic="configReadonlyIfLogic = $event"
+        />
         <p class="m-0 text-[0.8rem] text-muted-color">
           {{ t('formBuilder.bindingKey', 'Binding key') }}: <code>{{ selectedField.field }}</code>
         </p>
@@ -3571,8 +3657,17 @@ function hintTooltip(value: string) {
           v-if="isFilesField(selectedField)"
           class="border-t border-surface-200 grid gap-3 pt-3"
         >
-          <h3 class="text-[0.9rem] m-0">{{ t('formBuilder.filesSettings', 'Files settings') }}</h3>
-          <FilesSettingsDesigner v-model="configFilesSettings" />
+          <h3 class="text-[0.9rem] m-0">
+            {{
+              selectedField && isImageField(selectedField)
+                ? t('formBuilder.imageSettings', 'Image settings')
+                : t('formBuilder.filesSettings', 'Files settings')
+            }}
+          </h3>
+          <FilesSettingsDesigner
+            v-model="configFilesSettings"
+            :image-mode="Boolean(selectedField && isImageField(selectedField))"
+          />
         </div>
 
         <div

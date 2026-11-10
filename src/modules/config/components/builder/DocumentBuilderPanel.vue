@@ -32,6 +32,7 @@ import {
 import {
   listDocTemplateSnapshots,
   loadDocTemplateSnapshotById,
+  pruneUnusedDocTemplateSnapshots,
 } from '@/modules/documents/services/docTemplateSnapshotService'
 import {
   buildDocSourceSamplePayload,
@@ -53,6 +54,7 @@ export interface DocumentListSourceContext {
     value: unknown
     type?: string
     userVisible?: boolean
+    required?: boolean
     fieldWidth?: number
   }> | null
   /** Related-list designer: sample uses `meta.parent` instead of `meta.filter`. */
@@ -108,7 +110,7 @@ const layoutLoading = ref(false)
 const layoutSaving = ref(false)
 const mappingOpening = ref(false)
 /** Default on so Field Mapping shows `$payload.records[]` for list reports. */
-const listPayloadSample = ref(true)
+const listPayloadSample = ref(false)
 const listPayloadForced = computed(() => props.forceListPayloadSample === true)
 /** Virtual `item_group_tree*` at payload root for Tree mode list reports. */
 const treePayloadSample = ref(true)
@@ -228,10 +230,20 @@ async function refreshSnapshots(templateId: string | null): Promise<void> {
     return
   }
   try {
+    try {
+      await pruneUnusedDocTemplateSnapshots(templateId)
+    } catch (err) {
+      console.warn('[documents] Failed to prune unused template snapshots', err)
+    }
     const rows = await listDocTemplateSnapshots(templateId)
     snapshots.value = rows
     latestSnapshotId.value = rows[0]?.id ? String(rows[0].id) : null
-    if (!selectedSnapshotId.value && latestSnapshotId.value) {
+    if (
+      selectedSnapshotId.value &&
+      !rows.some((row) => String(row.id) === selectedSnapshotId.value)
+    ) {
+      selectedSnapshotId.value = latestSnapshotId.value
+    } else if (!selectedSnapshotId.value && latestSnapshotId.value) {
       selectedSnapshotId.value = latestSnapshotId.value
     }
   } catch {
@@ -517,6 +529,10 @@ async function openFieldMappingEditor(): Promise<void> {
 
     await editorRef.value!.openFieldMapping({ spec })
   } catch (err) {
+    // Field Mapping Cancel rejects with AbortError / message "cancelled" — not a user-facing error.
+    if (err instanceof Error && (err.name === 'AbortError' || err.message === 'cancelled')) {
+      return
+    }
     const message = apiErrorMessage(
       err,
       t('documents.openFieldMappingError', 'Failed to open field mapping editor.'),

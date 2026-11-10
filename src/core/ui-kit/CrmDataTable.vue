@@ -59,7 +59,11 @@ import {
   resolveRelatedCreateTarget,
   type RelatedCreateTarget,
 } from '@/modules/entities/services/collectionSchema'
-import { usesPrimaryKeyRecordLink, resolveAutoRecordLinkField } from '@/modules/entities/services/tableSettings'
+import {
+  usesPrimaryKeyRecordLink,
+  resolveAutoRecordLinkField,
+  resolveNameLinkSortFields,
+} from '@/modules/entities/services/tableSettings'
 import type { EntityLayoutSchema, LayoutFieldChildLookup } from '@/interfaces/config'
 import type {
   DataTableGroupConfig,
@@ -81,7 +85,12 @@ import {
 import { formatDateValue } from '@/core/dateFormatting'
 import { formatScheduleRuleSummary } from '@/core/scheduleRuleDisplay'
 import { formatAddressSummary } from '@/core/addressField'
-import { isHtmlEditorColumn } from '@/core/fieldHelpers'
+import { formatJsonCodeSummary } from '@/core/jsonField'
+import {
+  isBooleanColumn,
+  isHtmlEditorColumn,
+  isNumericFieldDefinition,
+} from '@/core/fieldHelpers'
 import { plainTextFromHtml } from '@/core/htmlContent'
 import {
   useTranslation,
@@ -167,6 +176,8 @@ const props = withDefaults(
     selectionMode?: 'single' | 'multiple' | null
     /** Currently selected row(s) when selectionMode is set. */
     selection?: Record<string, unknown> | Record<string, unknown>[] | null
+    /** Salesforce-style leftmost 1-based row index column. */
+    showRowNumbers?: boolean
     /**
      * After inline cell save, re-fetch row so automation/formula fields update.
      * Default off.
@@ -205,6 +216,7 @@ const props = withDefaults(
     showViewRecordAction: true,
     selectionMode: null,
     selection: null,
+    showRowNumbers: true,
     inlineEditRefresh: 'off',
     inlineEditRefreshFields: () => [],
     filterRowsByParent: true,
@@ -257,6 +269,8 @@ const localColumns = ref<CrmDataTableColumn[]>([...props.columns])
 const columnLayoutKey = ref(0)
 /** User-resized column widths (px), keyed by column field/header. */
 const columnWidthOverrides = ref<Record<string, string>>({})
+/** User column order (resolveColumnKey values), restored from localStorage. */
+const storedColumnOrder = ref<string[] | null>(null)
 const sortField = ref<string | null>(props.defaultSortField ?? null)
 const sortOrder = ref<1 | -1 | null>(props.defaultSortOrder ?? null)
 const scrollPanel = ref<HTMLElement | null>(null)
@@ -377,6 +391,10 @@ const displayedColumns = computed<CrmDataTableColumn[]>(() => {
         (linkField === 'name' ? AUTO_NAME_HEADER : AUTO_ID_HEADER),
       relatedCollection: collection,
       autoRecordId: true,
+      template:
+        collectionDisplayTemplate.value
+        ?? existingColumn?.template
+        ?? undefined,
     },
     ...columns,
   ]
@@ -570,7 +588,7 @@ const canDragRows = computed(() => props.rowDraggable && !props.rowDragDisabled)
 watch(
   () => props.columns,
   (columns) => {
-    localColumns.value = [...columns]
+    localColumns.value = applyStoredColumnOrder([...columns])
   },
   { deep: true },
 )
@@ -927,19 +945,31 @@ function resolveColumnKey(column: CrmDataTableColumn): string {
 }
 
 /** PrimeVue horizontal scroll: minWidth keeps columns from squeezing. */
+/** Cap JsonCode / Textarea so expand-mode resize cannot blow out the grid. */
+const LONG_CONTENT_COLUMN_WIDTH = '18rem'
+const LONG_CONTENT_CELL_CHARS = 100
+const LONG_CONTENT_TITLE_CHARS = 500
+
+function isLongContentColumn(column: CrmDataTableColumn): boolean {
+  return column.component === 'JsonCode' || column.component === 'Textarea'
+}
+
 function columnMinWidth(column: CrmDataTableColumn): string {
   if (column.autoRecordId) return '6rem'
+  if (isBooleanColumn(column)) return '5rem'
   if (isNumericColumn(column)) return numericColumnWidth(column)
   if (column.format?.trim() || isDateLikeColumn(column)) return '12rem'
-  if (column.relatedCollection || column.recordLink) return '12rem'
+  if (column.relatedCollection || column.recordLink) return '8rem'
   if (column.component === 'Repeater') return '14rem'
   if (column.component === 'Address') return '16rem'
   if (isHtmlEditorColumn(column)) return '16rem'
+  if (isLongContentColumn(column)) return LONG_CONTENT_COLUMN_WIDTH
+  // Header text truncates in the grid; keep floors modest so short values can shrink.
   const headerLen = (column.header || column.field || '').length
-  if (headerLen > 18) return '14rem'
-  if (headerLen > 12) return '12rem'
-  if (headerLen > 6) return '10rem'
-  return '8rem'
+  if (headerLen > 18) return '12rem'
+  if (headerLen > 12) return '10rem'
+  if (headerLen > 6) return '8rem'
+  return '6rem'
 }
 
 function numericColumnWidth(column: CrmDataTableColumn): string {
@@ -956,9 +986,11 @@ function isDateLikeColumn(column: CrmDataTableColumn): boolean {
 }
 
 function isNumericColumn(column: CrmDataTableColumn): boolean {
-  // Currency / Number display options (suffix, decimals) must right-align even
-  // when component metadata is missing or not InputNumber.
-  return column.component === 'InputNumber' || Boolean(column.numberDisplay)
+  // Global rule: numeric / integer / currency cells align right.
+  return (
+    isNumericFieldDefinition({ component: column.component }) ||
+    Boolean(column.numberDisplay)
+  )
 }
 
 function columnStyle(column: CrmDataTableColumn): Record<string, string> {
@@ -970,7 +1002,16 @@ function columnStyle(column: CrmDataTableColumn): Record<string, string> {
     minWidth: columnMinWidth(column),
   }
   if (override) {
+    // maxWidth is required so scrollable tables keep the resized size on reload
+    // (width alone is treated as a hint and columns expand again).
     style.width = override
+    style.maxWidth = override
+  } else if (isLongContentColumn(column)) {
+    style.width = LONG_CONTENT_COLUMN_WIDTH
+  }
+  if (isLongContentColumn(column)) {
+    // Bound expand-mode growth from long JSON / textarea content.
+    style.maxWidth = override || LONG_CONTENT_COLUMN_WIDTH
   }
   if (isNumericColumn(column)) {
     style.textAlign = 'right'
@@ -1388,48 +1429,130 @@ function applyColumnOrder(ordered: CrmDataTableColumn[]): void {
   localColumns.value = dataColumns
 }
 
-function columnWidthsStorageKey(collection: string): string {
+function applyStoredColumnOrder(
+  columns: CrmDataTableColumn[],
+): CrmDataTableColumn[] {
+  const order = storedColumnOrder.value
+  if (!order?.length) return columns
+
+  const byKey = new Map(
+    columns.map((column) => [resolveColumnKey(column), column] as const),
+  )
+  const next: CrmDataTableColumn[] = []
+  const used = new Set<string>()
+
+  for (const key of order) {
+    const column = byKey.get(key)
+    if (!column || used.has(key)) continue
+    next.push(column)
+    used.add(key)
+  }
+
+  for (const column of columns) {
+    const key = resolveColumnKey(column)
+    if (used.has(key)) continue
+    next.push(column)
+    used.add(key)
+  }
+
+  return next
+}
+
+function columnLayoutStorageKey(collection: string): string {
+  return `coreengine.datatable.columnWidths.${collection}`
+}
+
+function legacyColumnLayoutStorageKey(collection: string): string {
   return `helix.datatable.columnWidths.${collection}`
 }
 
-function loadColumnWidthOverrides(collection: string | null): void {
+function parseStoredWidth(value: unknown): string | null {
+  if (typeof value === 'string' && /^\d+(\.\d+)?px$/.test(value)) return value
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return `${Math.round(value)}px`
+  }
+  return null
+}
+
+function parseStoredOrder(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const order = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  return order.length > 0 ? order : null
+}
+
+function loadColumnLayoutState(collection: string | null): void {
   if (!collection || typeof window === 'undefined') {
     columnWidthOverrides.value = {}
+    storedColumnOrder.value = null
     return
   }
   try {
-    const raw = window.localStorage.getItem(columnWidthsStorageKey(collection))
+    const key = columnLayoutStorageKey(collection)
+    const legacyKey = legacyColumnLayoutStorageKey(collection)
+    let raw = window.localStorage.getItem(key)
+    if (!raw) {
+      raw = window.localStorage.getItem(legacyKey)
+      if (raw) {
+        window.localStorage.setItem(key, raw)
+        window.localStorage.removeItem(legacyKey)
+      }
+    }
     if (!raw) {
       columnWidthOverrides.value = {}
+      storedColumnOrder.value = null
       return
     }
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       columnWidthOverrides.value = {}
+      storedColumnOrder.value = null
       return
     }
+    const record = parsed as Record<string, unknown>
+    // New shape: { widths, order? } (tableWidth ignored — caused sibling stretch)
+    // Legacy shape: flat Record<field, width>
+    const widthSource =
+      record.widths && typeof record.widths === 'object' && !Array.isArray(record.widths)
+        ? (record.widths as Record<string, unknown>)
+        : record
     const next: Record<string, string> = {}
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value === 'string' && /^\d+(\.\d+)?px$/.test(value)) {
-        next[key] = value
-      } else if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-        next[key] = `${Math.round(value)}px`
-      }
+    for (const [keyName, value] of Object.entries(widthSource)) {
+      if (keyName === 'widths' || keyName === 'tableWidth' || keyName === 'order') continue
+      const width = parseStoredWidth(value)
+      if (width) next[keyName] = width
     }
     columnWidthOverrides.value = next
+    storedColumnOrder.value = parseStoredOrder(record.order)
+    if (storedColumnOrder.value?.length) {
+      localColumns.value = applyStoredColumnOrder([...props.columns])
+    }
   } catch {
     columnWidthOverrides.value = {}
+    storedColumnOrder.value = null
   }
 }
 
-function persistColumnWidthOverrides(): void {
+function persistColumnLayoutState(): void {
   const collection = managedCollection.value
   if (!collection || typeof window === 'undefined') return
   try {
+    const payload: {
+      widths: Record<string, string>
+      order?: string[]
+    } = {
+      widths: columnWidthOverrides.value,
+    }
+    if (storedColumnOrder.value?.length) {
+      payload.order = storedColumnOrder.value
+    }
     window.localStorage.setItem(
-      columnWidthsStorageKey(collection),
-      JSON.stringify(columnWidthOverrides.value),
+      columnLayoutStorageKey(collection),
+      JSON.stringify(payload),
     )
+    window.localStorage.removeItem(legacyColumnLayoutStorageKey(collection))
   } catch {
     // Ignore quota / private-mode failures.
   }
@@ -1438,34 +1561,48 @@ function persistColumnWidthOverrides(): void {
 watch(
   managedCollection,
   (collection) => {
-    loadColumnWidthOverrides(collection)
+    loadColumnLayoutState(collection)
   },
   { immediate: true },
 )
 
+/** Leading fixed columns in CrmDataTableGrid (row #, multi-select) before data columns. */
+function leadingFixedColumnCount(): number {
+  let count = 0
+  if (props.showRowNumbers) count += 1
+  if (isMultipleSelection.value) count += 1
+  return count
+}
+
 function handleColumnResizeEnd(event: {
   element?: HTMLElement | null
+  delta?: number
 }): void {
-  const th = event.element
-  const row = th?.parentElement
-  if (!th || !row) return
+  const th = event?.element ?? null
+  if (!th) return
 
-  const headers = Array.from(row.children) as HTMLElement[]
-  const dataStart = isMultipleSelection.value ? 1 : 0
-  const dataColumns = displayedColumns.value
-  const next = { ...columnWidthOverrides.value }
+  const headers = th.parentElement
+    ? Array.from(th.parentElement.children).filter(
+        (node): node is HTMLElement => node instanceof HTMLElement,
+      )
+    : []
+  const dataStart = leadingFixedColumnCount()
+  const dataIndex = headers.indexOf(th) - dataStart
+  const column = displayedColumns.value[dataIndex]
+  if (!column || column.autoRecordId) return
 
-  for (let i = 0; i < dataColumns.length; i += 1) {
-    const header = headers[dataStart + i]
-    const column = dataColumns[i]
-    if (!header || !column) continue
-    const width = Math.round(header.getBoundingClientRect().width)
-    if (width < 40) continue
-    next[resolveColumnKey(column)] = `${width}px`
+  const width = Math.round(th.getBoundingClientRect().width)
+  if (width < 40) return
+
+  // Persist only the dragged column. Do not remount: OpenVue expand-mode
+  // already keeps siblings at their pre-resize sizes; remounting clears that
+  // and redistributes every column.
+  columnWidthOverrides.value = {
+    ...columnWidthOverrides.value,
+    [resolveColumnKey(column)]: `${width}px`,
   }
 
-  columnWidthOverrides.value = next
-  persistColumnWidthOverrides()
+  persistColumnLayoutState()
 }
 
 function handleColumnReorder(event: unknown): void {
@@ -1476,16 +1613,28 @@ function handleColumnReorder(event: unknown): void {
   if (dragIndex === undefined || dropIndex === undefined) return
   if (dragIndex === dropIndex) return
 
-  const reorderableCount = displayedColumns.value.length
-  if (dragIndex >= reorderableCount || dropIndex >= reorderableCount) return
-  if (displayedColumns.value[dragIndex]?.autoRecordId) return
+  // OpenVue indices include fixed columns (row #, selection, actions); map to data columns.
+  const offset = leadingFixedColumnCount()
+  const from = dragIndex - offset
+  const dataCount = displayedColumns.value.length
+  if (from < 0 || from >= dataCount) return
+  if (displayedColumns.value[from]?.autoRecordId) return
+
+  let to = dropIndex - offset
+  if (to < 0) to = 0
+  if (to >= dataCount) to = dataCount - 1
+  if (from === to) return
 
   const ordered = [...displayedColumns.value]
-  const [moved] = ordered.splice(dragIndex, 1)
+  const [moved] = ordered.splice(from, 1)
   if (!moved) return
-  ordered.splice(dropIndex, 0, moved)
+  ordered.splice(to, 0, moved)
 
   applyColumnOrder(ordered)
+  storedColumnOrder.value = ordered
+    .filter((column) => !column.autoRecordId)
+    .map((column) => resolveColumnKey(column))
+  persistColumnLayoutState()
   columnLayoutKey.value += 1
 }
 
@@ -1516,6 +1665,14 @@ function handleSort(event: unknown): void {
 
 function resolveSortKey(fieldName: string): string {
   const column = displayedColumns.value.find((c) => c.field === fieldName)
+  // Auto Name link: sort by Display Template fields, not auto-number `name`.
+  if (column?.autoRecordId && fieldName === 'name') {
+    const fields = resolveNameLinkSortFields(
+      'name',
+      column.template || collectionDisplayTemplate.value,
+    )
+    return fields.join(',')
+  }
   if (column?.field && isNestedFieldPath(column.field)) {
     return column.field
   }
@@ -2160,20 +2317,27 @@ function resolveCellValue(
 ): unknown {
   if (column.autoRecordId) {
     const id = resolveRecordId(row)
+    const pkLabel = id != null ? String(id) : ''
+    const template = collectionDisplayTemplate.value?.trim() || undefined
+    const templateLabel = template
+      ? resolvePrimaryKeyRecordLabel(
+          template,
+          row,
+          managedPrimaryKey.value,
+        ).trim()
+      : ''
     const nameLabel =
       autoRecordLinkField.value === 'name'
         ? String(row.name ?? '').trim()
         : ''
+    // Prefer entity Display Template over auto-numbered `name` (e.g. 0210).
     return {
       __crmValueType: 'm2o',
       id,
       label:
+        (templateLabel && templateLabel !== pkLabel ? templateLabel : '') ||
         nameLabel ||
-        resolvePrimaryKeyRecordLabel(
-          collectionDisplayTemplate.value ?? undefined,
-          row,
-          managedPrimaryKey.value,
-        ),
+        pkLabel,
       relatedCollection: managedCollection.value ?? undefined,
     } satisfies M2OCellValue
   }
@@ -2258,11 +2422,17 @@ function matchesParent(
   return String(value) === String(parentId)
 }
 
-function formatValue(value: unknown, column?: CrmDataTableColumn): string {
+function truncateCellText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  return `${text.slice(0, Math.max(0, maxChars - 1))}…`
+}
+
+function formatValueBase(value: unknown, column?: CrmDataTableColumn): string {
   const relatedCell = m2oCellValue(value)
   if (relatedCell) return relatedCell.label || String(relatedCell.id ?? '')
   if (column?.component === 'Repeater') return formatScheduleRuleSummary(value)
   if (column?.component === 'Address') return formatAddressSummary(value)
+  if (column?.component === 'JsonCode') return formatJsonCodeSummary(value)
   if (column?.format?.trim()) return formatDateValue(value, column.format)
   if (column && isHtmlEditorColumn(column)) {
     const plain = plainTextFromHtml(value)
@@ -2279,6 +2449,23 @@ function formatValue(value: unknown, column?: CrmDataTableColumn): string {
         { count },
       ),
   })
+}
+
+function formatValue(value: unknown, column?: CrmDataTableColumn): string {
+  const label = formatValueBase(value, column)
+  if (column && isLongContentColumn(column)) {
+    return truncateCellText(label, LONG_CONTENT_CELL_CHARS)
+  }
+  return label
+}
+
+/** Hover title: longer preview for JsonCode / Textarea without dumping full payloads. */
+function formatCellTitle(value: unknown, column?: CrmDataTableColumn): string {
+  const label = formatValueBase(value, column)
+  if (column && isLongContentColumn(column)) {
+    return truncateCellText(label, LONG_CONTENT_TITLE_CHARS)
+  }
+  return label
 }
 
 function m2oCellValue(value: unknown): M2OCellValue | null {
@@ -2451,21 +2638,49 @@ function compareRowsByField(
 
 <template>
   <div class="crm-data-table-wrap">
-    <div v-if="showNewButtonEffective || $slots.toolbar || $slots['toolbar-actions']" class="crm-data-table__toolbar">
-      <div class="crm-data-table__toolbar-start">
-        <slot name="toolbar" />
+    <div
+      v-if="
+        showNewButtonEffective ||
+        $slots.toolbar ||
+        $slots['toolbar-actions'] ||
+        $slots['toolbar-filters'] ||
+        $slots['toolbar-tools']
+      "
+      class="crm-data-table__toolbar"
+    >
+      <div class="crm-data-table__toolbar-row crm-data-table__toolbar-row--primary">
+        <div class="crm-data-table__toolbar-start">
+          <slot name="toolbar" />
+        </div>
+        <div
+          v-if="$slots['toolbar-actions'] || showNewButtonEffective"
+          class="crm-data-table__toolbar-actions"
+        >
+          <slot name="toolbar-actions" />
+          <Button
+            v-if="showNewButtonEffective"
+            :label="newButtonText"
+            size="small"
+            @click="handleNewRecord"
+          />
+        </div>
       </div>
       <div
-        v-if="$slots['toolbar-actions'] || showNewButtonEffective"
-        class="crm-data-table__toolbar-actions"
+        v-if="$slots['toolbar-filters'] || $slots['toolbar-tools']"
+        class="crm-data-table__toolbar-row crm-data-table__toolbar-row--secondary"
       >
-        <slot name="toolbar-actions" />
-        <Button
-          v-if="showNewButtonEffective"
-          :label="newButtonText"
-          size="small"
-          @click="handleNewRecord"
-        />
+        <div
+          v-if="$slots['toolbar-filters']"
+          class="crm-data-table__toolbar-filters"
+        >
+          <slot name="toolbar-filters" />
+        </div>
+        <div
+          v-if="$slots['toolbar-tools']"
+          class="crm-data-table__toolbar-tools"
+        >
+          <slot name="toolbar-tools" />
+        </div>
       </div>
     </div>
 
@@ -2505,6 +2720,7 @@ function compareRowsByField(
         :paginator="paginator"
         :active-rows-per-page="activeRowsPerPage"
         :is-compact="isCompact"
+        :show-row-numbers="showRowNumbers"
         :is-selection-enabled="isSelectionEnabled"
         :is-multiple-selection="isMultipleSelection"
         :selection="tableSelection"
@@ -2528,6 +2744,7 @@ function compareRowsByField(
         :is-numeric-column="isNumericColumn"
         :resolve-cell-value="resolveCellValue"
         :format-value="formatValue"
+        :format-cell-title="formatCellTitle"
         :can-link-m2-o-cell="canLinkM2OCell"
         :related-record-route="relatedRecordRoute"
         :compact-tooltip-state="compactTooltipState"
@@ -2667,29 +2884,57 @@ function compareRowsByField(
 
 <style scoped>
 .crm-data-table__toolbar {
-  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  position: relative;
+  z-index: 5;
+}
+
+.crm-data-table__toolbar-row {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.45rem 0.75rem;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  min-width: 0;
+  width: 100%;
+}
+
+/* Filters + search stay on one row; filters shrink, search stays fixed-width. */
+.crm-data-table__toolbar-row--secondary {
+  flex-wrap: nowrap;
 }
 
 .crm-data-table__toolbar-start {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
   min-width: 0;
 }
 
-.crm-data-table__toolbar-actions {
+.crm-data-table__toolbar-filters {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: visible;
+  position: relative;
+  z-index: 1;
+}
+
+.crm-data-table__toolbar-actions,
+.crm-data-table__toolbar-tools {
   align-items: center;
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 0.5rem;
+  justify-content: flex-end;
   margin-left: auto;
+  min-width: 0;
 }
 
 .crm-data-table-wrap {
@@ -2708,6 +2953,7 @@ function compareRowsByField(
   position: relative;
   overflow: auto;
   overscroll-behavior: contain;
+  z-index: 0;
 }
 
 .crm-data-table__scroll-panel--compact {

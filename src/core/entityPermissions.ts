@@ -10,6 +10,8 @@ export interface EntityPermissionFlags {
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
+  canImport: boolean
+  canExport: boolean
 }
 
 /** Matches BFF ROLE_PERMISSION_EXCLUDED_ENTITIES — not gated by the role matrix. */
@@ -29,6 +31,8 @@ const FULL_ACCESS: EntityPermissionFlags = {
   canRead: true,
   canUpdate: true,
   canDelete: true,
+  canImport: true,
+  canExport: true,
 }
 
 const NO_ACCESS: EntityPermissionFlags = {
@@ -36,9 +40,13 @@ const NO_ACCESS: EntityPermissionFlags = {
   canRead: false,
   canUpdate: false,
   canDelete: false,
+  canImport: false,
+  canExport: false,
 }
 
 let cache: Map<string, EntityPermissionFlags> | null = null
+/** Identifies which effective role `cache` / `adminFullAccess` were loaded for. */
+let cacheScopeKey: string | null = null
 let adminFullAccess = false
 let loadPromise: Promise<void> | null = null
 let revision = 0
@@ -59,6 +67,8 @@ function applyPermissionRows(rows: EntityPermissionDto[]): void {
       canRead: Boolean(row.canRead),
       canUpdate: Boolean(row.canUpdate),
       canDelete: Boolean(row.canDelete),
+      canImport: Boolean(row.canImport),
+      canExport: Boolean(row.canExport),
     })
   }
   cache = next
@@ -67,9 +77,23 @@ function applyPermissionRows(rows: EntityPermissionDto[]): void {
 
 export function clearEntityPermissionsCache(): void {
   cache = null
+  cacheScopeKey = null
   adminFullAccess = false
   loadPromise = null
   revision += 1
+}
+
+function resolvePermissionScopeKey(
+  userIsAdmin: boolean,
+  previewOverride: string | null | undefined,
+  ownRoleId: string | null,
+): string {
+  if (userIsAdmin) {
+    if (previewOverride === undefined) return 'admin:full'
+    if (previewOverride === null) return 'admin:default'
+    return `admin:preview:${previewOverride}`
+  }
+  return `role:${ownRoleId || 'none'}`
 }
 
 async function isPreviewedRoleAdmin(roleId: string): Promise<boolean> {
@@ -96,18 +120,29 @@ async function isPreviewedRoleAdmin(roleId: string): Promise<boolean> {
  * Admins previewing another role get that role's matrix (UI-only gate).
  */
 export async function ensureEntityPermissions(): Promise<void> {
-  if (cache) return
   if (loadPromise) return loadPromise
+
+  const user = await currentUser()
+  const previewOverride = user.isAdmin ? getRolePreviewOverride() : undefined
+  const ownRoleId = user.isAdmin ? user.roleId : await currentUserRole()
+  const scopeKey = resolvePermissionScopeKey(user.isAdmin, previewOverride, ownRoleId)
+
+  if (cache && cacheScopeKey === scopeKey) return
+  if (loadPromise) return loadPromise
+
+  // Scope changed (e.g. role preview) — drop stale admin-full / matrix cache.
+  if (cacheScopeKey !== scopeKey) {
+    cache = null
+    adminFullAccess = false
+  }
 
   loadPromise = (async () => {
     try {
-      const user = await currentUser()
-      const previewOverride = user.isAdmin ? getRolePreviewOverride() : undefined
-
       // Real admin session, not previewing → full UI access.
       if (user.isAdmin && previewOverride === undefined) {
         adminFullAccess = true
         cache = new Map()
+        cacheScopeKey = scopeKey
         return
       }
 
@@ -115,6 +150,7 @@ export async function ensureEntityPermissions(): Promise<void> {
       if (user.isAdmin && previewOverride === null) {
         adminFullAccess = false
         cache = new Map()
+        cacheScopeKey = scopeKey
         return
       }
 
@@ -123,22 +159,26 @@ export async function ensureEntityPermissions(): Promise<void> {
         if (await isPreviewedRoleAdmin(previewOverride)) {
           adminFullAccess = true
           cache = new Map()
+          cacheScopeKey = scopeKey
           return
         }
         applyPermissionRows(await fetchRolePermissions(previewOverride))
+        cacheScopeKey = scopeKey
         return
       }
 
       // Non-admin (or unexpected path): own role matrix from BFF.
-      const roleId = await currentUserRole()
-      if (!roleId) {
+      if (!ownRoleId) {
         adminFullAccess = false
         cache = new Map()
+        cacheScopeKey = scopeKey
         return
       }
       applyPermissionRows(await fetchMyRolePermissions())
+      cacheScopeKey = scopeKey
     } catch {
       cache = new Map()
+      cacheScopeKey = scopeKey
       adminFullAccess = false
     } finally {
       loadPromise = null
@@ -176,6 +216,14 @@ export function canDeleteEntity(collection: string | null | undefined): boolean 
   return getEntityPermission(collection).canDelete
 }
 
+export function canImportEntity(collection: string | null | undefined): boolean {
+  return getEntityPermission(collection).canImport
+}
+
+export function canExportEntity(collection: string | null | undefined): boolean {
+  return getEntityPermission(collection).canExport
+}
+
 /**
  * Reactive CRUD flags for a collection. Loads the role matrix once and refreshes
  * when the collection changes or the permission cache is cleared.
@@ -196,6 +244,9 @@ export function useEntityPermissions(
     void refresh()
   })
 
+  // Load immediately in setup so list/related watches do not race ahead of onMounted.
+  void refresh()
+
   watch(
     () => toValue(collection),
     () => {
@@ -215,6 +266,8 @@ export function useEntityPermissions(
     canRead: computed(() => flags.value.canRead),
     canUpdate: computed(() => flags.value.canUpdate),
     canDelete: computed(() => flags.value.canDelete),
+    canImport: computed(() => flags.value.canImport),
+    canExport: computed(() => flags.value.canExport),
     refresh,
   }
 }

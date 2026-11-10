@@ -1,4 +1,5 @@
 import type {
+  EntityRecordAutomationCondition,
   RecordPageComponent,
   RecordPageLayoutSchema,
   RecordPageListDetailPanel,
@@ -184,6 +185,39 @@ function normalizeVisibleActionButtons(value: unknown): number {
   return Math.min(20, Math.max(1, Math.floor(value)))
 }
 
+function normalizeReadonlyIfConditions(
+  value: unknown,
+): EntityRecordAutomationCondition[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const conditions = value
+    .map((item): EntityRecordAutomationCondition | null => {
+      if (!item || typeof item !== 'object') return null
+      const row = item as Record<string, unknown>
+      const field = typeof row.field === 'string' ? row.field.trim() : ''
+      const operator = typeof row.operator === 'string' ? row.operator.trim() : ''
+      if (!field || !operator) return null
+      const valueSource =
+        row.valueSource === 'field' || row.valueSource === 'literal'
+          ? row.valueSource
+          : undefined
+      const compareField =
+        typeof row.compareField === 'string' && row.compareField.trim()
+          ? row.compareField.trim()
+          : row.compareField === null
+            ? null
+            : undefined
+      return {
+        field,
+        operator,
+        ...(row.value !== undefined ? { value: row.value } : {}),
+        ...(valueSource ? { valueSource } : {}),
+        ...(compareField !== undefined ? { compareField } : {}),
+      }
+    })
+    .filter((item): item is EntityRecordAutomationCondition => item !== null)
+  return conditions.length > 0 ? conditions : undefined
+}
+
 function normalizeComponent(
   component: Partial<RecordPageComponent> | null | undefined,
 ): RecordPageComponent | null {
@@ -242,6 +276,11 @@ function normalizeComponent(
             .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
             .map((value) => value.trim())
         : undefined,
+    readonly: type === 'path' ? component.readonly === true : undefined,
+    readonlyIf:
+      type === 'path' ? normalizeReadonlyIfConditions(component.readonlyIf) : undefined,
+    readonlyIfLogic:
+      type === 'path' && component.readonlyIfLogic === 'or' ? 'or' : undefined,
     fieldComponent: component.fieldComponent,
     span: typeof component.span === 'number' ? component.span : undefined,
     format: typeof component.format === 'string' ? component.format : undefined,

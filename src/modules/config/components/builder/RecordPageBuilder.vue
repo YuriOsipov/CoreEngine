@@ -11,6 +11,7 @@ import { useTranslation } from '@/core/translation'
 import { isDateComponent } from '@/core/dateFormatting'
 import type {
   ActivityLogAction,
+  EntityRecordAutomationCondition,
   PrimeVueComponentType,
   RecordPageComponent,
   RecordPageComponentType,
@@ -37,6 +38,7 @@ import {
 import { clampRecordPageMainSize } from '../../services/recordPageSettings'
 import { resolveRecordPageListDetailContent } from '../../utils/recordPageRelatedList'
 import PaletteSkeleton from '../PaletteSkeleton.vue'
+import LayoutShowIfEditor from '../LayoutShowIfEditor.vue'
 import RecordPageCanvasComponent from './RecordPageCanvasComponent.vue'
 import { DIALOG_SORTABLE_ATTRS } from '../../utils/dialogSortable'
 
@@ -431,20 +433,41 @@ const canvasContentStyle = computed(() => {
   }
 })
 
+let fitScaleMeasuring = false
+
 function updateFitScale(): void {
+  if (fitScaleMeasuring) return
   const viewport = canvasViewportRef.value
   const content = canvasContentRef.value
-  contentSizeVersion.value += 1
   if (!viewport || !content) {
     fitScale.value = 1
+    contentSizeVersion.value += 1
     return
   }
 
   const availableHeight = Math.max(viewport.clientHeight - 8, 1)
-  // Estimate at full width first; shrink only when the page is taller than the viewport.
+  // Measure at the visual width (100%), with scale removed. Measuring under the
+  // zoom-compensated width makes fit-scale fight inline-field container queries
+  // (1-col ↔ 2-col), so General keeps reordering in a loop.
+  fitScaleMeasuring = true
+  const prevWidth = content.style.width
+  const prevTransform = content.style.transform
+  content.style.width = '100%'
+  content.style.transform = 'none'
   const contentHeight = Math.max(content.scrollHeight, 1)
+  content.style.width = prevWidth
+  content.style.transform = prevTransform
+  fitScaleMeasuring = false
+
   const next = Math.min(1, availableHeight / contentHeight)
-  fitScale.value = Number.isFinite(next) && next > 0 ? next : 1
+  const safeNext = Number.isFinite(next) && next > 0 ? next : 1
+  // Hysteresis avoids tiny resize observer churn flipping the scale repeatedly.
+  if (Math.abs(safeNext - fitScale.value) < 0.005) {
+    contentSizeVersion.value += 1
+    return
+  }
+  fitScale.value = safeNext
+  contentSizeVersion.value += 1
 }
 
 function bindCanvasObservers(): void {
@@ -457,6 +480,7 @@ function bindCanvasObservers(): void {
     return
   }
   canvasResizeObserver = new ResizeObserver(() => {
+    if (fitScaleMeasuring) return
     updateFitScale()
   })
   canvasResizeObserver.observe(viewport)
@@ -734,6 +758,31 @@ function updatePathTerminalField(value: string | null): void {
     successTerminalValues: value ? selectedComponent.value?.successTerminalValues : undefined,
   })
 }
+
+const pathReadonly = computed({
+  get: () => selectedComponent.value?.readonly === true,
+  set: (readonly: boolean) => {
+    updateSelected({ readonly })
+  },
+})
+
+const pathReadonlyIf = computed({
+  get: (): EntityRecordAutomationCondition[] =>
+    selectedComponent.value?.readonlyIf ?? [],
+  set: (readonlyIf: EntityRecordAutomationCondition[]) => {
+    updateSelected({
+      readonlyIf: readonlyIf.length > 0 ? readonlyIf : undefined,
+    })
+  },
+})
+
+const pathReadonlyIfLogic = computed({
+  get: () =>
+    selectedComponent.value?.readonlyIfLogic === 'or' ? 'or' : 'and',
+  set: (readonlyIfLogic: 'and' | 'or') => {
+    updateSelected({ readonlyIfLogic })
+  },
+})
 
 const activityLogActionOptions = computed(() => [
   { label: t('activityLog.actionCreate', 'Created'), value: 'create' as ActivityLogAction },
@@ -2189,6 +2238,20 @@ watch(
               })"
             />
           </div>
+
+          <label class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-surface-700">
+            {{ t('formBuilder.readOnlyField', 'Read-only in edit forms') }}
+            <ToggleSwitch v-model="pathReadonly" />
+          </label>
+          <LayoutShowIfEditor
+            :collection="collection"
+            :conditions="pathReadonlyIf"
+            :logic="pathReadonlyIfLogic"
+            :title="t('formBuilder.readOnlyIf', 'Read-only when')"
+            :empty-text="t('formBuilder.readOnlyIfEmpty', 'No conditions — use the toggle above for always read-only.')"
+            @update:conditions="pathReadonlyIf = $event"
+            @update:logic="pathReadonlyIfLogic = $event"
+          />
         </div>
 
         <div

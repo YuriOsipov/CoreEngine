@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   bff:
@@ -25,7 +26,7 @@ jobs:
       - run: npm test
 
   unit:
-    name: App unit tests + production build
+    name: App unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,8 +36,7 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       # @docengine/* is normally file:../docEngine (sibling). Point at in-repo CI stubs
-      # so unit tests and vite bundle catch UI breakage without publishing DocEngine.
-      # Full `vue-tsc -b` is still local (`npm run build`); CI uses `build:ci` (vite only).
+      # so installs work without publishing DocEngine.
       - name: Point DocEngine deps at CI stubs
         run: |
           node -e "
@@ -48,4 +48,26 @@ jobs:
           "
       - run: npm install --no-audit --no-fund
       - run: npm test
+
+  build:
+    name: App build:ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Point DocEngine deps at CI stubs
+        run: |
+          node -e "
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          p.dependencies['@docengine/editor'] = 'file:./ci/stubs/docengine-editor';
+          p.dependencies['@docengine/field-date'] = 'file:./ci/stubs/docengine-field-date';
+          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+      - run: npm install --no-audit --no-fund
+      # Full `vue-tsc -b` remains local (`npm run build`); CI gates the vite production bundle.
       - run: npm run build:ci

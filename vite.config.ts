@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
@@ -8,6 +9,10 @@ import { fileURLToPath, URL } from 'node:url'
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const editorPackageRoot = fileURLToPath(new URL('../editor', import.meta.url))
 const docEngineRoot = fileURLToPath(new URL('../docEngine', import.meta.url))
+const siblingFieldDate = fileURLToPath(
+  new URL('../docEngine/packages/field-date/dist/index.js', import.meta.url),
+)
+const hasSiblingDocEngine = existsSync(siblingFieldDate)
 
 export default defineConfig({
   plugins: [
@@ -21,9 +26,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@docengine/field-date': fileURLToPath(
-        new URL('../docEngine/packages/field-date/dist/index.js', import.meta.url),
-      ),
+      // Local monorepo: pin to sibling dist. CI installs `@docengine/field-date` stub via npm.
+      ...(hasSiblingDocEngine
+        ? { '@docengine/field-date': siblingFieldDate }
+        : {}),
     },
     // Linked local package — always resolve to source, not a stale prebundle.
     dedupe: ['@docengine/editor'],
@@ -33,7 +39,11 @@ export default defineConfig({
   },
   server: {
     fs: {
-      allow: [projectRoot, editorPackageRoot, docEngineRoot],
+      allow: [
+        projectRoot,
+        ...(existsSync(editorPackageRoot) ? [editorPackageRoot] : []),
+        ...(existsSync(docEngineRoot) ? [docEngineRoot] : []),
+      ],
     },
     // Backend / tooling edits must not full-reload the Vite UI.
     watch: {

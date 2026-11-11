@@ -201,7 +201,7 @@ npm --prefix crm-bff test
 npm --prefix crm-bff run typecheck
 ```
 
-GitHub Actions runs BFF typecheck + tests, app unit tests, and Vue `npm run build:ci` (`vite build`) on `main`. CI swaps the sibling `file:../docEngine` dependency for in-repo stubs under `ci/stubs/` so the production bundle is gated without publishing DocEngine. Full `vue-tsc -b && vite build` remains local until the typecheck debt is cleared.
+GitHub Actions runs three jobs on `main` (and `workflow_dispatch`): BFF typecheck + tests, app unit tests, and Vue `npm run build:ci` (`vite build`). CI swaps the sibling `file:../docEngine` dependency for in-repo stubs under `ci/stubs/` so the production bundle is gated without publishing DocEngine. Vite only aliases `@docengine/field-date` to the sibling when that path exists. Full `vue-tsc -b && vite build` remains local until the typecheck debt is cleared.
 
 ### Environment (live)
 

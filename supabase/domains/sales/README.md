@@ -112,7 +112,7 @@ Integrations (n8n, external systems) can use the CoreEngine BFF REST surface aga
 | `POST` | `/api/v1/:collection?upsert=true&by=<uniqueField>` | Upsert by unique field |
 | `PUT` / `PATCH` | `/api/v1/:collection/:id` | Update (PK or `uniqueField:value`) |
 | `DELETE` | `/api/v1/:collection/:id` | Soft-delete (`?hard=true` = hard delete) |
-| `POST` | `/api/v1/documents/generate` | Generate document from a record + template |
+| `POST` | `/api/v1/documents/generate` | Phase 0 stub — HTTP 501, no file. In-app DocEngine is separate |
 
 **SOQL-style query** (compiled to CoreEngine `findMany` — not raw SQL). Identifiers normalize to registry `api_name` (`Opportunity`→`opportunity`, `AccountId`→`account_id`).
 
@@ -155,7 +155,7 @@ Content-Type: application/json
 
 `:id` may be the primary key **or** `uniqueField:value` when the field has `is_unique` in Setup. Upsert by unique field: `POST /api/v1/account?upsert=true&by=external_id` with that field in the body.
 
-**Generate document** (e.g. Opportunity quote PDF — Phase 0 may return `501` until populate/PDF lands):
+**Generate document** (e.g. Opportunity quote PDF — **Phase 0 stub**: HTTP 501 / `DOCUMENTS_GENERATE_STUB` until populate/PDF lands; use in-app DocEngine today):
 
 ```http
 POST {{$env.BFF_URL}}/api/v1/documents/generate

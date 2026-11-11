@@ -119,7 +119,7 @@ GraphQL equivalent: `mutation { generateDocument(input: …) { … } }`
 
 | Phase | Status | Delivers |
 |-------|--------|----------|
-| 0 | Done | Contract + GraphQL stub (`generateDocument` validates, then not-implemented) |
+| 0 | Done (stub) | Contract + GraphQL/REST stub — HTTP 501 / `DOCUMENTS_GENERATE_STUB` until Phase 1 |
 | 1 | Planned | Populate field mapping + persist `doc_value` |
 | 2 | Planned | PDF/HTML render + `output_file` upload + `downloadUrl` |
 | 3 | Optional | Attach to parent files field; email stays in n8n |

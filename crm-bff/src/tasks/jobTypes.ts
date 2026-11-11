@@ -107,10 +107,11 @@ export async function executeJobType(
   }
 
   if (jobType === 'maintain_recent_views') {
-    return maintainRecentRecordViews({
+    const result = await maintainRecentRecordViews({
       retentionDays: positiveInt(params.retentionDays, 90),
       maxPerUserCollection: positiveInt(params.maxPerUserCollection, 200),
     })
+    return { ...result }
   }
 
   if (jobType === 'sync_promo_prices') {

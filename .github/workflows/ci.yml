@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bff:
+    name: BFF typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crm-bff
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: crm-bff/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  unit:
+    name: App unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # @docengine/editor is a local file: sibling; strip it so unit tests install without DocEngine.
+      - name: Strip local DocEngine dependency for CI
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.dependencies['@docengine/editor'];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+
+  # Full Vue production build needs sibling ../docEngine (file: dependency).
+  # Skip until DocEngine is published or vendored; BFF + unit tests are the CI gate.

@@ -37,7 +37,7 @@ Content-Type: application/json
 }
 ```
 
-Phase 0 stub today (HTTP 501 until populate/PDF is implemented). GraphQL `generateDocument` remains available as the same contract.
+**Phase 0 stub today** — HTTP 501 with `code: DOCUMENTS_GENERATE_STUB` until populate/PDF is implemented. Do not rely on this endpoint in production automations yet. GraphQL `generateDocument` is the same stub contract.
 
 ### REST records (n8n-friendly)
 

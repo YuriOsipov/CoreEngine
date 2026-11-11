@@ -23,7 +23,7 @@ npm run dev
   - `POST /api/v1/:collection` — create; `?upsert=true` (+ optional `&by=<uniqueField>`) for upsert
   - `PUT|PATCH /api/v1/:collection/:id` — update (PK or `uniqueField:value`)
   - `DELETE /api/v1/:collection/:id` — soft-delete; `?hard=true` hard-delete
-- REST documents: `POST /api/v1/documents/generate` — DocEngine generate (Phase 0 stub; see docs/generate-document-api.md)
+- REST documents: `POST /api/v1/documents/generate` — **Phase 0 stub** (HTTP 501, `code: DOCUMENTS_GENERATE_STUB`); contract only — see docs/generate-document-api.md. Interactive DocEngine in the Vue UI works; server generate for n8n is not implemented yet.
 - Sales pack examples: [supabase/domains/sales/README.md](../supabase/domains/sales/README.md)
 - Files: `POST /files`, `PATCH /files/:id`, `GET /assets/:id` → Supabase Storage + `public.files`
 - Flows: `POST /flows/trigger/:key` → local `app_flow_triggers` (`http` | `update_record`; Setup → Flows)
@@ -59,7 +59,7 @@ Directus (optional records backend, GraphQL only): `DIRECTUS_GRAPHQL_URL` (defau
 - `file` / `files`
 - user settings + recent record views
 - schema drift / sync (`runSchemaSync`: crm_schema ADD COLUMN, backfill, indexes, FKs, unique groups; dry-run default)
-- scheduled tasks (`scheduledTasks`, `runScheduledTask`, `generateScheduleSlots`); in-process cron via `TASK_SCHEDULER_ENABLED` (default on)
+- scheduled tasks (`scheduledTasks`, `runScheduledTask`, `generateScheduleSlots`); in-process cron via `TASK_SCHEDULER_ENABLED` (default on). Each BFF process ticks on its own. Due rows are selected, then a non-transactional “already running” check — no leader lock — so two instances can both run the same job. Leave the scheduler on for one process and set `TASK_SCHEDULER_ENABLED=false` on the others.
 
 ## Cutover
 

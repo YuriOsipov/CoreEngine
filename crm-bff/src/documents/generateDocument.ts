@@ -1,10 +1,23 @@
 /**
- * Server-side DocEngine generateDocument — contract stub.
- * Full behavior: docs/generate-document-api.md
+ * Server-side DocEngine generateDocument — Phase 0 contract stub (HTTP 501).
+ * Population/PDF is not implemented in the BFF yet.
+ * Full contract: docs/generate-document-api.md
  */
+export const DOCUMENTS_GENERATE_STUB_CODE = 'DOCUMENTS_GENERATE_STUB'
+
 export type GenerateDocumentOutputFormat = 'pdf' | 'html'
 export type GenerateDocumentStatus = 'draft' | 'completed'
 export type GenerateDocumentUpsertMode = 'always_create' | 'update_latest_draft'
+
+export class DocumentsGenerateStubError extends Error {
+  readonly code = DOCUMENTS_GENERATE_STUB_CODE
+  readonly statusCode = 501
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'DocumentsGenerateStubError'
+  }
+}
 
 export interface GenerateDocumentInput {
   collectionName: string
@@ -88,17 +101,18 @@ export function parseGenerateDocumentInput(
 }
 
 /**
- * Phase 0 stub — validates input then fails with a stable message.
+ * Phase 0 stub — validates input then fails with a stable stub error.
  * Replace body with populate → persist → render in later phases.
  */
 export async function generateDocument(
   input: GenerateDocumentInput,
 ): Promise<GenerateDocumentResult> {
   const parsed = parseGenerateDocumentInput(input)
-  throw new Error(
+  throw new DocumentsGenerateStubError(
     `generateDocument is not implemented yet ` +
-      `(Phase 0 contract). Requested ${parsed.outputFormat} for ` +
+      `(Phase 0 stub / ${DOCUMENTS_GENERATE_STUB_CODE}). Requested ${parsed.outputFormat} for ` +
       `${parsed.collectionName}/${parsed.recordId} template=${parsed.templateId}. ` +
+      `Interactive DocEngine in the UI works; server generate for n8n is not ready. ` +
       `See docs/generate-document-api.md`,
   )
 }

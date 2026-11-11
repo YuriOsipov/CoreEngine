@@ -2,7 +2,7 @@
 
 Server-side DocEngine generation for automations / n8n / Flows.
 
-**Status:** contract + GraphQL schema stub. Population/PDF rendering is not implemented in the BFF yet (`generateDocument` returns a clear not-implemented error until Phase 1 ships).
+**Status:** Phase 0 contract stub — **not production-ready**. Population/PDF rendering is not implemented in the BFF yet. REST returns **HTTP 501** with `code: DOCUMENTS_GENERATE_STUB`. Interactive DocEngine in the Vue UI works; use that until Phase 1/2 ship.
 
 ## Goal
 

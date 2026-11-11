@@ -13,7 +13,8 @@ loadEnv({ path: resolve(repoRoot, 'supabase/.env'), override: true })
 loadEnv({ path: resolve(__dirname, '../../.env') })
 
 const host =
-  process.env.POSTGRES_HOST === 'host.docker.internal'
+  process.env.POSTGRES_HOST === 'host.docker.internal' &&
+  !process.env.RUNNING_IN_DOCKER
     ? 'localhost'
     : process.env.POSTGRES_HOST || 'localhost'
 const port = Number(process.env.POSTGRES_PORT || 5434)

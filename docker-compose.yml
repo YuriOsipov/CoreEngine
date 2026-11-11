@@ -1,0 +1,76 @@
+# CoreEngine local try-out stack (Postgres + BFF + optional web UI).
+#
+# Quick start:
+#   cp .env.docker.example .env
+#   cp .env.docker.example supabase/.env
+#   docker compose up -d db
+#   docker compose run --rm --workdir /app bff npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/provision-platform-db.mts --domain sales
+#   docker compose up -d bff
+#   # Web UI (profile) requires sibling ../docEngine checkout next to this repo:
+#   docker compose --profile ui up -d --build web
+#
+# BFF: http://localhost:4000/health   UI (optional): http://localhost:8080
+
+services:
+  db:
+    image: postgres:15-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-coreengine}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coreengine}
+    ports:
+      - "${POSTGRES_PUBLISH_PORT:-5432}:5432"
+    volumes:
+      - coreengine_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-coreengine}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bff:
+    build:
+      context: .
+      dockerfile: crm-bff/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+      - path: supabase/.env
+        required: false
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-coreengine}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coreengine}
+      POSTGRES_BOOTSTRAP_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_BOOTSTRAP_PASSWORD: ${POSTGRES_PASSWORD:-coreengine}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-coreengine}@db:5432/${POSTGRES_DB:-coreengine}
+      AUTH_BACKEND: local
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-coreengine-docker-dev-jwt-secret-change-me}
+      DIRECTUS_RUNTIME: "off"
+      RUNNING_IN_DOCKER: "1"
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
+      PORT: 4000
+    ports:
+      - "${BFF_PUBLISH_PORT:-4000}:4000"
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./supabase:/app/supabase
+      - ./.env:/app/.env:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    profiles: ["ui"]
+    build:
+      context: ..
+      dockerfile: coreEngine/Dockerfile
+    ports:
+      - "${WEB_PUBLISH_PORT:-8080}:80"
+    depends_on:
+      - bff
+
+volumes:
+  coreengine_pg:

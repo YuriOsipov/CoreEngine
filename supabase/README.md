@@ -84,7 +84,7 @@ Pack entities are addressable via Bearer JWT after `POST /auth/login` (automatio
 | SOQL subset | `GET`/`POST /api/v1/query` | `q=SELECT … FROM Opportunity …` (compiled to `findMany`, not raw SQL) |
 | CRUD | `/api/v1/:collection[/:id]` | List/create/upsert/update/delete; `:id` may be PK or `uniqueField:value` |
 | Expand children | `GET /api/v1/:collection/:id?expand=children` | One-shot parent + reverse-M2O children in `_children` (e.g. Opportunity → quotes) and linked `_files`; optional `childLimit`, `nofiles` |
-| Documents | `POST /api/v1/documents/generate` | DocEngine generate for automations / n8n |
+| Documents | `POST /api/v1/documents/generate` | Phase 0 stub (HTTP 501). In-app DocEngine is separate; this route does not render a file |
 
 Sales-oriented examples live in [`domains/sales/README.md`](domains/sales/README.md). Platform runbooks: [`docs/n8n-bff-flows.md`](../docs/n8n-bff-flows.md), [`docs/generate-document-api.md`](../docs/generate-document-api.md), [`crm-bff/README.md`](../crm-bff/README.md).
 

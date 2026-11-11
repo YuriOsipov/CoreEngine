@@ -6,6 +6,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { bearerToken } from '../auth/tokenClaims.js'
 import {
+  DOCUMENTS_GENERATE_STUB_CODE,
+  DocumentsGenerateStubError,
   generateDocument,
   type GenerateDocumentInput,
 } from '../documents/generateDocument.js'
@@ -62,9 +64,16 @@ export async function registerDocumentsRestApi(
       if (/required/i.test(message)) {
         return reply.status(400).send({ error: message })
       }
-      if (/not implemented yet/i.test(message)) {
+      if (
+        error instanceof DocumentsGenerateStubError ||
+        /not implemented yet/i.test(message)
+      ) {
         // Phase 0: contract is live; implementation pending.
-        return reply.status(501).send({ error: message })
+        return reply.status(501).send({
+          error: message,
+          code: DOCUMENTS_GENERATE_STUB_CODE,
+          stub: true,
+        })
       }
       if (/not found/i.test(message)) {
         return reply.status(404).send({ error: message })

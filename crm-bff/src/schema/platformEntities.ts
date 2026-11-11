@@ -10,8 +10,10 @@ export const REGISTRY_PLATFORM_ENTITIES = new Set([
   'Setting',
   'user_setting',
   'recent_record_views',
-  '_registry_smoke',
 ])
+
+/** Dev/CI smoke entity only — never treat as a production PLATFORM collection. */
+export const REGISTRY_SMOKE_ENTITY = '_registry_smoke'
 
 export function isRegistryPlatformEntity(apiName: string): boolean {
   return REGISTRY_PLATFORM_ENTITIES.has(apiName)

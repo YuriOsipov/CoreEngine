@@ -1,4 +1,11 @@
+import type { MeUser } from '../usersAdapter.js'
+
 export type LiveRecordsBackendId = 'SUPABASE' | 'HASURA' | 'DIRECTUS'
+
+/** Verified caller for per-entity child / relation read checks in the facade. */
+export type RecordAccess = {
+  me: MeUser
+}
 
 export interface RecordsListParams {
   filter?: Record<string, unknown> | null
@@ -8,6 +15,8 @@ export interface RecordsListParams {
   offset?: number
   search?: string | null
   includeDeleted?: boolean
+  /** When set, nested relation / child loads are gated per related entity. */
+  access?: RecordAccess | null
 }
 
 export interface RecordsListResult {

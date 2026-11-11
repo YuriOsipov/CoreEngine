@@ -17,8 +17,13 @@ import {
   bffLogout,
   bffRefresh,
 } from './auth/localAuth.js'
-import { bearerToken, decodeJwtClaims } from './auth/tokenClaims.js'
-import { authJwtSecret, verifyAccessToken } from './auth/jwt.js'
+import { authJwtSecret } from './auth/jwt.js'
+import { requireAuthenticatedUser } from './auth/accessGuards.js'
+import { rateLimitConsume } from './auth/rateLimit.js'
+import {
+  assertFileParentWritable,
+  assertFileReadable,
+} from './files/fileAccess.js'
 import { resolveFlowsBackend, triggerFlow } from './flows/flowsAdapter.js'
 import { startTaskScheduler } from './tasks/scheduler.js'
 import { registerRecordsRestApi } from './rest/recordsApi.js'
@@ -62,15 +67,25 @@ const schema = createSchema({
   resolvers,
 })
 
-const yoga = createYoga<{ authorization: string | null }>({
+const yoga = createYoga<{
+  authorization: string | null
+  clientKey: string
+}>({
   schema,
   graphqlEndpoint: '/graphql',
   landingPage: true,
   maskedErrors: process.env.NODE_ENV === 'production',
-  context: ({ request }) => ({
-    authorization: request.headers.get('authorization'),
-    // Reserved for future event-hook skip: request.headers.get('x-crm-automation')
-  }),
+  context: ({ request }) => {
+    const forwarded = request.headers.get('x-forwarded-for')
+    const clientKey =
+      forwarded?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'anon'
+    return {
+      authorization: request.headers.get('authorization'),
+      clientKey,
+    }
+  },
   // CORS is handled by @fastify/cors below. Yoga's plugin only accepts
   // string/string[] origins (not a callback) and would 500 on GraphQL.
   cors: false,
@@ -113,7 +128,27 @@ app.get('/health', async () => {
   return { ok: result.rows[0]?.ok === 1, service: 'crm-bff' }
 })
 
+function clientKeyFromRequest(request: {
+  headers: Record<string, unknown>
+  ip?: string
+}): string {
+  const forwarded = request.headers['x-forwarded-for']
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded
+  if (typeof raw === 'string' && raw.trim()) return raw.split(',')[0]!.trim()
+  if (typeof request.ip === 'string' && request.ip) return request.ip
+  return 'anon'
+}
+
 app.post('/auth/login', async (request, reply) => {
+  const limit = rateLimitConsume(
+    `login:${clientKeyFromRequest(request)}`,
+    20,
+    60_000,
+  )
+  if (!limit.ok) {
+    reply.header('retry-after', String(limit.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many login attempts' })
+  }
   const body = (request.body ?? {}) as {
     email?: unknown
     password?: unknown
@@ -132,6 +167,15 @@ app.post('/auth/login', async (request, reply) => {
 })
 
 app.post('/auth/refresh', async (request, reply) => {
+  const limit = rateLimitConsume(
+    `refresh:${clientKeyFromRequest(request)}`,
+    60,
+    60_000,
+  )
+  if (!limit.ok) {
+    reply.header('retry-after', String(limit.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many refresh attempts' })
+  }
   const body = (request.body ?? {}) as { refresh_token?: unknown }
   const refreshToken =
     typeof body.refresh_token === 'string' ? body.refresh_token.trim() : ''
@@ -182,6 +226,29 @@ function readMultipartString(
   return null
 }
 
+function authHeaderFromFastify(request: { headers: Record<string, unknown> }): string | null {
+  const raw = request.headers.authorization
+  return typeof raw === 'string' ? raw : null
+}
+
+function sendSafeHttpError(
+  reply: { status: (code: number) => { send: (body: unknown) => unknown } },
+  request: { log: { error: (obj: unknown, msg: string) => void } },
+  error: unknown,
+  fallback: string,
+  status = 502,
+) {
+  const message = error instanceof Error ? error.message : fallback
+  if (/permission denied|authentication required/i.test(message)) {
+    return reply.status(403).send({ error: message })
+  }
+  if (/not found/i.test(message)) {
+    return reply.status(404).send({ error: message })
+  }
+  request.log.error({ err: error }, fallback)
+  return reply.status(status).send({ error: fallback })
+}
+
 app.post('/files', async (request, reply) => {
   const file = await request.file()
   if (!file) {
@@ -189,20 +256,10 @@ app.post('/files', async (request, reply) => {
   }
 
   try {
+    const me = await requireAuthenticatedUser({
+      authorization: authHeaderFromFastify(request),
+    })
     const buffer = await file.toBuffer()
-    const authHeader =
-      typeof request.headers.authorization === 'string'
-        ? request.headers.authorization
-        : null
-    const token = bearerToken(authHeader)
-    let uploadedBy: string | null = null
-    if (token) {
-      try {
-        uploadedBy = verifyAccessToken(token)?.id ?? null
-      } catch {
-        uploadedBy = decodeJwtClaims(token)?.id ?? null
-      }
-    }
     const parentCollection = readMultipartString(
       file.fields as unknown as Record<string, unknown> | undefined,
       'parent_collection',
@@ -211,19 +268,18 @@ app.post('/files', async (request, reply) => {
       file.fields as unknown as Record<string, unknown> | undefined,
       'parent_record_id',
     )
+    await assertFileParentWritable(me, parentCollection)
     const uploaded = await uploadFileBuffer({
       filename: file.filename,
       mimeType: file.mimetype,
       buffer,
-      uploadedBy,
+      uploadedBy: me.id,
       parentCollection,
       parentRecordId,
     })
     return reply.send(uploaded)
   } catch (error) {
-    request.log.error({ err: error }, 'file upload failed')
-    const message = error instanceof Error ? error.message : 'Upload failed'
-    return reply.status(502).send({ error: message })
+    return sendSafeHttpError(reply, request, error, 'Upload failed')
   }
 })
 
@@ -232,12 +288,14 @@ app.patch<{
   Body: Record<string, unknown>
 }>('/files/:id', async (request, reply) => {
   try {
+    const me = await requireAuthenticatedUser({
+      authorization: authHeaderFromFastify(request),
+    })
+    await assertFileReadable(me, request.params.id)
     const data = await updateFileRecord(request.params.id, request.body ?? {})
     return reply.send(data)
   } catch (error) {
-    request.log.error({ err: error }, 'file update failed')
-    const message = error instanceof Error ? error.message : 'File update failed'
-    return reply.status(502).send({ error: message })
+    return sendSafeHttpError(reply, request, error, 'File update failed')
   }
 })
 
@@ -249,6 +307,9 @@ app.post<{
   }
 }>('/files/:id/link', async (request, reply) => {
   try {
+    const me = await requireAuthenticatedUser({
+      authorization: authHeaderFromFastify(request),
+    })
     const parentCollection = String(request.body?.parent_collection || '').trim()
     const parentRecordId = String(request.body?.parent_record_id || '').trim()
     if (!parentCollection || !parentRecordId) {
@@ -256,33 +317,16 @@ app.post<{
         error: 'parent_collection and parent_record_id are required',
       })
     }
-
-    const authHeader =
-      typeof request.headers.authorization === 'string'
-        ? request.headers.authorization
-        : null
-    const token = bearerToken(authHeader)
-    let createdBy: string | null = null
-    if (token) {
-      try {
-        createdBy = verifyAccessToken(token)?.id ?? null
-      } catch {
-        createdBy = decodeJwtClaims(token)?.id ?? null
-      }
-    }
-
+    await assertFileParentWritable(me, parentCollection)
     const data = await linkFileToRecord({
       fileId: request.params.id,
       parentCollection,
       parentRecordId,
-      createdBy,
+      createdBy: me.id,
     })
     return reply.send(data)
   } catch (error) {
-    request.log.error({ err: error }, 'file link failed')
-    const message = error instanceof Error ? error.message : 'File link failed'
-    const status = message.startsWith('File not found') ? 404 : 502
-    return reply.status(status).send({ error: message })
+    return sendSafeHttpError(reply, request, error, 'File link failed')
   }
 })
 
@@ -291,8 +335,16 @@ app.delete<{
   Querystring: { parent_collection?: string; parent_record_id?: string }
 }>('/files/:id', async (request, reply) => {
   try {
+    const me = await requireAuthenticatedUser({
+      authorization: authHeaderFromFastify(request),
+    })
     const parentCollection = String(request.query.parent_collection || '').trim()
     const parentRecordId = String(request.query.parent_record_id || '').trim()
+    if (parentCollection) {
+      await assertFileParentWritable(me, parentCollection)
+    } else {
+      await assertFileReadable(me, request.params.id)
+    }
     const deleted = await deleteFileRecord(
       request.params.id,
       parentCollection && parentRecordId
@@ -304,9 +356,7 @@ app.delete<{
     }
     return reply.send({ ok: true })
   } catch (error) {
-    request.log.error({ err: error }, 'file delete failed')
-    const message = error instanceof Error ? error.message : 'File delete failed'
-    return reply.status(502).send({ error: message })
+    return sendSafeHttpError(reply, request, error, 'File delete failed')
   }
 })
 
@@ -316,6 +366,10 @@ app.get<{
 }>('/assets/:id', async (request, reply) => {
   const search = new URLSearchParams(request.query).toString()
   try {
+    const me = await requireAuthenticatedUser({
+      authorization: authHeaderFromFastify(request),
+    })
+    await assertFileReadable(me, request.params.id)
     const asset = await loadAsset(request.params.id, search)
     if (!asset) {
       return reply.status(404).send({ error: 'File not found' })
@@ -332,9 +386,7 @@ app.get<{
     reply.header('cache-control', 'private, max-age=3600')
     return reply.send(asset.buffer)
   } catch (error) {
-    request.log.error({ err: error }, 'asset proxy failed')
-    const message = error instanceof Error ? error.message : 'Asset fetch failed'
-    return reply.status(502).send({ error: message })
+    return sendSafeHttpError(reply, request, error, 'Asset fetch failed')
   }
 })
 

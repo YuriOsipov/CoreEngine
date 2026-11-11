@@ -25,11 +25,17 @@ import {
   softDeleteRecord,
   updateRecord,
 } from '../adapters/records/facade.js'
+import type { MeUser } from '../adapters/usersAdapter.js'
 import { writeAuditEntry } from '../audit/auditService.js'
-import { verifyAccessToken } from '../auth/jwt.js'
-import { bearerToken, decodeJwtClaims } from '../auth/tokenClaims.js'
+import { requireAuthenticatedUser } from '../auth/accessGuards.js'
 import { loadEntityUniqueGroups } from '../schema/uniqueGroups.js'
-import { assertEntityPermission } from '../services/rolePermissions.js'
+import { assertMeEntityPermission } from '../services/rolePermissions.js'
+import {
+  assertIncludeDeletedAllowed,
+  DEFAULT_LIST_LIMIT,
+  resolveAuthorizedListLimit,
+} from './listQueryPolicy.js'
+import { assertUpsertPermissions } from './upsertPermissions.js'
 import { parseSoql, SoqlParseError } from './soql.js'
 
 type AuthHeader = string | null
@@ -40,12 +46,17 @@ function authHeaderFromRequest(request: FastifyRequest): AuthHeader {
     : null
 }
 
-function requireBearer(reply: FastifyReply, authHeader: AuthHeader): boolean {
-  if (!bearerToken(authHeader)) {
+/** Validate Bearer JWT resolves to a real user (not merely that a token string is present). */
+async function requireAuth(
+  reply: FastifyReply,
+  authHeader: AuthHeader,
+): Promise<MeUser | null> {
+  try {
+    return await requireAuthenticatedUser({ authorization: authHeader })
+  } catch {
     void reply.status(401).send({ error: 'Authorization Bearer token required' })
-    return false
+    return null
   }
-  return true
 }
 
 function parseCsvFields(raw: unknown): string[] | null {
@@ -103,14 +114,8 @@ function flagTrue(raw: unknown): boolean {
   return token === '1' || token === 'true' || token === 'yes' || token === 'on'
 }
 
-function actorUserIdFromAuth(authHeader: AuthHeader): string | null {
-  const token = bearerToken(authHeader)
-  if (!token) return null
-  try {
-    return verifyAccessToken(token)?.id ?? null
-  } catch {
-    return decodeJwtClaims(token)?.id ?? null
-  }
+function actorIdFromMe(me: { id?: string | null } | null | undefined): string | null {
+  return me?.id ? String(me.id) : null
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -142,7 +147,7 @@ async function sendRecordError(
     return reply.status(400).send({ error: message })
   }
   request.log.error({ err: error }, fallback)
-  return reply.status(502).send({ error: message })
+  return reply.status(502).send({ error: fallback })
 }
 
 function decodeLookupValue(raw: string): string {
@@ -246,7 +251,7 @@ async function resolveUpsertRecordId(
     const value = String(data[byField]).trim()
     const result = await findManyRecords(collection, {
       filter: { [byField]: { _eq: value } },
-      fields: null,
+      fields: ['id'],
       limit: 2,
     })
     const nodes = result.nodes ?? []
@@ -256,8 +261,9 @@ async function resolveUpsertRecordId(
       )
     }
     if (nodes.length === 1) {
-      const existing = nodes[0]!
-      return { recordId: String(existing.id), existing }
+      const id = String(nodes[0]!.id)
+      // Full row loaded by caller after permission checks (audit before snapshot).
+      return { recordId: id, existing: { id } }
     }
     return { recordId: '', existing: null }
   }
@@ -272,7 +278,8 @@ async function resolveUpsertRecordId(
   }
   let existing: Record<string, unknown> | null = null
   try {
-    existing = await findOneRecord(collection, recordId, null)
+    // Existence probe only — full row loaded after permission checks.
+    existing = await findOneRecord(collection, recordId, ['id'])
   } catch {
     existing = null
   }
@@ -286,15 +293,22 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     q: string,
   ): Promise<FastifyReply> {
     const authHeader = authHeaderFromRequest(request)
-    if (!requireBearer(reply, authHeader)) return reply
+    const me = await requireAuth(reply, authHeader)
+    if (!me) return reply
     try {
       const parsed = parseSoql(q)
-      await assertEntityPermission(
-        { authorization: authHeader },
+      await assertMeEntityPermission(me, parsed.collection, 'read')
+      const limit = await resolveAuthorizedListLimit(
+        me,
         parsed.collection,
-        'read',
+        parsed.params.limit,
+        DEFAULT_LIST_LIMIT,
       )
-      const result = await findManyRecords(parsed.collection, parsed.params)
+      const result = await findManyRecords(parsed.collection, {
+        ...parsed.params,
+        limit,
+        access: { me },
+      })
       return reply.send({
         collection: parsed.collection,
         nodes: result.nodes,
@@ -347,11 +361,24 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'collection is required' })
     }
     const authHeader = authHeaderFromRequest(request)
-    if (!requireBearer(reply, authHeader)) return reply
+    const me = await requireAuth(reply, authHeader)
+    if (!me) return reply
 
     try {
-      await assertEntityPermission({ authorization: authHeader }, collection, 'read')
+      await assertMeEntityPermission(me, collection, 'read')
+      const includeDeleted = flagTrue(request.query.includeDeleted)
+      await assertIncludeDeletedAllowed(me, collection, includeDeleted)
       const filter = parseJsonQuery(request.query.filter, 'filter')
+      // Preserve limit < 0 (unlimited) so resolveAuthorizedListLimit can require export.
+      const requestedLimit =
+        request.query.limit == null || request.query.limit === ''
+          ? DEFAULT_LIST_LIMIT
+          : Number(request.query.limit)
+      const limit = await resolveAuthorizedListLimit(
+        me,
+        collection,
+        requestedLimit,
+      )
       const result = await findManyRecords(collection, {
         filter,
         fields: parseCsvFields(request.query.fields),
@@ -360,9 +387,10 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
           typeof request.query.search === 'string' && request.query.search.trim()
             ? request.query.search.trim()
             : null,
-        limit: parsePositiveInt(request.query.limit, 100),
+        limit,
         offset: parsePositiveInt(request.query.offset, 0),
-        includeDeleted: flagTrue(request.query.includeDeleted),
+        includeDeleted,
+        access: { me },
       })
       return reply.send({
         nodes: result.nodes,
@@ -384,15 +412,18 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'collection and id are required' })
     }
     const authHeader = authHeaderFromRequest(request)
-    if (!requireBearer(reply, authHeader)) return reply
+    const me = await requireAuth(reply, authHeader)
+    if (!me) return reply
 
     try {
-      await assertEntityPermission({ authorization: authHeader }, collection, 'read')
+      await assertMeEntityPermission(me, collection, 'read')
+      const access = { me }
       const id = await resolveRecordId(collection, key)
       const record = await findOneRecord(
         collection,
         id,
         parseCsvFields(request.query.fields),
+        access,
       )
       const expandRaw = String(request.query.expand || '')
         .split(',')
@@ -406,6 +437,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       const withChildren = await expandRecordWithChildren(collection, id, record, {
         limit: parsePositiveInt(request.query.childLimit, 100),
         includeFiles: !expandRaw.includes('nofiles'),
+        access,
       })
       return reply.send(withChildren)
     } catch (error) {
@@ -423,12 +455,12 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'collection is required' })
     }
     const authHeader = authHeaderFromRequest(request)
-    if (!requireBearer(reply, authHeader)) return reply
+    const me = await requireAuth(reply, authHeader)
+    if (!me) return reply
 
     const data = asObject(request.body)
     const upsert = flagTrue(request.query.upsert)
     const fields = parseCsvFields(request.query.fields)
-    const actorUserId = actorUserIdFromAuth(authHeader)
     const byField =
       typeof request.query.by === 'string' && request.query.by.trim()
         ? request.query.by.trim()
@@ -436,17 +468,22 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
 
     try {
       if (upsert) {
+        // Auth already validated. Require BOTH create + update before any
+        // existence lookup so callers cannot use create-vs-update 403s as an oracle.
+        await assertUpsertPermissions(me, collection)
+        const actorUserId = actorIdFromMe(me)
         const { recordId, existing } = await resolveUpsertRecordId(
           collection,
           data,
           byField,
         )
         if (existing && recordId) {
-          await assertEntityPermission(
-            { authorization: authHeader },
-            collection,
-            'update',
-          )
+          let before: Record<string, unknown> | null = existing
+          try {
+            before = await findOneRecord(collection, recordId, null)
+          } catch {
+            before = existing
+          }
           const patch = { ...data }
           delete patch.id
           const updated = await updateRecord(
@@ -461,7 +498,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
               entityApiName: collection,
               recordId,
               action: 'UPDATE',
-              before: existing,
+              before,
               after: updated,
               userId: actorUserId,
             })
@@ -470,11 +507,6 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
           }
           return reply.send(updated)
         }
-        await assertEntityPermission(
-          { authorization: authHeader },
-          collection,
-          'create',
-        )
         const created = await createRecord(collection, data, fields, {
           actorUserId,
         })
@@ -493,11 +525,8 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         return reply.status(201).send(created)
       }
 
-      await assertEntityPermission(
-        { authorization: authHeader },
-        collection,
-        'create',
-      )
+      await assertMeEntityPermission(me, collection, 'create')
+      const actorUserId = actorIdFromMe(me)
       const created = await createRecord(collection, data, fields, {
         actorUserId,
       })
@@ -534,19 +563,16 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'collection and id are required' })
     }
     const authHeader = authHeaderFromRequest(request)
-    if (!requireBearer(reply, authHeader)) return reply
+    const me = await requireAuth(reply, authHeader)
+    if (!me) return reply
 
     const data = asObject(request.body)
     delete data.id
     const fields = parseCsvFields(request.query.fields)
-    const actorUserId = actorUserIdFromAuth(authHeader)
 
     try {
-      await assertEntityPermission(
-        { authorization: authHeader },
-        collection,
-        'update',
-      )
+      await assertMeEntityPermission(me, collection, 'update')
+      const actorUserId = actorIdFromMe(me)
       const id = await resolveRecordId(collection, key)
       let before: Record<string, unknown> | null = null
       try {
@@ -589,17 +615,17 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'collection and id are required' })
     }
     const authHeader = authHeaderFromRequest(request)
-    if (!requireBearer(reply, authHeader)) return reply
+    const me = await requireAuth(reply, authHeader)
+    if (!me) return reply
 
     const hard = flagTrue(request.query.hard)
-    const actorUserId = actorUserIdFromAuth(authHeader)
 
     try {
-      await assertEntityPermission(
-        { authorization: authHeader },
-        collection,
-        'delete',
-      )
+      await assertMeEntityPermission(me, collection, 'delete')
+      if (hard && !(me.adminAccess || me.roleAdminAccess)) {
+        return reply.status(403).send({ error: 'Hard delete requires admin access' })
+      }
+      const actorUserId = actorIdFromMe(me)
       const id = await resolveRecordId(collection, key)
       let before: Record<string, unknown> | null = null
       try {

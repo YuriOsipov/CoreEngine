@@ -1,6 +1,6 @@
-import { bearerToken, decodeJwtClaims } from '../auth/tokenClaims.js'
+import { bearerToken } from '../auth/tokenClaims.js'
 import { verifyAccessToken } from '../auth/jwt.js'
-import { hasAppUsers, postgresFetchMe, postgresFetchStaticMe, postgresListUsers } from './postgresUsers.js'
+import { hasAppUsers, postgresFetchMe, postgresListUsers } from './postgresUsers.js'
 
 export interface MeUser {
   id: string | null
@@ -19,6 +19,8 @@ interface ListUsersOptions {
   fields?: string[] | null
   limit?: number | null
   sort?: string[] | null
+  /** Admins only — non-admins never receive email in list projections. */
+  includeEmail?: boolean
 }
 
 /**
@@ -29,21 +31,6 @@ export async function listUsers(
 ): Promise<Record<string, unknown>[]> {
   if (!(await hasAppUsers())) return []
   return postgresListUsers(options)
-}
-
-function bffClaimsFromToken(token: string | null): {
-  id: string
-  role: string | null
-  adminAccess: boolean
-} | null {
-  if (!token) return null
-  try {
-    const claims = verifyAccessToken(token)
-    if (!claims) return null
-    return { id: claims.id, role: claims.role, adminAccess: claims.admin_access }
-  } catch {
-    return null
-  }
 }
 
 function emptyMe(): MeUser {
@@ -60,7 +47,10 @@ function emptyMe(): MeUser {
 }
 
 /**
- * Resolve GraphQL `me` from BFF JWT / `app_users` only.
+ * Resolve GraphQL `me` from a **verified** BFF JWT + `app_users` only.
+ * No env / Directus static-token fallbacks — missing Authorization is anonymous.
+ * Admin / role flags come from the database only (never JWT claims).
+ * Deleted or inactive users → empty me even if the JWT is still unexpired.
  */
 export async function fetchMe(options?: {
   authorization?: string | null
@@ -68,43 +58,14 @@ export async function fetchMe(options?: {
   try {
     if (!(await hasAppUsers())) return emptyMe()
 
-    const token =
-      bearerToken(options?.authorization) ||
-      process.env.VITE_DIRECTUS_TOKEN ||
-      process.env.DIRECTUS_TOKEN ||
-      null
-    const bffClaims = bffClaimsFromToken(token)
-    const claims = bffClaims ?? decodeJwtClaims(token)
-    if (claims?.id) {
-      const row = await postgresFetchMe(claims.id)
-      if (row) {
-        return {
-          ...row,
-          adminAccess: row.adminAccess || claims.adminAccess,
-        }
-      }
-      if (bffClaims) {
-        return {
-          id: bffClaims.id,
-          firstName: null,
-          lastName: null,
-          email: null,
-          adminAccess: bffClaims.adminAccess,
-          roleId: bffClaims.role,
-          roleName: null,
-          roleAdminAccess: bffClaims.adminAccess,
-        }
-      }
-    }
+    const token = bearerToken(options?.authorization)
+    if (!token) return emptyMe()
 
-    const staticTok =
-      process.env.VITE_DIRECTUS_TOKEN?.trim() ||
-      process.env.DIRECTUS_TOKEN?.trim() ||
-      ''
-    if (token && staticTok && token === staticTok) {
-      const row = await postgresFetchStaticMe()
-      if (row) return row
-    }
+    const claims = verifyAccessToken(token)
+    if (!claims?.id) return emptyMe()
+
+    // No claim-built identity when the DB row is missing / inactive.
+    return (await postgresFetchMe(claims.id)) ?? emptyMe()
   } catch (error) {
     console.warn('[me] app_users lookup failed', error)
   }

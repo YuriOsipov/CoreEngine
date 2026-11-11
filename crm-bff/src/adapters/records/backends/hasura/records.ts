@@ -863,13 +863,19 @@ export async function hasuraFindMany(
     m2oSearchOr,
   )
   const orderBy = compileOrderBy(config, params.sort, types)
-  const limit = params.limit ?? 50
+  const HARD_MAX_LIMIT = 10_000
+  const requested = params.limit ?? 50
+  const limit =
+    requested < 0 ? HARD_MAX_LIMIT : Math.min(Math.trunc(requested), HARD_MAX_LIMIT)
   const offset = params.offset ?? 0
   const root = config.root
   const agg = `${root}_aggregate`
   const select = await selectionSet(config, params.fields, scalarFields)
-  const args: string[] = [`where: ${graphqlLiteral(where)}`, `offset: ${offset}`]
-  if (limit >= 0) args.push(`limit: ${limit}`)
+  const args: string[] = [
+    `where: ${graphqlLiteral(where)}`,
+    `offset: ${offset}`,
+    `limit: ${limit}`,
+  ]
   const orderArg = orderByLiteral(orderBy)
   if (orderArg !== 'null') args.push(`order_by: ${orderArg}`)
   const queryText = /* GraphQL */ `

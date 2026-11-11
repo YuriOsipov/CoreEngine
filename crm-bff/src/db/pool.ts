@@ -48,3 +48,29 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
   const result = await pool.query<T>(text, params)
   return result.rows
 }
+
+type QueryFn = typeof query
+
+/** Run work in a single Postgres transaction (BEGIN / COMMIT / ROLLBACK). */
+export async function withTransaction<T>(fn: (query: QueryFn) => Promise<T>): Promise<T> {
+  const client = await pool.connect()
+  const txQuery: QueryFn = async (text, params) => {
+    const result = await client.query(text, params)
+    return result.rows
+  }
+  try {
+    await client.query('BEGIN')
+    const value = await fn(txQuery)
+    await client.query('COMMIT')
+    return value
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK')
+    } catch {
+      /* ignore rollback errors */
+    }
+    throw error
+  } finally {
+    client.release()
+  }
+}

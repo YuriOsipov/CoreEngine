@@ -14,17 +14,31 @@ export interface EntityPermissionFlags {
   canExport: boolean
 }
 
-/** Matches BFF ROLE_PERMISSION_EXCLUDED_ENTITIES — not gated by the role matrix. */
+/**
+ * Matches BFF matrix-excluded collections — admin/Setup only in UI.
+ * users/roles/files stay authenticated-read for pickers.
+ */
 const PERMISSION_EXCLUDED_ENTITIES = new Set<string>([
+  'setting',
+  'user_setting',
+  'recent_record_views',
   'doc_template',
   'doc_template_snapshot',
   'doc_value',
   'doc_value_set',
   'languages',
-  'users',
-  'roles',
-  'files',
 ])
+
+const PICKER_READ_ENTITIES = new Set(['users', 'roles', 'files'])
+
+const READ_ONLY_ACCESS: EntityPermissionFlags = {
+  canCreate: false,
+  canRead: true,
+  canUpdate: false,
+  canDelete: false,
+  canImport: false,
+  canExport: false,
+}
 
 const FULL_ACCESS: EntityPermissionFlags = {
   canCreate: true,
@@ -194,7 +208,8 @@ export function getEntityPermission(
 ): EntityPermissionFlags {
   const key = normalizeCollection(collection)
   if (!key) return NO_ACCESS
-  if (PERMISSION_EXCLUDED_ENTITIES.has(key)) return FULL_ACCESS
+  if (PERMISSION_EXCLUDED_ENTITIES.has(key)) return NO_ACCESS
+  if (PICKER_READ_ENTITIES.has(key)) return READ_ONLY_ACCESS
   if (adminFullAccess) return FULL_ACCESS
   if (!cache) return NO_ACCESS
   return cache.get(key) ?? NO_ACCESS

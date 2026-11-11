@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
+import { revokeAllRefreshTokensForUser } from '../auth/localAuth.js'
 import { hashPassword } from '../auth/passwords.js'
 import { seedFullPermissionsForRole } from './rolePermissions.js'
 
@@ -382,5 +383,6 @@ export async function setAppUserPassword(
          updated_at = now()`,
     [userId, passwordHash],
   )
+  await revokeAllRefreshTokensForUser(userId)
   return true
 }

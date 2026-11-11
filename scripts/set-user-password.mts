@@ -53,8 +53,10 @@ await query(
      updated_at = now()`,
   [user.id, passwordHash],
 )
+await query(`DELETE FROM public.app_refresh_tokens WHERE user_id = $1::uuid`, [user.id])
 
 console.log(`ok: password set for ${user.email ?? email} (app_users.id=${user.id})`)
+console.log('ok: revoked refresh tokens for that user')
 if (generate) {
   console.log(`password: ${password}`)
 }

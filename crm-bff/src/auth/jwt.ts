@@ -11,19 +11,47 @@ loadEnv({ path: resolve(__dirname, '../../.env') })
 
 export const BFF_JWT_ISS = 'crm-bff'
 export const ACCESS_TTL_SEC = 15 * 60
-/** Refresh tokens always live 30 days; access JWTs stay short-lived. */
+/** Refresh tokens are opaque DB rows (not JWTs); see `localAuth.ts`. */
 export const REFRESH_TTL_SEC = 30 * 24 * 60 * 60
+const JWT_ALG = 'HS256'
+const ACCESS_TOKEN_USE = 'access'
+/** Reject trivially guessable signing secrets. */
+const MIN_SECRET_LENGTH = 32
+
+/**
+ * Secrets shipped in example env files / docs. BFF refuses to start with these
+ * so `cp .env*.example .env` cannot leave every deploy forgeable.
+ */
+export const KNOWN_INSECURE_JWT_SECRETS = new Set([
+  'coreengine-docker-dev-jwt-secret-change-me',
+  'coreengine-local-dev-jwt-secret-change-me',
+  'helix-local-dev-jwt-secret-change-me',
+])
+
+export function isInsecureJwtSecret(secret: string): boolean {
+  const trimmed = secret.trim()
+  if (trimmed.length < MIN_SECRET_LENGTH) return true
+  if (KNOWN_INSECURE_JWT_SECRETS.has(trimmed)) return true
+  // Catch other "*change-me" placeholders copied from docs.
+  if (/change-?me$/i.test(trimmed)) return true
+  return false
+}
 
 export function authJwtSecret(): string {
-  const secret =
-    process.env.AUTH_JWT_SECRET ||
-    process.env.JWT_SECRET ||
-    process.env.VITE_AUTH_JWT_SECRET ||
-    ''
-  if (!secret.trim()) {
-    throw new Error('AUTH_JWT_SECRET / JWT_SECRET is required for BFF auth')
+  // Never read VITE_* — those are embedded in the browser bundle.
+  const secret = process.env.AUTH_JWT_SECRET || process.env.JWT_SECRET || ''
+  const trimmed = secret.trim()
+  if (!trimmed) {
+    throw new Error(
+      'AUTH_JWT_SECRET / JWT_SECRET is required for BFF auth (run platform provision or set a unique ≥32 char secret)',
+    )
   }
-  return secret.trim()
+  if (isInsecureJwtSecret(trimmed)) {
+    throw new Error(
+      'AUTH_JWT_SECRET / JWT_SECRET is a known example/placeholder value — generate a unique secret (platform provision does this)',
+    )
+  }
+  return trimmed
 }
 
 function b64url(input: Buffer | string): string {
@@ -37,27 +65,38 @@ function b64urlToBuf(value: string): Buffer {
   return Buffer.from(padded + pad, 'base64')
 }
 
+function parseJsonPart(part: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(b64urlToBuf(part).toString('utf8'))
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    return value as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
 export interface BffAccessClaims {
   id: string
   role: string | null
+  /** Always false in verified claims — admin comes from app_users only. */
   admin_access: boolean
   iss: string
   iat: number
   exp: number
+  token_use: typeof ACCESS_TOKEN_USE
 }
 
 export function signAccessToken(input: {
   id: string
   role?: string | null
-  adminAccess?: boolean
 }): string {
   const now = Math.floor(Date.now() / 1000)
-  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const header = b64url(JSON.stringify({ alg: JWT_ALG, typ: 'JWT' }))
   const payload = b64url(
     JSON.stringify({
       id: input.id,
       role: input.role ?? null,
-      admin_access: input.adminAccess === true,
+      token_use: ACCESS_TOKEN_USE,
       iss: BFF_JWT_ISS,
       iat: now,
       exp: now + ACCESS_TTL_SEC,
@@ -71,8 +110,20 @@ export function signAccessToken(input: {
 export function verifyAccessToken(token: string): BffAccessClaims | null {
   const parts = token.split('.')
   if (parts.length !== 3) return null
+
+  const header = parseJsonPart(parts[0])
+  if (!header) return null
+  // Pin algorithm — reject "none", RS256 confusion, etc.
+  if (header.alg !== JWT_ALG) return null
+  if (header.typ != null && header.typ !== 'JWT') return null
+
   const data = `${parts[0]}.${parts[1]}`
-  const expected = createHmac('sha256', authJwtSecret()).update(data).digest()
+  let expected: Buffer
+  try {
+    expected = createHmac('sha256', authJwtSecret()).update(data).digest()
+  } catch {
+    return null
+  }
   let actual: Buffer
   try {
     actual = b64urlToBuf(parts[2])
@@ -80,20 +131,24 @@ export function verifyAccessToken(token: string): BffAccessClaims | null {
     return null
   }
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null
-  try {
-    const payload = JSON.parse(b64urlToBuf(parts[1]).toString('utf8')) as Partial<BffAccessClaims>
-    if (payload.iss !== BFF_JWT_ISS) return null
-    if (typeof payload.exp !== 'number' || payload.exp * 1000 < Date.now()) return null
-    if (payload.id == null) return null
-    return {
-      id: String(payload.id),
-      role: payload.role == null ? null : String(payload.role),
-      admin_access: payload.admin_access === true,
-      iss: BFF_JWT_ISS,
-      iat: Number(payload.iat ?? 0),
-      exp: payload.exp,
-    }
-  } catch {
-    return null
+
+  const payload = parseJsonPart(parts[1])
+  if (!payload) return null
+  if (payload.iss !== BFF_JWT_ISS) return null
+  // Access tokens only — refresh tokens are opaque DB secrets, not JWTs.
+  if (payload.token_use !== ACCESS_TOKEN_USE) return null
+  if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) return null
+  if (payload.exp * 1000 < Date.now()) return null
+  if (typeof payload.nbf === 'number' && payload.nbf * 1000 > Date.now()) return null
+  if (payload.id == null) return null
+
+  return {
+    id: String(payload.id),
+    role: payload.role == null ? null : String(payload.role),
+    admin_access: false,
+    iss: BFF_JWT_ISS,
+    iat: typeof payload.iat === 'number' ? payload.iat : 0,
+    exp: payload.exp,
+    token_use: ACCESS_TOKEN_USE,
   }
 }

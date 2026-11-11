@@ -13,6 +13,7 @@ export {
 } from './records/facade.js'
 export type { RecordsBackend } from './records/registry.js'
 export type {
+  RecordAccess,
   RecordsListParams,
   RecordsListResult,
   RecordsStore,

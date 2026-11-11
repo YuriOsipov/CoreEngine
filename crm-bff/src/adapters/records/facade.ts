@@ -8,7 +8,8 @@ import { isUsersAssetCollection } from '../../users/userNames.js'
 import { listRoles } from '../../services/rolesService.js'
 import { listUsers } from '../usersAdapter.js'
 import { findFile, findFiles, listFiles, listRecordFiles } from '../filesAdapter.js'
-import type { RecordsListParams, RecordsListResult } from './types.js'
+import { assertMeEntityPermission } from '../../services/rolePermissions.js'
+import type { RecordAccess, RecordsListParams, RecordsListResult } from './types.js'
 import { resolveRecordsStore } from './registry.js'
 import { resolveCanonicalEntityApiName } from './entityName.js'
 import {
@@ -53,12 +54,39 @@ import { loadPromotedFields } from '../../schema/crmStorage.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
 export type { RecordsBackend } from './registry.js'
-export type { RecordsListParams, RecordsListResult, RecordsStore } from './types.js'
+export type {
+  RecordAccess,
+  RecordsListParams,
+  RecordsListResult,
+  RecordsStore,
+} from './types.js'
 export { clearRecordRelationsCache } from './relations.js'
 
 export type RecordWriteOptions = {
   /** Authenticated actor (`backend_user_id`) for Created By / Last Modified By. */
   actorUserId?: string | null
+}
+
+/** True when `access.me` may read `entity` (system callers with no access skip the check). */
+async function canReadWithAccess(
+  access: RecordAccess | null | undefined,
+  entity: string,
+): Promise<boolean> {
+  if (!access?.me) return true
+  try {
+    await assertMeEntityPermission(access.me, entity, 'read')
+    return true
+  } catch {
+    return false
+  }
+}
+
+function withAccess(
+  params: RecordsListParams,
+  access: RecordAccess | null | undefined,
+): RecordsListParams {
+  if (!access) return params
+  return { ...params, access }
 }
 
 function stripClientAuditUserFields(
@@ -122,6 +150,7 @@ async function expandM2O(
   entity: string,
   nodes: Record<string, unknown>[],
   fields?: string[] | null,
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   if (!nodes.length || !fields?.length) return nodes
   if (!fields.some((field) => field.includes('.'))) return nodes
@@ -136,6 +165,7 @@ async function expandM2O(
   for (const [field, subFields] of relations) {
     const rel = rels.find((entry) => entry.fieldApiName === field)
     if (!rel) continue
+    if (!(await canReadWithAccess(access, rel.relatedEntityApiName))) continue
 
     const idSet = new Set<string>()
     for (const node of nodes) {
@@ -154,12 +184,18 @@ async function expandM2O(
     const relFields = subFields.length
       ? Array.from(new Set(['id', ...subFields]))
       : null
-    const related = await findManyRecords(rel.relatedEntityApiName, {
-      filter: { id: { _in: ids } },
-      fields: relFields,
-      limit: ids.length,
-      includeDeleted: true,
-    })
+    const related = await findManyRecords(
+      rel.relatedEntityApiName,
+      withAccess(
+        {
+          filter: { id: { _in: ids } },
+          fields: relFields,
+          limit: ids.length,
+          includeDeleted: true,
+        },
+        access,
+      ),
+    )
 
     const byId = new Map<string, Record<string, unknown>>()
     for (const relatedNode of related.nodes) {
@@ -213,6 +249,7 @@ async function hydratePolymorphicItems(
   collectionField: string,
   itemField: string,
   itemFields: string[] | null,
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   const byCollection = new Map<string, Set<string>>()
   for (const row of rows) {
@@ -227,12 +264,19 @@ async function hydratePolymorphicItems(
 
   const loaded = new Map<string, Record<string, unknown>>()
   for (const [collection, ids] of byCollection) {
-    const related = await findManyRecords(collection, {
-      filter: { id: { _in: [...ids] } },
-      fields: itemFields,
-      limit: ids.size,
-      includeDeleted: true,
-    })
+    if (!(await canReadWithAccess(access, collection))) continue
+    const related = await findManyRecords(
+      collection,
+      withAccess(
+        {
+          filter: { id: { _in: [...ids] } },
+          fields: itemFields,
+          limit: ids.size,
+          includeDeleted: true,
+        },
+        access,
+      ),
+    )
     for (const node of related.nodes) {
       const id = fkIdFromValue(node.id)
       if (!id) continue
@@ -261,6 +305,7 @@ async function expandM2A(
   entity: string,
   nodes: Record<string, unknown>[],
   fields?: string[] | null,
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   if (!nodes.length || !fields?.length) return nodes
 
@@ -281,6 +326,10 @@ async function expandM2A(
   for (const [field, subFields] of relations) {
     const rel = rels.find((entry) => entry.fieldApiName === field)
     if (!rel) continue
+    if (!(await canReadWithAccess(access, rel.junctionEntityApiName))) {
+      for (const node of nodes) node[field] = []
+      continue
+    }
 
     const parentIds = nodes
       .map((node) => fkIdFromValue(node.id))
@@ -301,13 +350,19 @@ async function expandM2A(
       ]),
     )
 
-    const junction = await findManyRecords(rel.junctionEntityApiName, {
-      filter: { [rel.parentFkField]: { _in: parentIds } },
-      fields: junctionFields,
-      sort: rel.sortField ? [rel.sortField] : ['id'],
-      limit: -1,
-      includeDeleted: false,
-    })
+    const junction = await findManyRecords(
+      rel.junctionEntityApiName,
+      withAccess(
+        {
+          filter: { [rel.parentFkField]: { _in: parentIds } },
+          fields: junctionFields,
+          sort: rel.sortField ? [rel.sortField] : ['id'],
+          limit: -1,
+          includeDeleted: false,
+        },
+        access,
+      ),
+    )
 
     const itemFields = collectItemSubFields(subFields, rel.itemField)
     const hydrated = await hydratePolymorphicItems(
@@ -315,6 +370,7 @@ async function expandM2A(
       rel.collectionField,
       rel.itemField,
       itemFields,
+      access,
     )
 
     const byParent = new Map<string, Record<string, unknown>[]>()
@@ -343,6 +399,7 @@ async function expandO2M(
   entity: string,
   nodes: Record<string, unknown>[],
   fields?: string[] | null,
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   if (!nodes.length || !fields?.length) return nodes
 
@@ -363,6 +420,10 @@ async function expandO2M(
   for (const [field, subFields] of relations) {
     const rel = rels.find((entry) => entry.fieldApiName === field)
     if (!rel) continue
+    if (!(await canReadWithAccess(access, rel.junctionEntityApiName))) {
+      for (const node of nodes) node[field] = []
+      continue
+    }
 
     const parentIds = nodes
       .map((node) => fkIdFromValue(node.id))
@@ -390,13 +451,19 @@ async function expandO2M(
       }
     }
 
-    const junction = await findManyRecords(rel.junctionEntityApiName, {
-      filter: { [rel.parentFkField]: { _in: parentIds } },
-      fields: Array.from(junctionFields),
-      sort: rel.sortField ? [rel.sortField] : ['id'],
-      limit: -1,
-      includeDeleted: false,
-    })
+    const junction = await findManyRecords(
+      rel.junctionEntityApiName,
+      withAccess(
+        {
+          filter: { [rel.parentFkField]: { _in: parentIds } },
+          fields: Array.from(junctionFields),
+          sort: rel.sortField ? [rel.sortField] : ['id'],
+          limit: -1,
+          includeDeleted: false,
+        },
+        access,
+      ),
+    )
 
     const byParent = new Map<string, Record<string, unknown>[]>()
     for (const row of junction.nodes) {
@@ -420,10 +487,11 @@ async function expandRecordRelations(
   entity: string,
   nodes: Record<string, unknown>[],
   fields?: string[] | null,
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
-  const withM2O = await expandM2O(entity, nodes, fields)
-  const withO2M = await expandO2M(entity, withM2O, fields)
-  return expandM2A(entity, withO2M, fields)
+  const withM2O = await expandM2O(entity, nodes, fields, access)
+  const withO2M = await expandO2M(entity, withM2O, fields, access)
+  return expandM2A(entity, withO2M, fields, access)
 }
 
 function idsFromFilter(filter: Record<string, unknown> | null | undefined): string[] {
@@ -611,7 +679,12 @@ export async function findManyRecords(
     fields: await physicalStoreFields(apiName, params.fields),
   }
   const result = await store.findMany(apiName, storeParams)
-  result.nodes = await expandRecordRelations(apiName, result.nodes, params.fields)
+  result.nodes = await expandRecordRelations(
+    apiName,
+    result.nodes,
+    params.fields,
+    params.access,
+  )
   result.nodes = await attachLiveRollupsOnRead(apiName, result.nodes, params.fields)
   return result
 }
@@ -620,6 +693,7 @@ export async function findOneRecord(
   entity: string,
   id: string,
   fields?: string[] | null,
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>> {
   if (isFilesAssetCollection(entity)) {
     const row = await findFile(id, fields ?? undefined)
@@ -646,7 +720,7 @@ export async function findOneRecord(
   const store = await resolveRecordsStore(apiName)
   const storeFields = await physicalStoreFields(apiName, fields)
   const record = await store.findOne(apiName, id, storeFields)
-  const [expanded] = await expandRecordRelations(apiName, [record], fields)
+  const [expanded] = await expandRecordRelations(apiName, [record], fields, access)
   const [withRollups] = await attachLiveRollupsOnRead(
     apiName,
     [expanded ?? record],
@@ -660,6 +734,8 @@ export type ExpandChildrenOptions = {
   limit?: number
   /** Include public.files linked via parent_collection/parent_record_id. */
   includeFiles?: boolean
+  /** Verified caller — child collections and files are gated per entity. */
+  access?: RecordAccess | null
 }
 
 /**
@@ -673,6 +749,7 @@ export async function expandRecordWithChildren(
   options: ExpandChildrenOptions = {},
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
+  const access = options.access ?? null
   const limit =
     options.limit != null && options.limit >= 0
       ? Math.min(Math.trunc(options.limit), 500)
@@ -683,12 +760,19 @@ export async function expandRecordWithChildren(
   await Promise.all(
     children.map(async (rel) => {
       try {
-        const result = await findManyRecords(rel.childEntityApiName, {
-          filter: { [rel.fkFieldApiName]: { _eq: recordId } },
-          fields: null,
-          limit,
-          offset: 0,
-        })
+        if (!(await canReadWithAccess(access, rel.childEntityApiName))) return
+        const result = await findManyRecords(
+          rel.childEntityApiName,
+          withAccess(
+            {
+              filter: { [rel.fkFieldApiName]: { _eq: recordId } },
+              fields: null,
+              limit,
+              offset: 0,
+            },
+            access,
+          ),
+        )
         const key = rel.childEntityApiName
         const existing = childMap[key] ?? []
         childMap[key] = existing.concat(result.nodes)
@@ -705,7 +789,11 @@ export async function expandRecordWithChildren(
 
   if (options.includeFiles !== false) {
     try {
-      out._files = await listRecordFiles(apiName, recordId, null)
+      if (await canReadWithAccess(access, 'files')) {
+        out._files = await listRecordFiles(apiName, recordId, null)
+      } else {
+        out._files = []
+      }
     } catch {
       out._files = []
     }

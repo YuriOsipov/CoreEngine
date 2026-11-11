@@ -8,7 +8,9 @@ import {
   softDeleteRecord,
   updateRecord,
 } from '../adapters/recordsAdapter.js'
-import { findFile, findFiles, listRecordFiles } from '../adapters/filesAdapter.js'
+import { listRecordFiles } from '../adapters/filesAdapter.js'
+import { assertFileReadable, assertFilesReadable } from '../files/fileAccess.js'
+import { rateLimitConsume } from '../auth/rateLimit.js'
 import { writeAuditEntry, listRecordActivities, listRecordRevisions } from '../audit/auditService.js'
 import {
   detectSchemaDrift,
@@ -25,7 +27,23 @@ import {
 } from '../services/recentRecordsService.js'
 import { loadItemGroupPriceTree } from '../services/itemGroupPriceTree.js'
 import { listRoles } from '../services/rolesService.js'
-import { fetchMe, listUsers } from '../adapters/usersAdapter.js'
+import { listUsers } from '../adapters/usersAdapter.js'
+import {
+  requireAdminAccess,
+  requireAuthenticatedUser,
+  requireSelfOrAdmin,
+} from '../auth/accessGuards.js'
+// Re-export for existing tests / callers.
+export {
+  requireAdminAccess,
+  requireAuthenticatedUser,
+  requireSelfOrAdmin,
+} from '../auth/accessGuards.js'
+import {
+  assertIncludeDeletedAllowed,
+  DEFAULT_LIST_LIMIT,
+  resolveAuthorizedListLimit,
+} from '../rest/listQueryPolicy.js'
 import { listPresets } from '../adapters/presetsAdapter.js'
 import {
   deleteDashboard,
@@ -105,29 +123,22 @@ import {
 } from '../flows/flowTriggersAdmin.js'
 import { generateDocument } from '../documents/generateDocument.js'
 
-type GraphQlAuthContext = { authorization: string | null }
+export type GraphQlAuthContext = {
+  authorization: string | null
+  /** Client IP / forwarded key for public rate limits. */
+  clientKey: string
+}
 
-/** Resolve the authenticated actor for audit stamps; never throw into mutations. */
-async function resolveActorUserId(
-  ctx: GraphQlAuthContext | undefined,
-): Promise<string | null> {
-  if (!ctx?.authorization) return null
-  try {
-    const me = await fetchMe({ authorization: ctx.authorization })
-    return me.id ? String(me.id) : null
-  } catch {
-    return null
+function publicRateLimit(ctx: GraphQlAuthContext | undefined, bucket: string, limit: number) {
+  const key = `${bucket}:${ctx?.clientKey || ctx?.authorization || 'anon'}`
+  const result = rateLimitConsume(key, limit, 60_000)
+  if (!result.ok) {
+    throw new Error(`Rate limit exceeded; retry in ${result.retryAfterSec}s`)
   }
 }
 
-async function requireAdminAccess(ctx: GraphQlAuthContext | undefined): Promise<void> {
-  if (!ctx?.authorization) {
-    throw new Error('Admin access required')
-  }
-  const me = await fetchMe({ authorization: ctx.authorization })
-  if (!(me.adminAccess || me.roleAdminAccess)) {
-    throw new Error('Admin access required')
-  }
+function actorIdFromMe(me: { id?: string | null } | null | undefined): string | null {
+  return me?.id ? String(me.id) : null
 }
 
 type LabelTranslation = { language?: string; label?: string }
@@ -301,7 +312,8 @@ async function writeEntityAudit(options: {
 
 export const resolvers = {
   Query: {
-    health: async () => {
+    health: async (_: unknown, __: unknown, ctx: GraphQlAuthContext) => {
+      publicRateLimit(ctx, 'gql-health', 60)
       const [entityRow] = await query<{ count: string }>(
         'SELECT count(*)::text AS count FROM public.entities',
       )
@@ -320,7 +332,8 @@ export const resolvers = {
       }
     },
 
-    languages: async () => {
+    languages: async (_: unknown, __: unknown, ctx: GraphQlAuthContext) => {
+      publicRateLimit(ctx, 'gql-languages', 120)
       const rows = await query(
         `SELECT code, label, is_default, is_active, sort
          FROM public.supported_languages
@@ -339,7 +352,9 @@ export const resolvers = {
     translations: async (
       _: unknown,
       args: { language: string; namespace?: string | null; prefix?: string | null; limit?: number },
+      ctx: GraphQlAuthContext,
     ) => {
+      publicRateLimit(ctx, 'gql-translations', 30)
       const params: unknown[] = [args.language]
       const filters = ['language = $1']
 
@@ -352,7 +367,8 @@ export const resolvers = {
         filters.push(`key LIKE $${params.length}`)
       }
 
-      params.push(Math.min(Math.max(args.limit ?? 5000, 1), 20000))
+      // Cap bulk pulls; still rate-limited above for anonymous scrapers.
+      params.push(Math.min(Math.max(args.limit ?? 5000, 1), 10_000))
       const rows = await query(
         `SELECT key, language, value, namespace
          FROM public.translation_entries
@@ -372,7 +388,9 @@ export const resolvers = {
     translate: async (
       _: unknown,
       args: { key: string; language: string; fallback?: string | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      publicRateLimit(ctx, 'gql-translate', 300)
       const rows = await query(
         `SELECT value
          FROM public.translation_entries
@@ -385,7 +403,12 @@ export const resolvers = {
       return args.fallback ?? args.key
     },
 
-    entities: async (_: unknown, args: { includeHidden?: boolean }) => {
+    entities: async (
+      _: unknown,
+      args: { includeHidden?: boolean },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAuthenticatedUser(ctx)
       const rows = await query(
         `SELECT *
          FROM public.entities
@@ -397,7 +420,12 @@ export const resolvers = {
       return rows.map((row) => mapEntityBase(row))
     },
 
-    entity: async (_: unknown, args: { apiName: string }) => {
+    entity: async (
+      _: unknown,
+      args: { apiName: string },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAuthenticatedUser(ctx)
       const rows = await query(
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
         [args.apiName],
@@ -408,7 +436,9 @@ export const resolvers = {
     entitySchema: async (
       _: unknown,
       args: { apiName: string; language?: string | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAuthenticatedUser(ctx)
       const rows = await query(
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
         [args.apiName],
@@ -419,7 +449,12 @@ export const resolvers = {
       return mapEntityBase(rows[0], args.language)
     },
 
-    registrySnapshot: async (_: unknown, args: { includeHidden?: boolean }) => {
+    registrySnapshot: async (
+      _: unknown,
+      args: { includeHidden?: boolean },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAuthenticatedUser(ctx)
       const entities = await query(
         `SELECT *
          FROM public.entities
@@ -507,7 +542,9 @@ export const resolvers = {
     layoutSettings: async (
       _: unknown,
       args: { entity?: string | null; groupKey?: string | null; subGroup?: string | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAuthenticatedUser(ctx)
       const params: unknown[] = []
       const filters: string[] = []
       if (args.entity) {
@@ -548,8 +585,8 @@ export const resolvers = {
       args: { entity: string; id: string; fields?: string[] | null },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'read')
-      return findOneRecord(args.entity, String(args.id), args.fields)
+      const me = await assertEntityPermission(ctx, args.entity, 'read')
+      return findOneRecord(args.entity, String(args.id), args.fields, { me })
     },
 
     records: async (
@@ -566,15 +603,24 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'read')
+      const me = await assertEntityPermission(ctx, args.entity, 'read')
+      const includeDeleted = Boolean(args.includeDeleted)
+      await assertIncludeDeletedAllowed(me, args.entity, includeDeleted)
+      const limit = await resolveAuthorizedListLimit(
+        me,
+        args.entity,
+        args.limit,
+        DEFAULT_LIST_LIMIT,
+      )
       return findManyRecords(args.entity, {
         filter: args.filter,
         fields: args.fields,
         sort: args.sort,
         search: args.search,
-        limit: args.limit,
+        limit,
         offset: args.offset,
-        includeDeleted: args.includeDeleted,
+        includeDeleted,
+        access: { me },
       })
     },
 
@@ -587,7 +633,9 @@ export const resolvers = {
         limit?: number
         offset?: number
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await assertEntityPermission(ctx, args.entity, 'read')
       return listRecordActivities({
         entityApiName: args.entity,
         recordId: String(args.recordId),
@@ -604,7 +652,10 @@ export const resolvers = {
         recordId: string
         limit?: number
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      // Same object read gate as `record` — revisions must not bypass entity ACL.
+      await assertEntityPermission(ctx, args.entity, 'read')
       return listRecordRevisions({
         entityApiName: args.entity,
         recordId: String(args.recordId),
@@ -615,34 +666,54 @@ export const resolvers = {
     file: async (
       _: unknown,
       args: { id: string; fields?: string[] | null },
+      ctx: GraphQlAuthContext,
     ) => {
-      return findFile(String(args.id), args.fields)
+      const me = await requireAuthenticatedUser(ctx)
+      return assertFileReadable(me, String(args.id), args.fields)
     },
 
     files: async (
       _: unknown,
       args: { ids: string[]; fields?: string[] | null },
+      ctx: GraphQlAuthContext,
     ) => {
-      return findFiles(args.ids ?? [], args.fields)
+      const me = await requireAuthenticatedUser(ctx)
+      return assertFilesReadable(me, args.ids ?? [], args.fields)
     },
 
     recordFiles: async (
       _: unknown,
       args: { collection: string; recordId: string; fields?: string[] | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      await assertEntityPermission(ctx, args.collection, 'read')
       return listRecordFiles(String(args.collection), String(args.recordId), args.fields)
     },
 
     schemaDrift: async (
       _: unknown,
       args: { entity?: string | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       return detectSchemaDrift({ entityApiName: args.entity })
     },
 
-    entitySyncStates: async () => listEntitySyncStates(),
+    entitySyncStates: async (
+      _: unknown,
+      __: unknown,
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return listEntitySyncStates()
+    },
 
-    syncJobs: async (_: unknown, args: { limit?: number }) => {
+    syncJobs: async (
+      _: unknown,
+      args: { limit?: number },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
       return listSyncJobs(args.limit)
     },
 
@@ -654,7 +725,9 @@ export const resolvers = {
         groupKey: string
         key: string
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireSelfOrAdmin(ctx, String(args.userId))
       return getUserSetting({
         userId: String(args.userId),
         collection: args.collection,
@@ -663,7 +736,12 @@ export const resolvers = {
       })
     },
 
-    orgSetting: async (_: unknown, args: { key: string }) => {
+    orgSetting: async (
+      _: unknown,
+      args: { key: string },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAuthenticatedUser(ctx)
       return getOrgSetting(String(args.key || ''))
     },
 
@@ -675,7 +753,9 @@ export const resolvers = {
         limit?: number | null
         offset?: number | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireSelfOrAdmin(ctx, String(args.userId))
       const page = await listRecentRecordViews({
         userId: String(args.userId),
         collection: args.collection,
@@ -689,7 +769,14 @@ export const resolvers = {
       }
     },
 
-    roles: async () => listRoles(),
+    roles: async (
+      _: unknown,
+      __: unknown,
+      ctx: GraphQlAuthContext,
+    ) => {
+      await assertEntityPermission(ctx, 'roles', 'read')
+      return listRoles()
+    },
 
     appRolesAdmin: async (
       _: unknown,
@@ -735,7 +822,7 @@ export const resolvers = {
       __: unknown,
       ctx: GraphQlAuthContext,
     ) => {
-      const me = await fetchMe({ authorization: ctx.authorization })
+      const me = await requireAuthenticatedUser(ctx)
       if (me.adminAccess || me.roleAdminAccess) {
         const entities = await listPermissionEntities()
         return entities.map((entity) => ({
@@ -767,8 +854,8 @@ export const resolvers = {
     me: async (
       _: unknown,
       __: unknown,
-      ctx: { authorization: string | null },
-    ) => fetchMe({ authorization: ctx.authorization }),
+      ctx: GraphQlAuthContext,
+    ) => requireAuthenticatedUser(ctx),
 
     users: async (
       _: unknown,
@@ -779,13 +866,17 @@ export const resolvers = {
         limit?: number | null
         sort?: string[] | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      // Auth required (anonymous denied). Emails only for admins.
+      const me = await assertEntityPermission(ctx, 'users', 'read')
       return listUsers({
         ids: args.ids ?? null,
         search: args.search ?? null,
         fields: args.fields ?? null,
         limit: args.limit ?? null,
         sort: args.sort ?? null,
+        includeEmail: Boolean(me.adminAccess || me.roleAdminAccess),
       })
     },
 
@@ -797,7 +888,9 @@ export const resolvers = {
         sort?: string[] | null
         limit?: number | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAuthenticatedUser(ctx)
       return listPresets({
         fields: args.fields?.length
           ? args.fields
@@ -815,7 +908,9 @@ export const resolvers = {
         sort?: string[] | null
         limit?: number | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAuthenticatedUser(ctx)
       return listDashboards({
         fields: args.fields ?? null,
         sort: args.sort ?? null,
@@ -831,7 +926,9 @@ export const resolvers = {
         sort?: string[] | null
         limit?: number | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAuthenticatedUser(ctx)
       return listPanels({
         fields: args.fields ?? null,
         filter: args.filter ?? null,
@@ -896,7 +993,16 @@ export const resolvers = {
         flatten?: boolean | null
         config?: Record<string, unknown> | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      const config = (args.config ?? {}) as Record<string, unknown>
+      const groupCollection = String(config.groupCollection ?? '').trim()
+      const itemPriceCollection = String(config.itemPriceCollection ?? '').trim()
+      if (!groupCollection || !itemPriceCollection) {
+        throw new Error('itemGroupPriceTree requires a config object from Tree settings.')
+      }
+      await assertEntityPermission(ctx, groupCollection, 'read')
+      await assertEntityPermission(ctx, itemPriceCollection, 'read')
       const result = await loadItemGroupPriceTree({
         priceGroupId: args.priceGroupId ?? null,
         filter: args.filter ?? null,
@@ -924,11 +1030,18 @@ export const resolvers = {
           color?: string | null
         }
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       return upsertDashboard(args.input)
     },
 
-    deleteDashboard: async (_: unknown, args: { id: string }) => {
+    deleteDashboard: async (
+      _: unknown,
+      args: { id: string },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
       return deleteDashboard(args.id)
     },
 
@@ -951,11 +1064,18 @@ export const resolvers = {
           options?: Record<string, unknown> | null
         }
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       return upsertPanel(args.input)
     },
 
-    deletePanel: async (_: unknown, args: { id: string }) => {
+    deletePanel: async (
+      _: unknown,
+      args: { id: string },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
       return deletePanel(args.id)
     },
 
@@ -972,14 +1092,18 @@ export const resolvers = {
           body: Record<string, unknown>
         }
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       return upsertLayoutSettingRow(args.input)
     },
 
     deleteLayoutSetting: async (
       _: unknown,
       args: { settingId: string },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const settingKey = String(args.settingId)
       const mapped = await query(
         `SELECT layout_setting_id::text AS layout_setting_id
@@ -1011,8 +1135,8 @@ export const resolvers = {
       args: { entity: string; data: Record<string, unknown>; fields?: string[] | null },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'create')
-      const actorUserId = await resolveActorUserId(ctx)
+      const me = await assertEntityPermission(ctx, args.entity, 'create')
+      const actorUserId = actorIdFromMe(me)
       const created = await createRecord(
         args.entity,
         args.data ?? {},
@@ -1046,8 +1170,8 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'update')
-      const actorUserId = await resolveActorUserId(ctx)
+      const me = await assertEntityPermission(ctx, args.entity, 'update')
+      const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(args.entity, String(args.id))
@@ -1081,8 +1205,8 @@ export const resolvers = {
       args: { entity: string; id: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'delete')
-      const actorUserId = await resolveActorUserId(ctx)
+      const me = await assertEntityPermission(ctx, args.entity, 'delete')
+      const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(args.entity, String(args.id))
@@ -1112,7 +1236,9 @@ export const resolvers = {
       args: { entity: string; id: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'delete')
+      // Hard delete is admin-only (softDeleteRecord covers normal delete permission).
+      const me = await requireAdminAccess(ctx)
+      const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(args.entity, String(args.id))
@@ -1127,7 +1253,7 @@ export const resolvers = {
           action: 'DELETE',
           before,
           after: null,
-          userId: await resolveActorUserId(ctx),
+          userId: actorUserId,
         })
       } catch (error) {
         console.warn('[audit] deleteRecord failed', error)
@@ -1140,7 +1266,8 @@ export const resolvers = {
       args: { entity: string; id: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'update')
+      const me = await assertEntityPermission(ctx, args.entity, 'update')
+      const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(args.entity, String(args.id))
@@ -1155,7 +1282,7 @@ export const resolvers = {
           action: 'RESTORE',
           before,
           after: restored,
-          userId: await resolveActorUserId(ctx),
+          userId: actorUserId,
         })
       } catch (error) {
         console.warn('[audit] restoreRecord failed', error)
@@ -1166,14 +1293,18 @@ export const resolvers = {
     runSchemaDriftCheck: async (
       _: unknown,
       args: { entity?: string | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       return runSchemaDriftCheck({ entityApiName: args.entity })
     },
 
     runSchemaSync: async (
       _: unknown,
       args: { entity: string; dryRun?: boolean | null },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       return runSchemaSync({
         entityApiName: args.entity,
         dryRun: args.dryRun !== false,
@@ -1187,7 +1318,9 @@ export const resolvers = {
         groups: Array<{ name: string; fields: string[] }>
         applyIndexes?: boolean | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       const saved = await saveEntityUniqueGroups(
@@ -1233,7 +1366,9 @@ export const resolvers = {
           }> | null
         }>
       },
+      ctx: GraphQlAuthContext,
     ): Promise<EntityRecordAutomation[]> => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       const saved = await saveEntityAutomations(
@@ -1314,7 +1449,9 @@ export const resolvers = {
           accountability?: string | null
         }
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       const input = args.input ?? {}
@@ -1360,7 +1497,9 @@ export const resolvers = {
         }
         applyDdl?: boolean | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const input = args.input ?? ({} as { apiName: string; label: string })
       if (!String(input.apiName || '').trim()) {
         throw new Error('input.apiName is required')
@@ -1392,7 +1531,9 @@ export const resolvers = {
     deleteRegistryEntity: async (
       _: unknown,
       args: { entity: string },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       return deleteRegistryEntity(entityApiName)
@@ -1504,7 +1645,9 @@ export const resolvers = {
         isUnique: boolean
         applyIndexes?: boolean | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       const fieldApiName = String(args.field || '').trim()
       if (!entityApiName || !fieldApiName) {
@@ -1531,7 +1674,9 @@ export const resolvers = {
         input: RegistryFieldInput
         applyDdl?: boolean | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       if (!args.input?.apiName?.trim()) throw new Error('input.apiName is required')
@@ -1570,7 +1715,9 @@ export const resolvers = {
         input: RegistryFieldInput
         applyDdl?: boolean | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const id = String(args.id || '').trim()
       if (!id) throw new Error('id is required')
       const row = await updateRegistryField(
@@ -1608,7 +1755,9 @@ export const resolvers = {
         field: string
         applyDdl?: boolean | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       const fieldApiName = String(args.field || '').trim()
       if (!entityApiName || !fieldApiName) {
@@ -1628,7 +1777,9 @@ export const resolvers = {
         key: string
         value?: unknown
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireSelfOrAdmin(ctx, String(args.userId))
       await upsertUserSetting({
         userId: String(args.userId),
         collection: args.collection,
@@ -1642,7 +1793,9 @@ export const resolvers = {
     upsertOrgSetting: async (
       _: unknown,
       args: { key: string; value?: unknown },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireAdminAccess(ctx)
       await upsertOrgSetting(String(args.key || ''), args.value ?? null)
       return true
     },
@@ -1655,7 +1808,9 @@ export const resolvers = {
         recordId: string
         viewedAt?: string | null
       },
+      ctx: GraphQlAuthContext,
     ) => {
+      await requireSelfOrAdmin(ctx, String(args.userId))
       return upsertRecentRecordView({
         userId: String(args.userId),
         collection: args.collection,
@@ -1747,10 +1902,9 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      // Auth required; entity create permission on doc_value enforced in Phase 1.
-      if (!ctx?.authorization) {
-        throw new Error('Authentication required')
-      }
+      // Valid Bearer JWT required (not merely a present Authorization header).
+      // Entity create on doc_value / template ACL comes with Phase 1 implementation.
+      await requireAuthenticatedUser(ctx)
       return generateDocument(args.input)
     },
 
@@ -1792,12 +1946,12 @@ export const resolvers = {
       const sourceCollection = String(args.sourceCollection ?? '').trim()
       await assertEntityPermission(ctx, args.collection, 'read')
       await assertEntityPermission(ctx, args.relatedCollection, 'read')
-      await assertEntityPermission(ctx, args.relatedCollection, 'update')
+      const me = await assertEntityPermission(ctx, args.relatedCollection, 'update')
       if (sourceCollection) {
         await assertEntityPermission(ctx, sourceCollection, 'read')
         await assertEntityPermission(ctx, args.relatedCollection, 'create')
       }
-      const actorUserId = await resolveActorUserId(ctx)
+      const actorUserId = actorIdFromMe(me)
       try {
         return await bulkUpdateRelatedFromAction({
           collection: args.collection,
@@ -1834,8 +1988,8 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       await assertEntityPermission(ctx, args.collection, 'read')
-      await assertEntityPermission(ctx, args.collection, 'update')
-      const actorUserId = await resolveActorUserId(ctx)
+      const me = await assertEntityPermission(ctx, args.collection, 'update')
+      const actorUserId = actorIdFromMe(me)
       try {
         return await bulkUpdateFilteredFromAction({
           collection: args.collection,

@@ -61,12 +61,19 @@ async function loadUserById(id: string): Promise<AuthUserRow | null> {
   return rows[0] ?? null
 }
 
+/** Opaque refresh tokens (hashed in DB) — not JWTs; cannot pass verifyAccessToken. */
+export async function revokeAllRefreshTokensForUser(userId: string): Promise<void> {
+  const id = String(userId || '').trim()
+  if (!id) return
+  await query(`DELETE FROM public.app_refresh_tokens WHERE user_id = $1::uuid`, [id])
+}
+
 async function issueSession(user: AuthUserRow): Promise<AuthSessionPayload> {
   const subject = user.backend_user_id || user.id
+  // Admin flags are not embedded — fetchMe / assert* read them from app_users.
   const accessToken = signAccessToken({
     id: subject,
     role: user.role_backend_id,
-    adminAccess: user.is_admin === true,
   })
   const refreshToken = randomBytes(32).toString('base64url')
   const tokenHash = hashRefreshToken(refreshToken)
@@ -156,4 +163,5 @@ export async function hashPasswordForUser(userId: string, password: string): Pro
        updated_at = now()`,
     [userId, passwordHash],
   )
+  await revokeAllRefreshTokensForUser(userId)
 }

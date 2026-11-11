@@ -261,6 +261,20 @@ export async function postgresLinkFileToParent(input: {
   return { row, created: true }
 }
 
+/** All secondary parent links for a file (for ACL checks). */
+export async function listFileParentLinks(
+  fileId: string,
+): Promise<Array<{ parent_collection: string; parent_record_id: string }>> {
+  const id = String(fileId || '').trim()
+  if (!id) return []
+  return query<{ parent_collection: string; parent_record_id: string }>(
+    `SELECT parent_collection, parent_record_id
+     FROM public.file_record_links
+     WHERE file_id = $1::uuid`,
+    [id],
+  )
+}
+
 /** Remove a secondary link; returns true when a link row was deleted. */
 export async function postgresUnlinkFileFromParent(input: {
   fileId: string

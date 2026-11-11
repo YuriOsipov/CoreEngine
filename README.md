@@ -45,7 +45,7 @@ How CoreEngine maps to common platform checklist items today:
 | Area | CoreEngine today |
 |------|------------------|
 | **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks** (scheduled jobs). Visual multi-step designer lives in **n8n** (or similar), not inside CoreEngine. |
-| **Permissions** | Partial — **Object-level CRUD** (create/read/update/delete/import/export) is **enforced at the BFF**. **Per-role record list filters/views**, **per-role layouts**, and **conditional hide/readonly** are strong in the UX. **Field-level security is not enforced at the API**; per-role list filters are view configuration, not server-side row ACL. No sharing/owner security yet. Gaps vs NocoBase-class platforms are mainly **SSO/MFA** and **field-level API enforcement**. |
+| **Permissions** | Partial — **Object-level CRUD** is **enforced at the BFF**, including **activities/revisions/record files** (same entity read gate — revisions cannot bypass ACL). **Setup / registry mutations** require **admin** JWT; registry/layout **reads** require login. **Per-role list filters/views** and **layouts** are strong in the UX. **Field-level security is not enforced at the API**. No sharing/owner security yet. Gaps vs NocoBase-class platforms are mainly **SSO/MFA** and **field-level API enforcement**. |
 | **Authentication** | Partial — local email/password via BFF JWT (`/auth/login`, refresh). **No** SSO / OAuth / MFA / enterprise IdP yet. |
 | **Version control** | Partial — schemas, layouts, roles, and templates ship as **domain packs** (JSON under `supabase/domains/`) with `platform:export-pack` / `apply-pack`; versioned in **git**. No in-app config revision UI. |
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
@@ -149,6 +149,7 @@ cp .env.docker.example .env
 cp .env.docker.example supabase/.env
 
 docker compose up -d db
+# Provision generates AUTH_JWT_SECRET + admin password (example placeholders are refused at BFF start).
 docker compose run --rm --workdir /app bff \
   npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env \
   ./scripts/provision-platform-db.mts --domain sales
@@ -159,7 +160,7 @@ docker compose up -d bff
 
 - BFF health: http://localhost:4000/health  
 - UI (if started): http://localhost:8080  
-- Login after provision: `admin@example.com` / `admin12345`
+- Login after provision: `admin@example.com` with the password you passed (`--admin-password`) or the one-time generated password printed by provision
 
 File uploads / Storage are not fully wired in this minimal compose (needs Supabase Storage + `SERVICE_ROLE_KEY`). Optional Hasura remains under [`docs/hasura/docker-compose.yaml`](docs/hasura/docker-compose.yaml).
 
@@ -176,9 +177,9 @@ npm install
 npm run bff:install
 
 # Cross-platform (Node):
-npm run platform:provision:node -- --domain none   # kernel + documents pack
+npm run platform:provision:node -- --domain none --admin-password 'ChangeMeNow!'
 # or: npm run platform:provision:node -- --domain sales
-# or: npm run platform:provision:node -- --domain clinic --admin-password 'ChangeMeNow!'
+# (omit --admin-password to get a one-time generated password printed at the end)
 
 npm run bff:dev   # terminal 1 — GraphQL BFF on :4000
 npm run dev       # terminal 2 — Vite (requires sibling ../docEngine)
@@ -186,7 +187,7 @@ npm run dev       # terminal 2 — Vite (requires sibling ../docEngine)
 
 On Windows, `npm run platform:provision` is the PowerShell wrapper (`-Domain` / `-AdminPassword`).
 
-Default admin after provision: `admin@example.com` / `admin12345`.
+Admin after provision: `admin@example.com` — use `--admin-password` / `-AdminPassword`, or save the generated password from the provision output. There is no well-known default password.
 
 See [`supabase/README.md`](supabase/README.md) for the platform kernel + domain packs (Sales / Clinic).
 

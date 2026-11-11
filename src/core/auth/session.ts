@@ -56,9 +56,8 @@ export function canUseBffAuth(): boolean {
   if (mode === 'bff') return true
   // Legacy `directus` auth mode is retired — treat like `none`.
   if (mode === 'directus' || mode === 'none') return false
-  // Default: BFF session when GraphQL is on and no static legacy token.
-  const staticToken = (import.meta.env.VITE_DIRECTUS_TOKEN as string | undefined)?.trim()
-  return featureFlags.layoutsFromGraphQL && !staticToken
+  // Default: BFF session when GraphQL layouts are on.
+  return featureFlags.layoutsFromGraphQL
 }
 
 export function readAuthSession(): AuthSession | null {
@@ -199,12 +198,10 @@ export async function getSessionAccessToken(): Promise<string | null> {
 }
 
 /**
- * Token for BFF Authorization — optional static `VITE_DIRECTUS_TOKEN`, else
- * session JWT (with refresh).
+ * Token for BFF Authorization — session JWT only (with refresh).
+ * Directus static tokens stay server-side (`DIRECTUS_TOKEN` in the BFF adapter).
  */
 export async function getAccessToken(): Promise<string | null> {
-  const staticToken = (import.meta.env.VITE_DIRECTUS_TOKEN as string | undefined)?.trim()
-  if (staticToken) return staticToken
   return getSessionAccessToken()
 }
 

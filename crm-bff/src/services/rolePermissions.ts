@@ -1,7 +1,10 @@
-import { query } from '../db/pool.js'
+import { query, withTransaction } from '../db/pool.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { fetchMe } from '../adapters/usersAdapter.js'
 import { REGISTRY_PLATFORM_ENTITIES } from '../schema/platformEntities.js'
+
+// Permission checks currently hit Postgres several times (role resolve + flags).
+// Cache per-request / short TTL later if this becomes hot.
 
 export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'import' | 'export'
 
@@ -116,42 +119,44 @@ export async function replaceRolePermissions(
     )
 
   const excluded = excludedEntityNames()
-  await query(
-    `DELETE FROM public.role_permissions
-     WHERE role_id = $1::uuid
-       AND NOT (entity_api_name = ANY($2::text[]))`,
-    [appRoleId, excluded],
-  )
-
-  for (const row of cleaned) {
-    // Skip empty rows (no access) — absence means deny.
-    if (
-      !row.canCreate &&
-      !row.canRead &&
-      !row.canUpdate &&
-      !row.canDelete &&
-      !row.canImport &&
-      !row.canExport
-    ) {
-      continue
-    }
-    await query(
-      `INSERT INTO public.role_permissions (
-         role_id, entity_api_name, can_create, can_read, can_update, can_delete,
-         can_import, can_export
-       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        appRoleId,
-        row.entityApiName,
-        row.canCreate,
-        row.canRead,
-        row.canUpdate,
-        row.canDelete,
-        row.canImport,
-        row.canExport,
-      ],
+  await withTransaction(async (tx) => {
+    await tx(
+      `DELETE FROM public.role_permissions
+       WHERE role_id = $1::uuid
+         AND NOT (entity_api_name = ANY($2::text[]))`,
+      [appRoleId, excluded],
     )
-  }
+
+    for (const row of cleaned) {
+      // Skip empty rows (no access) — absence means deny.
+      if (
+        !row.canCreate &&
+        !row.canRead &&
+        !row.canUpdate &&
+        !row.canDelete &&
+        !row.canImport &&
+        !row.canExport
+      ) {
+        continue
+      }
+      await tx(
+        `INSERT INTO public.role_permissions (
+           role_id, entity_api_name, can_create, can_read, can_update, can_delete,
+           can_import, can_export
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          appRoleId,
+          row.entityApiName,
+          row.canCreate,
+          row.canRead,
+          row.canUpdate,
+          row.canDelete,
+          row.canImport,
+          row.canExport,
+        ],
+      )
+    }
+  })
 
   return listRolePermissions(appRoleId)
 }
@@ -228,25 +233,37 @@ async function loadPermissionFlags(
 }
 
 /**
- * Enforce collection CRUD for the authenticated user.
- * Admins bypass. Missing permission row = deny.
+ * Enforce collection CRUD for an already-verified user (no JWT re-fetch).
+ * Admins bypass. Matrix-excluded collections (docs, Setting, user_setting, …)
+ * are **admin-only** — no authenticated read bypass (avoids leaking generated
+ * document payloads / org settings). users/roles remain authenticated-read for
+ * pickers; files reads must go through parent-entity checks (`fileAccess.ts`).
+ * Missing permission row = deny. Admin flags must come from `fetchMe` / DB.
  */
-export async function assertEntityPermission(
-  ctx: { authorization: string | null } | undefined,
+export async function assertMeEntityPermission(
+  me: MeUser | null | undefined,
   entityApiName: string,
   action: PermissionAction,
 ): Promise<MeUser> {
   const entity = String(entityApiName || '').trim()
   if (!entity) throw new Error('entity is required')
-
-  const me = await fetchMe({ authorization: ctx?.authorization ?? null })
+  if (!me?.id) {
+    throw new Error(`Permission denied: ${action} on ${entity}`)
+  }
+  // roleAdminAccess is loaded from app_roles.is_admin in postgresFetchMe —
+  // no second isRoleAdmin query needed here.
   if (me.adminAccess || me.roleAdminAccess) return me
 
-  // Asset / system collections are not in the role matrix.
+  // Platform / document / settings objects: admin only (all actions).
+  if (ROLE_PERMISSION_EXCLUDED_ENTITIES.has(entity)) {
+    throw new Error(`Permission denied: ${action} on ${entity}`)
+  }
+
+  // Picker assets: authenticated read only (writes still need a matrix row).
+  // Do not use this alone for files — prefer assertFileReadable (parent ACL).
   if (
-    ROLE_PERMISSION_EXCLUDED_ENTITIES.has(entity) ||
-    (action === 'read' &&
-      (entity === 'users' || entity === 'roles' || entity === 'files'))
+    action === 'read' &&
+    (entity === 'users' || entity === 'roles' || entity === 'files')
   ) {
     return me
   }
@@ -255,8 +272,6 @@ export async function assertEntityPermission(
   if (!appRoleId) {
     throw new Error(`Permission denied: ${action} on ${entity}`)
   }
-
-  if (await isRoleAdmin(appRoleId)) return me
 
   const flags = await loadPermissionFlags(appRoleId, entity)
   const allowed = flags
@@ -277,6 +292,19 @@ export async function assertEntityPermission(
     throw new Error(`Permission denied: ${action} on ${entity}`)
   }
   return me
+}
+
+/**
+ * Enforce collection CRUD for the authenticated user.
+ * Admins bypass. Missing permission row = deny.
+ */
+export async function assertEntityPermission(
+  ctx: { authorization: string | null } | undefined,
+  entityApiName: string,
+  action: PermissionAction,
+): Promise<MeUser> {
+  const me = await fetchMe({ authorization: ctx?.authorization ?? null })
+  return assertMeEntityPermission(me, entityApiName, action)
 }
 
 /** Entities list for permission matrix UI (excludes PLATFORM / system objects). */

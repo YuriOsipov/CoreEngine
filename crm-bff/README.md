@@ -18,9 +18,9 @@ npm run dev
 - Auth: `POST /auth/login|refresh|logout` (`AUTH_BACKEND=local`)
 - REST records (Bearer JWT; n8n-friendly):
   - `GET|POST /api/v1/query` — SOQL subset (`q=SELECT … FROM …`; `*`, `*, relation.path`, WHERE/ORDER/LIMIT)
-  - `GET /api/v1/:collection` — list (`?filter={...}&fields=&sort=&limit=&offset=&search=`)
+  - `GET /api/v1/:collection` — list (`?filter={...}&fields=&sort=&limit=&offset=&search=`; `includeDeleted=true` needs **export**; limit > 500 or unlimited needs **export**, hard cap 10_000)
   - `GET /api/v1/:collection/:id` — read one (PK or `uniqueField:value`; `?expand=children` → `_children` reverse-M2O + `_files`)
-  - `POST /api/v1/:collection` — create; `?upsert=true` (+ optional `&by=<uniqueField>`) for upsert
+  - `POST /api/v1/:collection` — create; `?upsert=true` (+ optional `&by=<uniqueField>`) for upsert (requires **create and update**; auth validated before existence lookup)
   - `PUT|PATCH /api/v1/:collection/:id` — update (PK or `uniqueField:value`)
   - `DELETE /api/v1/:collection/:id` — soft-delete; `?hard=true` hard-delete
 - REST documents: `POST /api/v1/documents/generate` — **Phase 0 stub** (HTTP 501, `code: DOCUMENTS_GENERATE_STUB`); contract only — see docs/generate-document-api.md. Interactive DocEngine in the Vue UI works; server generate for n8n is not implemented yet.
@@ -40,11 +40,24 @@ Directus (optional records backend, GraphQL only): `DIRECTUS_GRAPHQL_URL` (defau
 
 ## GraphQL (high level)
 
+**Auth (Setup / registry / reads)**
+
+- Setup and registry **mutations** (create/update/delete entity or field, layout upsert/delete, unique groups, automations, schema sync/drift, dashboards/panels, org settings) require an **admin** Bearer JWT (`adminAccess` / role admin). Unauthenticated or non-admin callers get `Admin access required`.
+- Auth: `fetchMe` accepts only **signature-verified** access JWTs (`token_use=access`, HS256). Refresh tokens are **opaque** DB rows (hashed), revoked on logout, refresh rotation, and password change — they cannot pass `verifyAccessToken`. `adminAccess` / role flags come from active `app_users` only (never JWT claims). Example/placeholder `AUTH_JWT_SECRET` values are refused at startup; provision runs `ensure-auth-jwt-secret`. No Directus env-token identity fallback.
+- Record CRUD uses object-level `assertEntityPermission`. Audit stamps use the verified `me` from that check. Nested relation / child expands receive that `me` and re-check read per related entity.
+- Matrix-excluded / PLATFORM collections (docs, Setting, user_setting, …): **admin-only** on the records API.
+- Hard delete (`deleteRecord` / REST `?hard=true`): **admin-only**; soft delete still uses object `delete`.
+- File GraphQL/`/assets` reads require auth and parent-entity read (or uploader/admin for orphans).
+- Login/refresh and public i18n/health GraphQL fields are rate-limited per client IP.
+- List / SOQL: `includeDeleted` and limits above 500 (or unlimited) require **export**; hard cap 10_000 at the policy layer and backends.
+- Resolver coverage: `resolverAccessPolicy.test.ts` fails CI if any Query/Mutation root is missing from the public / authenticated / admin / entity-permission allowlists.
+- **Sensitive reads** also require auth: `recordActivities` / `recordRevisions` / `recordFiles` use the parent entity’s **read** permission (revisions must not bypass object ACL). `file` / `files`, `users`, `roles` require a logged-in user. Registry/layout reads (`entities`, `entity`, `entitySchema`, `registrySnapshot`, `layoutSettings`) require authentication (any logged-in user; app runtime needs them).
+
 **Registry / layouts**
 
 - `health`, `languages`, `translations`, `translate`
 - `entities`, `entity`, `entitySchema`, `registrySnapshot`
-- layout settings read/upsert/delete
+- layout settings read; upsert/delete are admin-only (see above)
 
 **Records / audit**
 

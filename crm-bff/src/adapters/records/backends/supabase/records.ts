@@ -943,7 +943,11 @@ export async function postgresFindMany(
   }
 
   const whereSql = where.length ? where.join(' AND ') : 'TRUE'
-  const limit = params.limit ?? 50
+  // Hard ceiling even if callers pass limit < 0 (was LIMIT NULL = all rows).
+  const HARD_MAX_LIMIT = 10_000
+  const requested = params.limit ?? 50
+  const limit =
+    requested < 0 ? HARD_MAX_LIMIT : Math.min(Math.trunc(requested), HARD_MAX_LIMIT)
   const offset = params.offset ?? 0
   const orderSql = await compileSort(collection, relation, params.sort)
 
@@ -960,10 +964,9 @@ export async function postgresFindMany(
      WHERE ${whereSql}
      ORDER BY ${orderSql}
      LIMIT $${next} OFFSET $${next + 1}`,
-    [...sqlParams, limit < 0 ? null : limit, offset],
+    [...sqlParams, limit, offset],
   )
 
-  // LIMIT NULL means all rows in Postgres.
   return {
     nodes: rows.map((row) => toPublicRecord(row, relation, params.fields)),
     totalCount: Number(countRows[0]?.count ?? 0),

@@ -4,7 +4,7 @@
  * Contract: docs/generate-document-api.md
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { bearerToken } from '../auth/tokenClaims.js'
+import { requireAuthenticatedUser } from '../auth/accessGuards.js'
 import {
   DOCUMENTS_GENERATE_STUB_CODE,
   DocumentsGenerateStubError,
@@ -28,7 +28,9 @@ export async function registerDocumentsRestApi(
 ): Promise<void> {
   app.post('/api/v1/documents/generate', async (request, reply) => {
     const authHeader = authHeaderFromRequest(request)
-    if (!bearerToken(authHeader)) {
+    try {
+      await requireAuthenticatedUser({ authorization: authHeader })
+    } catch {
       return reply
         .status(401)
         .send({ error: 'Authorization Bearer token required' })

@@ -1,0 +1,72 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const fetchMe = vi.fn()
+const query = vi.fn()
+
+vi.mock('../adapters/usersAdapter.js', () => ({
+  fetchMe: (...args: unknown[]) => fetchMe(...args),
+}))
+
+vi.mock('../db/pool.js', () => ({
+  query: (...args: unknown[]) => query(...args),
+  pool: { query: vi.fn(), end: vi.fn() },
+}))
+
+import { assertEntityPermission } from './rolePermissions.js'
+
+describe('assertEntityPermission', () => {
+  beforeEach(() => {
+    fetchMe.mockReset()
+    query.mockReset()
+  })
+
+  it('rejects callers with no user id before special-case bypasses', async () => {
+    fetchMe.mockResolvedValue({
+      id: null,
+      adminAccess: false,
+      roleId: null,
+      roleAdminAccess: false,
+    })
+    await expect(
+      assertEntityPermission({ authorization: null }, 'files', 'read'),
+    ).rejects.toThrow('Permission denied: read on files')
+  })
+
+  it('allows authenticated users to read files without a matrix row', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'user-1',
+      adminAccess: false,
+      roleId: 'role-1',
+      roleAdminAccess: false,
+    })
+    await expect(
+      assertEntityPermission({ authorization: 'Bearer t' }, 'files', 'read'),
+    ).resolves.toMatchObject({ id: 'user-1' })
+  })
+
+  it('denies non-admin reads and writes on matrix-excluded entities', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'user-1',
+      adminAccess: false,
+      roleId: 'role-1',
+      roleAdminAccess: false,
+    })
+    await expect(
+      assertEntityPermission(
+        { authorization: 'Bearer t' },
+        'doc_template',
+        'read',
+      ),
+    ).rejects.toThrow('Permission denied: read on doc_template')
+    await expect(
+      assertEntityPermission(
+        { authorization: 'Bearer t' },
+        'doc_value',
+        'read',
+      ),
+    ).rejects.toThrow('Permission denied: read on doc_value')
+    await expect(
+      assertEntityPermission({ authorization: 'Bearer t' }, 'Setting', 'update'),
+    ).rejects.toThrow('Permission denied: update on Setting')
+  })
+})

@@ -101,6 +101,7 @@ const {
   viewDocValueId,
   viewMode,
   viewAutoSave,
+  viewAttachFile,
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
@@ -602,6 +603,8 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
       :doc-value-id="viewDocValueId"
       :view-mode="viewMode"
       :auto-save="viewAutoSave"
+      :attach-file="viewAttachFile"
+      @attached="() => void refreshRecord()"
     />
 
     <ActionNumberPromptDialog

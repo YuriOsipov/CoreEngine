@@ -75,6 +75,7 @@ const {
   viewDocValueId,
   viewMode,
   viewAutoSave,
+  viewAttachFile,
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
@@ -411,6 +412,7 @@ function emitViewRecord(row: Record<string, unknown>, relatedCollection: string)
       :doc-value-id="viewDocValueId"
       :view-mode="viewMode"
       :auto-save="viewAutoSave"
+      :attach-file="viewAttachFile"
     />
 
     <ActionNumberPromptDialog

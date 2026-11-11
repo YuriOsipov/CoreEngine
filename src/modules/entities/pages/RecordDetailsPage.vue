@@ -193,6 +193,7 @@ const viewTemplateId = ref('')
 const viewDocValueId = ref<string | null>(null)
 const viewMode = ref<'html' | 'pdf'>('html')
 const viewAutoSave = ref(false)
+const viewAttachFile = ref(false)
 const numberPromptVisible = ref(false)
 const numberPromptLabel = ref('')
 const numberPromptHeader = ref('')
@@ -761,6 +762,7 @@ function openDocumentView(
   viewDocValueId.value = docValueId ?? null
   viewMode.value = action.document?.viewMode === 'pdf' ? 'pdf' : 'html'
   viewAutoSave.value = action.document?.autoSave === true
+  viewAttachFile.value = action.document?.attachFile === true
   viewDialogVisible.value = true
 }
 
@@ -1410,6 +1412,8 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
       :doc-value-id="viewDocValueId"
       :view-mode="viewMode"
       :auto-save="viewAutoSave"
+      :attach-file="viewAttachFile"
+      @attached="() => void loadRecordDetails(detailCollectionName, detailRecordId)"
     />
 
     <ActionNumberPromptDialog

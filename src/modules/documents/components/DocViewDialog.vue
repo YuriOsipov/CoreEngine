@@ -15,7 +15,10 @@ import { useToast } from 'openvue/usetoast'
 import { currentUserRole } from '@/core/currentUser'
 import { useTranslation } from '@/core/translation'
 import type { DocEngineExportMode } from '@/interfaces/documents'
-import { buildDocumentExportFile } from '@/modules/documents/services/docExportArtifact'
+import {
+  buildDocumentExportFile,
+  uploadDocumentExportArtifact,
+} from '@/modules/documents/services/docExportArtifact'
 import {
   mountDocumentHtmlPreview,
   printDocumentHtmlPreview,
@@ -35,17 +38,21 @@ const props = withDefaults(
     docValueId?: string | null
     viewMode?: DocEngineExportMode
     autoSave?: boolean
+    /** When true, upload the generated export to the parent record Attachments. */
+    attachFile?: boolean
   }>(),
   {
     docValueId: null,
     viewMode: 'html',
     autoSave: false,
+    attachFile: false,
   },
 )
 
 const emit = defineEmits<{
   'update:visible': [value: boolean]
   saved: [docValueId: string]
+  attached: [fileId: string]
 }>()
 
 const { t } = useTranslation()
@@ -191,6 +198,60 @@ async function loadDocumentView(): Promise<void> {
       emit('saved', String(saved.id))
     }
 
+    // Fresh generation only — do not re-attach when reopening an existing doc_value.
+    if (props.attachFile && !props.docValueId) {
+      try {
+        const fileId = await uploadDocumentExportArtifact({
+          doc,
+          mode: displayMode.value,
+          title: documentName.value || t('documents.viewDocument', 'View document'),
+          parentCollection: props.collection,
+          parentId: props.recordId,
+        })
+
+        if (savedDocValueId.value && populated.fieldsExport) {
+          const snapshotId = await resolveSnapshotIdForPin(props.templateId)
+          await saveDocValue(
+            {
+              templateId: props.templateId,
+              parentCollection: props.collection,
+              parentId: props.recordId,
+              values: populated.fieldsExport,
+              documentStatus: 'completed',
+              templateSnapshotId: snapshotId,
+              completedDate: new Date().toISOString(),
+              outputFileId: fileId,
+            },
+            savedDocValueId.value,
+          )
+        }
+
+        emit('attached', fileId)
+        toast.add({
+          severity: 'success',
+          summary: t('documents.attached', 'Attached'),
+          detail: t(
+            'documents.reportAttachedDetail',
+            'Report attached to the record.',
+          ),
+          life: 3000,
+        })
+      } catch (attachErr) {
+        toast.add({
+          severity: 'warn',
+          summary: t('common.warning', 'Warning'),
+          detail:
+            attachErr instanceof Error
+              ? attachErr.message
+              : t(
+                  'documents.attachExportError',
+                  'Document saved, but export file could not be attached.',
+                ),
+          life: 7000,
+        })
+      }
+    }
+
     await paintPreview()
   } catch (err) {
     populatedDoc.value = null
@@ -298,6 +359,7 @@ watch(
       props.docValueId ?? '',
       props.viewMode,
       props.autoSave,
+      props.attachFile,
     ] as const,
   ([visible]) => {
     if (!visible) {

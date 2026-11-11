@@ -2041,14 +2041,18 @@ function isNestedPriceArraySource(source: string): boolean {
 }
 
 /**
- * `$item.name` / `$item.description` on item_price rows are often SKU or stale
- * schema fields — map to whole `$item` so Display Template label is used
- * (same name shown in the object list Item column).
+ * `$item` / `$item.name` / `$item.description` on nested `$children` price rows
+ * must resolve via Display Template (`item.__coreEngineDisplayLabel`).
+ * Bare `$item` is an object — DocEngine leaves the cell blank; name/description
+ * alone are often SKU or stale vs the list Item column.
  */
 function isItemNameCodePath(path: string): boolean {
   const { path: clean } = splitMappingPathAndFormat(path)
   const trimmed = clean.trim()
   return (
+    trimmed === '$item' ||
+    trimmed === 'item' ||
+    trimmed.endsWith('.item') ||
     trimmed === '$item.name' ||
     trimmed === 'item.name' ||
     trimmed.endsWith('.item.name') ||
@@ -2060,7 +2064,9 @@ function isItemNameCodePath(path: string): boolean {
 
 function toItemDisplayPath(path: string): string {
   const { format } = splitMappingPathAndFormat(path)
-  const next = '$item'
+  // Enrichment stamps the label on the nested item object; never bind `$item`
+  // itself under `$children` or PDF/HTML get an empty Item column.
+  const next = `$item.${COREENGINE_M2O_DISPLAY_LABEL}`
   return format ? `${next}#${format}` : next
 }
 

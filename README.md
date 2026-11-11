@@ -1,13 +1,45 @@
-# CoreEngine — multi-purpose platform
+# CoreEngine — schema-driven business application platform
 
-Vue 3 + Vite + TypeScript + OpenVue. Schema-driven objects, layouts, documents, dashboards, and reports via GraphQL BFF + Supabase registry — with domain packs for vertical starters (Sales, Clinic, Pricing, Documents).
+Vue 3 + Vite + TypeScript. Schema-driven objects, layouts, documents, dashboards, and reports via GraphQL BFF + Supabase registry — with domain packs for vertical starters (Sales, Clinic, Pricing, Documents).
+
+**CoreEngine takes the core Salesforce ideas** (custom objects, relationships, role-based layouts, record pages with related lists, and document generation) **and delivers them as a modern, self-hosted, free platform** with git-versioned domain packs — without the per-seat cost or complexity of the full Salesforce stack.
+
+Build internal and vertical applications with custom objects, relationships, role-specific forms, and document generation — without starting from a blank low-code canvas.
+
+**CoreEngine is for teams that want:**
+- A real data model they control (custom objects + relationships)
+- Different edit/view forms per role (Sales Rep vs Manager vs Pricing)
+- Domain starters they can version in git (Sales + Pricing, Clinic, Documents)
+- Document generation and price-list trees as first-class features
+- A GraphQL + REST API they can automate with n8n
+
+**It is not trying to be:**
+- A full enterprise Salesforce replacement (security, AppExchange, and automation depth still differ)
+- A polished out-of-the-box CRM like Twenty
+- A free-form internal-tools canvas like Retool
+- A no-code workflow product with a visual multi-step designer (use n8n on top of CoreEngine)
+
+### Quick comparison
+
+| Need | CoreEngine | Twenty | Retool | Salesforce |
+|------|------------|--------|--------|------------|
+| Custom objects + relationships | Strong | Strong | Query existing data | Excellent |
+| Role-specific forms / layouts | First-class | Permissions-focused | Build separate UIs | Excellent |
+| CRM pipeline + email/calendar | Starter pack | Strong | Build it | Excellent |
+| Campaign → promo pricing engine | Built-in | Custom objects | Build it | Custom / AppExchange |
+| Document generation (PDF/HTML) | DocEngine | Limited | Build it | Good (packages) |
+| Visual multi-step workflows | Via n8n | Built-in + AI agents | Built-in | Flow + Apex |
+| Config as code (packs in git) | Yes | Emerging | App source | Metadata / DX |
+| Price | Free / self-hosted | Free / paid cloud | Paid | Expensive |
+
+---
 
 ## Capability overview
 
 How CoreEngine maps to common platform checklist items today:
 
 | Area | CoreEngine today |
-|------|-------------|
+|------|------------------|
 | **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks** (scheduled jobs). Visual multi-step designer lives in **n8n** (or similar), not inside CoreEngine. |
 | **Permissions** | Partial — granular **roles** with **object**-level create/read/update/delete/import/export. No field-level or record-level (sharing/owner) security yet; layout show/readonly rules are UI/record-value, not FLS. |
 | **Authentication** | Partial — local email/password via BFF JWT (`/auth/login`, refresh). **No** SSO / OAuth / MFA / enterprise IdP yet. |
@@ -15,14 +47,20 @@ How CoreEngine maps to common platform checklist items today:
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
 | **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, in-process **scheduled jobs**. Failures are logged only. |
 | **Reliable automation** | **Open (critical)** — no durable job queue, retry policies, dead-letter queue, execution history / monitoring, or idempotency keys yet. For resilient multi-step runs, use **n8n** (or similar) against CoreEngine APIs today. |
-| **Validation & business rules** | **Open** — field required / unique / unique groups and record-automation conditions exist; no first-class configurable validation rules engine or declarative business-rule designer beyond that. |
+| **Validation & business rules** | Partial — field required / unique / unique groups exist. Record automations (conditions + notify / set fields / break) are commonly used for validation rules today. No dedicated validation-rules designer or field-level error blocking yet. |
 | **Admin config audit** | **Open** — record **Activity & Revision Tracking** covers business data; no audit history yet for administrative configuration changes (entities, fields, layouts, roles, automations, etc.). |
 | **Integrations** | Partial — GraphQL BFF + REST CRUD, SOQL-style `/api/v1/query`, document generate, n8n runbook, optional Hasura/Directus record backends. No first-party SaaS connector catalog. |
+
+---
 
 ## Features
 
 ### Schema-driven UI
 - Object Manager, role-scoped Block Layouts, list/tree/table designers, and Form Builder canvas.
+- **Per-role edit and view forms** — different layouts for each user group on the same object.
+- **Tree navigation + master-detail** — hierarchical group trees (e.g. Item Groups) with filtered lists and related-detail panels (Item → Item Prices) without custom code.
+- **Batch insert** — multi-select related records (e.g. Opportunity Items) from a hierarchical catalog with automatic price resolution and running totals.
+- **In-context edit dialogs** — open create/edit forms in a modal on the same list or detail page without full navigation.
 - **Custom palette blocks** (Attachments, DocEngine, Tree table picker, Scheduler) can be placed more than once on a Block Layout — they stay available after drop.
 - Block Layout **show / readonly conditions** on fields and groups (visibility and editability driven by record values).
 - **Inline editor** in object / related lists for editing cells without opening the record.
@@ -47,8 +85,10 @@ How CoreEngine maps to common platform checklist items today:
 ### Documents & list reports
 - Setup → Document Templates with Field Mapping against live or sample `$payload`.
 - **List Document report** actions build one DocEngine document from filtered / visible list rows (`$payload.records`, `$payload.meta.filter`).
+- **Tree-aware price lists** — generate grouped Price List documents (by Item Group hierarchy) for a selected Price Group directly from the Item Price list.
 - HTML and PDF preview expand **array-sourced sections** so each mapped group instance renders (not only the first).
 - Server generate for automations: `POST /api/v1/documents/generate` ([`docs/generate-document-api.md`](docs/generate-document-api.md)).
+- **Cross-object files (D2D)** — attach and link the same files across different objects and related records.
 
 ### Reports
 - Pivot / report views with a **drill-down** option to open the source records behind a summarized cell.
@@ -73,11 +113,22 @@ How CoreEngine maps to common platform checklist items today:
 - Pack JSON (entities, roles, layouts, optional records) is the portable baseline — export from a live DB with `npm run platform:export-pack`, version in git, apply with provision / `platform:apply-pack`.
 - **CoreEngine Sales** (`sales` + `pricing`) is the commercial CRM/catalog starter; see [`supabase/README.md`](supabase/README.md) and [`supabase/domains/sales/README.md`](supabase/domains/sales/README.md).
 
+### Data layer
+- **Registry (schema, layouts, roles, packs)** — Supabase (`crm_schema`) exposed via GraphQL BFF + HTTP API.
+- **Live records** — pluggable backends selected per entity (`backend_target`):
+  - Supabase
+  - PLATFORM (native)
+  - Hasura
+  - Directus  
+  All accessed through a unified GraphQL interface.
+
 ### Integrations (BFF REST / GraphQL)
 - Bearer JWT records API: `/api/v1/:collection` CRUD (PK or `uniqueField:value`), SOQL-style `GET|POST /api/v1/query`, and `POST /api/v1/documents/generate`.
 - **Record + children in one call:** `GET /api/v1/:collection/:id?expand=children` returns the parent plus `_children` (every entity with an M2O FK to that record, e.g. Opportunity → `quote`) and `_files` (attachments). Optional `childLimit`, `expand=children,nofiles`.
-- GraphQL at `/graphql` for the Vue app and advanced clients; optional Hasura / Directus as entity record backends.
+- GraphQL at `/graphql` for the Vue app and advanced clients.
 - n8n: webhook ← CoreEngine flow key; login + REST/GraphQL write-back. Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
+
+---
 
 ## Setup
 

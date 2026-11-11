@@ -24,6 +24,7 @@ const viewMode = computed<DocEngineExportMode>(() =>
   route.query.mode === 'pdf' ? 'pdf' : 'html',
 )
 const autoSave = computed(() => route.query.autoSave === '1')
+const attachFile = computed(() => route.query.attachFile === '1')
 
 const visible = ref(true)
 
@@ -47,6 +48,7 @@ watch(visible, (open) => {
       :doc-value-id="docValueId"
       :view-mode="viewMode"
       :auto-save="autoSave"
+      :attach-file="attachFile"
     />
   </main>
 </template>

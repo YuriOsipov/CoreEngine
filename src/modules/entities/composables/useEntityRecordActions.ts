@@ -46,6 +46,7 @@ export function useEntityRecordActions(options: {
   const viewDocValueId = ref<string | null>(null)
   const viewMode = ref<DocEngineExportMode>('html')
   const viewAutoSave = ref(false)
+  const viewAttachFile = ref(false)
 
   const numberPromptVisible = ref(false)
   const numberPromptLabel = ref('')
@@ -184,6 +185,7 @@ export function useEntityRecordActions(options: {
     viewDocValueId.value = docValueId ?? null
     viewMode.value = action.document?.viewMode === 'pdf' ? 'pdf' : 'html'
     viewAutoSave.value = action.document?.autoSave === true
+    viewAttachFile.value = action.document?.attachFile === true
     viewDialogVisible.value = true
   }
 
@@ -413,6 +415,7 @@ export function useEntityRecordActions(options: {
     viewDocValueId,
     viewMode,
     viewAutoSave,
+    viewAttachFile,
     numberPromptVisible,
     numberPromptLabel,
     numberPromptHeader,

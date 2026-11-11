@@ -882,6 +882,7 @@ function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityA
             skipInteractiveFill: action.document?.skipInteractiveFill === true,
             viewMode: action.document?.viewMode === 'pdf' ? 'pdf' : 'html',
             autoSave: action.document?.autoSave === true,
+            attachFile: action.document?.attachFile === true,
           },
         }
       }

@@ -335,6 +335,8 @@ export interface EntityActionDocumentSettings {
   viewMode?: EntityActionDocumentViewMode
   /** Persist generated values to doc_value after population. */
   autoSave?: boolean
+  /** Upload the generated PDF/HTML export to the record Attachments. */
+  attachFile?: boolean
 }
 
 /** Configurable button/link shown on entity record pages. */

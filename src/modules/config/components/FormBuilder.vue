@@ -1030,6 +1030,7 @@ const configActionDisplayType = computed({
           skipInteractiveFill: selectedAction.value?.document?.skipInteractiveFill ?? false,
           viewMode: selectedAction.value?.document?.viewMode ?? 'html',
           autoSave: selectedAction.value?.document?.autoSave ?? false,
+          attachFile: selectedAction.value?.document?.attachFile ?? false,
         },
         flow: undefined,
         payload: undefined,
@@ -1246,6 +1247,12 @@ const configActionAutoSave = computed({
   get: () => selectedAction.value?.document?.autoSave ?? false,
   set: (autoSave: boolean) => {
     updateSelectedActionDocument({ autoSave })
+  },
+})
+const configActionAttachFile = computed({
+  get: () => selectedAction.value?.document?.attachFile ?? false,
+  set: (attachFile: boolean) => {
+    updateSelectedActionDocument({ attachFile })
   },
 })
 const canSkipInteractiveFill = computed(
@@ -1585,6 +1592,7 @@ function updateSelectedActionDocument(
       skipInteractiveFill: selectedAction.value.document?.skipInteractiveFill ?? false,
       viewMode: selectedAction.value.document?.viewMode ?? 'html',
       autoSave: selectedAction.value.document?.autoSave ?? false,
+      attachFile: selectedAction.value.document?.attachFile ?? false,
       ...patch,
     },
   })
@@ -2950,6 +2958,16 @@ function hintTooltip(value: string) {
               <span>{{ t('formBuilder.autoSaveDocument', 'Save document after generation') }}</span>
               <ToggleSwitch v-model="configActionAutoSave" />
             </div>
+            <div class="properties-switch">
+              <span>{{ t('formBuilder.attachGeneratedFile', 'Save report as attached file') }}</span>
+              <ToggleSwitch v-model="configActionAttachFile" />
+            </div>
+            <button
+              type="button"
+              class="property-hint"
+              v-tooltip.bottom="hintTooltip(t('formBuilder.attachGeneratedFileHint', 'Upload the generated PDF or HTML export to this record’s Attachments.'))"
+              :aria-label="t('formBuilder.attachGeneratedFileHint', 'Upload the generated PDF or HTML export to this record’s Attachments.')"
+            />
           </template>
         </template>
 

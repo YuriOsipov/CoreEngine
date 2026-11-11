@@ -49,6 +49,7 @@ Directus (optional records backend, GraphQL only): `DIRECTUS_GRAPHQL_URL` (defau
 - Hard delete (`deleteRecord` / REST `?hard=true`): **admin-only**; soft delete still uses object `delete`.
 - File GraphQL/`/assets` reads require auth and parent-entity read (or uploader/admin for orphans).
 - Login/refresh and public i18n/health GraphQL fields are rate-limited per client IP.
+- Users with `must_change_password` can only call change-password and GraphQL `me` until the flag is cleared — other REST/GraphQL routes return 403.
 - List / SOQL: `includeDeleted` and limits above 500 (or unlimited) require **export**; hard cap 10_000 at the policy layer and backends.
 - Resolver coverage: `resolverAccessPolicy.test.ts` fails CI if any Query/Mutation root is missing from the public / authenticated / admin / entity-permission allowlists.
 - **Sensitive reads** also require auth: `recordActivities` / `recordRevisions` / `recordFiles` use the parent entity’s **read** permission (revisions must not bypass object ACL). `file` / `files`, `users`, `roles` require a logged-in user. Registry/layout reads (`entities`, `entity`, `entitySchema`, `registrySnapshot`, `layoutSettings`) require authentication (any logged-in user; app runtime needs them).

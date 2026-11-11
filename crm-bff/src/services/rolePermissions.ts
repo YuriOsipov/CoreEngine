@@ -1,6 +1,6 @@
 import { query, withTransaction } from '../db/pool.js'
-import type { MeUser } from '../adapters/usersAdapter.js'
-import { fetchMe } from '../adapters/usersAdapter.js'
+import { PASSWORD_CHANGE_REQUIRED } from '../auth/accessGuards.js'
+import { fetchMe, type MeUser } from '../adapters/usersAdapter.js'
 import { REGISTRY_PLATFORM_ENTITIES } from '../schema/platformEntities.js'
 
 // Permission checks currently hit Postgres several times (role resolve + flags).
@@ -249,6 +249,10 @@ export async function assertMeEntityPermission(
   if (!entity) throw new Error('entity is required')
   if (!me?.id) {
     throw new Error(`Permission denied: ${action} on ${entity}`)
+  }
+  // Forced password change applies to everyone (including admins) until cleared.
+  if (me.mustChangePassword) {
+    throw new Error(PASSWORD_CHANGE_REQUIRED)
   }
   // roleAdminAccess is loaded from app_roles.is_admin in postgresFetchMe —
   // no second isRoleAdmin query needed here.

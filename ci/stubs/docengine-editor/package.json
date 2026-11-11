@@ -1,0 +1,17 @@
+{
+  "name": "@docengine/editor",
+  "version": "0.0.0-ci-stub",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./styles.css": "./styles.css",
+    "./themes/bridge.css": "./themes/bridge.css",
+    "./themes/prime.css": "./themes/prime.css"
+  }
+}

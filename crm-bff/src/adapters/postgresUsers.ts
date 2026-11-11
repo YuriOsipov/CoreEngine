@@ -173,6 +173,7 @@ export interface PostgresMeUser {
   roleId: string | null
   roleName: string | null
   roleAdminAccess: boolean
+  mustChangePassword: boolean
 }
 
 /**
@@ -192,6 +193,7 @@ export async function postgresFetchMe(backendUserId: string): Promise<PostgresMe
     role_id: string | null
     role_name: string | null
     is_admin: boolean | null
+    must_change_password: boolean | null
   }>(
     `SELECT u.backend_user_id AS id,
             u.first_name,
@@ -199,9 +201,11 @@ export async function postgresFetchMe(backendUserId: string): Promise<PostgresMe
             u.email,
             COALESCE(NULLIF(r.backend_role_id, ''), r.id::text) AS role_id,
             r.name AS role_name,
-            COALESCE(r.is_admin, false) AS is_admin
+            COALESCE(r.is_admin, false) AS is_admin,
+            COALESCE(c.must_change_password, false) AS must_change_password
      FROM public.app_users u
      LEFT JOIN public.app_roles r ON r.id = u.role_id
+     LEFT JOIN public.app_user_credentials c ON c.user_id = u.id
      WHERE u.backend_user_id = $1
        AND u.is_active = true
      LIMIT 1`,
@@ -219,6 +223,7 @@ export async function postgresFetchMe(backendUserId: string): Promise<PostgresMe
     roleId: row.role_id,
     roleName: row.role_name?.trim() || null,
     roleAdminAccess: isAdmin,
+    mustChangePassword: row.must_change_password === true,
   }
 }
 

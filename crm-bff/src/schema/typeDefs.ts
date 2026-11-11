@@ -710,6 +710,7 @@ export const typeDefs = /* GraphQL */ `
     roleId: ID
     roleName: String
     roleAdminAccess: Boolean!
+    mustChangePassword: Boolean!
   }
 
   type RecentRecordView {

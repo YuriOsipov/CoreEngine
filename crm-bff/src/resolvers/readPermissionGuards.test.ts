@@ -28,6 +28,7 @@ describe('assertEntityPermission auth gate', () => {
       roleId: null,
       roleName: null,
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       assertEntityPermission({ authorization: 'Bearer x' }, 'files', 'read'),
@@ -55,6 +56,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: false,
       roleId: null,
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       requireAuthenticatedUser({ authorization: 'Bearer junk' }),
@@ -75,6 +77,7 @@ describe('sensitive read resolvers require auth / entity read', () => {
       roleId: null,
       roleName: null,
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
   })
 

@@ -220,9 +220,10 @@ app.post('/auth/change-password', async (request, reply) => {
 
   let me
   try {
-    me = await requireAuthenticatedUser({
-      authorization: authHeaderFromFastify(request),
-    })
+    me = await requireAuthenticatedUser(
+      { authorization: authHeaderFromFastify(request) },
+      { allowPasswordChange: true },
+    )
   } catch {
     return reply.status(401).send({ error: 'Authentication required' })
   }
@@ -286,7 +287,11 @@ function sendSafeHttpError(
   status = 502,
 ) {
   const message = error instanceof Error ? error.message : fallback
-  if (/permission denied|authentication required/i.test(message)) {
+  if (
+    /permission denied|authentication required|password change required/i.test(
+      message,
+    )
+  ) {
     return reply.status(403).send({ error: message })
   }
   if (/not found/i.test(message)) {

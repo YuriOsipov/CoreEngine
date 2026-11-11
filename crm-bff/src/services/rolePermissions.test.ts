@@ -12,6 +12,7 @@ vi.mock('../db/pool.js', () => ({
   pool: { query: vi.fn(), end: vi.fn() },
 }))
 
+import { PASSWORD_CHANGE_REQUIRED } from '../auth/accessGuards.js'
 import { assertEntityPermission } from './rolePermissions.js'
 
 describe('assertEntityPermission', () => {
@@ -26,6 +27,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: null,
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       assertEntityPermission({ authorization: null }, 'files', 'read'),
@@ -38,10 +40,24 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       assertEntityPermission({ authorization: 'Bearer t' }, 'files', 'read'),
     ).resolves.toMatchObject({ id: 'user-1' })
+  })
+
+  it('blocks entity access while must_change_password is set', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'user-1',
+      adminAccess: true,
+      roleId: 'role-admin',
+      roleAdminAccess: true,
+      mustChangePassword: true,
+    })
+    await expect(
+      assertEntityPermission({ authorization: 'Bearer t' }, 'account', 'read'),
+    ).rejects.toThrow(PASSWORD_CHANGE_REQUIRED)
   })
 
   it('denies non-admin reads and writes on matrix-excluded entities', async () => {
@@ -50,6 +66,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       assertEntityPermission(

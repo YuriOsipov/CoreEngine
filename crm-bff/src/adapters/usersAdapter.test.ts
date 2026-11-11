@@ -71,6 +71,7 @@ describe('fetchMe JWT verification', () => {
       roleId: 'role-admin',
       roleName: 'Admin',
       roleAdminAccess: true,
+      mustChangePassword: false,
     })
 
     const me = await fetchMe({ authorization: `Bearer ${forged}` })
@@ -93,6 +94,7 @@ describe('fetchMe JWT verification', () => {
       roleId: 'role-1',
       roleName: 'Sales',
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
 
     const me = await fetchMe({ authorization: `Bearer ${token}` })
@@ -100,6 +102,7 @@ describe('fetchMe JWT verification', () => {
       id: 'user-1',
       adminAccess: false,
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     expect(postgresFetchMe).toHaveBeenCalledWith('user-1')
   })

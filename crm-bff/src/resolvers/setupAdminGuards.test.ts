@@ -46,6 +46,7 @@ describe('Setup / registry mutations require admin', () => {
       roleId: 'role-empty',
       roleName: 'Empty',
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       resolvers.Mutation.createRegistryEntity(

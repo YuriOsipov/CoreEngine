@@ -201,7 +201,7 @@ npm --prefix crm-bff test
 npm --prefix crm-bff run typecheck
 ```
 
-GitHub Actions runs BFF typecheck + tests and app unit tests on `main`. Full Vue `npm run build` is not gated yet (needs sibling DocEngine). Coverage is still expanding (permissions/auth guards are the current focus).
+GitHub Actions runs BFF typecheck + tests, app unit tests, and Vue `npm run build:ci` (`vite build`) on `main`. CI swaps the sibling `file:../docEngine` dependency for in-repo stubs under `ci/stubs/` so the production bundle is gated without publishing DocEngine. Full `vue-tsc -b && vite build` remains local until the typecheck debt is cleared.
 
 ### Environment (live)
 

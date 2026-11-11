@@ -855,7 +855,7 @@ export const resolvers = {
       _: unknown,
       __: unknown,
       ctx: GraphQlAuthContext,
-    ) => requireAuthenticatedUser(ctx),
+    ) => requireAuthenticatedUser(ctx, { allowPasswordChange: true }),
 
     users: async (
       _: unknown,

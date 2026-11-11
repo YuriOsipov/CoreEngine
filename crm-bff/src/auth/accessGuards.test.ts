@@ -6,7 +6,11 @@ vi.mock('../adapters/usersAdapter.js', () => ({
   fetchMe: (...args: unknown[]) => fetchMe(...args),
 }))
 
-import { requireAdminAccess, requireAuthenticatedUser } from './accessGuards.js'
+import {
+  PASSWORD_CHANGE_REQUIRED,
+  requireAdminAccess,
+  requireAuthenticatedUser,
+} from './accessGuards.js'
 
 describe('requireAuthenticatedUser', () => {
   beforeEach(() => {
@@ -26,10 +30,40 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: false,
       roleId: null,
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       requireAuthenticatedUser({ authorization: 'Bearer junk' }),
     ).rejects.toThrow('Authentication required')
+  })
+
+  it('blocks API use while must_change_password is set', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'u1',
+      adminAccess: true,
+      roleId: 'r1',
+      roleAdminAccess: true,
+      mustChangePassword: true,
+    })
+    await expect(
+      requireAuthenticatedUser({ authorization: 'Bearer t' }),
+    ).rejects.toThrow(PASSWORD_CHANGE_REQUIRED)
+  })
+
+  it('allows change-password / me when allowPasswordChange is set', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'u1',
+      adminAccess: false,
+      roleId: 'r1',
+      roleAdminAccess: false,
+      mustChangePassword: true,
+    })
+    const me = await requireAuthenticatedUser(
+      { authorization: 'Bearer t' },
+      { allowPasswordChange: true },
+    )
+    expect(me.id).toBe('u1')
+    expect(me.mustChangePassword).toBe(true)
   })
 })
 
@@ -44,6 +78,7 @@ describe('requireAdminAccess', () => {
       adminAccess: false,
       roleId: 'r1',
       roleAdminAccess: false,
+      mustChangePassword: false,
     })
     await expect(
       requireAdminAccess({ authorization: 'Bearer t' }),

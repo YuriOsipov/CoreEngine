@@ -11,6 +11,8 @@ export interface MeUser {
   roleId: string | null
   roleName: string | null
   roleAdminAccess: boolean
+  /** From app_user_credentials — blocks API until changed (except change-password / me). */
+  mustChangePassword: boolean
 }
 
 interface ListUsersOptions {
@@ -43,6 +45,7 @@ function emptyMe(): MeUser {
     roleId: null,
     roleName: null,
     roleAdminAccess: false,
+    mustChangePassword: false,
   }
 }
 

@@ -27,7 +27,10 @@ import {
 } from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { writeAuditEntry } from '../audit/auditService.js'
-import { requireAuthenticatedUser } from '../auth/accessGuards.js'
+import {
+  PASSWORD_CHANGE_REQUIRED,
+  requireAuthenticatedUser,
+} from '../auth/accessGuards.js'
 import { loadEntityUniqueGroups } from '../schema/uniqueGroups.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 import {
@@ -53,7 +56,12 @@ async function requireAuth(
 ): Promise<MeUser | null> {
   try {
     return await requireAuthenticatedUser({ authorization: authHeader })
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message === PASSWORD_CHANGE_REQUIRED) {
+      void reply.status(403).send({ error: PASSWORD_CHANGE_REQUIRED })
+      return null
+    }
     void reply.status(401).send({ error: 'Authorization Bearer token required' })
     return null
   }
@@ -133,7 +141,11 @@ async function sendRecordError(
   if (/not found/i.test(message)) {
     return reply.status(404).send({ error: message })
   }
-  if (/permission denied|authentication|unauthorized|invalid token/i.test(message)) {
+  if (
+    /permission denied|authentication|unauthorized|invalid token|password change required/i.test(
+      message,
+    )
+  ) {
     return reply.status(403).send({ error: message })
   }
   if (error instanceof SoqlParseError) {

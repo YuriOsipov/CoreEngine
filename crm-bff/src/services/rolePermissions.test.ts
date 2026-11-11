@@ -42,8 +42,7 @@ describe('assertEntityPermission', () => {
       roleAdminAccess: false,
       mustChangePassword: false,
     })
-    query.mockResolvedValueOnce([{ id: 'role-uuid' }]) // resolveAppRoleId
-    query.mockResolvedValueOnce([]) // loadPermissionFlags → deny
+    query.mockResolvedValueOnce([]) // joined role + flags → deny
     await expect(
       assertEntityPermission({ authorization: 'Bearer t' }, 'files', 'read'),
     ).rejects.toThrow('Permission denied: read on files')

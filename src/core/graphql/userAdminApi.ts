@@ -247,6 +247,10 @@ export interface RolePermissionDto {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  /** Highest field sensitivity tier readable (0 none, 1 restricted, 2 confidential). */
+  maxReadSensitivity: number
+  /** Highest field sensitivity tier editable; never above read. */
+  maxEditSensitivity: number
 }
 
 export interface PermissionEntityDto {
@@ -265,6 +269,8 @@ const ROLE_PERMISSIONS_QUERY = /* GraphQL */ `
       canDelete
       canImport
       canExport
+      maxReadSensitivity
+      maxEditSensitivity
     }
   }
 `
@@ -292,6 +298,8 @@ const REPLACE_ROLE_PERMISSIONS = /* GraphQL */ `
       canDelete
       canImport
       canExport
+      maxReadSensitivity
+      maxEditSensitivity
     }
   }
 `

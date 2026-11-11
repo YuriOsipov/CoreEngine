@@ -2,9 +2,14 @@ import { query, withTransaction } from '../db/pool.js'
 import { PASSWORD_CHANGE_REQUIRED } from '../auth/accessGuards.js'
 import { fetchMe, type MeUser } from '../adapters/usersAdapter.js'
 import { REGISTRY_PLATFORM_ENTITIES } from '../schema/platformEntities.js'
+import {
+  clampSensitivity,
+  clearFieldSecurityCache,
+  MAX_SENSITIVITY,
+} from './fieldSecurity.js'
 
-// Permission checks currently hit Postgres several times (role resolve + flags).
-// Cache per-request / short TTL later if this becomes hot.
+// Entity checks resolve the role and the matrix row in one statement.
+// `me.roleId` is either app_roles.backend_role_id or app_roles.id::text.
 
 export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'import' | 'export'
 
@@ -33,6 +38,10 @@ export interface RolePermissionRow {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  /** Highest fields.sensitivity tier this role may read (0 = none). */
+  maxReadSensitivity: number
+  /** Highest fields.sensitivity tier this role may edit; never above read. */
+  maxEditSensitivity: number
 }
 
 export interface RolePermissionInput {
@@ -43,6 +52,23 @@ export interface RolePermissionInput {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  maxReadSensitivity?: number | null
+  maxEditSensitivity?: number | null
+}
+
+/** Admin-equivalent matrix row (full CRUD, every sensitivity tier). */
+export function fullAccessPermissionRow(entityApiName: string): RolePermissionRow {
+  return {
+    entityApiName,
+    canCreate: true,
+    canRead: true,
+    canUpdate: true,
+    canDelete: true,
+    canImport: true,
+    canExport: true,
+    maxReadSensitivity: MAX_SENSITIVITY,
+    maxEditSensitivity: MAX_SENSITIVITY,
+  }
 }
 
 /** Resolve app_roles.id from me.roleId (backend_role_id or uuid). */
@@ -75,9 +101,11 @@ export async function listRolePermissions(
     can_delete: boolean
     can_import: boolean
     can_export: boolean
+    max_read_sensitivity: number | null
+    max_edit_sensitivity: number | null
   }>(
     `SELECT entity_api_name, can_create, can_read, can_update, can_delete,
-            can_import, can_export
+            can_import, can_export, max_read_sensitivity, max_edit_sensitivity
      FROM public.role_permissions
      WHERE role_id = $1::uuid
      ORDER BY entity_api_name ASC`,
@@ -92,6 +120,8 @@ export async function listRolePermissions(
     canDelete: Boolean(row.can_delete),
     canImport: Boolean(row.can_import),
     canExport: Boolean(row.can_export),
+    maxReadSensitivity: clampSensitivity(row.max_read_sensitivity),
+    maxEditSensitivity: clampSensitivity(row.max_edit_sensitivity),
   }))
 }
 
@@ -104,15 +134,20 @@ export async function replaceRolePermissions(
   if (!appRoleId) throw new Error(`Role not found: ${roleId}`)
 
   const cleaned = permissions
-    .map((row) => ({
-      entityApiName: String(row.entityApiName || '').trim(),
-      canCreate: Boolean(row.canCreate),
-      canRead: Boolean(row.canRead),
-      canUpdate: Boolean(row.canUpdate),
-      canDelete: Boolean(row.canDelete),
-      canImport: Boolean(row.canImport),
-      canExport: Boolean(row.canExport),
-    }))
+    .map((row) => {
+      const maxRead = clampSensitivity(row.maxReadSensitivity)
+      return {
+        entityApiName: String(row.entityApiName || '').trim(),
+        canCreate: Boolean(row.canCreate),
+        canRead: Boolean(row.canRead),
+        canUpdate: Boolean(row.canUpdate),
+        canDelete: Boolean(row.canDelete),
+        canImport: Boolean(row.canImport),
+        canExport: Boolean(row.canExport),
+        maxReadSensitivity: maxRead,
+        maxEditSensitivity: Math.min(clampSensitivity(row.maxEditSensitivity), maxRead),
+      }
+    })
     .filter(
       (row) =>
         row.entityApiName && !ROLE_PERMISSION_EXCLUDED_ENTITIES.has(row.entityApiName),
@@ -142,8 +177,8 @@ export async function replaceRolePermissions(
       await tx(
         `INSERT INTO public.role_permissions (
            role_id, entity_api_name, can_create, can_read, can_update, can_delete,
-           can_import, can_export
-         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`,
+           can_import, can_export, max_read_sensitivity, max_edit_sensitivity
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           appRoleId,
           row.entityApiName,
@@ -153,10 +188,13 @@ export async function replaceRolePermissions(
           row.canDelete,
           row.canImport,
           row.canExport,
+          row.maxReadSensitivity,
+          row.maxEditSensitivity,
         ],
       )
     }
   })
+  clearFieldSecurityCache()
 
   return listRolePermissions(appRoleId)
 }
@@ -195,17 +233,25 @@ export async function isRoleAdmin(roleRef: string | null | undefined): Promise<b
   return Boolean(rows[0]?.is_admin)
 }
 
-async function loadPermissionFlags(
-  appRoleId: string,
-  entityApiName: string,
-): Promise<{
+type PermissionFlags = {
   canCreate: boolean
   canRead: boolean
   canUpdate: boolean
   canDelete: boolean
   canImport: boolean
   canExport: boolean
-} | null> {
+}
+
+/**
+ * One round trip: match app_roles by backend_role_id or id, then the matrix row.
+ * Missing role and missing row both return null (deny).
+ */
+async function loadPermissionFlags(
+  roleRef: string | null | undefined,
+  entityApiName: string,
+): Promise<PermissionFlags | null> {
+  const raw = String(roleRef || '').trim()
+  if (!raw) return null
   const rows = await query<{
     can_create: boolean
     can_read: boolean
@@ -214,11 +260,14 @@ async function loadPermissionFlags(
     can_import: boolean
     can_export: boolean
   }>(
-    `SELECT can_create, can_read, can_update, can_delete, can_import, can_export
-     FROM public.role_permissions
-     WHERE role_id = $1::uuid AND entity_api_name = $2
+    `SELECT p.can_create, p.can_read, p.can_update, p.can_delete,
+            p.can_import, p.can_export
+     FROM public.app_roles r
+     JOIN public.role_permissions p ON p.role_id = r.id
+     WHERE (r.backend_role_id = $1 OR r.id::text = $1)
+       AND p.entity_api_name = $2
      LIMIT 1`,
-    [appRoleId, entityApiName],
+    [raw, entityApiName],
   )
   const row = rows[0]
   if (!row) return null
@@ -271,12 +320,7 @@ export async function assertMeEntityPermission(
     return me
   }
 
-  const appRoleId = await resolveAppRoleId(me.roleId)
-  if (!appRoleId) {
-    throw new Error(`Permission denied: ${action} on ${entity}`)
-  }
-
-  const flags = await loadPermissionFlags(appRoleId, entity)
+  const flags = await loadPermissionFlags(me.roleId, entity)
   const allowed = flags
     ? action === 'create'
       ? flags.canCreate
@@ -304,13 +348,15 @@ export async function assertMeEntityPermission(
 export async function readableEntityNames(me: MeUser): Promise<Set<string> | null> {
   if (me.adminAccess || me.roleAdminAccess) return null
   const out = new Set<string>(['users', 'roles'])
-  const appRoleId = await resolveAppRoleId(me.roleId)
-  if (!appRoleId) return out
+  const roleRef = String(me.roleId || '').trim()
+  if (!roleRef) return out
   const rows = await query<{ entity_api_name: string }>(
-    `SELECT entity_api_name
-     FROM public.role_permissions
-     WHERE role_id = $1::uuid AND can_read = true`,
-    [appRoleId],
+    `SELECT p.entity_api_name
+     FROM public.app_roles r
+     JOIN public.role_permissions p ON p.role_id = r.id
+     WHERE (r.backend_role_id = $1 OR r.id::text = $1)
+       AND p.can_read = true`,
+    [roleRef],
   )
   for (const row of rows) {
     if (!ROLE_PERMISSION_EXCLUDED_ENTITIES.has(row.entity_api_name)) {

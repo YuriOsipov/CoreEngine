@@ -17,6 +17,8 @@ export interface RecordsListParams {
   includeDeleted?: boolean
   /** When set, nested relation / child loads are gated per related entity. */
   access?: RecordAccess | null
+  /** Columns the caller cannot read — excluded from list `search` matching. */
+  searchExcludeFields?: string[] | null
 }
 
 export interface RecordsListResult {

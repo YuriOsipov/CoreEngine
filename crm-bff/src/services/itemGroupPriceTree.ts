@@ -1,4 +1,5 @@
 import { findManyRecords } from '../adapters/records/facade.js'
+import type { RecordAccess } from '../adapters/records/types.js'
 import {
   fkIdFromValue,
   loadM2ORelations,
@@ -56,6 +57,8 @@ export interface ItemGroupPriceTreeQueryArgs {
   fields?: string[] | null
   flatten?: boolean | null
   config?: ItemGroupPriceTreeConfig | Record<string, unknown> | null
+  /** Verified caller — field-level security applies to both collections. */
+  access?: RecordAccess | null
 }
 
 interface HierarchyNode {
@@ -459,11 +462,13 @@ export async function loadItemGroupPriceTree(
       fields: ['id', resolved.groupLabelField, resolved.groupParentField],
       sort: [resolved.groupLabelField],
       limit: -1,
+      access: args.access ?? undefined,
     }),
     findManyRecords(resolved.itemPriceCollection, {
       fields: requestedFields,
       filter: priceFilter,
       limit: -1,
+      access: args.access ?? undefined,
     }),
   ])
 

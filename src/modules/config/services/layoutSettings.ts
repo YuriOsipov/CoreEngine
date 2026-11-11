@@ -779,9 +779,9 @@ async function normalizeLayoutSchema(
         ...section,
         groups: section.groups.map((group) => ({
           ...group,
-          fields: group.fields.map((field) =>
-            normalizeLayoutField(field, fieldByName, relations),
-          ),
+          fields: group.fields
+            .filter((field) => !fieldByName.get(field.field)?.meta?.restricted)
+            .map((field) => normalizeLayoutField(field, fieldByName, relations)),
         })),
       })),
     }

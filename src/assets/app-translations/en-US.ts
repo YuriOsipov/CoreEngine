@@ -668,6 +668,12 @@ const messages = {
       canDelete: 'Delete',
       canImport: 'Import',
       canExport: 'Export',
+      sensitiveRead: 'Sensitive read',
+      sensitiveReadHint:
+        'Highest field sensitivity this role can see on the object. Fields above it are never returned by the API.',
+      sensitiveEdit: 'Sensitive edit',
+      sensitiveEditHint:
+        'Highest field sensitivity this role can change. Cannot exceed Sensitive read.',
       toggleColumnHint: 'Click to toggle this column for all filtered objects',
       noEntities: 'No objects found.',
       permissionsLoadError: 'Failed to load permissions',
@@ -769,6 +775,9 @@ const messages = {
       useInSearch: 'Use in search',
       useInSearchHint:
         'When enabled, list search matches the related object Display Template (not the raw ID).',
+      securityLevel: 'Field security level',
+      securityLevelHint:
+        'Restricted and Confidential fields are only returned by the API to roles granted that level in Setup → Roles (Sensitive read / Sensitive edit). Administrators always see them. Avoid using sensitive fields in the Display Template.',
       interface: 'Interface',
       ifaceText: 'Text',
       ifaceTextarea: 'Textarea',
@@ -1926,6 +1935,11 @@ const messages = {
     removeRow: 'Remove row',
     noColumns: 'No columns configured for this JSON List field.',
     invalidJson: 'Invalid JSON',
+  },
+  fieldSensitivity: {
+    none: 'None',
+    restricted: 'Restricted',
+    confidential: 'Confidential',
   },
   sensitivityField: {
     loading: 'Loading…',

@@ -16,6 +16,8 @@ export interface RegistryFieldDto {
   isSystem: boolean
   isUnique: boolean
   isIndexed: boolean
+  /** 0 none, 1 restricted, 2 confidential. */
+  sensitivity: number
 }
 
 export interface RegistryRelationDto {
@@ -40,6 +42,7 @@ export interface RegistryFieldInputDto {
   displayOptions?: Record<string, unknown> | null
   isUnique?: boolean
   isIndexed?: boolean
+  sensitivity?: number
   relationKind?: string | null
   relatedEntity?: string | null
   junctionEntity?: string | null
@@ -68,6 +71,7 @@ const FIELD_SELECTION = `
   isSystem
   isUnique
   isIndexed
+  sensitivity
 `
 
 const ENTITY_FIELDS_QUERY = /* GraphQL */ `

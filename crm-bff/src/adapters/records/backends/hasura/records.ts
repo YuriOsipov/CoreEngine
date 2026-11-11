@@ -843,8 +843,12 @@ export async function hasuraFindMany(
   const scalarFields = await loadScalarFieldNames(collection)
   const types = await loadHasuraFieldTypes(config)
   const q = params.search?.trim() || ''
+  const searchExclude = new Set(params.searchExcludeFields ?? [])
+  const searchFields = searchExclude.size
+    ? scalarFields.filter((field) => !searchExclude.has(field))
+    : scalarFields
   const textSlots = q
-    ? pickIlikeSearchFields(config, scalarFields, types).length
+    ? pickIlikeSearchFields(config, searchFields, types).length
     : 0
   const m2oSearchOr = q
     ? await buildM2OSearchOrClauses(
@@ -858,7 +862,7 @@ export async function hasuraFindMany(
     params.filter ?? null,
     params.includeDeleted,
     params.search,
-    scalarFields,
+    searchFields,
     types,
     m2oSearchOr,
   )

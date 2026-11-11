@@ -250,6 +250,7 @@ async function buildFormPayload(
   const formulas: Record<string, string> = {}
   for (const definition of fields) {
     if (!layoutFieldNames.has(definition.field)) continue
+    if (definition.meta?.writeRestricted) continue
     const formula = resolveFieldFormula(
       definition,
       fields.map((item) => item.field),

@@ -34,6 +34,10 @@ import {
 import { loadEntityUniqueGroups } from '../schema/uniqueGroups.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 import {
+  assertFieldPathReadable,
+  redactRecordForMe,
+} from '../services/fieldSecurity.js'
+import {
   assertIncludeDeletedAllowed,
   DEFAULT_LIST_LIMIT,
   resolveAuthorizedListLimit,
@@ -188,6 +192,7 @@ async function loadSingleUniqueFields(collection: string): Promise<Set<string>> 
  * - `field:value` → lookup by a uniquely indexed field (first colon separates)
  */
 async function resolveRecordId(
+  me: MeUser,
   collection: string,
   key: string,
 ): Promise<string> {
@@ -219,6 +224,7 @@ async function resolveRecordId(
       `Field "${field}" is not uniquely indexed on ${collection}`,
     )
   }
+  await assertFieldPathReadable(me, collection, field)
 
   const result = await findManyRecords(collection, {
     filter: { [field]: { _eq: value } },
@@ -246,6 +252,7 @@ async function resolveRecordId(
  * Returns primary key when existing row found; null when create path.
  */
 async function resolveUpsertRecordId(
+  me: MeUser,
   collection: string,
   data: Record<string, unknown>,
   byField: string | null,
@@ -257,6 +264,7 @@ async function resolveUpsertRecordId(
         `Field "${byField}" is not uniquely indexed on ${collection}`,
       )
     }
+    await assertFieldPathReadable(me, collection, byField)
     if (data[byField] == null || String(data[byField]).trim() === '') {
       throw new Error(`upsert with by=${byField} requires body.${byField}`)
     }
@@ -430,7 +438,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     try {
       await assertMeEntityPermission(me, collection, 'read')
       const access = { me }
-      const id = await resolveRecordId(collection, key)
+      const id = await resolveRecordId(me, collection, key)
       const record = await findOneRecord(
         collection,
         id,
@@ -485,6 +493,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         await assertUpsertPermissions(me, collection)
         const actorUserId = actorIdFromMe(me)
         const { recordId, existing } = await resolveUpsertRecordId(
+          me,
           collection,
           data,
           byField,
@@ -503,7 +512,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
             recordId,
             patch,
             fields,
-            { actorUserId },
+            { actorUserId, access: { me } },
           )
           try {
             await writeAuditEntry({
@@ -517,10 +526,11 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
           } catch (error) {
             request.log.warn({ err: error }, '[audit] REST upsert update failed')
           }
-          return reply.send(updated)
+          return reply.send(await redactRecordForMe(me, collection, updated))
         }
         const created = await createRecord(collection, data, fields, {
           actorUserId,
+          access: { me },
         })
         const createdId = String(created.id ?? recordId)
         try {
@@ -534,13 +544,14 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         } catch (error) {
           request.log.warn({ err: error }, '[audit] REST upsert create failed')
         }
-        return reply.status(201).send(created)
+        return reply.status(201).send(await redactRecordForMe(me, collection, created))
       }
 
       await assertMeEntityPermission(me, collection, 'create')
       const actorUserId = actorIdFromMe(me)
       const created = await createRecord(collection, data, fields, {
         actorUserId,
+        access: { me },
       })
       const createdId = String(created.id ?? '')
       if (createdId) {
@@ -556,7 +567,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
           request.log.warn({ err: error }, '[audit] REST create failed')
         }
       }
-      return reply.status(201).send(created)
+      return reply.status(201).send(await redactRecordForMe(me, collection, created))
     } catch (error) {
       return sendRecordError(reply, request, error, 'Record create/upsert failed')
     }
@@ -585,7 +596,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     try {
       await assertMeEntityPermission(me, collection, 'update')
       const actorUserId = actorIdFromMe(me)
-      const id = await resolveRecordId(collection, key)
+      const id = await resolveRecordId(me, collection, key)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(collection, id, null)
@@ -594,6 +605,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       }
       const updated = await updateRecord(collection, id, data, fields, {
         actorUserId,
+        access: { me },
       })
       try {
         await writeAuditEntry({
@@ -607,7 +619,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       } catch (error) {
         request.log.warn({ err: error }, '[audit] REST update failed')
       }
-      return reply.send(updated)
+      return reply.send(await redactRecordForMe(me, collection, updated))
     } catch (error) {
       return sendRecordError(reply, request, error, 'Record update failed')
     }
@@ -638,7 +650,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         return reply.status(403).send({ error: 'Hard delete requires admin access' })
       }
       const actorUserId = actorIdFromMe(me)
-      const id = await resolveRecordId(collection, key)
+      const id = await resolveRecordId(me, collection, key)
       let before: Record<string, unknown> | null = null
       try {
         before = await findOneRecord(collection, id, null)
@@ -678,7 +690,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       } catch (error) {
         request.log.warn({ err: error }, '[audit] REST soft delete failed')
       }
-      return reply.send(deleted)
+      return reply.send(await redactRecordForMe(me, collection, deleted))
     } catch (error) {
       return sendRecordError(reply, request, error, 'Record delete failed')
     }

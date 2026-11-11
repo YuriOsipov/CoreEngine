@@ -4,6 +4,7 @@
  */
 import { query } from '../db/pool.js'
 import { clearComputedFieldMetaCache } from '../computed/fieldMeta.js'
+import { clampSensitivity, clearFieldSecurityCache } from '../services/fieldSecurity.js'
 import { syncAutoNumberCounterFromOptions } from '../computed/applyAutoNumber.js'
 import {
   clearCrmStorageCache,
@@ -56,6 +57,8 @@ export interface RegistryFieldInput {
   isUnique?: boolean
   /** Optional btree index on crm_schema column (scalars). Lookups always indexed. */
   isIndexed?: boolean
+  /** Field-level security tier: 0 none, 1 restricted, 2 confidential. */
+  sensitivity?: number | null
   /** When set, upsert a relation on this field (M2O / M2M supported from Setup). */
   relationKind?: string | null
   relatedEntity?: string | null
@@ -79,6 +82,7 @@ export interface RegistryFieldRow {
   isSystem: boolean
   isUnique: boolean
   isIndexed: boolean
+  sensitivity: number
   relationKind: string | null
   relatedEntityApiName: string | null
   junctionEntityApiName: string | null
@@ -165,6 +169,7 @@ function mapFieldRow(row: Record<string, unknown>): RegistryFieldRow {
     isSystem: Boolean(row.is_system),
     isUnique: Boolean(row.is_unique),
     isIndexed: Boolean(row.is_indexed),
+    sensitivity: clampSensitivity(row.sensitivity),
     relationKind: row.relation_kind ? String(row.relation_kind) : null,
     relatedEntityApiName: row.related_entity_api_name
       ? String(row.related_entity_api_name)
@@ -551,6 +556,7 @@ async function createM2MRegistryField(
   clearCrmStorageCache()
   clearRecordRelationsCache()
   clearComputedFieldMetaCache()
+  clearFieldSecurityCache()
 
   // Parent+related pair must be unique on the junction (no duplicate M2M links).
   await query(
@@ -644,10 +650,11 @@ export async function createRegistryField(
   const inserted = await query<{ id: string }>(
     `INSERT INTO public.fields (
        entity_id, api_name, label, field_type, interface,
-       options, display_options, required, readonly, hidden, sort, is_unique, is_indexed
+       options, display_options, required, readonly, hidden, sort, is_unique, is_indexed,
+       sensitivity
      ) VALUES (
        $1::uuid, $2, $3, $4, $5,
-       $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13
+       $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14
      )
      RETURNING id::text AS id`,
     [
@@ -664,6 +671,7 @@ export async function createRegistryField(
       sort,
       Boolean(input.isUnique),
       Boolean(input.isIndexed) || Boolean(relationKind),
+      clampSensitivity(input.sensitivity),
     ],
   )
   const fieldId = inserted[0]?.id
@@ -689,6 +697,7 @@ export async function createRegistryField(
   await bumpEntitySyncVersion(entityId)
   clearCrmStorageCache()
   clearComputedFieldMetaCache()
+  clearFieldSecurityCache()
 
   const canDdl =
     options?.applyDdl !== false &&
@@ -811,6 +820,7 @@ export async function updateRegistryField(
        sort = COALESCE($11, sort),
        is_unique = COALESCE($12, is_unique),
        is_indexed = COALESCE($13, is_indexed),
+       sensitivity = COALESCE($14, sensitivity),
        updated_at = now()
      WHERE id = $1::uuid`,
     [
@@ -832,6 +842,7 @@ export async function updateRegistryField(
         ? Boolean(input.isIndexed) ||
           String(input.relationKind || '').toUpperCase() === 'M2O'
         : null,
+      input.sensitivity != null ? clampSensitivity(input.sensitivity) : null,
     ],
   )
 
@@ -888,6 +899,7 @@ export async function updateRegistryField(
   await bumpEntitySyncVersion(current.entity_id)
   clearCrmStorageCache()
   clearComputedFieldMetaCache()
+  clearFieldSecurityCache()
 
   if (input.options !== undefined) {
     await syncAutoNumberCounterFromOptions(fieldId, asObject(input.options))
@@ -934,6 +946,7 @@ export async function deleteRegistryField(
   await bumpEntitySyncVersion(entityId)
   clearCrmStorageCache()
   clearComputedFieldMetaCache()
+  clearFieldSecurityCache()
 
   // Do not DROP physical columns by default (data safety). applyDdl only refreshes indexes.
   if (options?.applyDdl) {
@@ -962,5 +975,8 @@ export function toGraphQlField(row: RegistryFieldRow) {
     isSystem: row.isSystem,
     isUnique: row.isUnique,
     isIndexed: row.isIndexed,
+    sensitivity: row.sensitivity,
+    restricted: false,
+    writeRestricted: false,
   }
 }

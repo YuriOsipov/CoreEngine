@@ -54,6 +54,9 @@ const ENTITY_SCHEMA_QUERY = /* GraphQL */ `
         sort
         isSystem
         isUnique
+        sensitivity
+        restricted
+        writeRestricted
       }
       relations {
         id
@@ -101,6 +104,9 @@ const REGISTRY_SNAPSHOT_QUERY = /* GraphQL */ `
         sort
         isSystem
         isUnique
+        sensitivity
+        restricted
+        writeRestricted
       }
       relations {
         id

@@ -19,6 +19,9 @@ export interface RegistryFieldDto {
   sort: number
   isSystem: boolean
   isUnique?: boolean
+  sensitivity?: number | null
+  restricted?: boolean | null
+  writeRestricted?: boolean | null
 }
 
 export interface RegistryRelationDto {
@@ -179,6 +182,9 @@ export function mapRegistryFieldToSchema(
       special: inferSpecial(field.interface),
       note: field.label,
       unique: Boolean(field.isUnique),
+      sensitivity: field.sensitivity ?? 0,
+      restricted: Boolean(field.restricted),
+      writeRestricted: Boolean(field.writeRestricted),
       translations: (field.labelTranslations ?? []).map((row) => ({
         language: row.language,
         translation: row.label,

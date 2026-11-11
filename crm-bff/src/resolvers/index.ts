@@ -87,6 +87,7 @@ import {
 } from '../services/userAdminService.js'
 import {
   assertEntityPermission,
+  fullAccessPermissionRow,
   isRoleAdmin,
   listPermissionEntities,
   listRolePermissions,
@@ -95,6 +96,16 @@ import {
   resolveAppRoleId,
   visibleSchemaEntityNames,
 } from '../services/rolePermissions.js'
+import {
+  applyFieldAccessToSchemaField,
+  assertFieldEditable,
+  assertReadableQuery,
+  clampSensitivity,
+  redactRecord,
+  redactRecordForMe,
+  resolveFieldAccess,
+} from '../services/fieldSecurity.js'
+import type { MeUser } from '../adapters/usersAdapter.js'
 import { clearCrmStorageCache } from '../schema/crmStorage.js'
 import {
   parseAccountability,
@@ -197,6 +208,9 @@ function mapField(row: Record<string, unknown>, language?: string | null) {
     isSystem: Boolean(row.is_system),
     isUnique: Boolean(row.is_unique),
     isIndexed: Boolean(row.is_indexed),
+    sensitivity: clampSensitivity(row.sensitivity),
+    restricted: false,
+    writeRestricted: false,
   }
 }
 
@@ -426,7 +440,7 @@ export const resolvers = {
          ORDER BY api_name ASC`,
         [Boolean(args.includeHidden), visible ? [...visible] : null],
       )
-      return rows.map((row) => mapEntityBase(row))
+      return rows.map((row) => ({ ...mapEntityBase(row), __me: me }))
     },
 
     entity: async (
@@ -441,7 +455,7 @@ export const resolvers = {
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
         [args.apiName],
       )
-      return rows[0] ? mapEntityBase(rows[0]) : null
+      return rows[0] ? { ...mapEntityBase(rows[0]), __me: me } : null
     },
 
     entitySchema: async (
@@ -461,7 +475,7 @@ export const resolvers = {
       if (!rows[0]) {
         throw new Error(`Entity not found: ${args.apiName}`)
       }
-      return mapEntityBase(rows[0], args.language)
+      return { ...mapEntityBase(rows[0], args.language), __me: me }
     },
 
     registrySnapshot: async (
@@ -550,6 +564,7 @@ export const resolvers = {
         const base = mapEntityBase(row)
         return {
           ...base,
+          __me: me,
           __fields: fieldsByEntity.get(base.id) ?? [],
           __relations: relationsByEntity.get(base.id) ?? [],
         }
@@ -686,12 +701,18 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       // Same object read gate as `record` — revisions must not bypass entity ACL.
-      await assertEntityPermission(ctx, args.entity, 'read')
-      return listRecordRevisions({
+      const me = await assertEntityPermission(ctx, args.entity, 'read')
+      const revisions = await listRecordRevisions({
         entityApiName: args.entity,
         recordId: String(args.recordId),
         limit: args.limit,
       })
+      const access = await resolveFieldAccess(me, args.entity)
+      if (!access) return revisions
+      return revisions.map((revision) => ({
+        ...revision,
+        snapshot: redactRecord(revision.snapshot, access),
+      }))
     },
 
     file: async (
@@ -858,29 +879,9 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       const me = await requireAuthenticatedUser(ctx)
-      if (me.adminAccess || me.roleAdminAccess) {
+      if (me.adminAccess || me.roleAdminAccess || (await isRoleAdmin(me.roleId))) {
         const entities = await listPermissionEntities()
-        return entities.map((entity) => ({
-          entityApiName: entity.apiName,
-          canCreate: true,
-          canRead: true,
-          canUpdate: true,
-          canDelete: true,
-          canImport: true,
-          canExport: true,
-        }))
-      }
-      if (await isRoleAdmin(me.roleId)) {
-        const entities = await listPermissionEntities()
-        return entities.map((entity) => ({
-          entityApiName: entity.apiName,
-          canCreate: true,
-          canRead: true,
-          canUpdate: true,
-          canDelete: true,
-          canImport: true,
-          canExport: true,
-        }))
+        return entities.map((entity) => fullAccessPermissionRow(entity.apiName))
       }
       if (!me.roleId) return []
       return listRolePermissions(String(me.roleId))
@@ -1005,13 +1006,17 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'read')
-      return aggregateRecords(args.entity, {
-        aggregate: args.aggregate ?? {},
-        groupBy: args.groupBy ?? null,
-        filter: args.filter ?? null,
-        limit: args.limit ?? -1,
-      })
+      const me = await assertEntityPermission(ctx, args.entity, 'read')
+      return aggregateRecords(
+        args.entity,
+        {
+          aggregate: args.aggregate ?? {},
+          groupBy: args.groupBy ?? null,
+          filter: args.filter ?? null,
+          limit: args.limit ?? -1,
+        },
+        { me },
+      )
     },
 
     scheduledTasks: async (
@@ -1059,12 +1064,13 @@ export const resolvers = {
         throw new Error('itemGroupPriceTree requires a config object from Tree settings.')
       }
       await assertEntityPermission(ctx, groupCollection, 'read')
-      await assertEntityPermission(ctx, itemPriceCollection, 'read')
+      const me = await assertEntityPermission(ctx, itemPriceCollection, 'read')
       const result = await loadItemGroupPriceTree({
         priceGroupId: args.priceGroupId ?? null,
         filter: args.filter ?? null,
         fields: args.fields ?? null,
         config: args.config ?? null,
+        access: { me },
       })
       const includeRows = args.flatten !== false
       return {
@@ -1198,7 +1204,7 @@ export const resolvers = {
         args.entity,
         args.data ?? {},
         args.fields ?? null,
-        { actorUserId },
+        { actorUserId, access: { me } },
       )
       const recordId = String(created.id ?? '')
       if (recordId) {
@@ -1214,7 +1220,7 @@ export const resolvers = {
           console.warn('[audit] createRecord failed', error)
         }
       }
-      return created
+      return redactRecordForMe(me, args.entity, created)
     },
 
     updateRecord: async (
@@ -1240,7 +1246,7 @@ export const resolvers = {
         String(args.id),
         args.data ?? {},
         args.fields ?? null,
-        { actorUserId },
+        { actorUserId, access: { me } },
       )
       try {
         await writeEntityAudit({
@@ -1254,7 +1260,7 @@ export const resolvers = {
       } catch (error) {
         console.warn('[audit] updateRecord failed', error)
       }
-      return updated
+      return redactRecordForMe(me, args.entity, updated)
     },
 
     softDeleteRecord: async (
@@ -1285,7 +1291,7 @@ export const resolvers = {
       } catch (error) {
         console.warn('[audit] softDeleteRecord failed', error)
       }
-      return deleted
+      return redactRecordForMe(me, args.entity, deleted)
     },
 
     deleteRecord: async (
@@ -1344,7 +1350,7 @@ export const resolvers = {
       } catch (error) {
         console.warn('[audit] restoreRecord failed', error)
       }
-      return restored
+      return redactRecordForMe(me, args.entity, restored)
     },
 
     runSchemaDriftCheck: async (
@@ -1755,6 +1761,7 @@ export const resolvers = {
           displayOptions: args.input.displayOptions as Record<string, unknown> | null,
           isUnique: args.input.isUnique,
           isIndexed: args.input.isIndexed,
+          sensitivity: args.input.sensitivity,
           relationKind: args.input.relationKind,
           relatedEntity: args.input.relatedEntity,
           junctionEntity: args.input.junctionEntity,
@@ -1795,6 +1802,7 @@ export const resolvers = {
             | undefined,
           isUnique: args.input.isUnique,
           isIndexed: args.input.isIndexed,
+          sensitivity: args.input.sensitivity,
           relationKind: args.input.relationKind,
           relatedEntity: args.input.relatedEntity,
           junctionEntity: args.input.junctionEntity,
@@ -2006,6 +2014,13 @@ export const resolvers = {
         await assertEntityPermission(ctx, sourceCollection, 'read')
         await assertEntityPermission(ctx, args.relatedCollection, 'create')
       }
+      await assertFieldEditable(me, args.relatedCollection, args.targetField)
+      await assertReadableQuery(me, sourceCollection || args.relatedCollection, {
+        paths: [args.sourcePath],
+      })
+      if (sourceCollection && args.sourceLinkField) {
+        await assertFieldEditable(me, args.relatedCollection, args.sourceLinkField)
+      }
       const actorUserId = actorIdFromMe(me)
       try {
         return await bulkUpdateRelatedFromAction({
@@ -2044,6 +2059,11 @@ export const resolvers = {
     ) => {
       await assertEntityPermission(ctx, args.collection, 'read')
       const me = await assertEntityPermission(ctx, args.collection, 'update')
+      await assertFieldEditable(me, args.collection, args.targetField)
+      await assertReadableQuery(me, args.collection, {
+        filter: args.filter,
+        paths: [args.sourcePath],
+      })
       const actorUserId = actorIdFromMe(me)
       try {
         return await bulkUpdateFilteredFromAction({
@@ -2068,11 +2088,16 @@ export const resolvers = {
   Entity: {
     fields: async (parent: {
       id: string
+      __apiName?: string
       __language?: string | null
       __fields?: ReturnType<typeof mapField>[]
+      __me?: MeUser | null
     }) => {
-      if (parent.__fields) return parent.__fields
-      return loadFields(parent.id, parent.__language ?? null)
+      const fields =
+        parent.__fields ?? (await loadFields(parent.id, parent.__language ?? null))
+      const access = await resolveFieldAccess(parent.__me, parent.__apiName ?? '')
+      if (!access) return fields
+      return fields.map((field) => applyFieldAccessToSchemaField(field, access))
     },
     relations: async (parent: {
       id: string

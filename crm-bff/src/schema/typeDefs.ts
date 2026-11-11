@@ -55,6 +55,12 @@ export const typeDefs = /* GraphQL */ `
     isUnique: Boolean!
     """Optional btree index on crm_schema column (Lookups always indexed)."""
     isIndexed: Boolean!
+    """Field-level security tier: 0 none, 1 restricted, 2 confidential."""
+    sensitivity: Int!
+    """True when the caller's role may not read this field (value is never returned)."""
+    restricted: Boolean!
+    """True when the caller's role may not write this field (writes are rejected)."""
+    writeRestricted: Boolean!
   }
 
   type Relation {
@@ -169,6 +175,8 @@ export const typeDefs = /* GraphQL */ `
     displayOptions: JSON
     isUnique: Boolean
     isIndexed: Boolean
+    """0 none, 1 restricted, 2 confidential."""
+    sensitivity: Int
     """M2O and M2M supported for create; O2M/M2A create not yet."""
     relationKind: RelationKind
     relatedEntity: String
@@ -656,6 +664,10 @@ export const typeDefs = /* GraphQL */ `
     canDelete: Boolean!
     canImport: Boolean!
     canExport: Boolean!
+    """Highest field sensitivity tier readable on this entity (0 none, 1 restricted, 2 confidential)."""
+    maxReadSensitivity: Int!
+    """Highest field sensitivity tier editable on this entity; never above maxReadSensitivity."""
+    maxEditSensitivity: Int!
   }
 
   type PermissionEntity {
@@ -672,6 +684,8 @@ export const typeDefs = /* GraphQL */ `
     canDelete: Boolean!
     canImport: Boolean!
     canExport: Boolean!
+    maxReadSensitivity: Int
+    maxEditSensitivity: Int
   }
 
   input CreateAppRoleInput {

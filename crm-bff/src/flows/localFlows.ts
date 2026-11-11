@@ -2,6 +2,7 @@ import { findOneRecord, updateRecord } from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { writeAuditEntry } from '../audit/auditService.js'
 import { query } from '../db/pool.js'
+import { assertFieldsEditable, redactRecordForMe } from '../services/fieldSecurity.js'
 import { assertMeEntityPermission, resolveAppRoleId } from '../services/rolePermissions.js'
 import { outboundHttpFlowHeaders } from './flowAuth.js'
 import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
@@ -212,6 +213,7 @@ async function runUpdateRecordHandler(
     }
     try {
       await assertMeEntityPermission(invoker.me, collection, 'update')
+      await assertFieldsEditable(invoker.me, collection, Object.keys(payloadPatch))
     } catch (error) {
       throw new LocalFlowError(403, error instanceof Error ? error.message : 'Permission denied')
     }
@@ -250,7 +252,14 @@ async function runUpdateRecordHandler(
   } catch (error) {
     console.warn(`[localFlows] audit write failed for flow "${key}"`, error)
   }
-  return { collection, recordId, updated }
+  return {
+    collection,
+    recordId,
+    updated:
+      invoker.kind === 'user'
+        ? await redactRecordForMe(invoker.me, collection, updated)
+        : updated,
+  }
 }
 
 /**

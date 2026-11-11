@@ -192,6 +192,7 @@ export async function listImportableFields(collection: string): Promise<Importab
 
   for (const field of fields) {
     if (!isImportableField(collection, field, fields, relations)) continue
+    if (field.meta?.restricted || field.meta?.writeRestricted) continue
     const isPrimaryKey = keysEqual(field.field, primaryKey)
     if (!isWritableImportField(field, isPrimaryKey) && !isPrimaryKey) continue
     // Hidden non-PK fields stay out of the default picker unless unique.
@@ -222,6 +223,7 @@ function isExportableLocalField(
   fields: FieldDefinition[],
   relations: RelationDefinition[],
 ): boolean {
+  if (field.meta?.restricted) return false
   const special = normalizeSpecial(field.meta?.special)
   if (special.some((s) => SKIP_SPECIAL.has(s))) return false
   if (isFieldM2A(collection, field.field, fields, relations)) return false
@@ -230,6 +232,7 @@ function isExportableLocalField(
 }
 
 function isExportableRelatedScalar(field: FieldDefinition): boolean {
+  if (field.meta?.restricted) return false
   const special = normalizeSpecial(field.meta?.special)
   if (special.some((s) => SKIP_SPECIAL.has(s) || s === 'm2o')) return false
   if (field.type === 'alias') return false
@@ -380,7 +383,10 @@ export async function resolveDefaultMatchFields(collection: string): Promise<str
   if (groups.length > 0 && Array.isArray(groups[0]?.fields) && groups[0].fields.length > 0) {
     return groups[0].fields.map(String)
   }
-  const uniqueField = fields.find((field) => field.meta?.unique && !keysEqual(field.field, primaryKey))
+  const uniqueField = fields.find(
+    (field) =>
+      field.meta?.unique && !field.meta?.restricted && !keysEqual(field.field, primaryKey),
+  )
   if (uniqueField) return [uniqueField.field]
   return [primaryKey]
 }

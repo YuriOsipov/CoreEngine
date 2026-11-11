@@ -53,6 +53,16 @@ import {
   enforceSoftDeleteConstraints,
 } from './softDeleteConstraints.js'
 import { loadPromotedFields } from '../../schema/crmStorage.js'
+import {
+  assertFieldsEditable,
+  assertPayloadWritable,
+  assertReadableQuery,
+  filterReadableFieldPaths,
+  redactRecord,
+  redactRecords,
+  resolveFieldAccess,
+} from '../../services/fieldSecurity.js'
+import type { MeUser } from '../usersAdapter.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
 export type { RecordsBackend } from './registry.js'
@@ -67,6 +77,43 @@ export { clearRecordRelationsCache } from './relations.js'
 export type RecordWriteOptions = {
   /** Authenticated actor (`backend_user_id`) for Created By / Last Modified By. */
   actorUserId?: string | null
+  /**
+   * Verified caller: writes touching fields above the role's edit sensitivity
+   * are rejected. The returned record is unredacted (audit needs it); API
+   * boundaries redact with `redactRecordForMe`.
+   */
+  access?: RecordAccess | null
+}
+
+/** Caller-sent payload (before server hooks) plus nested junction links it implies. */
+async function assertWriteAllowed(
+  me: MeUser | null | undefined,
+  apiName: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (!me) return
+  assertPayloadWritable(data, await resolveFieldAccess(me, apiName))
+  const [m2a, o2m] = await Promise.all([
+    loadM2ARelations(apiName),
+    loadO2MRelations(apiName),
+  ])
+  for (const rel of m2a) {
+    if (!(rel.fieldApiName in data)) continue
+    await assertFieldsEditable(me, rel.junctionEntityApiName, [
+      rel.parentFkField,
+      rel.collectionField,
+      rel.itemField,
+      rel.sortField,
+    ])
+  }
+  for (const rel of o2m) {
+    if (!(rel.fieldApiName in data)) continue
+    await assertFieldsEditable(me, rel.junctionEntityApiName, [
+      rel.parentFkField,
+      rel.junctionField,
+      rel.sortField,
+    ])
+  }
 }
 
 /** True when `access.me` may read `entity` (system callers with no access skip the check). */
@@ -681,18 +728,28 @@ export async function findManyRecords(
   }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
+  const me = params.access?.me ?? null
+  const fieldAccess = await resolveFieldAccess(me, apiName)
+  if (me) {
+    await assertReadableQuery(me, apiName, { filter: params.filter, sort: params.sort })
+  }
+  const fields = filterReadableFieldPaths(params.fields, fieldAccess)
   const storeParams = {
     ...params,
-    fields: await physicalStoreFields(apiName, params.fields),
+    fields: await physicalStoreFields(apiName, fields),
+    searchExcludeFields: fieldAccess?.unreadable.size
+      ? [...fieldAccess.unreadable]
+      : params.searchExcludeFields,
   }
   const result = await store.findMany(apiName, storeParams)
   result.nodes = await expandRecordRelations(
     apiName,
     result.nodes,
-    params.fields,
+    fields,
     params.access,
   )
-  result.nodes = await attachLiveRollupsOnRead(apiName, result.nodes, params.fields)
+  result.nodes = await attachLiveRollupsOnRead(apiName, result.nodes, fields)
+  result.nodes = redactRecords(result.nodes, fieldAccess)
   return result
 }
 
@@ -725,15 +782,17 @@ export async function findOneRecord(
   }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  const storeFields = await physicalStoreFields(apiName, fields)
+  const fieldAccess = await resolveFieldAccess(access?.me, apiName)
+  const readable = filterReadableFieldPaths(fields, fieldAccess)
+  const storeFields = await physicalStoreFields(apiName, readable)
   const record = await store.findOne(apiName, id, storeFields)
-  const [expanded] = await expandRecordRelations(apiName, [record], fields, access)
+  const [expanded] = await expandRecordRelations(apiName, [record], readable, access)
   const [withRollups] = await attachLiveRollupsOnRead(
     apiName,
     [expanded ?? record],
-    fields,
+    readable,
   )
-  return withRollups ?? expanded ?? record
+  return redactRecord(withRollups ?? expanded ?? record, fieldAccess)
 }
 
 export type ExpandChildrenOptions = {
@@ -815,6 +874,7 @@ export async function createRecord(
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
+  await assertWriteAllowed(options?.access?.me, apiName, data)
   const withoutClientAudit = await sanitizeHtmlFieldWrites(
     apiName,
     stripClientAuditUserFields(data),
@@ -898,6 +958,7 @@ export async function updateRecord(
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
+  await assertWriteAllowed(options?.access?.me, apiName, data)
   let existing: Record<string, unknown> | null = null
   try {
     existing = await store.findOne(apiName, String(id), null)
@@ -1083,8 +1144,16 @@ export async function aggregateRecords(
     filter?: Record<string, unknown> | null
     limit?: number
   },
+  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   const apiName = await resolveEntity(entity)
+  if (access?.me) {
+    await assertReadableQuery(access.me, apiName, {
+      filter: options.filter,
+      groupBy: options.groupBy,
+      aggregate: options.aggregate,
+    })
+  }
   const store = await resolveRecordsStore(apiName)
   return store.aggregate(apiName, options)
 }

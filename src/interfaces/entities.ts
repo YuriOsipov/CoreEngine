@@ -22,6 +22,12 @@ export interface FieldMeta {
   sort?: number | null
   /** Registry unique flag (single-column avoid-duplicates). */
   unique?: boolean | null
+  /** Field-level security tier: 0 none, 1 restricted, 2 confidential. */
+  sensitivity?: number | null
+  /** Current role may not read this field; the BFF never returns its value. */
+  restricted?: boolean
+  /** Current role may not write this field; the BFF rejects payloads that include it. */
+  writeRestricted?: boolean
 }
 
 export interface FieldDefinition {

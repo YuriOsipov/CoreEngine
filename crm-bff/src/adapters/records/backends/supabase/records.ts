@@ -695,12 +695,15 @@ async function compileListSearch(
   relation: CrmRecordRelation,
   search: string,
   startIndex: number,
+  excludeFields?: string[] | null,
 ): Promise<SqlFragment | null> {
   const q = search.trim()
   if (!q) return null
 
-  const textFields = pickListSearchFields(relation)
-  const m2oFields = pickM2OSearchFields(relation)
+  const exclude = new Set(excludeFields ?? [])
+  const searchable = (field: CrmPromotedField) => !exclude.has(field.apiName)
+  const textFields = pickListSearchFields(relation).filter(searchable)
+  const m2oFields = pickM2OSearchFields(relation).filter(searchable)
   const slots = LIST_SEARCH_FIELD_CAP
   const textTake = Math.min(textFields.length, slots)
   const m2oTake = Math.min(m2oFields.length, Math.max(0, slots - textTake))
@@ -934,7 +937,12 @@ export async function postgresFindMany(
   }
 
   if (params.search?.trim()) {
-    const searchFrag = await compileListSearch(relation, params.search, next)
+    const searchFrag = await compileListSearch(
+      relation,
+      params.search,
+      next,
+      params.searchExcludeFields,
+    )
     if (searchFrag) {
       where.push(searchFrag.sql)
       sqlParams.push(...searchFrag.params)

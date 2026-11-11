@@ -669,6 +669,12 @@ const messages = {
       canDelete: 'Delete',
       canImport: 'Import',
       canExport: 'Export',
+      sensitiveRead: 'Читання чутливих',
+      sensitiveReadHint:
+        'Найвищий рівень чутливості полів, який ця роль бачить в об’єкті. Поля вище цього рівня API ніколи не повертає.',
+      sensitiveEdit: 'Редагування чутливих',
+      sensitiveEditHint:
+        'Найвищий рівень чутливості полів, який ця роль може змінювати. Не може перевищувати рівень читання.',
       toggleColumnHint: 'Клацніть, щоб перемкнути цей стовпець для всіх відфільтрованих об’єктів',
       noEntities: 'Об’єктів не знайдено.',
       permissionsLoadError: 'Не вдалося завантажити права',
@@ -770,6 +776,9 @@ const messages = {
       useInSearch: 'Використовувати в пошуку',
       useInSearchHint:
         'Якщо увімкнено, пошуковий пошук зіставляє Display Template пов’язаного об’єкта (не сирий ID).',
+      securityLevel: 'Рівень захисту поля',
+      securityLevelHint:
+        'Поля рівня «Обмежене» та «Конфіденційне» API повертає лише ролям, яким надано цей рівень у Налаштування → Ролі (Читання / Редагування чутливих). Адміністратори бачать їх завжди. Не використовуйте чутливі поля в Display Template.',
       interface: 'Інтерфейс',
       ifaceText: 'Текст',
       ifaceTextarea: 'Багаторядковий',
@@ -1927,6 +1936,11 @@ const messages = {
     removeRow: 'Видалити рядок',
     noColumns: 'Для цього JSON-списку не налаштовано колонки.',
     invalidJson: 'Невалідний JSON',
+  },
+  fieldSensitivity: {
+    none: 'Немає',
+    restricted: 'Обмежене',
+    confidential: 'Конфіденційне',
   },
   sensitivityField: {
     loading: 'Завантаження…',

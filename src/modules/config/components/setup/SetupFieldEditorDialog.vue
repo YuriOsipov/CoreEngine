@@ -35,6 +35,7 @@ import {
 } from '@/core/relatedTransferFilterPairs'
 import { isOrgCurrencyPlaceholderAffix } from '@/core/orgLocale'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
+import { clampSensitivity, sensitivityOptions } from '@/core/fieldSensitivity'
 
 const DEFAULT_IMAGE_FILES_OPTIONS = {
   multiple: false,
@@ -104,6 +105,8 @@ const form = reactive({
   hidden: false,
   isUnique: false,
   isIndexed: false,
+  /** Field-level security tier (0 none, 1 restricted, 2 confidential). */
+  sensitivity: 0,
   /** M2O only: include related Display Template in list search. */
   useInSearch: false,
   sort: 0,
@@ -1429,6 +1432,7 @@ function resetFromProps(): void {
     form.required = props.field.required
     form.readonly = props.field.readonly
     form.hidden = props.field.hidden
+    form.sensitivity = clampSensitivity(props.field.sensitivity)
     form.isUnique = props.field.isUnique
     form.isIndexed =
       Boolean(props.field.isIndexed) ||
@@ -1563,6 +1567,7 @@ function resetFromProps(): void {
   form.hidden = false
   form.isUnique = false
   form.isIndexed = false
+  form.sensitivity = 0
   form.useInSearch = false
   form.sort = 0
   form.isLookup = false
@@ -2009,6 +2014,7 @@ function submit(): void {
       form.relationKind === 'M2O' ||
       form.isUnique ||
       form.isIndexed,
+    sensitivity: clampSensitivity(form.sensitivity),
     sort: form.sort,
     options,
     displayOptions,
@@ -2922,6 +2928,34 @@ function submit(): void {
           )
         }}
       </p>
+      <div class="flex flex-col gap-1">
+        <label class="inline-flex items-center gap-1" for="field-sensitivity">
+          {{ t('setup.fields.securityLevel', 'Field security level') }}
+          <button
+            type="button"
+            class="setup-field-editor__hint"
+            v-tooltip.bottom="
+              hintTooltip(
+                t(
+                  'setup.fields.securityLevelHint',
+                  'Restricted and Confidential fields are only returned by the API to roles granted that level in Setup → Roles (Sensitive read / Sensitive edit). Administrators always see them. Avoid using sensitive fields in the Display Template.',
+                ),
+              )
+            "
+            :aria-label="t('common.moreInfo', 'More information')"
+          >
+            i
+          </button>
+        </label>
+        <Select
+          v-model="form.sensitivity"
+          input-id="field-sensitivity"
+          :options="sensitivityOptions()"
+          option-label="label"
+          option-value="value"
+          class="w-full md:w-60"
+        />
+      </div>
 
       <div
         v-if="supportsChildLookup"

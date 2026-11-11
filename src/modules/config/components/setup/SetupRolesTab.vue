@@ -22,6 +22,12 @@ import {
   type RolePermissionDto,
 } from '@/core/graphql/userAdminApi'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
+import {
+  clampSensitivity,
+  editSensitivityOptions,
+  sensitivityOptions,
+  SENSITIVITY_NONE,
+} from '@/core/fieldSensitivity'
 
 type PermissionFlag =
   | 'canCreate'
@@ -41,6 +47,8 @@ interface PermissionMatrixRow {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  maxReadSensitivity: number
+  maxEditSensitivity: number
 }
 
 const { t } = useTranslation()
@@ -107,8 +115,17 @@ function buildMatrix(
       canDelete: Boolean(granted?.canDelete),
       canImport: Boolean(granted?.canImport),
       canExport: Boolean(granted?.canExport),
+      maxReadSensitivity: clampSensitivity(granted?.maxReadSensitivity),
+      maxEditSensitivity: clampSensitivity(granted?.maxEditSensitivity),
     }
   })
+}
+
+function setReadSensitivity(row: PermissionMatrixRow, value: number): void {
+  row.maxReadSensitivity = clampSensitivity(value)
+  if (row.maxEditSensitivity > row.maxReadSensitivity) {
+    row.maxEditSensitivity = row.maxReadSensitivity
+  }
 }
 
 async function load(): Promise<void> {
@@ -186,6 +203,8 @@ function setAll(action: 'all' | 'none' | 'read'): void {
       row.canDelete = false
       row.canImport = false
       row.canExport = false
+      row.maxReadSensitivity = SENSITIVITY_NONE
+      row.maxEditSensitivity = SENSITIVITY_NONE
     } else {
       row.canCreate = false
       row.canRead = true
@@ -193,6 +212,7 @@ function setAll(action: 'all' | 'none' | 'read'): void {
       row.canDelete = false
       row.canImport = false
       row.canExport = false
+      row.maxEditSensitivity = SENSITIVITY_NONE
     }
   }
 }
@@ -243,6 +263,8 @@ async function save(): Promise<void> {
           canDelete: row.canDelete,
           canImport: row.canImport,
           canExport: row.canExport,
+          maxReadSensitivity: row.maxReadSensitivity,
+          maxEditSensitivity: Math.min(row.maxEditSensitivity, row.maxReadSensitivity),
         })),
       )
     }
@@ -411,7 +433,7 @@ onMounted(() => {
           ? t('setup.roles.edit', 'Edit role')
           : t('setup.roles.new', 'New role')
       "
-      :style="{ width: 'min(72rem, 98vw)' }"
+      :style="{ width: 'min(88rem, 98vw)' }"
       :dismissable-mask="true"
     >
       <div class="flex flex-col gap-3">
@@ -639,6 +661,51 @@ onMounted(() => {
                 <Checkbox
                   v-model="data.canExport"
                   binary
+                />
+              </template>
+            </Column>
+            <Column style="width: 9.5rem">
+              <template #header>
+                <span
+                  class="inline-flex items-center gap-1"
+                  v-tooltip.bottom="t('setup.roles.sensitiveReadHint', 'Highest field sensitivity this role can see on the object. Fields above it are never returned by the API.')"
+                >
+                  {{ t('setup.roles.sensitiveRead', 'Sensitive read') }}
+                  <i class="pi pi-info-circle text-xs" />
+                </span>
+              </template>
+              <template #body="{ data }">
+                <Select
+                  :model-value="data.maxReadSensitivity"
+                  :options="sensitivityOptions()"
+                  option-label="label"
+                  option-value="value"
+                  size="small"
+                  class="w-full"
+                  :disabled="!data.canRead"
+                  @update:model-value="setReadSensitivity(data, $event)"
+                />
+              </template>
+            </Column>
+            <Column style="width: 9.5rem">
+              <template #header>
+                <span
+                  class="inline-flex items-center gap-1"
+                  v-tooltip.bottom="t('setup.roles.sensitiveEditHint', 'Highest field sensitivity this role can change. Cannot exceed Sensitive read.')"
+                >
+                  {{ t('setup.roles.sensitiveEdit', 'Sensitive edit') }}
+                  <i class="pi pi-info-circle text-xs" />
+                </span>
+              </template>
+              <template #body="{ data }">
+                <Select
+                  v-model="data.maxEditSensitivity"
+                  :options="editSensitivityOptions(data.maxReadSensitivity)"
+                  option-label="label"
+                  option-value="value"
+                  size="small"
+                  class="w-full"
+                  :disabled="!data.canUpdate && !data.canCreate"
                 />
               </template>
             </Column>

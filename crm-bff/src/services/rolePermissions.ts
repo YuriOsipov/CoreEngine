@@ -338,8 +338,11 @@ export async function visibleSchemaEntityNames(me: MeUser): Promise<Set<string> 
        OR target.id = ANY(COALESCE(r.allowed_entity_ids, '{}'::uuid[]))
      WHERE src.api_name = ANY($1::text[])
        AND src.deleted_at IS NULL
-       AND target.deleted_at IS NULL`,
-    [[...readable]],
+       AND target.deleted_at IS NULL
+       AND upper(COALESCE(target.backend_target, '')) <> 'PLATFORM'
+       AND COALESCE((target.backend_config->>'internal')::boolean, false) = false
+       AND NOT (target.api_name = ANY($2::text[]))`,
+    [[...readable], excludedEntityNames()],
   )
   const visible = new Set(readable)
   for (const row of related) visible.add(row.api_name)

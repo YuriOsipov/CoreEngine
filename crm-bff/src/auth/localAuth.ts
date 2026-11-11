@@ -206,15 +206,27 @@ export async function bffLogout(input: {
   return { ok: true }
 }
 
-/** @deprecated Password capture via hybrid login was retired. */
+/**
+ * Store a password for a user. Rejects insecure / over-long values unless
+ * `allowInsecure` is set (local bootstrap / provision only — still forces change).
+ */
 export async function hashPasswordForUser(
   userId: string,
   password: string,
-  options?: { mustChangePassword?: boolean },
+  options?: { mustChangePassword?: boolean; allowInsecure?: boolean },
 ): Promise<void> {
-  const passwordHash = await hashPassword(password)
+  const next = String(password || '')
+  if (!options?.allowInsecure) {
+    const policyError = passwordPolicyError(next)
+    if (policyError) throw new Error(policyError)
+  } else if (next.length < 8 || Buffer.byteLength(next, 'utf8') > 256) {
+    throw new Error('Password must be 8–256 bytes')
+  }
+  const passwordHash = await hashPassword(next)
   const mustChange =
-    options?.mustChangePassword === true || isInsecurePassword(password)
+    options?.mustChangePassword === true ||
+    options?.allowInsecure === true ||
+    isInsecurePassword(next)
   await query(
     `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
      VALUES ($1::uuid, $2, $3)

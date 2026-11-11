@@ -25,9 +25,11 @@ describe('passwords', () => {
     expect(passwordNeedsRehash(legacy)).toBe(true)
   })
 
-  it('enforces min/max length and the insecure list', () => {
+  it('enforces min/max length (UTF-8 bytes) and the insecure list', () => {
     expect(passwordPolicyError('short')).toMatch(/at least/)
     expect(passwordPolicyError('x'.repeat(MAX_PASSWORD_LENGTH + 1))).toMatch(/at most/)
+    // 100 multi-byte chars can exceed the byte budget while staying under char length.
+    expect(passwordPolicyError('é'.repeat(200))).toMatch(/at most/)
     expect(passwordPolicyError('admin12345')).toMatch(/insecure/)
     expect(passwordPolicyError('a-unique-Passphrase-42')).toBeNull()
   })

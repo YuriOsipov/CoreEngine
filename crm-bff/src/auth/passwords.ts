@@ -3,7 +3,7 @@ import { isInsecurePassword } from './insecurePasswords.js'
 
 const KEY_LEN = 64
 export const MIN_PASSWORD_LENGTH = 8
-/** Upper bound so hashing cost / request size cannot be abused. */
+/** Upper bound in UTF-8 bytes so hashing cost / request size cannot be abused. */
 export const MAX_PASSWORD_LENGTH = 256
 
 /**
@@ -13,6 +13,10 @@ export const MAX_PASSWORD_LENGTH = 256
 const SCRYPT_PARAMS = { N: 2 ** 15, r: 8, p: 3 } as const
 /** Node's implicit defaults used by legacy `scrypt:<salt>:<key>` hashes. */
 const LEGACY_SCRYPT_PARAMS = { N: 2 ** 14, r: 8, p: 1 } as const
+
+function utf8Length(password: string): number {
+  return Buffer.byteLength(password, 'utf8')
+}
 
 function scryptAsync(
   password: string,
@@ -40,8 +44,8 @@ export function passwordPolicyError(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
   }
-  if (password.length > MAX_PASSWORD_LENGTH) {
-    return `Password must be at most ${MAX_PASSWORD_LENGTH} characters`
+  if (utf8Length(password) > MAX_PASSWORD_LENGTH) {
+    return `Password must be at most ${MAX_PASSWORD_LENGTH} bytes`
   }
   if (isInsecurePassword(password)) {
     return 'Password is a known insecure / example value — choose a unique password'
@@ -50,8 +54,8 @@ export function passwordPolicyError(password: string): string | null {
 }
 
 export async function hashPassword(password: string): Promise<string> {
-  if (password.length > MAX_PASSWORD_LENGTH) {
-    throw new Error(`Password must be at most ${MAX_PASSWORD_LENGTH} characters`)
+  if (utf8Length(password) > MAX_PASSWORD_LENGTH) {
+    throw new Error(`Password must be at most ${MAX_PASSWORD_LENGTH} bytes`)
   }
   const salt = randomBytes(16)
   const { N, r, p } = SCRYPT_PARAMS
@@ -83,7 +87,7 @@ function parseStoredHash(
 }
 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  if (password.length > MAX_PASSWORD_LENGTH) return false
+  if (utf8Length(password) > MAX_PASSWORD_LENGTH) return false
   const parsed = parseStoredHash(stored)
   if (!parsed) return false
   try {
@@ -111,13 +115,26 @@ export function passwordNeedsRehash(stored: string): boolean {
   )
 }
 
-let dummyHashPromise: Promise<string> | null = null
+/**
+ * Precomputed dummy hash (same scrypt params as real hashes). Built once so
+ * unknown-email logins pay one verify, not hash+verify on the first request.
+ */
+const DUMMY_PASSWORD = randomBytes(24).toString('base64url')
+const dummyHashPromise: Promise<string> = hashPassword(DUMMY_PASSWORD).catch((error) => {
+  console.error('[auth] failed to precompute dummy password hash', error)
+  // Fallback keeps verifyAgainstDummyHash from hanging forever.
+  return Promise.reject(error)
+})
 
 /**
  * Burn the same scrypt cost as a real verify so unknown / inactive accounts
  * are indistinguishable by response time.
  */
 export async function verifyAgainstDummyHash(password: string): Promise<void> {
-  dummyHashPromise ??= hashPassword(randomBytes(24).toString('base64url'))
-  await verifyPassword(password, await dummyHashPromise)
+  try {
+    await verifyPassword(password, await dummyHashPromise)
+  } catch {
+    // If precompute failed, still spend real hash cost.
+    await hashPassword(password.slice(0, MAX_PASSWORD_LENGTH)).catch(() => undefined)
+  }
 }

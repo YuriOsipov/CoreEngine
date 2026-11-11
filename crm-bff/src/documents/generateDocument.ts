@@ -3,6 +3,7 @@
  * Population/PDF is not implemented in the BFF yet.
  * Full contract: docs/generate-document-api.md
  */
+import { findOneRecord } from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 
@@ -104,17 +105,29 @@ export function parseGenerateDocumentInput(
 }
 
 /**
- * ACL for generate: read the source record's entity + the template, and
- * create on doc_value when persisting. Runs before any population work.
+ * ACL for generate (Phase 1-ready, before populate/render exists):
+ * - read the source record's entity
+ * - update that entity when persisting (attach / overwrite document on the record)
+ * - template must exist (doc_template is matrix-excluded / admin-only for CRUD,
+ *   but generate may use any published template once the caller can read the record)
  */
 export async function assertGenerateDocumentAllowed(
   me: MeUser,
   parsed: ReturnType<typeof parseGenerateDocumentInput>,
 ): Promise<void> {
   await assertMeEntityPermission(me, parsed.collectionName, 'read')
-  await assertMeEntityPermission(me, 'doc_template', 'read')
   if (parsed.persist) {
-    await assertMeEntityPermission(me, 'doc_value', 'create')
+    await assertMeEntityPermission(me, parsed.collectionName, 'update')
+  }
+
+  try {
+    await findOneRecord('doc_template', parsed.templateId, ['id'])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/not found/i.test(message)) {
+      throw new Error(`Template not found: ${parsed.templateId}`)
+    }
+    throw error
   }
 }
 

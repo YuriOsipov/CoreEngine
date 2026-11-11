@@ -3,7 +3,9 @@
  * - http(s) only, no credentials in the URL
  * - destination IPs checked at connect time (pinned lookup → no DNS rebinding)
  * - redirects followed manually and re-validated (max 3)
- * Private / loopback targets need FLOWS_HTTP_ALLOWED_HOSTS (e.g. "n8n,localhost:5678")
+ * - link-local / cloud-metadata / broadcast ranges are never reachable, even
+ *   when the host is on FLOWS_HTTP_ALLOWED_HOSTS
+ * Private RFC1918 targets need FLOWS_HTTP_ALLOWED_HOSTS (e.g. "n8n,localhost:5678")
  * or the host of N8N_WEBHOOK_URL.
  */
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns'
@@ -13,42 +15,69 @@ import { Agent, fetch, type Response } from 'undici'
 const MAX_REDIRECTS = 3
 const REQUEST_TIMEOUT_MS = 15_000
 
-const blocked = new BlockList()
+/** Private ranges that an allowlisted host may target (n8n on Docker network, etc.). */
+const privateRanges = new BlockList()
+for (const [network, prefix] of [
+  ['10.0.0.0', 8],
+  ['172.16.0.0', 12],
+  ['192.168.0.0', 16],
+  ['fc00::', 7],
+] as const) {
+  privateRanges.addSubnet(network, prefix, network.includes(':') ? 'ipv6' : 'ipv4')
+}
+
+/**
+ * Always-blocked: loopback, link-local, CGNAT, documentation, multicast, unspecified,
+ * and cloud-metadata (169.254.169.254). Never waived by allowlist.
+ */
+const hardBlocked = new BlockList()
 for (const [network, prefix] of [
   ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
   ['100.64.0.0', 10],
   ['127.0.0.0', 8],
   ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
   ['192.0.0.0', 24],
-  ['192.168.0.0', 16],
   ['198.18.0.0', 15],
   ['224.0.0.0', 4],
   ['240.0.0.0', 4],
 ] as const) {
-  blocked.addSubnet(network, prefix, 'ipv4')
+  hardBlocked.addSubnet(network, prefix, 'ipv4')
 }
 for (const [network, prefix] of [
   ['::', 128],
   ['::1', 128],
-  ['fc00::', 7],
   ['fe80::', 10],
   ['ff00::', 8],
   ['64:ff9b::', 96],
 ] as const) {
-  blocked.addSubnet(network, prefix, 'ipv6')
+  hardBlocked.addSubnet(network, prefix, 'ipv6')
 }
 
-export function isBlockedAddress(address: string): boolean {
+function normalizeIp(address: string): { address: string; family: 4 | 6 } | null {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
+  if (mapped) return { address: mapped[1]!, family: 4 }
   const family = isIP(address)
-  if (family === 4) return blocked.check(address, 'ipv4')
-  if (family === 6) {
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)
-    if (mapped) return blocked.check(mapped[1]!, 'ipv4')
-    return blocked.check(address, 'ipv6')
-  }
-  return true
+  if (family === 4 || family === 6) return { address, family }
+  return null
+}
+
+export function isHardBlockedAddress(address: string): boolean {
+  const normalized = normalizeIp(address)
+  if (!normalized) return true
+  return hardBlocked.check(normalized.address, normalized.family === 4 ? 'ipv4' : 'ipv6')
+}
+
+export function isPrivateAddress(address: string): boolean {
+  const normalized = normalizeIp(address)
+  if (!normalized) return false
+  return privateRanges.check(normalized.address, normalized.family === 4 ? 'ipv4' : 'ipv6')
+}
+
+/** True when the address must not be contacted (hard block, or private without allowlist). */
+export function isBlockedAddress(address: string, allowPrivate = false): boolean {
+  if (isHardBlockedAddress(address)) return true
+  if (!allowPrivate && isPrivateAddress(address)) return true
+  return false
 }
 
 function allowedPrivateHosts(): Set<string> {
@@ -73,6 +102,10 @@ function hostAllowsPrivate(url: URL): boolean {
   return allowed.has(url.host.toLowerCase()) || allowed.has(url.hostname.toLowerCase())
 }
 
+export function hostnameFromUrl(url: URL): string {
+  return url.hostname.replace(/^\[|\]$/g, '')
+}
+
 export function assertOutboundUrlShape(raw: string): URL {
   let url: URL
   try {
@@ -85,6 +118,12 @@ export function assertOutboundUrlShape(raw: string): URL {
   }
   if (url.username || url.password) {
     throw new Error('Flow URL must not embed credentials (use flow auth settings)')
+  }
+  // Node normalizes decimal/hex/octal IPs; reject anything that still isn't a
+  // hostname or a plain IP after that (blocks odd parser differences).
+  const host = hostnameFromUrl(url)
+  if (!host || host.includes(' ')) {
+    throw new Error('Flow URL host is invalid')
   }
   return url
 }
@@ -99,12 +138,13 @@ function guardedAgent(allowPrivate: boolean): Agent {
             return
           }
           const list = (Array.isArray(addresses) ? addresses : []) as LookupAddress[]
-          const usable = allowPrivate ? list : list.filter((a) => !isBlockedAddress(a.address))
+          const usable = list.filter((entry) => !isBlockedAddress(entry.address, allowPrivate))
           if (!usable.length) {
             callback(
-              Object.assign(new Error(`Flow URL host "${hostname}" resolves to a blocked address`), {
-                code: 'EBLOCKEDADDRESS',
-              }),
+              Object.assign(
+                new Error(`Flow URL host "${hostname}" resolves to a blocked address`),
+                { code: 'EBLOCKEDADDRESS' },
+              ),
               '',
               0,
             )
@@ -135,7 +175,8 @@ export async function guardedFlowFetch(
   let body = init.body
   for (let hop = 0; ; hop += 1) {
     const allowPrivate = hostAllowsPrivate(url)
-    if (!allowPrivate && isIP(url.hostname.replace(/^\[|\]$/g, '')) && isBlockedAddress(url.hostname.replace(/^\[|\]$/g, ''))) {
+    const host = hostnameFromUrl(url)
+    if (isIP(host) && isBlockedAddress(host, allowPrivate)) {
       throw new Error(`Flow URL host "${url.hostname}" is a blocked address`)
     }
     const dispatcher = guardedAgent(allowPrivate)
@@ -159,7 +200,10 @@ export async function guardedFlowFetch(
     if (!location) return response
     if (hop >= MAX_REDIRECTS) throw new Error('Flow URL redirected too many times')
     url = assertOutboundUrlShape(new URL(location, url).toString())
-    if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === 'POST')) {
+    if (
+      response.status === 303 ||
+      ((response.status === 301 || response.status === 302) && method === 'POST')
+    ) {
       method = 'GET'
       body = undefined
     }

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
 import {
+  hashPasswordForUser,
   invalidateAccessTokensForUser,
   revokeAllRefreshTokensForUser,
 } from '../auth/localAuth.js'
-import { hashPassword, passwordPolicyError } from '../auth/passwords.js'
 import { seedFullPermissionsForRole } from './rolePermissions.js'
 
 export interface AppRoleAdmin {
@@ -280,15 +280,8 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUserA
 
   const password = input.password?.trim()
   if (password) {
-    const policyError = passwordPolicyError(password)
-    if (policyError) throw new Error(policyError)
-    const passwordHash = await hashPassword(password)
     // Admin-chosen password is known to the admin — user must replace it at first login.
-    await query(
-      `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
-       VALUES ($1::uuid, $2, true)`,
-      [id, passwordHash],
-    )
+    await hashPasswordForUser(id, password, { mustChangePassword: true })
   }
 
   const users = await listAppUsersAdmin({ includeInactive: true })
@@ -358,6 +351,12 @@ export async function updateAppUser(
     [userId, nextEmail, nextFirst, nextLast, nextRoleId, nextActive],
   )
 
+  // Deactivation must kill sessions immediately (JWT may still be unexpired).
+  if (Boolean(existing[0].is_active) && !nextActive) {
+    await revokeAllRefreshTokensForUser(userId)
+    await invalidateAccessTokensForUser(userId)
+  }
+
   const users = await listAppUsersAdmin({ includeInactive: true })
   const updated = users.find((user) => user.id === userId)
   if (!updated) throw new Error(`User not found after update: ${userId}`)
@@ -369,10 +368,8 @@ export async function setAppUserPassword(
   password: string,
 ): Promise<boolean> {
   const userId = String(id || '').trim()
-  const nextPassword = String(password || '')
+  const nextPassword = String(password || '').trim()
   if (!userId) throw new Error('User id is required')
-  const policyError = passwordPolicyError(nextPassword)
-  if (policyError) throw new Error(policyError)
 
   const existing = await query<{ id: string }>(
     `SELECT id::text AS id FROM public.app_users WHERE id = $1::uuid LIMIT 1`,
@@ -380,17 +377,6 @@ export async function setAppUserPassword(
   )
   if (!existing[0]) throw new Error(`User not found: ${userId}`)
 
-  const passwordHash = await hashPassword(nextPassword)
-  await query(
-    `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
-     VALUES ($1::uuid, $2, true)
-     ON CONFLICT (user_id) DO UPDATE
-     SET password_hash = EXCLUDED.password_hash,
-         must_change_password = true,
-         updated_at = now()`,
-    [userId, passwordHash],
-  )
-  await revokeAllRefreshTokensForUser(userId)
-  await invalidateAccessTokensForUser(userId)
+  await hashPasswordForUser(userId, nextPassword, { mustChangePassword: true })
   return true
 }

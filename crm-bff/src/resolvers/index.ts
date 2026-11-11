@@ -92,6 +92,7 @@ import {
   listRolePermissions,
   readableEntityNames,
   replaceRolePermissions,
+  resolveAppRoleId,
   visibleSchemaEntityNames,
 } from '../services/rolePermissions.js'
 import { clearCrmStorageCache } from '../schema/crmStorage.js'
@@ -560,12 +561,17 @@ export const resolvers = {
       args: { entity?: string | null; groupKey?: string | null; subGroup?: string | null },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visible = await visibleSchemaEntityNames(me)
       const params: unknown[] = []
       const filters: string[] = []
       if (args.entity) {
+        if (visible && !visible.has(String(args.entity))) return []
         params.push(args.entity)
         filters.push(`entity_api_name = $${params.length}`)
+      } else if (visible) {
+        params.push([...visible])
+        filters.push(`entity_api_name = ANY($${params.length}::text[])`)
       }
       if (args.groupKey) {
         params.push(args.groupKey)
@@ -574,6 +580,15 @@ export const resolvers = {
       if (args.subGroup) {
         params.push(args.subGroup)
         filters.push(`sub_group = $${params.length}`)
+      }
+      // Non-admins only see global layouts and layouts for their own role.
+      if (!(me.adminAccess || me.roleAdminAccess)) {
+        const appRoleId = await resolveAppRoleId(me.roleId)
+        const roleRefs = [me.roleId, appRoleId].filter(Boolean) as string[]
+        params.push(roleRefs)
+        filters.push(
+          `(role_id IS NULL OR role_id::text = ANY($${params.length}::text[]))`,
+        )
       }
       const where = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
       const rows = await query(

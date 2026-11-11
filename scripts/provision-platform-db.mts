@@ -74,7 +74,11 @@ function runTsx(label: string, scriptRel: string, extra: string[] = []): void {
 
 runTsx('1/5 Auth JWT secret', './scripts/ensure-auth-jwt-secret.mts')
 runTsx('2/5 Kernel SQL (supabase/migrations)', './scripts/apply-registry-migration.mts')
-runTsx('3/5 Admin password', './scripts/set-user-password.mts', [adminEmail, adminPassword])
+runTsx('3/5 Admin password', './scripts/set-user-password.mts', [
+  adminEmail,
+  adminPassword,
+  '--must-change',
+])
 runTsx('4/5 Documents pack', './scripts/apply-domain-pack.mts', ['documents'])
 
 if (domain !== 'none' && domain !== 'documents') {
@@ -91,6 +95,7 @@ if (passwordWasGenerated) {
 } else {
   console.log(`  Login: ${adminEmail} / (password you set via --admin-password)`)
 }
+console.log('  First login requires a password change (must_change_password).')
 console.log('  Next: npm run bff:dev && npm run dev   (or: docker compose up -d bff)')
 if (domain === 'none') {
   console.log('  Or apply a pack later: npm run platform:apply-pack -- sales')

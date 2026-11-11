@@ -16,5 +16,5 @@ Roles: **Clinician**, **Reception** (full CRUD on pack entities). Administrator 
 ## Apply
 
 ```powershell
-npm run platform:provision -- -Domain clinic
+npm run platform:provision -- --domain clinic
 ```

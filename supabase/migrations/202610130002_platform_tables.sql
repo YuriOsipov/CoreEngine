@@ -101,6 +101,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS app_users_backend_user_id_uidx
 CREATE TABLE IF NOT EXISTS public.app_user_credentials (
   user_id uuid PRIMARY KEY REFERENCES public.app_users (id) ON DELETE CASCADE,
   password_hash text NOT NULL,
+  must_change_password boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 

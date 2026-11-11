@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTranslation } from '@/core/translation'
-import { loginWithBff } from '@/core/auth/session'
+import {
+  changePasswordWithBff,
+  loginWithBff,
+  mustChangePasswordPending,
+} from '@/core/auth/session'
 import { resolveAppHomeRoute } from '@/core/navigation/resolveAppHomeRoute'
 
 const { t } = useTranslation()
@@ -11,27 +15,70 @@ const route = useRoute()
 
 const email = ref('')
 const password = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
+const info = ref<string | null>(null)
+const forceChange = ref(
+  mustChangePasswordPending() || route.query.changePassword === '1',
+)
 
-async function submit(): Promise<void> {
+watch(
+  () => route.query.changePassword,
+  (value) => {
+    if (value === '1' || mustChangePasswordPending()) {
+      forceChange.value = true
+    }
+  },
+)
+
+const title = computed(() =>
+  forceChange.value
+    ? t('auth.changePasswordTitle', 'Change password')
+    : t('auth.signInTitle', 'Sign in'),
+)
+
+const hint = computed(() =>
+  forceChange.value
+    ? t(
+        'auth.changePasswordHint',
+        'Your account requires a new password before you can continue.',
+      )
+    : t('auth.signInHint', 'Sign in with your CoreEngine account.'),
+)
+
+async function goHomeAfterLogin(): Promise<void> {
+  const redirect =
+    typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect
+      : '/'
+  if (redirect === '/') {
+    const homeRoute = await resolveAppHomeRoute()
+    await router.replace(homeRoute ?? '/')
+    return
+  }
+  await router.replace(redirect)
+}
+
+async function submitLogin(): Promise<void> {
   error.value = null
+  info.value = null
   loading.value = true
   try {
-    await loginWithBff({
+    const session = await loginWithBff({
       email: email.value.trim(),
       password: password.value,
     })
-    const redirect =
-      typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
-        ? route.query.redirect
-        : '/'
-    if (redirect === '/') {
-      const homeRoute = await resolveAppHomeRoute()
-      await router.replace(homeRoute ?? '/')
+    if (session.mustChangePassword) {
+      forceChange.value = true
+      info.value = t(
+        'auth.mustChangePassword',
+        'Choose a new password to finish signing in.',
+      )
       return
     }
-    await router.replace(redirect)
+    await goHomeAfterLogin()
   } catch (err) {
     error.value =
       err instanceof Error
@@ -40,6 +87,45 @@ async function submit(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+async function submitChangePassword(): Promise<void> {
+  error.value = null
+  info.value = null
+  if (newPassword.value !== confirmPassword.value) {
+    error.value = t('auth.passwordMismatch', 'New passwords do not match.')
+    return
+  }
+  loading.value = true
+  try {
+    await changePasswordWithBff({
+      currentPassword: password.value,
+      newPassword: newPassword.value,
+    })
+    forceChange.value = false
+    password.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
+    info.value = t(
+      'auth.passwordChangedReLogin',
+      'Password updated. Sign in with your new password.',
+    )
+  } catch (err) {
+    error.value =
+      err instanceof Error
+        ? err.message
+        : t('auth.changePasswordFailed', 'Could not change password.')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submit(): Promise<void> {
+  if (forceChange.value) {
+    await submitChangePassword()
+    return
+  }
+  await submitLogin()
 }
 </script>
 
@@ -51,10 +137,10 @@ async function submit(): Promise<void> {
         {{ t('auth.brandSubtitle', 'Multi-purpose platform') }}
       </p>
       <h1 class="mb-1 text-lg font-semibold">
-        {{ t('auth.signInTitle', 'Sign in') }}
+        {{ title }}
       </h1>
       <p class="mb-6 text-sm text-surface-600">
-        {{ t('auth.signInHint', 'Sign in with your CoreEngine account.') }}
+        {{ hint }}
       </p>
 
       <Message
@@ -64,6 +150,14 @@ async function submit(): Promise<void> {
         class="mb-4"
       >
         {{ error }}
+      </Message>
+      <Message
+        v-if="info"
+        severity="info"
+        :closable="false"
+        class="mb-4"
+      >
+        {{ info }}
       </Message>
 
       <form class="flex flex-col gap-4" @submit.prevent="submit">
@@ -75,11 +169,17 @@ async function submit(): Promise<void> {
             type="email"
             autocomplete="username"
             class="w-full"
-            :disabled="loading"
+            :disabled="loading || forceChange"
           />
         </div>
         <div class="flex flex-col gap-2">
-          <label for="login-password">{{ t('auth.password', 'Password') }}</label>
+          <label for="login-password">
+            {{
+              forceChange
+                ? t('auth.currentPassword', 'Current password')
+                : t('auth.password', 'Password')
+            }}
+          </label>
           <Password
             id="login-password"
             v-model="password"
@@ -91,9 +191,43 @@ async function submit(): Promise<void> {
             :disabled="loading"
           />
         </div>
+        <template v-if="forceChange">
+          <div class="flex flex-col gap-2">
+            <label for="login-new-password">{{ t('auth.newPassword', 'New password') }}</label>
+            <Password
+              id="login-new-password"
+              v-model="newPassword"
+              input-class="w-full"
+              class="w-full"
+              :feedback="false"
+              toggle-mask
+              autocomplete="new-password"
+              :disabled="loading"
+            />
+          </div>
+          <div class="flex flex-col gap-2">
+            <label for="login-confirm-password">
+              {{ t('auth.confirmPassword', 'Confirm new password') }}
+            </label>
+            <Password
+              id="login-confirm-password"
+              v-model="confirmPassword"
+              input-class="w-full"
+              class="w-full"
+              :feedback="false"
+              toggle-mask
+              autocomplete="new-password"
+              :disabled="loading"
+            />
+          </div>
+        </template>
         <Button
           type="submit"
-          :label="t('auth.signIn', 'Sign in')"
+          :label="
+            forceChange
+              ? t('auth.changePassword', 'Change password')
+              : t('auth.signIn', 'Sign in')
+          "
           :loading="loading"
           class="w-full"
         />

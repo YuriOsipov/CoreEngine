@@ -27,19 +27,21 @@ cp .env.example .env
 
 3. Provision:
 
-```powershell
+```bash
 # Kernel only
-npm run platform:provision
+npm run platform:provision -- --domain none
 
 # Kernel + Sales
-npm run platform:provision -- -Domain sales
+npm run platform:provision -- --domain sales
 
-# Kernel + Clinic
-npm run platform:provision -- -Domain clinic -AdminPassword 'ChangeMeNow!'
+# Kernel + Clinic (first login forces a password change)
+npm run platform:provision -- --domain clinic --admin-password 'ChooseAUniqueSecret!'
 
 # Kernel + Pricing / promotions
-npm run platform:provision -- -Domain pricing
+npm run platform:provision -- --domain pricing
 ```
+
+Windows PowerShell alternative: `npm run platform:provision:ps1 -- -Domain sales`.
 
 4. Start the app:
 
@@ -73,7 +75,7 @@ This overwrites `supabase/domains/<id>/` (`entities.json`, `layouts.json`, `role
 - [`domains/pricing`](domains/pricing) — Item catalog, Campaign → Promotion, item prices (`promo_price` + linked promotion)
 - [`domains/documents`](domains/documents) — Always applied on provision (`doc_template` / snapshots) for Setup → Document Templates
 
-Add a new pack by copying a domain folder and registering it in `scripts/provision-platform-db.ps1` (`ValidateSet`).
+Add a new pack by copying a domain folder and registering it in `scripts/provision-platform-db.mts` / `.ps1` allow-lists.
 
 ## Integrations (BFF REST)
 

@@ -166,7 +166,7 @@ File uploads / Storage are not fully wired in this minimal compose (needs Supaba
 
 ### Local (npm)
 
-Install with **npm**. Lockfiles for that path: `package-lock.json` at the repo root and in `crm-bff/`. `pnpm-lock.yaml` is also in the tree and is not what these scripts use.
+Install with **npm** only. Committed lockfiles: `package-lock.json` (repo root) and `crm-bff/package-lock.json`.
 
 ```bash
 cp .env.example .env
@@ -176,22 +176,24 @@ cp supabase/.env.example supabase/.env
 npm install
 npm run bff:install
 
-# Cross-platform (Node):
-npm run platform:provision:node -- --domain none --admin-password 'ChangeMeNow!'
-# or: npm run platform:provision:node -- --domain sales
+# Cross-platform (Node — default):
+npm run platform:provision -- --domain none --admin-password 'ChooseAUniqueSecret!'
+# or: npm run platform:provision -- --domain sales
 # (omit --admin-password to get a one-time generated password printed at the end)
 
 npm run bff:dev   # terminal 1 — GraphQL BFF on :4000
 npm run dev       # terminal 2 — Vite (requires sibling ../docEngine)
 ```
 
-On Windows, `npm run platform:provision` is the PowerShell wrapper (`-Domain` / `-AdminPassword`).
+Optional Windows PowerShell wrapper: `npm run platform:provision:ps1 -- -Domain sales -AdminPassword '…'`.
 
-Admin after provision: `admin@example.com` — use `--admin-password` / `-AdminPassword`, or save the generated password from the provision output. There is no well-known default password.
+Admin after provision: `admin@example.com` with the password you passed or the one-time generated value. First login **requires a password change**. There is no well-known default password (`admin12345` etc. are refused in production at BFF start).
 
 See [`supabase/README.md`](supabase/README.md) for the platform kernel + domain packs (Sales / Clinic).
 
 ### Tests / CI
+
+Unit tests live next to source (`*.test.ts` under `crm-bff/src/` and `tests/`). CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ```bash
 npm test                      # Vitest app unit smoke tests
@@ -199,7 +201,7 @@ npm --prefix crm-bff test
 npm --prefix crm-bff run typecheck
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs BFF typecheck + tests and app unit tests on `main`. Full Vue `npm run build` is not gated yet (needs sibling DocEngine). Coverage is still minimal.
+GitHub Actions runs BFF typecheck + tests and app unit tests on `main`. Full Vue `npm run build` is not gated yet (needs sibling DocEngine). Coverage is still expanding (permissions/auth guards are the current focus).
 
 ### Environment (live)
 
@@ -229,8 +231,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs BFF typecheck + tests and app u
 | `npm run registry:check-cutover` | Migration health gate |
 | `npm run registry:migrate` | Apply platform kernel SQL (PowerShell + `psql`) |
 | `npm run registry:migrate:node` | Same kernel SQL via Node (`pg`); use this on Linux |
-| `npm run platform:provision` | New customer DB via PowerShell (`-Domain`, `-AdminPassword`) |
-| `npm run platform:provision:node` | Same provision via Node (`--domain`, `--admin-password`) |
+| `npm run platform:provision` | New customer DB via Node (`--domain`, `--admin-password`) — Mac/Linux/Windows |
+| `npm run platform:provision:ps1` | Same provision via PowerShell (`-Domain`, `-AdminPassword`) |
+| `npm run platform:provision:node` | Alias of `platform:provision` |
 | `npm run platform:apply-pack` | Apply a domain pack onto an existing kernel DB |
 | `npm run platform:export-pack` | Save live Setup config back into `supabase/domains/<id>` |
 

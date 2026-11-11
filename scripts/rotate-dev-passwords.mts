@@ -39,10 +39,11 @@ for (const email of BOOTSTRAP_EMAILS) {
 
   if (!dryRun && passwordHash) {
     await query(
-      `INSERT INTO public.app_user_credentials (user_id, password_hash)
-       VALUES ($1::uuid, $2)
+      `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
+       VALUES ($1::uuid, $2, true)
        ON CONFLICT (user_id) DO UPDATE SET
          password_hash = EXCLUDED.password_hash,
+         must_change_password = true,
          updated_at = now()`,
       [user.id, passwordHash],
     )

@@ -40,7 +40,7 @@ None (`records.json` empty).
 ### Apply
 
 ```powershell
-npm run platform:provision -- -Domain sales
+npm run platform:provision -- --domain sales
 ```
 
 Or after kernel-only provision:
@@ -91,7 +91,7 @@ Detailed seed and job notes live in [`../pricing/README.md`](../pricing/README.m
 **Operational follow-up after apply:** create a scheduled task with job type **Sync promo prices** (hourly recommended) so `promo_price` and `promotion` stay current.
 
 ```powershell
-npm run platform:provision -- -Domain pricing
+npm run platform:provision -- --domain pricing
 npm run platform:apply-pack -- pricing
 npm run platform:export-pack -- pricing
 ```

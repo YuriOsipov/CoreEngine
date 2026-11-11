@@ -6,6 +6,7 @@ import { clearRolePreviewOverride } from '@/core/rolePreview'
 const ACCESS_TOKEN_KEY = 'crm.auth.access_token'
 const REFRESH_TOKEN_KEY = 'crm.auth.refresh_token'
 const EXPIRES_AT_KEY = 'crm.auth.expires_at'
+const MUST_CHANGE_PASSWORD_KEY = 'crm.auth.must_change_password'
 
 function bffBaseUrl(): string {
   const graphqlUrl =
@@ -24,6 +25,7 @@ export interface AuthSessionResponse {
   access_token: string
   refresh_token: string
   expires: number
+  must_change_password?: boolean
 }
 
 function browserStores(): { session: Storage; local: Storage } | null {
@@ -88,10 +90,39 @@ export function clearAuthSession(): void {
     clearTokenKeys(stores.session)
     clearTokenKeys(stores.local)
     stores.local.removeItem('crm.auth.persistent')
+    stores.local.removeItem(MUST_CHANGE_PASSWORD_KEY)
+    stores.session.removeItem(MUST_CHANGE_PASSWORD_KEY)
   }
   clearRolePreviewOverride()
   clearCurrentUserCache()
   clearEntityPermissionsCache()
+}
+
+export function mustChangePasswordPending(): boolean {
+  const stores = browserStores()
+  if (!stores) return false
+  return (
+    stores.local.getItem(MUST_CHANGE_PASSWORD_KEY) === '1' ||
+    stores.session.getItem(MUST_CHANGE_PASSWORD_KEY) === '1'
+  )
+}
+
+export function clearMustChangePasswordPending(): void {
+  const stores = browserStores()
+  if (!stores) return
+  stores.local.removeItem(MUST_CHANGE_PASSWORD_KEY)
+  stores.session.removeItem(MUST_CHANGE_PASSWORD_KEY)
+}
+
+function writeMustChangePasswordFlag(required: boolean): void {
+  const stores = browserStores()
+  if (!stores) return
+  if (required) {
+    stores.local.setItem(MUST_CHANGE_PASSWORD_KEY, '1')
+  } else {
+    stores.local.removeItem(MUST_CHANGE_PASSWORD_KEY)
+    stores.session.removeItem(MUST_CHANGE_PASSWORD_KEY)
+  }
 }
 
 export function writeAuthSession(session: AuthSessionResponse): AuthSession {
@@ -109,6 +140,7 @@ export function writeAuthSession(session: AuthSessionResponse): AuthSession {
     writeToStore(stores.local, next)
     clearTokenKeys(stores.session)
   }
+  writeMustChangePasswordFlag(session.must_change_password === true)
   // New login must not inherit another user's "View as role" override.
   clearRolePreviewOverride()
   clearCurrentUserCache()
@@ -236,12 +268,52 @@ async function authRequest<T>(
 export async function loginWithBff(input: {
   email: string
   password: string
-}): Promise<AuthSession> {
+}): Promise<AuthSession & { mustChangePassword: boolean }> {
   const session = await authRequest<AuthSessionResponse>('/auth/login', {
     email: input.email,
     password: input.password,
   })
-  return writeAuthSession(session)
+  const written = writeAuthSession(session)
+  return {
+    ...written,
+    mustChangePassword: session.must_change_password === true,
+  }
+}
+
+export async function changePasswordWithBff(input: {
+  currentPassword: string
+  newPassword: string
+}): Promise<void> {
+  const accessToken = await getAccessToken()
+  if (!accessToken) {
+    throw new AuthRequestError('Authentication required', 401)
+  }
+  const response = await fetch(`${bffBaseUrl()}/auth/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      current_password: input.currentPassword,
+      new_password: input.newPassword,
+    }),
+  })
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string
+  } | null
+  if (!response.ok) {
+    throw new AuthRequestError(
+      (payload && typeof payload === 'object' && payload.error) ||
+        `Auth HTTP ${response.status}`,
+      response.status,
+    )
+  }
+  clearMustChangePasswordPending()
+  // Password change revokes refresh tokens server-side — clear local session.
+  clearAuthSession()
 }
 
 export async function refreshAuthSession(

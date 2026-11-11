@@ -46,7 +46,7 @@ In Setup → Object Manager → Promotion → Fields & Relationships, edit each 
 ## Apply
 
 ```powershell
-npm run platform:provision -- -Domain pricing
+npm run platform:provision -- --domain pricing
 ```
 
 Or after kernel-only provision:

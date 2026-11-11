@@ -5,7 +5,11 @@ import documentRoutes from '@/modules/documents/router'
 import dashboardRoutes from '@/modules/dashboard/router'
 import reportRoutes from '@/modules/reports/router'
 import projectRoutes from '@/modules/projects/router'
-import { canUseBffAuth, hasAuthSession } from '@/core/auth/session'
+import {
+  canUseBffAuth,
+  hasAuthSession,
+  mustChangePasswordPending,
+} from '@/core/auth/session'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -28,11 +32,19 @@ export const router = createRouter({
 router.beforeEach((to) => {
   if (!canUseBffAuth()) return true
   if (to.meta.public === true) return true
-  if (hasAuthSession()) return true
-  return {
-    name: 'login',
-    query: { redirect: to.fullPath },
+  if (!hasAuthSession()) {
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath },
+    }
   }
+  if (mustChangePasswordPending() && to.name !== 'login') {
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath, changePassword: '1' },
+    }
+  }
+  return true
 })
 
 router.onError((error) => {

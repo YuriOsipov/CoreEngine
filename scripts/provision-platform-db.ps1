@@ -49,7 +49,7 @@ Write-Host '==> 2/5 Kernel SQL (supabase/migrations)'
 if ($LASTEXITCODE -ne 0) { throw 'Kernel migrate failed' }
 
 Write-Host "==> 3/5 Admin password for $AdminEmail"
-& npx --prefix .\crm-bff tsx --env-file=.env --env-file=supabase/.env .\scripts\set-user-password.mts $AdminEmail $AdminPassword
+& npx --prefix .\crm-bff tsx --env-file=.env --env-file=supabase/.env .\scripts\set-user-password.mts $AdminEmail $AdminPassword --must-change
 if ($LASTEXITCODE -ne 0) { throw 'Failed to set admin password' }
 
 Write-Host '==> 4/5 Documents pack (doc_template / snapshots / values)'
@@ -72,6 +72,7 @@ if ($passwordWasGenerated) {
 } else {
   Write-Host "  Login: $AdminEmail / (password you set via -AdminPassword)"
 }
+Write-Host '  First login requires a password change (must_change_password).'
 Write-Host '  Next: npm run bff:dev   then   npm run dev'
 if ($Domain -eq 'none') {
   Write-Host '  Or apply a pack later: npm run platform:apply-pack -- sales'

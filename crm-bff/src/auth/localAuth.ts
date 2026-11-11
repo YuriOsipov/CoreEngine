@@ -1,12 +1,14 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
 import { ACCESS_TTL_SEC, REFRESH_TTL_SEC, signAccessToken } from './jwt.js'
+import { isInsecurePassword } from './insecurePasswords.js'
 import { hashPassword, verifyPassword } from './passwords.js'
 
 export interface AuthSessionPayload {
   access_token: string
   expires: number
   refresh_token: string
+  must_change_password?: boolean
 }
 
 interface AuthUserRow {
@@ -17,6 +19,7 @@ interface AuthUserRow {
   role_backend_id: string | null
   is_admin: boolean | null
   password_hash: string | null
+  must_change_password: boolean
 }
 
 function hashRefreshToken(token: string): string {
@@ -31,7 +34,8 @@ async function loadUserByEmail(email: string): Promise<AuthUserRow | null> {
             u.is_active,
             r.backend_role_id AS role_backend_id,
             COALESCE(r.is_admin, false) AS is_admin,
-            c.password_hash
+            c.password_hash,
+            COALESCE(c.must_change_password, false) AS must_change_password
      FROM public.app_users u
      LEFT JOIN public.app_roles r ON r.id = u.role_id
      LEFT JOIN public.app_user_credentials c ON c.user_id = u.id
@@ -50,7 +54,8 @@ async function loadUserById(id: string): Promise<AuthUserRow | null> {
             u.is_active,
             r.backend_role_id AS role_backend_id,
             COALESCE(r.is_admin, false) AS is_admin,
-            c.password_hash
+            c.password_hash,
+            COALESCE(c.must_change_password, false) AS must_change_password
      FROM public.app_users u
      LEFT JOIN public.app_roles r ON r.id = u.role_id
      LEFT JOIN public.app_user_credentials c ON c.user_id = u.id
@@ -88,6 +93,7 @@ async function issueSession(user: AuthUserRow): Promise<AuthSessionPayload> {
     access_token: accessToken,
     refresh_token: refreshToken,
     expires: ACCESS_TTL_SEC,
+    ...(user.must_change_password ? { must_change_password: true } : {}),
   }
 }
 
@@ -153,15 +159,59 @@ export async function bffLogout(input: {
 }
 
 /** @deprecated Password capture via hybrid login was retired. */
-export async function hashPasswordForUser(userId: string, password: string): Promise<void> {
+export async function hashPasswordForUser(
+  userId: string,
+  password: string,
+  options?: { mustChangePassword?: boolean },
+): Promise<void> {
   const passwordHash = await hashPassword(password)
+  const mustChange =
+    options?.mustChangePassword === true || isInsecurePassword(password)
   await query(
-    `INSERT INTO public.app_user_credentials (user_id, password_hash)
-     VALUES ($1::uuid, $2)
+    `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
+     VALUES ($1::uuid, $2, $3)
      ON CONFLICT (user_id) DO UPDATE SET
        password_hash = EXCLUDED.password_hash,
+       must_change_password = EXCLUDED.must_change_password,
        updated_at = now()`,
-    [userId, passwordHash],
+    [userId, passwordHash, mustChange],
   )
   await revokeAllRefreshTokensForUser(userId)
+}
+
+export async function bffChangePassword(input: {
+  userId: string
+  currentPassword: string
+  newPassword: string
+}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const newPassword = input.newPassword.trim()
+  if (newPassword.length < 8) {
+    return { ok: false, status: 400, error: 'New password must be at least 8 characters' }
+  }
+  if (isInsecurePassword(newPassword)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'New password is a known insecure / example value — choose a unique password',
+    }
+  }
+
+  const user = await loadUserById(input.userId)
+  if (!user || !user.is_active || !user.password_hash) {
+    return { ok: false, status: 401, error: 'Change password failed' }
+  }
+  const ok = await verifyPassword(input.currentPassword, user.password_hash)
+  if (!ok) return { ok: false, status: 401, error: 'Current password is incorrect' }
+
+  const passwordHash = await hashPassword(newPassword)
+  await query(
+    `UPDATE public.app_user_credentials
+     SET password_hash = $2,
+         must_change_password = false,
+         updated_at = now()
+     WHERE user_id = $1::uuid`,
+    [user.id, passwordHash],
+  )
+  await revokeAllRefreshTokensForUser(user.id)
+  return { ok: true }
 }

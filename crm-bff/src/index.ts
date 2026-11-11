@@ -13,10 +13,12 @@ import {
   linkFileToRecord,
 } from './adapters/filesAdapter.js'
 import {
+  bffChangePassword,
   bffLogin,
   bffLogout,
   bffRefresh,
 } from './auth/localAuth.js'
+import { assertProductionBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
 import { authJwtSecret } from './auth/jwt.js'
 import { requireAuthenticatedUser } from './auth/accessGuards.js'
 import { rateLimitConsume } from './auth/rateLimit.js'
@@ -199,6 +201,51 @@ app.post('/auth/logout', async (request, reply) => {
   }
 
   const result = await bffLogout({ refreshToken })
+  if (!result.ok) {
+    return reply.status(result.status).send({ error: result.error })
+  }
+  return { ok: true }
+})
+
+app.post('/auth/change-password', async (request, reply) => {
+  const limit = rateLimitConsume(
+    `change-password:${clientKeyFromRequest(request)}`,
+    10,
+    60_000,
+  )
+  if (!limit.ok) {
+    reply.header('retry-after', String(limit.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many password change attempts' })
+  }
+
+  let me
+  try {
+    me = await requireAuthenticatedUser({
+      authorization: authHeaderFromFastify(request),
+    })
+  } catch {
+    return reply.status(401).send({ error: 'Authentication required' })
+  }
+
+  const body = (request.body ?? {}) as {
+    current_password?: unknown
+    new_password?: unknown
+  }
+  const currentPassword =
+    typeof body.current_password === 'string' ? body.current_password : ''
+  const newPassword =
+    typeof body.new_password === 'string' ? body.new_password : ''
+  if (!currentPassword || !newPassword) {
+    return reply
+      .status(400)
+      .send({ error: 'current_password and new_password are required' })
+  }
+
+  const result = await bffChangePassword({
+    userId: String(me.id),
+    currentPassword,
+    newPassword,
+  })
   if (!result.ok) {
     return reply.status(result.status).send({ error: result.error })
   }
@@ -412,6 +459,8 @@ async function start() {
   try {
     // Fail fast: login/refresh call signAccessToken and otherwise surface as HTTP 500.
     authJwtSecret()
+    // Production: refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …).
+    await assertProductionBootstrapPasswordsSafe()
     await app.listen({ port, host: '0.0.0.0' })
     app.log.info(`GraphQL ready at http://localhost:${port}/graphql`)
     app.log.info(`Auth proxy at http://localhost:${port}/auth/login`)

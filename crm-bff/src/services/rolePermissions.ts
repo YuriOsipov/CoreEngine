@@ -299,6 +299,54 @@ export async function assertMeEntityPermission(
 }
 
 /**
+ * Entities whose records `me` may read, or null when unrestricted (admin).
+ * Mirrors assertMeEntityPermission: matrix can_read rows + picker assets.
+ */
+export async function readableEntityNames(me: MeUser): Promise<Set<string> | null> {
+  if (me.adminAccess || me.roleAdminAccess) return null
+  const out = new Set<string>(['users', 'roles', 'files'])
+  const appRoleId = await resolveAppRoleId(me.roleId)
+  if (!appRoleId) return out
+  const rows = await query<{ entity_api_name: string }>(
+    `SELECT entity_api_name
+     FROM public.role_permissions
+     WHERE role_id = $1::uuid AND can_read = true`,
+    [appRoleId],
+  )
+  for (const row of rows) {
+    if (!ROLE_PERMISSION_EXCLUDED_ENTITIES.has(row.entity_api_name)) {
+      out.add(row.entity_api_name)
+    }
+  }
+  return out
+}
+
+/**
+ * Schema visibility for non-admins: readable entities plus the metadata of
+ * entities they reference (M2O targets need display templates / pickers).
+ * Returns null when unrestricted (admin).
+ */
+export async function visibleSchemaEntityNames(me: MeUser): Promise<Set<string> | null> {
+  const readable = await readableEntityNames(me)
+  if (!readable) return null
+  const related = await query<{ api_name: string }>(
+    `SELECT DISTINCT target.api_name
+     FROM public.relations r
+     JOIN public.entities src ON src.id = r.entity_id
+     JOIN public.entities target
+       ON target.id = r.related_entity_id OR target.id = r.junction_entity_id
+       OR target.id = ANY(COALESCE(r.allowed_entity_ids, '{}'::uuid[]))
+     WHERE src.api_name = ANY($1::text[])
+       AND src.deleted_at IS NULL
+       AND target.deleted_at IS NULL`,
+    [[...readable]],
+  )
+  const visible = new Set(readable)
+  for (const row of related) visible.add(row.api_name)
+  return visible
+}
+
+/**
  * Enforce collection CRUD for the authenticated user.
  * Admins bypass. Missing permission row = deny.
  */

@@ -31,6 +31,8 @@ const flows = ref<GraphQlFlowTrigger[]>([])
 const searchQuery = ref('')
 const dialogVisible = ref(false)
 const editingKey = ref<string | null>(null)
+/** Config keys the dialog does not edit (patch, allowedFields, allowedRoles, …). */
+const editingConfig = ref<Record<string, unknown>>({})
 
 const form = reactive({
   key: '',
@@ -141,6 +143,7 @@ function resetForm(): void {
   form.method = 'POST'
   resetAuthFields()
   editingKey.value = null
+  editingConfig.value = {}
 }
 
 function loadAuthFromConfig(config: Record<string, unknown>): void {
@@ -199,6 +202,7 @@ function openCreate(): void {
 
 function openEdit(flow: GraphQlFlowTrigger): void {
   editingKey.value = flow.key
+  editingConfig.value = { ...(flow.config ?? {}) }
   form.key = flow.key
   form.handler = flow.handler
   form.enabled = flow.enabled
@@ -288,17 +292,23 @@ async function save(): Promise<void> {
 
   saving.value = true
   try {
+    const preserved = editingConfig.value
     const config: Record<string, unknown> =
       form.handler === 'http'
         ? {
+            allowedRoles: preserved.allowedRoles,
             url: form.url.trim(),
             method: form.method || 'POST',
             headers: { Accept: 'application/json' },
             auth: buildAuthConfig(),
           }
-        : form.handler === 'update_record'
-          ? {}
-          : {}
+        : {
+            collection: preserved.collection,
+            recordId: preserved.recordId,
+            patch: preserved.patch,
+            allowedFields: preserved.allowedFields,
+            allowedRoles: preserved.allowedRoles,
+          }
 
     await upsertFlowTrigger({
       key,

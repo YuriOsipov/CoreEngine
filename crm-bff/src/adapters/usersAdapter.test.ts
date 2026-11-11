@@ -104,7 +104,10 @@ describe('fetchMe JWT verification', () => {
       roleAdminAccess: false,
       mustChangePassword: false,
     })
-    expect(postgresFetchMe).toHaveBeenCalledWith('user-1')
+    expect(postgresFetchMe).toHaveBeenCalledWith('user-1', {
+      iat: expect.any(Number),
+      jti: expect.any(String),
+    })
   })
 
   it('returns empty me when the DB user is missing or inactive (no claim-built identity)', async () => {
@@ -118,6 +121,6 @@ describe('fetchMe JWT verification', () => {
     expect(me.id).toBeNull()
     expect(me.adminAccess).toBe(false)
     expect(me.roleAdminAccess).toBe(false)
-    expect(postgresFetchMe).toHaveBeenCalledWith('deleted-admin')
+    expect(postgresFetchMe).toHaveBeenCalledWith('deleted-admin', expect.any(Object))
   })
 })

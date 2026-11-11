@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
-import { revokeAllRefreshTokensForUser } from '../auth/localAuth.js'
-import { hashPassword } from '../auth/passwords.js'
+import {
+  invalidateAccessTokensForUser,
+  revokeAllRefreshTokensForUser,
+} from '../auth/localAuth.js'
+import { hashPassword, passwordPolicyError } from '../auth/passwords.js'
 import { seedFullPermissionsForRole } from './rolePermissions.js'
 
 export interface AppRoleAdmin {
@@ -277,11 +280,13 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUserA
 
   const password = input.password?.trim()
   if (password) {
-    if (password.length < 8) throw new Error('Password must be at least 8 characters')
+    const policyError = passwordPolicyError(password)
+    if (policyError) throw new Error(policyError)
     const passwordHash = await hashPassword(password)
+    // Admin-chosen password is known to the admin — user must replace it at first login.
     await query(
-      `INSERT INTO public.app_user_credentials (user_id, password_hash)
-       VALUES ($1::uuid, $2)`,
+      `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
+       VALUES ($1::uuid, $2, true)`,
       [id, passwordHash],
     )
   }
@@ -366,7 +371,8 @@ export async function setAppUserPassword(
   const userId = String(id || '').trim()
   const nextPassword = String(password || '')
   if (!userId) throw new Error('User id is required')
-  if (nextPassword.length < 8) throw new Error('Password must be at least 8 characters')
+  const policyError = passwordPolicyError(nextPassword)
+  if (policyError) throw new Error(policyError)
 
   const existing = await query<{ id: string }>(
     `SELECT id::text AS id FROM public.app_users WHERE id = $1::uuid LIMIT 1`,
@@ -376,13 +382,15 @@ export async function setAppUserPassword(
 
   const passwordHash = await hashPassword(nextPassword)
   await query(
-    `INSERT INTO public.app_user_credentials (user_id, password_hash)
-     VALUES ($1::uuid, $2)
+    `INSERT INTO public.app_user_credentials (user_id, password_hash, must_change_password)
+     VALUES ($1::uuid, $2, true)
      ON CONFLICT (user_id) DO UPDATE
      SET password_hash = EXCLUDED.password_hash,
+         must_change_password = true,
          updated_at = now()`,
     [userId, passwordHash],
   )
   await revokeAllRefreshTokensForUser(userId)
+  await invalidateAccessTokensForUser(userId)
   return true
 }

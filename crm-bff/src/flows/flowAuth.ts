@@ -1,6 +1,8 @@
 import { timingSafeEqual } from 'node:crypto'
 import { bearerToken } from '../auth/tokenClaims.js'
 import { verifyAccessToken } from '../auth/jwt.js'
+import { PASSWORD_CHANGE_REQUIRED, requireAuthenticatedUser } from '../auth/accessGuards.js'
+import type { MeUser } from '../adapters/usersAdapter.js'
 
 /** Outbound + inbound marker so n8n↔BFF loops can be detected. */
 export const CRM_AUTOMATION_HEADER = 'x-crm-automation'
@@ -11,6 +13,8 @@ export type FlowTriggerAuthOk = {
   ok: true
   actorId: string | null
   via: 'jwt' | 'service_key' | 'open'
+  /** Set when via === 'jwt' — DB-verified active user. */
+  me: MeUser | null
 }
 
 export type FlowTriggerAuthFail = {
@@ -95,10 +99,10 @@ export function assertNotAutomationReentry(
  * - or FLOWS_TRIGGER_SERVICE_KEY as Bearer / X-CRM-Flow-Secret
  * - or open when FLOWS_TRIGGER_REQUIRE_AUTH=false
  */
-export function authorizeFlowTrigger(input: {
+export async function authorizeFlowTrigger(input: {
   authorizationHeader: string | undefined
   headers?: Record<string, string | string[] | undefined>
-}): FlowTriggerAuthResult {
+}): Promise<FlowTriggerAuthResult> {
   const reentry = assertNotAutomationReentry(input.headers)
   if (reentry) return reentry
 
@@ -117,22 +121,29 @@ export function authorizeFlowTrigger(input: {
 
   if (serviceKey) {
     if (token && safeEqualString(token, serviceKey)) {
-      return { ok: true, actorId: null, via: 'service_key' }
+      return { ok: true, actorId: null, via: 'service_key', me: null }
     }
     if (secretHeader && safeEqualString(secretHeader, serviceKey)) {
-      return { ok: true, actorId: null, via: 'service_key' }
+      return { ok: true, actorId: null, via: 'service_key', me: null }
     }
   }
 
-  if (token) {
-    const claims = verifyAccessToken(token)
-    if (claims?.id) {
-      return { ok: true, actorId: claims.id, via: 'jwt' }
+  if (token && verifyAccessToken(token)?.id) {
+    // Signature alone is not enough: deactivated / deleted users and pending
+    // password changes must be refused like every other authenticated route.
+    try {
+      const me = await requireAuthenticatedUser({ authorization: `Bearer ${token}` })
+      return { ok: true, actorId: me.id, via: 'jwt', me }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      return message === PASSWORD_CHANGE_REQUIRED
+        ? { ok: false, status: 403, error: PASSWORD_CHANGE_REQUIRED }
+        : { ok: false, status: 401, error: 'Authentication required' }
     }
   }
 
   if (!requireAuth) {
-    return { ok: true, actorId: null, via: 'open' }
+    return { ok: true, actorId: null, via: 'open', me: null }
   }
 
   return {
@@ -143,16 +154,28 @@ export function authorizeFlowTrigger(input: {
   }
 }
 
-/** Headers merged into every outbound http flow call. */
+function sameOrigin(url: URL, other: string): boolean {
+  try {
+    return new URL(other).origin === url.origin
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Headers merged into every outbound http flow call. N8N_WEBHOOK_SECRET is only
+ * attached when the destination is the configured N8N_WEBHOOK_URL origin.
+ */
 export function outboundHttpFlowHeaders(
   configHeaders: Record<string, string>,
+  destination: URL,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     ...configHeaders,
     [CRM_SOURCE_HEADER]: configHeaders[CRM_SOURCE_HEADER] || 'bff-flow',
   }
   const secret = n8nWebhookSecret()
-  if (secret && !headers[CRM_FLOW_SECRET_HEADER]) {
+  if (secret && !headers[CRM_FLOW_SECRET_HEADER] && sameOrigin(destination, n8nWebhookUrl())) {
     headers[CRM_FLOW_SECRET_HEADER] = secret
   }
   return headers

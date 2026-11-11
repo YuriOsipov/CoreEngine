@@ -95,6 +95,39 @@ export async function assertFilesReadable(
     .filter((row): row is Record<string, unknown> => Boolean(row))
 }
 
+/**
+ * Caller may change / delete the file if they can update any linked parent
+ * entity, or (orphan) they are admin / the uploader. Read access is not enough.
+ */
+export async function assertFileWritable(
+  me: MeUser,
+  fileId: string,
+): Promise<Record<string, unknown>> {
+  const id = String(fileId || '').trim()
+  if (!id) throw new Error('File not found')
+  const row = await findFile(id, ['parent_collection', 'parent_record_id', 'uploaded_by'])
+  if (!row) throw new Error(`File not found: ${id}`)
+
+  if (me.adminAccess || me.roleAdminAccess) return row
+
+  const parents = await parentCollectionsForFile(id, row)
+  if (!parents.length) {
+    const uploader = uploadedById(row)
+    if (uploader && uploader === String(me.id)) return row
+    throw new Error('Permission denied: update on files')
+  }
+
+  for (const collection of parents) {
+    try {
+      await assertMeEntityPermission(me, collection, 'update')
+      return row
+    } catch {
+      // try next parent
+    }
+  }
+  throw new Error('Permission denied: update on files')
+}
+
 /** Upload/link to a parent requires update on that collection. */
 export async function assertFileParentWritable(
   me: MeUser,

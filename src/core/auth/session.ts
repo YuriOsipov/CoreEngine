@@ -331,6 +331,7 @@ export async function logoutWithBff(): Promise<void> {
     if (session?.refreshToken) {
       await authRequest<{ ok: boolean }>('/auth/logout', {
         refresh_token: session.refreshToken,
+        access_token: session.accessToken,
       })
     }
   } finally {

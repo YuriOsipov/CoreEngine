@@ -2,7 +2,12 @@
  * Local flow triggers only (`app_flow_triggers`). Legacy remote flow proxy retired.
  */
 import { authorizeFlowTrigger } from './flowAuth.js'
-import { LocalFlowError, runLocalFlow, type LocalFlowResult } from './localFlows.js'
+import {
+  LocalFlowError,
+  runLocalFlow,
+  type FlowInvoker,
+  type LocalFlowResult,
+} from './localFlows.js'
 
 export type FlowsBackend = 'local'
 
@@ -30,7 +35,7 @@ export async function triggerFlow(
   // Ensure misconfigured env fails loudly before running.
   resolveFlowsBackend()
 
-  const auth = authorizeFlowTrigger({
+  const auth = await authorizeFlowTrigger({
     authorizationHeader,
     headers,
   })
@@ -38,8 +43,15 @@ export async function triggerFlow(
     return { status: auth.status, body: { error: auth.error } }
   }
 
+  const invoker: FlowInvoker =
+    auth.via === 'jwt' && auth.me
+      ? { kind: 'user', me: auth.me }
+      : auth.via === 'service_key'
+        ? { kind: 'system' }
+        : { kind: 'anonymous' }
+
   try {
-    const result: LocalFlowResult = await runLocalFlow(trimmed, payload)
+    const result: LocalFlowResult = await runLocalFlow(trimmed, payload, invoker)
     return {
       status: 200,
       body: {

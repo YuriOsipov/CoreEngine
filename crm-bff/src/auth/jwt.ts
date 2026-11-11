@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { config as loadEnv } from 'dotenv'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -84,6 +84,8 @@ export interface BffAccessClaims {
   iat: number
   exp: number
   token_use: typeof ACCESS_TOKEN_USE
+  /** Token id for logout revocation (null on tokens minted before jti existed). */
+  jti: string | null
 }
 
 export function signAccessToken(input: {
@@ -97,6 +99,7 @@ export function signAccessToken(input: {
       id: input.id,
       role: input.role ?? null,
       token_use: ACCESS_TOKEN_USE,
+      jti: randomUUID(),
       iss: BFF_JWT_ISS,
       iat: now,
       exp: now + ACCESS_TTL_SEC,
@@ -150,5 +153,6 @@ export function verifyAccessToken(token: string): BffAccessClaims | null {
     iat: typeof payload.iat === 'number' ? payload.iat : 0,
     exp: payload.exp,
     token_use: ACCESS_TOKEN_USE,
+    jti: typeof payload.jti === 'string' && payload.jti ? payload.jti : null,
   }
 }

@@ -1,8 +1,14 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
-import { ACCESS_TTL_SEC, REFRESH_TTL_SEC, signAccessToken } from './jwt.js'
+import { ACCESS_TTL_SEC, REFRESH_TTL_SEC, signAccessToken, verifyAccessToken } from './jwt.js'
 import { isInsecurePassword } from './insecurePasswords.js'
-import { hashPassword, verifyPassword } from './passwords.js'
+import {
+  hashPassword,
+  passwordNeedsRehash,
+  passwordPolicyError,
+  verifyAgainstDummyHash,
+  verifyPassword,
+} from './passwords.js'
 
 export interface AuthSessionPayload {
   access_token: string
@@ -73,6 +79,33 @@ export async function revokeAllRefreshTokensForUser(userId: string): Promise<voi
   await query(`DELETE FROM public.app_refresh_tokens WHERE user_id = $1::uuid`, [id])
 }
 
+/** Reject every access token issued before now (password change / admin reset). */
+export async function invalidateAccessTokensForUser(userId: string): Promise<void> {
+  const id = String(userId || '').trim()
+  if (!id) return
+  await query(
+    `UPDATE public.app_user_credentials
+     SET tokens_valid_after = now()
+     WHERE user_id = $1::uuid`,
+    [id],
+  )
+}
+
+/** Denylist one access token until its natural expiry (logout). */
+export async function revokeAccessToken(token: string): Promise<void> {
+  const claims = verifyAccessToken(token)
+  if (!claims?.jti) return
+  await query(
+    `INSERT INTO public.app_revoked_access_tokens (jti, user_id, expires_at)
+     SELECT $1, u.id, to_timestamp($3)
+     FROM (SELECT 1) one
+     LEFT JOIN public.app_users u ON u.backend_user_id = $2 OR u.id::text = $2
+     ON CONFLICT (jti) DO NOTHING`,
+    [claims.jti, claims.id, claims.exp],
+  )
+  await query(`DELETE FROM public.app_revoked_access_tokens WHERE expires_at < now()`)
+}
+
 async function issueSession(user: AuthUserRow): Promise<AuthSessionPayload> {
   const subject = user.backend_user_id || user.id
   // Admin flags are not embedded — fetchMe / assert* read them from app_users.
@@ -122,10 +155,23 @@ export async function bffLogin(input: {
 
   const user = await loadUserByEmail(input.email)
   if (!user || !user.is_active || !user.password_hash) {
+    // Same scrypt cost as a real check — no account enumeration via timing.
+    await verifyAgainstDummyHash(input.password)
     return { ok: false, status: 401, error: 'Login failed' }
   }
   const ok = await verifyPassword(input.password, user.password_hash)
   if (!ok) return { ok: false, status: 401, error: 'Login failed' }
+  if (passwordNeedsRehash(user.password_hash)) {
+    try {
+      await query(
+        `UPDATE public.app_user_credentials SET password_hash = $2, updated_at = now()
+         WHERE user_id = $1::uuid AND password_hash = $3`,
+        [user.id, await hashPassword(input.password), user.password_hash],
+      )
+    } catch (error) {
+      console.warn('[auth] password rehash failed', error)
+    }
+  }
   return { ok: true, session: await issueSession(user) }
 }
 
@@ -152,9 +198,11 @@ export async function bffRefresh(input: {
 
 export async function bffLogout(input: {
   refreshToken: string
+  accessToken?: string | null
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const tokenHash = hashRefreshToken(input.refreshToken)
   await query(`DELETE FROM public.app_refresh_tokens WHERE token_hash = $1`, [tokenHash])
+  if (input.accessToken) await revokeAccessToken(input.accessToken)
   return { ok: true }
 }
 
@@ -177,6 +225,7 @@ export async function hashPasswordForUser(
     [userId, passwordHash, mustChange],
   )
   await revokeAllRefreshTokensForUser(userId)
+  await invalidateAccessTokensForUser(userId)
 }
 
 export async function bffChangePassword(input: {
@@ -185,15 +234,9 @@ export async function bffChangePassword(input: {
   newPassword: string
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const newPassword = input.newPassword.trim()
-  if (newPassword.length < 8) {
-    return { ok: false, status: 400, error: 'New password must be at least 8 characters' }
-  }
-  if (isInsecurePassword(newPassword)) {
-    return {
-      ok: false,
-      status: 400,
-      error: 'New password is a known insecure / example value — choose a unique password',
-    }
+  const policyError = passwordPolicyError(newPassword)
+  if (policyError) {
+    return { ok: false, status: 400, error: policyError }
   }
 
   const user = await loadUserById(input.userId)
@@ -213,5 +256,6 @@ export async function bffChangePassword(input: {
     [user.id, passwordHash],
   )
   await revokeAllRefreshTokensForUser(user.id)
+  await invalidateAccessTokensForUser(user.id)
   return { ok: true }
 }

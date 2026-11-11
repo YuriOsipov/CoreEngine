@@ -11,6 +11,14 @@ export const DEFAULT_LIST_LIMIT = 100
 export const MAX_READ_LIMIT = 500
 /** Hard ceiling even with export (DoS guard). */
 export const MAX_EXPORT_LIMIT = 10_000
+/** Deep OFFSET scans are O(offset) in Postgres — page with filters/sort keys instead. */
+export const MAX_LIST_OFFSET = 50_000
+
+export function assertListOffsetAllowed(offset: number | null | undefined): void {
+  if (offset != null && Number(offset) > MAX_LIST_OFFSET) {
+    throw new Error(`offset must be <= ${MAX_LIST_OFFSET}`)
+  }
+}
 
 export async function assertIncludeDeletedAllowed(
   me: MeUser,

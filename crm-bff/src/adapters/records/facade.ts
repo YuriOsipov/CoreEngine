@@ -31,6 +31,8 @@ import {
   peelO2MAliasFields,
 } from './o2mNestedWrite.js'
 import { applyFormulasOnWrite, stripRollupWrites } from '../../computed/applyFormulas.js'
+import { sanitizeHtmlFieldWrites } from '../../computed/sanitizeHtmlFields.js'
+import { assertListOffsetAllowed } from '../../rest/listQueryPolicy.js'
 import {
   applyAutoNumbersOnCreate,
   loadAutoNumberFields,
@@ -609,12 +611,16 @@ async function findManyUserAssets(
 ): Promise<RecordsListResult> {
   const ids = idsFromFilter(params.filter ?? null)
   const search = String(params.search || '').trim() || null
-  const limit =
+  const requested =
     params.limit != null && params.limit >= 0
       ? params.limit
       : ids.length > 0
         ? ids.length
         : 20
+  const me = params.access?.me
+  const isAdmin = !me || Boolean(me.adminAccess || me.roleAdminAccess)
+  // Directory pulls (no ids) are capped for non-admins — same as GraphQL `users`.
+  const limit = isAdmin || ids.length > 0 ? requested : Math.min(requested, 50)
   const nodes = await listUsers({
     ids: ids.length ? ids : null,
     search,
@@ -663,6 +669,7 @@ export async function findManyRecords(
   entity: string,
   params: RecordsListParams = {},
 ): Promise<RecordsListResult> {
+  assertListOffsetAllowed(params.offset)
   if (isFilesAssetCollection(entity)) {
     return findManyFileAssets(params)
   }
@@ -810,7 +817,10 @@ export async function createRecord(
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  const withoutClientAudit = stripClientAuditUserFields(data)
+  const withoutClientAudit = await sanitizeHtmlFieldWrites(
+    apiName,
+    stripClientAuditUserFields(data),
+  )
   const strippedRollups = await stripRollupWrites(apiName, withoutClientAudit)
   const stripped = await stripAutoNumberWrites(apiName, strippedRollups)
   const withFormulas = await applyFormulasOnWrite(apiName, stripped, null)
@@ -896,7 +906,10 @@ export async function updateRecord(
   } catch {
     existing = null
   }
-  const withoutClientAudit = stripClientAuditUserFields(data)
+  const withoutClientAudit = await sanitizeHtmlFieldWrites(
+    apiName,
+    stripClientAuditUserFields(data),
+  )
   const strippedRollups = await stripRollupWrites(apiName, withoutClientAudit)
   const stripped = await stripAutoNumberWrites(apiName, strippedRollups)
   const withFormulas = await applyFormulasOnWrite(apiName, stripped, existing)

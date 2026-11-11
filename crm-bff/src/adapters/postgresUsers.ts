@@ -102,8 +102,11 @@ export async function postgresListUsers(options: {
     next += 1
   }
   if (searchText) {
+    // Non-admins must not be able to probe emails via search.
     where.push(
-      `(first_name ILIKE $${next} ESCAPE '\\' OR last_name ILIKE $${next} ESCAPE '\\' OR email ILIKE $${next} ESCAPE '\\')`,
+      includeEmail
+        ? `(first_name ILIKE $${next} ESCAPE '\\' OR last_name ILIKE $${next} ESCAPE '\\' OR email ILIKE $${next} ESCAPE '\\')`
+        : `(first_name ILIKE $${next} ESCAPE '\\' OR last_name ILIKE $${next} ESCAPE '\\')`,
     )
     params.push(`%${escapeIlikePattern(searchText)}%`)
     next += 1
@@ -184,7 +187,14 @@ export interface PostgresMeUser {
  * `roleId` prefers `backend_role_id`, falling back to `app_roles.id` so roles
  * without a backend id still resolve permissions via `resolveAppRoleId`.
  */
-export async function postgresFetchMe(backendUserId: string): Promise<PostgresMeUser | null> {
+/**
+ * `token` (verified JWT claims) enforces revocation: iat must not predate
+ * credentials.tokens_valid_after and the jti must not be on the logout denylist.
+ */
+export async function postgresFetchMe(
+  backendUserId: string,
+  token?: { iat: number; jti: string | null },
+): Promise<PostgresMeUser | null> {
   const rows = await query<{
     id: string | null
     first_name: string | null
@@ -208,8 +218,16 @@ export async function postgresFetchMe(backendUserId: string): Promise<PostgresMe
      LEFT JOIN public.app_user_credentials c ON c.user_id = u.id
      WHERE u.backend_user_id = $1
        AND u.is_active = true
+       AND (
+         $2::bigint IS NULL
+         OR c.tokens_valid_after IS NULL
+         OR $2::bigint >= floor(extract(epoch FROM c.tokens_valid_after))::bigint
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM public.app_revoked_access_tokens t WHERE t.jti = $3
+       )
      LIMIT 1`,
-    [backendUserId],
+    [backendUserId, token ? token.iat : null, token?.jti ?? null],
   )
   const row = rows[0]
   if (!row) return null

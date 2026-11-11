@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Editor from 'openvue/editor'
+import { sanitizeHtmlContent } from '@/core/htmlContent'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     modelValue?: string | null
     disabled?: boolean
@@ -19,6 +21,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
+const readonlyHtml = computed(() => sanitizeHtmlContent(props.modelValue))
+
 function onUpdate(value: string): void {
   emit('update:modelValue', value)
 }
@@ -29,7 +33,7 @@ function onUpdate(value: string): void {
     v-if="disabled"
     :id="id"
     class="html-editor-readonly min-h-[2.35rem] break-words border border-surface-200 rounded-md bg-surface-50 text-surface-900 px-[0.65rem] py-[0.55rem] text-[0.95rem] leading-[1.35]"
-    v-html="modelValue || ''"
+    v-html="readonlyHtml"
   />
   <Editor
     v-else

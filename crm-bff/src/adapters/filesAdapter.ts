@@ -232,13 +232,37 @@ export async function uploadFileBuffer(input: {
   return shaped ?? toFileAssetShape(row, id)
 }
 
+/**
+ * Client-editable file metadata. Everything else (storage_path, mime type,
+ * uploader, backend ids, parents) is server-owned — never merge it from a request.
+ */
+const EDITABLE_FILE_META_KEYS = [
+  'title',
+  'description',
+  'tags',
+  'location',
+  'focal_point_x',
+  'focal_point_y',
+] as const
+
 export async function updateFileRecord(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const row = await postgresFindFileRow(id)
   if (!row) throw new Error(`File not found: ${id}`)
-  const updated = await postgresUpdateFileMeta(id, payload)
+  const safePayload: Record<string, unknown> = {}
+  for (const key of EDITABLE_FILE_META_KEYS) {
+    if (key in payload) safePayload[key] = payload[key]
+  }
+  const requestedName =
+    typeof payload.filename_download === 'string'
+      ? payload.filename_download
+      : typeof payload.filename === 'string'
+        ? payload.filename
+        : null
+  if (requestedName) safePayload.filename = safeFilename(requestedName)
+  const updated = await postgresUpdateFileMeta(id, safePayload)
   if (!updated) throw new Error(`File not found: ${id}`)
   const [shaped] = await expandUploadedBy([toFileAssetShape(updated, id)], ['*'])
   return shaped ?? toFileAssetShape(updated, id)

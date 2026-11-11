@@ -90,7 +90,9 @@ import {
   isRoleAdmin,
   listPermissionEntities,
   listRolePermissions,
+  readableEntityNames,
   replaceRolePermissions,
+  visibleSchemaEntityNames,
 } from '../services/rolePermissions.js'
 import { clearCrmStorageCache } from '../schema/crmStorage.js'
 import {
@@ -136,6 +138,10 @@ function publicRateLimit(ctx: GraphQlAuthContext | undefined, bucket: string, li
     throw new Error(`Rate limit exceeded; retry in ${result.retryAfterSec}s`)
   }
 }
+
+/** Org settings every user's UI needs (locale/company header, upload limits); others are admin-only. */
+const USER_READABLE_ORG_SETTING_KEYS = new Set(['company_profile', 'files_upload'])
+const NON_ADMIN_USER_LIST_LIMIT = 50
 
 function actorIdFromMe(me: { id?: string | null } | null | undefined): string | null {
   return me?.id ? String(me.id) : null
@@ -408,14 +414,16 @@ export const resolvers = {
       args: { includeHidden?: boolean },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visible = await visibleSchemaEntityNames(me)
       const rows = await query(
         `SELECT *
          FROM public.entities
          WHERE deleted_at IS NULL
            AND ($1::boolean OR hidden = false)
+           AND ($2::text[] IS NULL OR api_name = ANY($2::text[]))
          ORDER BY api_name ASC`,
-        [Boolean(args.includeHidden)],
+        [Boolean(args.includeHidden), visible ? [...visible] : null],
       )
       return rows.map((row) => mapEntityBase(row))
     },
@@ -425,7 +433,9 @@ export const resolvers = {
       args: { apiName: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visible = await visibleSchemaEntityNames(me)
+      if (visible && !visible.has(String(args.apiName))) return null
       const rows = await query(
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
         [args.apiName],
@@ -438,7 +448,11 @@ export const resolvers = {
       args: { apiName: string; language?: string | null },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visible = await visibleSchemaEntityNames(me)
+      if (visible && !visible.has(String(args.apiName))) {
+        throw new Error(`Entity not found: ${args.apiName}`)
+      }
       const rows = await query(
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
         [args.apiName],
@@ -454,14 +468,16 @@ export const resolvers = {
       args: { includeHidden?: boolean },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visible = await visibleSchemaEntityNames(me)
       const entities = await query(
         `SELECT *
          FROM public.entities
          WHERE deleted_at IS NULL
            AND ($1::boolean OR hidden = false)
+           AND ($2::text[] IS NULL OR api_name = ANY($2::text[]))
          ORDER BY api_name ASC`,
-        [args.includeHidden !== false],
+        [args.includeHidden !== false, visible ? [...visible] : null],
       )
       if (entities.length === 0) return []
 
@@ -741,8 +757,12 @@ export const resolvers = {
       args: { key: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
-      return getOrgSetting(String(args.key || ''))
+      const me = await requireAuthenticatedUser(ctx)
+      const key = String(args.key || '')
+      if (!(me.adminAccess || me.roleAdminAccess) && !USER_READABLE_ORG_SETTING_KEYS.has(key)) {
+        throw new Error('Admin access required')
+      }
+      return getOrgSetting(key)
     },
 
     recentRecordViews: async (
@@ -868,15 +888,25 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      // Auth required (anonymous denied). Emails only for admins.
+      // Auth required (anonymous denied). Emails (projection + search) only for admins;
+      // non-admin directory pulls are capped so the full user list cannot be dumped.
       const me = await assertEntityPermission(ctx, 'users', 'read')
+      const isAdmin = Boolean(me.adminAccess || me.roleAdminAccess)
+      const requestedLimit = args.limit ?? null
+      const limit =
+        isAdmin || (args.ids?.length ?? 0) > 0
+          ? requestedLimit
+          : Math.min(
+              requestedLimit == null || requestedLimit < 0 ? NON_ADMIN_USER_LIST_LIMIT : requestedLimit,
+              NON_ADMIN_USER_LIST_LIMIT,
+            )
       return listUsers({
         ids: args.ids ?? null,
         search: args.search ?? null,
         fields: args.fields ?? null,
-        limit: args.limit ?? null,
+        limit,
         sort: args.sort ?? null,
-        includeEmail: Boolean(me.adminAccess || me.roleAdminAccess),
+        includeEmail: isAdmin,
       })
     },
 
@@ -928,12 +958,24 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
-      return listPanels({
+      const me = await requireAuthenticatedUser(ctx)
+      const panels = await listPanels({
         fields: args.fields ?? null,
         filter: args.filter ?? null,
         sort: args.sort ?? null,
         limit: args.limit ?? -1,
+      })
+      // Panel options expose the source collection, filters and fields — hide
+      // panels over collections the caller cannot read.
+      const readable = await readableEntityNames(me)
+      if (!readable) return panels
+      return panels.filter((panel) => {
+        const options = panel.options
+        const collection =
+          options && typeof options === 'object' && !Array.isArray(options)
+            ? (options as { collection?: unknown }).collection
+            : null
+        return typeof collection !== 'string' || !collection || readable.has(collection)
       })
     },
 
@@ -1902,10 +1944,8 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      // Valid Bearer JWT required (not merely a present Authorization header).
-      // Entity create on doc_value / template ACL comes with Phase 1 implementation.
-      await requireAuthenticatedUser(ctx)
-      return generateDocument(args.input)
+      const me = await requireAuthenticatedUser(ctx)
+      return generateDocument(me, args.input)
     },
 
     generateScheduleSlots: async (

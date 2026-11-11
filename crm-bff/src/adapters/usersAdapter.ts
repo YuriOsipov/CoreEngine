@@ -68,7 +68,7 @@ export async function fetchMe(options?: {
     if (!claims?.id) return emptyMe()
 
     // No claim-built identity when the DB row is missing / inactive.
-    return (await postgresFetchMe(claims.id)) ?? emptyMe()
+    return (await postgresFetchMe(claims.id, { iat: claims.iat, jti: claims.jti })) ?? emptyMe()
   } catch (error) {
     console.warn('[me] app_users lookup failed', error)
   }

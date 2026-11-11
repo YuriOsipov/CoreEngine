@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Dropdown as FloatingDropdown } from 'floating-vue'
-import { normalizeHtmlContent } from '@/core/htmlContent'
+import { sanitizeHtmlContent } from '@/core/htmlContent'
 
 const props = withDefaults(
   defineProps<{
@@ -16,7 +16,7 @@ const props = withDefaults(
   },
 )
 
-const content = computed(() => normalizeHtmlContent(props.html))
+const content = computed(() => sanitizeHtmlContent(props.html))
 const hasContent = computed(() => content.value.trim().length > 0)
 const clampClass = computed(() => {
   const lines = Math.max(1, props.lineClamp)

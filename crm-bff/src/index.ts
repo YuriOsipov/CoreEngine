@@ -1,7 +1,10 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
-import { createYoga, createSchema } from 'graphql-yoga'
+import helmet from '@fastify/helmet'
+import { NoSchemaIntrospectionCustomRule } from 'graphql'
+import { createYoga, createSchema, type Plugin } from 'graphql-yoga'
+import { createQueryLimitsRule, queryLimitOptionsFromEnv } from './graphql/queryLimits.js'
 import { typeDefs } from './schema/typeDefs.js'
 import { resolvers } from './resolvers/index.js'
 import { pool } from './db/pool.js'
@@ -20,12 +23,15 @@ import {
 } from './auth/localAuth.js'
 import { assertProductionBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
 import { authJwtSecret } from './auth/jwt.js'
+import { bearerToken } from './auth/tokenClaims.js'
 import { requireAuthenticatedUser } from './auth/accessGuards.js'
-import { rateLimitConsume } from './auth/rateLimit.js'
+import { rateLimitConsume, rateLimitPeek, rateLimitReset } from './auth/rateLimit.js'
 import {
   assertFileParentWritable,
   assertFileReadable,
+  assertFileWritable,
 } from './files/fileAccess.js'
+import { postgresFileHasParentLink } from './adapters/postgresFiles.js'
 import { resolveFlowsBackend, triggerFlow } from './flows/flowsAdapter.js'
 import { startTaskScheduler } from './tasks/scheduler.js'
 import { registerRecordsRestApi } from './rest/recordsApi.js'
@@ -69,33 +75,93 @@ const schema = createSchema({
   resolvers,
 })
 
+const isProduction = process.env.NODE_ENV === 'production'
+/** GRAPHQL_INTROSPECTION=true re-enables introspection + GraphiQL in production. */
+const graphqlIntrospection =
+  !isProduction || /^(1|true|yes|on)$/i.test(process.env.GRAPHQL_INTROSPECTION || '')
+const queryLimitsRule = createQueryLimitsRule(queryLimitOptionsFromEnv())
+
+const graphqlGuardsPlugin: Plugin = {
+  onValidate({ addValidationRule }) {
+    addValidationRule(queryLimitsRule)
+    if (!graphqlIntrospection) addValidationRule(NoSchemaIntrospectionCustomRule)
+  },
+}
+
+/** Server context is supplied per request by the Fastify route (clientKey = request.ip). */
 const yoga = createYoga<{
   authorization: string | null
   clientKey: string
 }>({
   schema,
   graphqlEndpoint: '/graphql',
-  landingPage: true,
-  maskedErrors: process.env.NODE_ENV === 'production',
-  context: ({ request }) => {
-    const forwarded = request.headers.get('x-forwarded-for')
-    const clientKey =
-      forwarded?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      'anon'
-    return {
-      authorization: request.headers.get('authorization'),
-      clientKey,
-    }
-  },
+  landingPage: graphqlIntrospection,
+  graphiql: graphqlIntrospection,
+  maskedErrors: isProduction,
+  plugins: [graphqlGuardsPlugin],
   // CORS is handled by @fastify/cors below. Yoga's plugin only accepts
   // string/string[] origins (not a callback) and would 500 on GraphQL.
   cors: false,
 })
 
+/**
+ * TRUST_PROXY: unset/false = use socket address only (X-Forwarded-For ignored).
+ * true | hop count | comma-separated IPs/CIDRs (e.g. "loopback,uniquelocal") when
+ * the BFF sits behind nginx / a load balancer.
+ */
+function resolveTrustProxy(): boolean | string[] | ((address: string, hop: number) => boolean) {
+  const raw = (process.env.TRUST_PROXY || '').trim()
+  if (!raw || /^(0|false|no|off)$/i.test(raw)) return false
+  if (/^(true|yes|on)$/i.test(raw)) return true
+  if (/^\d+$/.test(raw)) {
+    const hops = Number(raw)
+    return (_address, hop) => hop < hops
+  }
+  return raw.split(',').map((value) => value.trim()).filter(Boolean)
+}
+
+const MB = 1024 * 1024
+/** Default for unauthenticated / small JSON routes (auth, flows, health). */
+const DEFAULT_BODY_LIMIT = 1 * MB
+/** Authenticated data routes (layouts, documents, bulk records). */
+const DATA_BODY_LIMIT = Math.max(1, Number(process.env.BFF_DATA_BODY_LIMIT_MB) || 20) * MB
+
 const app = Fastify({
   logger: true,
-  bodyLimit: 50 * 1024 * 1024,
+  bodyLimit: DEFAULT_BODY_LIMIT,
+  trustProxy: resolveTrustProxy(),
+})
+
+// Must be registered before any route so it sees every route definition.
+app.addHook('onRoute', (route) => {
+  if (route.bodyLimit != null) return
+  if (route.url === '/files') {
+    route.bodyLimit = 50 * MB
+  } else if (route.url === '/graphql' || route.url.startsWith('/api/')) {
+    route.bodyLimit = DATA_BODY_LIMIT
+  }
+})
+
+await app.register(helmet, {
+  // API responses: no scripts, never framed. /assets overrides with its own sandbox CSP.
+  // GraphiQL (dev only) needs inline scripts, so CSP is off while introspection is on.
+  contentSecurityPolicy: graphqlIntrospection
+    ? false
+    : {
+        useDefaults: false,
+        directives: {
+          defaultSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+          baseUri: ["'none'"],
+          formAction: ["'none'"],
+        },
+      },
+  // Framing is controlled via CSP frame-ancestors (PDF previews embed /assets cross-port in dev).
+  xFrameOptions: false,
+  crossOriginResourcePolicy: { policy: 'same-site' },
+  strictTransportSecurity: isProduction
+    ? { maxAge: 31_536_000, includeSubDomains: true }
+    : false,
 })
 
 await app.register(cors, {
@@ -115,7 +181,10 @@ app.route({
   url: yoga.graphqlEndpoint,
   method: ['GET', 'POST', 'OPTIONS'],
   handler: async (request, reply) => {
-    const response = await yoga.handleNodeRequestAndResponse(request, reply)
+    const response = await yoga.handleNodeRequestAndResponse(request, reply, {
+      authorization: authHeaderFromFastify(request),
+      clientKey: request.ip || 'anon',
+    })
     response.headers.forEach((value, key) => {
       reply.header(key, value)
     })
@@ -130,16 +199,13 @@ app.get('/health', async () => {
   return { ok: result.rows[0]?.ok === 1, service: 'crm-bff' }
 })
 
-function clientKeyFromRequest(request: {
-  headers: Record<string, unknown>
-  ip?: string
-}): string {
-  const forwarded = request.headers['x-forwarded-for']
-  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded
-  if (typeof raw === 'string' && raw.trim()) return raw.split(',')[0]!.trim()
-  if (typeof request.ip === 'string' && request.ip) return request.ip
-  return 'anon'
+/** request.ip honours X-Forwarded-For only from proxies allowed by TRUST_PROXY. */
+function clientKeyFromRequest(request: { ip?: string }): string {
+  return typeof request.ip === 'string' && request.ip ? request.ip : 'anon'
 }
+
+const LOGIN_ACCOUNT_MAX_FAILURES = 10
+const LOGIN_ACCOUNT_WINDOW_MS = 15 * 60_000
 
 app.post('/auth/login', async (request, reply) => {
   const limit = rateLimitConsume(
@@ -161,10 +227,22 @@ app.post('/auth/login', async (request, reply) => {
     return reply.status(400).send({ error: 'email and password are required' })
   }
 
+  // Per-account failure throttle (independent of client IP) against distributed brute force.
+  const accountKey = `login-account:${email.toLowerCase()}`
+  const accountLock = rateLimitPeek(accountKey, LOGIN_ACCOUNT_MAX_FAILURES)
+  if (!accountLock.ok) {
+    reply.header('retry-after', String(accountLock.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many login attempts' })
+  }
+
   const result = await bffLogin({ email, password })
   if (!result.ok) {
+    if (result.status === 401) {
+      rateLimitConsume(accountKey, LOGIN_ACCOUNT_MAX_FAILURES, LOGIN_ACCOUNT_WINDOW_MS)
+    }
     return reply.status(result.status).send({ error: result.error })
   }
+  rateLimitReset(accountKey)
   return result.session
 })
 
@@ -200,7 +278,11 @@ app.post('/auth/logout', async (request, reply) => {
     return reply.status(400).send({ error: 'refresh_token is required' })
   }
 
-  const result = await bffLogout({ refreshToken })
+  const bodyAccessToken = (request.body as { access_token?: unknown } | null)?.access_token
+  const accessToken =
+    bearerToken(authHeaderFromFastify(request)) ||
+    (typeof bodyAccessToken === 'string' ? bodyAccessToken.trim() : '')
+  const result = await bffLogout({ refreshToken, accessToken: accessToken || null })
   if (!result.ok) {
     return reply.status(result.status).send({ error: result.error })
   }
@@ -343,7 +425,7 @@ app.patch<{
     const me = await requireAuthenticatedUser({
       authorization: authHeaderFromFastify(request),
     })
-    await assertFileReadable(me, request.params.id)
+    await assertFileWritable(me, request.params.id)
     const data = await updateFileRecord(request.params.id, request.body ?? {})
     return reply.send(data)
   } catch (error) {
@@ -369,6 +451,8 @@ app.post<{
         error: 'parent_collection and parent_record_id are required',
       })
     }
+    // Linking exposes the file to the target record's readers — caller must be able to read it.
+    await assertFileReadable(me, request.params.id)
     await assertFileParentWritable(me, parentCollection)
     const data = await linkFileToRecord({
       fileId: request.params.id,
@@ -392,10 +476,20 @@ app.delete<{
     })
     const parentCollection = String(request.query.parent_collection || '').trim()
     const parentRecordId = String(request.query.parent_record_id || '').trim()
-    if (parentCollection) {
+    if (parentCollection && parentRecordId) {
+      // Parent context must be one the file is actually attached to; otherwise
+      // update on any collection would allow deleting arbitrary files.
+      const attached = await postgresFileHasParentLink({
+        fileId: request.params.id,
+        parentCollection,
+        parentRecordId,
+      })
+      if (!attached) {
+        return reply.status(404).send({ error: 'File not found' })
+      }
       await assertFileParentWritable(me, parentCollection)
     } else {
-      await assertFileReadable(me, request.params.id)
+      await assertFileWritable(me, request.params.id)
     }
     const deleted = await deleteFileRecord(
       request.params.id,
@@ -430,11 +524,27 @@ app.get<{
       reply.type(asset.contentType)
     }
     if (asset.filename) {
+      const asciiName = asset.filename.replace(/[^\x20-\x7e]|["\\]/g, '_')
       reply.header(
         'content-disposition',
-        `inline; filename="${asset.filename.replace(/"/g, '')}"`,
+        `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(asset.filename)}`,
       )
     }
+    reply.header('x-content-type-options', 'nosniff')
+    const frameAncestors = [
+      "'self'",
+      ...corsOriginAllowlist.filter((origin) => origin !== '*'),
+    ].join(' ')
+    // User-uploaded content (HTML / SVG / XML can carry script): opaque-origin
+    // sandbox, no script. PDFs are exempt — browsers refuse to render them sandboxed.
+    const isPdf = /^application\/pdf\b/i.test(asset.contentType ?? '')
+    reply.header(
+      'content-security-policy',
+      isPdf
+        ? `frame-ancestors ${frameAncestors}`
+        : `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob: https:; font-src data:; media-src blob:; frame-ancestors ${frameAncestors}`,
+    )
+    reply.header('cross-origin-resource-policy', 'cross-origin')
     reply.header('cache-control', 'private, max-age=3600')
     return reply.send(asset.buffer)
   } catch (error) {

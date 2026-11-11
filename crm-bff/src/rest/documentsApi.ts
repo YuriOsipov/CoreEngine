@@ -4,6 +4,7 @@
  * Contract: docs/generate-document-api.md
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { MeUser } from '../adapters/usersAdapter.js'
 import { requireAuthenticatedUser } from '../auth/accessGuards.js'
 import {
   DOCUMENTS_GENERATE_STUB_CODE,
@@ -28,8 +29,9 @@ export async function registerDocumentsRestApi(
 ): Promise<void> {
   app.post('/api/v1/documents/generate', async (request, reply) => {
     const authHeader = authHeaderFromRequest(request)
+    let me: MeUser
     try {
-      await requireAuthenticatedUser({ authorization: authHeader })
+      me = await requireAuthenticatedUser({ authorization: authHeader })
     } catch {
       return reply
         .status(401)
@@ -58,7 +60,7 @@ export async function registerDocumentsRestApi(
     }
 
     try {
-      const result = await generateDocument(input)
+      const result = await generateDocument(me, input)
       return reply.send(result)
     } catch (error) {
       const message =

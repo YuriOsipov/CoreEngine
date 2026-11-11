@@ -9,6 +9,7 @@
  * WHERE: = != > >= < <= LIKE IN IS NULL / IS NOT NULL, AND/OR, parentheses.
  */
 import type { RecordsListParams } from '../adapters/records/types.js'
+import { MAX_LIST_OFFSET } from './listQueryPolicy.js'
 
 export interface ParsedSoql {
   collection: string
@@ -240,6 +241,8 @@ function tokenize(input: string): Token[] {
 
 class Parser {
   private pos = 0
+  private predicates = 0
+  private nesting = 0
   constructor(private readonly tokens: Token[]) {}
 
   private peek(): Token {
@@ -384,6 +387,9 @@ class Parser {
     if (!fields.length) {
       throw new SoqlParseError('SELECT requires at least one field')
     }
+    if (fields.length > SOQL_LIMITS.maxSelectFields) {
+      throw new SoqlParseError(`SELECT must list <= ${SOQL_LIMITS.maxSelectFields} fields`)
+    }
     if (sawStar && fields.length === 1) return null
     return fields
   }
@@ -393,6 +399,11 @@ class Parser {
     while (this.peek().kind === 'dot') {
       this.advance()
       parts.push(this.expectIdent())
+    }
+    if (parts.length - 1 > SOQL_LIMITS.maxRelationDepth) {
+      throw new SoqlParseError(
+        `Relation paths must be <= ${SOQL_LIMITS.maxRelationDepth} levels deep`,
+      )
     }
     return normalizeFieldPath(parts.join('.'))
   }
@@ -441,9 +452,20 @@ class Parser {
   private parsePrimaryExpr(): Record<string, unknown> {
     if (this.peek().kind === 'lparen') {
       this.advance()
+      this.nesting += 1
+      if (this.nesting > SOQL_LIMITS.maxNestingDepth) {
+        throw new SoqlParseError(
+          `WHERE parentheses must nest <= ${SOQL_LIMITS.maxNestingDepth} levels`,
+        )
+      }
       const inner = this.parseOrExpr()
       this.expect('rparen', ')')
+      this.nesting -= 1
       return inner
+    }
+    this.predicates += 1
+    if (this.predicates > SOQL_LIMITS.maxPredicates) {
+      throw new SoqlParseError(`WHERE must have <= ${SOQL_LIMITS.maxPredicates} conditions`)
     }
     return this.parseComparison()
   }
@@ -470,6 +492,9 @@ class Parser {
       }
       for (;;) {
         values.push(this.parseLiteral())
+        if (values.length > SOQL_LIMITS.maxInListValues) {
+          throw new SoqlParseError(`IN lists must have <= ${SOQL_LIMITS.maxInListValues} values`)
+        }
         if (this.peek().kind !== 'comma') break
         this.advance()
       }
@@ -486,6 +511,9 @@ class Parser {
       }
       for (;;) {
         values.push(this.parseLiteral())
+        if (values.length > SOQL_LIMITS.maxInListValues) {
+          throw new SoqlParseError(`IN lists must have <= ${SOQL_LIMITS.maxInListValues} values`)
+        }
         if (this.peek().kind !== 'comma') break
         this.advance()
       }
@@ -566,7 +594,28 @@ function likeToOp(pattern: string): Record<string, unknown> {
   return { _eq: pattern }
 }
 
+/** Cost guards — keep in sync with docs/README (SOQL subset). */
+export const SOQL_LIMITS = {
+  maxQueryLength: 8_000,
+  maxTokens: 1_000,
+  maxSelectFields: 100,
+  maxRelationDepth: 3,
+  maxPredicates: 100,
+  maxNestingDepth: 8,
+  maxInListValues: 500,
+} as const
+
 export function parseSoql(query: string): ParsedSoql {
+  if (query.length > SOQL_LIMITS.maxQueryLength) {
+    throw new SoqlParseError(`SOQL query must be <= ${SOQL_LIMITS.maxQueryLength} characters`)
+  }
   const tokens = tokenize(query)
-  return new Parser(tokens).parse()
+  if (tokens.length > SOQL_LIMITS.maxTokens) {
+    throw new SoqlParseError(`SOQL query must be <= ${SOQL_LIMITS.maxTokens} tokens`)
+  }
+  const parsed = new Parser(tokens).parse()
+  if ((parsed.params.offset ?? 0) > MAX_LIST_OFFSET) {
+    throw new SoqlParseError(`OFFSET must be <= ${MAX_LIST_OFFSET}`)
+  }
+  return parsed
 }

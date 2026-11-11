@@ -4,6 +4,7 @@
 import { query } from '../db/pool.js'
 import { flowTriggerKeyFromWebhook } from './flowKey.js'
 import { sanitizeHttpFlowAuth } from './httpFlowAuth.js'
+import { assertOutboundUrlShape } from './outboundHttp.js'
 import type { FlowHandlerKind, FlowTriggerRow } from './localFlows.js'
 
 export type FlowTriggerAdminRow = FlowTriggerRow & {
@@ -42,10 +43,25 @@ function parseHandler(raw: string): FlowHandlerKind {
   )
 }
 
+function sanitizeStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const list = [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ]
+  return list.length ? list : undefined
+}
+
 function sanitizeConfig(
   handler: FlowHandlerKind,
   config: Record<string, unknown>,
 ): Record<string, unknown> {
+  const allowedRoles = sanitizeStringList(config.allowedRoles)
+  const access = allowedRoles ? { allowedRoles } : {}
   if (handler === 'http') {
     const url = typeof config.url === 'string' ? config.url.trim() : ''
     if (!url) {
@@ -54,6 +70,7 @@ function sanitizeConfig(
     if (!/^https?:\/\//i.test(url)) {
       throw new Error('http flow config.url must be an absolute http(s) URL')
     }
+    assertOutboundUrlShape(url)
     const methodRaw =
       typeof config.method === 'string' && config.method.trim()
         ? config.method.trim().toUpperCase()
@@ -77,12 +94,14 @@ function sanitizeConfig(
     }
     const auth = sanitizeHttpFlowAuth(config.auth)
     return auth.type === 'none'
-      ? { url, method, headers, auth: { type: 'none' } }
-      : { url, method, headers, auth }
+      ? { url, method, headers, auth: { type: 'none' }, ...access }
+      : { url, method, headers, auth, ...access }
   }
 
-  // update_record — keep collection / recordId / patch if present
-  const out: Record<string, unknown> = {}
+  // update_record — keep collection / recordId / patch / allowedFields if present
+  const out: Record<string, unknown> = { ...access }
+  const allowedFields = sanitizeStringList(config.allowedFields)
+  if (allowedFields) out.allowedFields = allowedFields
   if (typeof config.collection === 'string' && config.collection.trim()) {
     out.collection = config.collection.trim()
   }

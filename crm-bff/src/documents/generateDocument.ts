@@ -3,6 +3,9 @@
  * Population/PDF is not implemented in the BFF yet.
  * Full contract: docs/generate-document-api.md
  */
+import type { MeUser } from '../adapters/usersAdapter.js'
+import { assertMeEntityPermission } from '../services/rolePermissions.js'
+
 export const DOCUMENTS_GENERATE_STUB_CODE = 'DOCUMENTS_GENERATE_STUB'
 
 export type GenerateDocumentOutputFormat = 'pdf' | 'html'
@@ -101,13 +104,30 @@ export function parseGenerateDocumentInput(
 }
 
 /**
- * Phase 0 stub — validates input then fails with a stable stub error.
+ * ACL for generate: read the source record's entity + the template, and
+ * create on doc_value when persisting. Runs before any population work.
+ */
+export async function assertGenerateDocumentAllowed(
+  me: MeUser,
+  parsed: ReturnType<typeof parseGenerateDocumentInput>,
+): Promise<void> {
+  await assertMeEntityPermission(me, parsed.collectionName, 'read')
+  await assertMeEntityPermission(me, 'doc_template', 'read')
+  if (parsed.persist) {
+    await assertMeEntityPermission(me, 'doc_value', 'create')
+  }
+}
+
+/**
+ * Phase 0 stub — validates input + ACL then fails with a stable stub error.
  * Replace body with populate → persist → render in later phases.
  */
 export async function generateDocument(
+  me: MeUser,
   input: GenerateDocumentInput,
 ): Promise<GenerateDocumentResult> {
   const parsed = parseGenerateDocumentInput(input)
+  await assertGenerateDocumentAllowed(me, parsed)
   throw new DocumentsGenerateStubError(
     `generateDocument is not implemented yet ` +
       `(Phase 0 stub / ${DOCUMENTS_GENERATE_STUB_CODE}). Requested ${parsed.outputFormat} for ` +

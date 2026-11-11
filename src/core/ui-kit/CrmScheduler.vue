@@ -30,6 +30,7 @@ import {
 import { normalizeSchedulerSettings } from '@/modules/config/services/schedulerSettings'
 import { useTranslation } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
+import { sanitizeHtmlContent } from '@/core/htmlContent'
 import {
   defaultDateDisplayFormat,
   defaultDateTimeDisplayFormat,
@@ -3277,7 +3278,7 @@ function daysInMonth(date: Date): number {
       }"
       @mouseenter="clearFallbackTooltipHideTimer"
       @mouseleave="scheduleHideFallbackTooltip"
-      v-html="fallbackTooltip.html"
+      v-html="sanitizeHtmlContent(fallbackTooltip.html)"
     />
 
     <RecordCreateDialog

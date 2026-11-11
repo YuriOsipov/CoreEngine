@@ -28,7 +28,7 @@ Build internal and vertical applications with custom objects, relationships, rol
 | Need | CoreEngine | Twenty | Retool | Salesforce |
 |------|------------|--------|--------|------------|
 | Custom objects + relationships | Strong | Strong | Query existing data | Excellent |
-| Role-specific forms / layouts | First-class | Permissions-focused | Build separate UIs | Excellent |
+| Role-specific layouts + list filters | Strong (UX); object CRUD enforced at BFF | Permissions-focused | Build separate UIs | Excellent |
 | CRM pipeline + email/calendar | Starter pack | Strong | Build it | Excellent |
 | Campaign → promo pricing engine | Built-in | Custom objects | Build it | Custom / AppExchange |
 | Document generation (PDF/HTML) | UI DocEngine; server API is a stub (HTTP 501) | Limited | Build it | Good (packages) |
@@ -45,7 +45,7 @@ How CoreEngine maps to common platform checklist items today:
 | Area | CoreEngine today |
 |------|------------------|
 | **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks** (scheduled jobs). Visual multi-step designer lives in **n8n** (or similar), not inside CoreEngine. |
-| **Permissions** | Partial — granular **roles** with **object**-level create/read/update/delete/import/export. No field-level or record-level (sharing/owner) security yet; layout show/readonly rules are UI/record-value, not FLS. |
+| **Permissions** | Partial — **Object-level CRUD** (create/read/update/delete/import/export) is **enforced at the BFF**. **Per-role record list filters/views**, **per-role layouts**, and **conditional hide/readonly** are strong in the UX. **Field-level security is not enforced at the API**; per-role list filters are view configuration, not server-side row ACL. No sharing/owner security yet. Gaps vs NocoBase-class platforms are mainly **SSO/MFA** and **field-level API enforcement**. |
 | **Authentication** | Partial — local email/password via BFF JWT (`/auth/login`, refresh). **No** SSO / OAuth / MFA / enterprise IdP yet. |
 | **Version control** | Partial — schemas, layouts, roles, and templates ship as **domain packs** (JSON under `supabase/domains/`) with `platform:export-pack` / `apply-pack`; versioned in **git**. No in-app config revision UI. |
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
@@ -62,6 +62,7 @@ How CoreEngine maps to common platform checklist items today:
 ### Schema-driven UI
 - Object Manager, role-scoped Block Layouts, list/tree/table designers, and Form Builder canvas.
 - **Per-role edit and view forms** — different layouts for each user group on the same object.
+- **Per-role list filters (views)** — each role can have its own saved filters / list views for an object’s record list.
 - **Tree navigation + master-detail** — hierarchical group trees (e.g. Item Groups) with filtered lists and related-detail panels (Item → Item Prices) without custom code.
 - **Batch insert** — multi-select related records (e.g. Opportunity Items) from a hierarchical catalog with automatic price resolution and running totals.
 - **In-context edit dialogs** — open create/edit forms in a modal on the same list or detail page without full navigation.
@@ -83,8 +84,9 @@ How CoreEngine maps to common platform checklist items today:
 - Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL ([`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md)).
 
 ### Permissions & authentication
-- **Roles** with per-entity CRUD (+ import/export) matrix; admins bypass; role preview in the UI.
-- **Auth:** BFF local login (`VITE_AUTH_MODE=bff`) issuing Bearer access + refresh tokens. Automation users: `npm run registry:seed-n8n-automation-user`.
+- **Object-level CRUD** (+ import/export) matrix per role — **enforced by the BFF** on GraphQL/REST record operations; admins bypass; role preview in the UI.
+- **Per-role layouts** and **per-role list filters/views** (each role’s own record-list filters). Conditional field/group **hide / readonly** is UI/layout behavior, not field-level API security.
+- **Auth:** BFF local login (`VITE_AUTH_MODE=bff`) issuing Bearer access + refresh tokens. Automation users: `npm run registry:seed-n8n-automation-user`. No SSO / MFA yet.
 
 ### Documents & list reports
 - Setup → Document Templates with Field Mapping against live or sample `$payload`.

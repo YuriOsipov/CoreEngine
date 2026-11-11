@@ -14,6 +14,11 @@ export function createEditor(options?: unknown): {
 }
 
 export function registerField(...args: unknown[]): void
+export function createFieldFormModal(...args: unknown[]): {
+  open(...args: unknown[]): void
+  close(): void
+  destroy(): void
+}
 export function generateDocumentPdfBlob(...args: unknown[]): Promise<Blob>
 export function buildTemplateExport(...args: unknown[]): Record<string, unknown>
 export function normalizeFieldMappingSpec(input?: unknown): Record<string, unknown>

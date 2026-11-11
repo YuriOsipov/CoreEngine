@@ -12,6 +12,16 @@
     },
     "./styles.css": "./styles.css",
     "./themes/bridge.css": "./themes/bridge.css",
-    "./themes/prime.css": "./themes/prime.css"
+    "./themes/prime.css": "./themes/prime.css",
+    "./themes/slds.css": "./styles.css",
+    "./themes/lwc.css": "./styles.css",
+    "./ui/field-form-modal": {
+      "types": "./ui/field-form-modal.d.ts",
+      "import": "./ui/field-form-modal.js"
+    },
+    "./ui/wire-modal-palette": {
+      "types": "./ui/wire-modal-palette.d.ts",
+      "import": "./ui/wire-modal-palette.js"
+    }
   }
 }

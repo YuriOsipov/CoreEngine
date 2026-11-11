@@ -27,6 +27,14 @@ export function createEditor() {
 
 export function registerField() {}
 
+export function createFieldFormModal() {
+  return {
+    open() {},
+    close() {},
+    destroy() {},
+  }
+}
+
 export function generateDocumentPdfBlob() {
   return Promise.resolve(new Blob())
 }

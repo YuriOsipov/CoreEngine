@@ -12,7 +12,10 @@ function bffBaseUrl(): string {
   const graphqlUrl =
     (import.meta.env.VITE_GRAPHQL_URL as string | undefined)?.replace(/\/$/, '') ||
     'http://localhost:4000/graphql'
-  return graphqlUrl.replace(/\/graphql\/?$/i, '') || 'http://localhost:4000'
+  const stripped = graphqlUrl.replace(/\/graphql\/?$/i, '')
+  // Relative `/graphql` (Docker nginx) → same-origin; do not fall back to :4000.
+  if (!stripped || stripped === '/') return ''
+  return stripped
 }
 
 export interface AuthSession {

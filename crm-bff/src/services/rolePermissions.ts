@@ -237,7 +237,8 @@ async function loadPermissionFlags(
  * Admins bypass. Matrix-excluded collections (docs, Setting, user_setting, …)
  * are **admin-only** — no authenticated read bypass (avoids leaking generated
  * document payloads / org settings). users/roles remain authenticated-read for
- * pickers; files reads must go through parent-entity checks (`fileAccess.ts`).
+ * pickers. File bytes / metadata use parent ACL (`fileAccess.ts`) or an
+ * explicit matrix row — never a blanket authenticated `files` browse.
  * Missing permission row = deny. Admin flags must come from `fetchMe` / DB.
  */
 export async function assertMeEntityPermission(
@@ -263,12 +264,10 @@ export async function assertMeEntityPermission(
     throw new Error(`Permission denied: ${action} on ${entity}`)
   }
 
-  // Picker assets: authenticated read only (writes still need a matrix row).
-  // Do not use this alone for files — prefer assertFileReadable (parent ACL).
-  if (
-    action === 'read' &&
-    (entity === 'users' || entity === 'roles' || entity === 'files')
-  ) {
+  // Picker assets: authenticated read only for users/roles (writes need matrix).
+  // `files` is intentionally excluded — list/browse needs matrix can_read or
+  // dedicated assertFileReadable / recordFiles (parent) paths.
+  if (action === 'read' && (entity === 'users' || entity === 'roles')) {
     return me
   }
 
@@ -304,7 +303,7 @@ export async function assertMeEntityPermission(
  */
 export async function readableEntityNames(me: MeUser): Promise<Set<string> | null> {
   if (me.adminAccess || me.roleAdminAccess) return null
-  const out = new Set<string>(['users', 'roles', 'files'])
+  const out = new Set<string>(['users', 'roles'])
   const appRoleId = await resolveAppRoleId(me.roleId)
   if (!appRoleId) return out
   const rows = await query<{ entity_api_name: string }>(

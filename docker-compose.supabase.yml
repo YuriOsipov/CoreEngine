@@ -1,0 +1,34 @@
+# CoreEngine against the existing local Supabase stack (no bundled Postgres).
+# Expects host Postgres :5434 / kernel + Envoy :8000 (frontend-vue/supabase).
+#
+# One-time (host): create least-privilege BFF role on kernel
+#   npm run registry:ensure-app-role
+#
+#   docker compose -f docker-compose.yml -f docker-compose.supabase.yml --profile ui up -d --build bff web
+
+services:
+  db:
+    profiles: ["bundled-db"]
+
+  bff:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: "5434"
+      POSTGRES_DB: ${POSTGRES_DB:-kernel}
+      # Same least-privilege role as bundled compose (see scripts/ensure-app-db-role.mts).
+      POSTGRES_USER: ${POSTGRES_APP_USER:-coreengine_app}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+      POSTGRES_BOOTSTRAP_USER: ${POSTGRES_APP_USER:-coreengine_app}
+      POSTGRES_BOOTSTRAP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-coreengine_app}:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@host.docker.internal:5434/${POSTGRES_DB:-kernel}
+      AUTH_BACKEND: local
+      DIRECTUS_RUNTIME: "off"
+      FILES_BACKEND: supabase
+      # BFF container → host Envoy (browser still uses localhost:8000 if needed)
+      VITE_SUPABASE_URL: http://host.docker.internal:8000
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?Set SERVICE_ROLE_KEY in .env}
+      RUNNING_IN_DOCKER: "1"
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
+    depends_on: !override {}

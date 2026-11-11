@@ -5,7 +5,10 @@ import { fetchFilesFromGraphQL, fetchRecordFilesFromGraphQL } from './filesApi'
 
 /** BFF origin derived from VITE_GRAPHQL_URL (strip trailing /graphql). */
 export function bffBaseUrl(): string {
-  return graphqlUrl.replace(/\/graphql\/?$/i, '') || 'http://localhost:4000'
+  const stripped = graphqlUrl.replace(/\/graphql\/?$/i, '')
+  // Relative `/graphql` (Docker nginx) → same-origin; do not fall back to :4000.
+  if (!stripped || stripped === '/') return ''
+  return stripped
 }
 
 export function canUseFilesProxy(): boolean {

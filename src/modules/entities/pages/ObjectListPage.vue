@@ -815,12 +815,13 @@ async function loadListPage(
         ? err.message
         : t('objectList.loadCollectionError', 'Failed to load collection records.')
   } finally {
+    // Always clear both flags for the latest token. An older full load
+    // (loading=true) can be superseded by an in-place refresh; if we only
+    // clear the flag that *this* call set, `loading` sticks forever and the
+    // table spinner overlays already-fetched rows.
     if (!isStaleToken(token)) {
-      if (inPlace) {
-        refreshingRecords.value = false
-      } else {
-        loading.value = false
-      }
+      loading.value = false
+      refreshingRecords.value = false
       if (objectList.value) {
         void settleFilterPanelAfterLoad()
       }
@@ -993,11 +994,8 @@ async function loadRecords(
         : t('objectList.loadCollectionError', 'Failed to load collection records.')
   } finally {
     if (!isStaleToken(token)) {
-      if (inPlace) {
-        refreshingRecords.value = false
-      } else {
-        loading.value = false
-      }
+      loading.value = false
+      refreshingRecords.value = false
     }
   }
 }

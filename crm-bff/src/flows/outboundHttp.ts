@@ -5,8 +5,10 @@
  * - redirects followed manually and re-validated (max 3)
  * - link-local / cloud-metadata / broadcast ranges are never reachable, even
  *   when the host is on FLOWS_HTTP_ALLOWED_HOSTS
- * Private RFC1918 targets need FLOWS_HTTP_ALLOWED_HOSTS (e.g. "n8n,localhost:5678")
- * or the host of N8N_WEBHOOK_URL.
+ * Private RFC1918 targets need FLOWS_HTTP_ALLOWED_HOSTS (e.g. "n8n" or "n8n:5678"
+ * on a Docker/compose network). Loopback (127.0.0.0/8, ::1) is hard-blocked even
+ * when listed — host n8n must be reached via a container DNS name, not localhost.
+ * Also allowed: the host of N8N_WEBHOOK_URL.
  */
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns'
 import { BlockList, isIP } from 'node:net'

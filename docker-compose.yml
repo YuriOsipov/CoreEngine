@@ -52,7 +52,9 @@ services:
       POSTGRES_BOOTSTRAP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
       DATABASE_URL: postgresql://${POSTGRES_APP_USER:-coreengine_app}:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:5432/${POSTGRES_DB:-coreengine}
       AUTH_BACKEND: local
-      # nginx (web profile) is the only proxy; trust X-Forwarded-For from the compose network only.
+      # Trust X-Forwarded-For only from loopback / compose peers (nginx `web`).
+      # BFF publish is loopback-only below so LAN clients cannot hit :4000 and spoof XFF
+      # via Docker Desktop's private-source NAT.
       TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-coreengine-docker-dev-jwt-secret-change-me}
       DIRECTUS_RUNTIME: "off"
@@ -60,7 +62,8 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       PORT: 4000
     ports:
-      - "${BFF_PUBLISH_PORT:-4000}:4000"
+      # Loopback only — same rationale as Postgres; browser traffic should use nginx :8080.
+      - "127.0.0.1:${BFF_PUBLISH_PORT:-4000}:4000"
     volumes:
       - ./scripts:/app/scripts:ro
       - ./supabase:/app/supabase
@@ -72,8 +75,8 @@ services:
   web:
     profiles: ["ui"]
     build:
-      context: ..
-      dockerfile: coreEngine/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "${WEB_PUBLISH_PORT:-8080}:80"
     depends_on:

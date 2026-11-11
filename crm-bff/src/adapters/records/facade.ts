@@ -796,11 +796,9 @@ export async function expandRecordWithChildren(
 
   if (options.includeFiles !== false) {
     try {
-      if (await canReadWithAccess(access, 'files')) {
-        out._files = await listRecordFiles(apiName, recordId, null)
-      } else {
-        out._files = []
-      }
+      // Parent record is already ACL-checked; attach by parent link — do not
+      // require blanket `files` entity read (that would re-open metadata browse).
+      out._files = await listRecordFiles(apiName, recordId, null)
     } catch {
       out._files = []
     }

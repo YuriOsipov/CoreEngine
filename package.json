@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "registry:migrate": "powershell -File ./scripts/apply-registry-migration.ps1",
     "registry:migrate:node": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/apply-registry-migration.mts",
+    "registry:ensure-app-role": "npm --prefix ./crm-bff exec -- tsx --env-file=../.env --env-file=../supabase/.env ../scripts/ensure-app-db-role.mts",
     "platform:provision": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/provision-platform-db.mts",
     "platform:provision:ps1": "powershell -File ./scripts/provision-platform-db.ps1",
     "platform:provision:node": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/provision-platform-db.mts",

@@ -34,7 +34,22 @@ describe('assertEntityPermission', () => {
     ).rejects.toThrow('Permission denied: read on files')
   })
 
-  it('allows authenticated users to read files without a matrix row', async () => {
+  it('denies authenticated files browse without a matrix row (use parent ACL paths)', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'user-1',
+      adminAccess: false,
+      roleId: 'role-1',
+      roleAdminAccess: false,
+      mustChangePassword: false,
+    })
+    query.mockResolvedValueOnce([{ id: 'role-uuid' }]) // resolveAppRoleId
+    query.mockResolvedValueOnce([]) // loadPermissionFlags → deny
+    await expect(
+      assertEntityPermission({ authorization: 'Bearer t' }, 'files', 'read'),
+    ).rejects.toThrow('Permission denied: read on files')
+  })
+
+  it('still allows authenticated users to read users/roles without a matrix row', async () => {
     fetchMe.mockResolvedValue({
       id: 'user-1',
       adminAccess: false,
@@ -43,7 +58,10 @@ describe('assertEntityPermission', () => {
       mustChangePassword: false,
     })
     await expect(
-      assertEntityPermission({ authorization: 'Bearer t' }, 'files', 'read'),
+      assertEntityPermission({ authorization: 'Bearer t' }, 'users', 'read'),
+    ).resolves.toMatchObject({ id: 'user-1' })
+    await expect(
+      assertEntityPermission({ authorization: 'Bearer t' }, 'roles', 'read'),
     ).resolves.toMatchObject({ id: 'user-1' })
   })
 

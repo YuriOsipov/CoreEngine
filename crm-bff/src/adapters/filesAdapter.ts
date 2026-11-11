@@ -233,8 +233,9 @@ export async function uploadFileBuffer(input: {
 }
 
 /**
- * Client-editable file metadata. Everything else (storage_path, mime type,
- * uploader, backend ids, parents) is server-owned — never merge it from a request.
+ * Client-editable file metadata (PATCH /files/:id). Everything else —
+ * filename, storage_path, mime type, uploader, backend ids, parents — is
+ * server-owned and never merged from a request.
  */
 const EDITABLE_FILE_META_KEYS = [
   'title',
@@ -255,13 +256,7 @@ export async function updateFileRecord(
   for (const key of EDITABLE_FILE_META_KEYS) {
     if (key in payload) safePayload[key] = payload[key]
   }
-  const requestedName =
-    typeof payload.filename_download === 'string'
-      ? payload.filename_download
-      : typeof payload.filename === 'string'
-        ? payload.filename
-        : null
-  if (requestedName) safePayload.filename = safeFilename(requestedName)
+  // filename / filename_download are server-owned (set at upload) — not PATCH-able.
   const updated = await postgresUpdateFileMeta(id, safePayload)
   if (!updated) throw new Error(`File not found: ${id}`)
   const [shaped] = await expandUploadedBy([toFileAssetShape(updated, id)], ['*'])

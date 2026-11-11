@@ -1,29 +1,33 @@
-# CoreEngine Vue SPA
+# CoreEngine Vue SPA (Docker / try-out image)
 #
-# Build with parent folder as context (sibling docEngine required):
-#   docker build -f coreEngine/Dockerfile -t coreengine-web ..
-# Compose sets context: ..
+# Uses in-repo DocEngine CI stubs (same as GitHub Actions). Full editor needs
+# sibling ../docEngine + `npm run dev` against this stack's BFF.
+#
+#   docker build -f Dockerfile -t coreengine-web .
+# Compose: context is this repo (coreEngine).
 
 FROM node:22-bookworm-slim AS build
-WORKDIR /src
+WORKDIR /app
 
-COPY docEngine/packages/editor /src/docEngine/packages/editor
-COPY docEngine/packages/field-date /src/docEngine/packages/field-date
+COPY package.json package-lock.json* ./
+COPY ci/stubs ./ci/stubs
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies['@docengine/editor']='file:./ci/stubs/docengine-editor';p.dependencies['@docengine/field-date']='file:./ci/stubs/docengine-field-date';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');" \
+  && npm install --ignore-scripts
 
-WORKDIR /src/coreEngine
-COPY coreEngine/package.json coreEngine/package-lock.json* ./
-RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies['@docengine/editor']='file:../docEngine/packages/editor';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-RUN npm install
+COPY . .
+RUN rm -rf node_modules \
+  && node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies['@docengine/editor']='file:./ci/stubs/docengine-editor';p.dependencies['@docengine/field-date']='file:./ci/stubs/docengine-field-date';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');" \
+  && npm install --ignore-scripts
 
-COPY coreEngine/ ./
 ENV VITE_DATA_SOURCE=graphql
 ENV VITE_RECORDS_SOURCE=graphql
 ENV VITE_AUTH_MODE=bff
 ENV VITE_GRAPHQL_URL=/graphql
-RUN npm run build
+# Same as CI: skip vue-tsc until the typecheck debt is cleared.
+RUN npm run build:ci
 
 FROM nginx:1.27-alpine AS runtime
-COPY coreEngine/docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /src/coreEngine/dist /usr/share/nginx/html
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

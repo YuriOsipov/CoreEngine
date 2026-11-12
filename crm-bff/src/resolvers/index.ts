@@ -8,10 +8,12 @@ import {
   softDeleteRecord,
   updateRecord,
 } from '../adapters/recordsAdapter.js'
+import { SYSTEM_RECORD_ACCESS } from '../adapters/records/types.js'
 import { listRecordFiles } from '../adapters/filesAdapter.js'
 import { assertFileReadable, assertFilesReadable } from '../files/fileAccess.js'
 import { rateLimitConsume } from '../auth/rateLimit.js'
 import { writeAuditEntry, listRecordActivities, listRecordRevisions } from '../audit/auditService.js'
+import { hardDeleteAfterAudit } from '../audit/hardDeleteAfterAudit.js'
 import {
   detectSchemaDrift,
   listEntitySyncStates,
@@ -109,6 +111,7 @@ import type { MeUser } from '../adapters/usersAdapter.js'
 import { clearCrmStorageCache } from '../schema/crmStorage.js'
 import {
   parseAccountability,
+  readDefaultFieldSensitivity,
   readInternal,
   readNote,
   resolveEntityAccountability,
@@ -139,6 +142,8 @@ import { generateDocument } from '../documents/generateDocument.js'
 
 export type GraphQlAuthContext = {
   authorization: string | null
+  /** Admin-only View as role (`X-Role-Preview`); applied to ACL / field security. */
+  rolePreview: string | null
   /** Client IP / forwarded key for public rate limits. */
   clientKey: string
 }
@@ -307,6 +312,7 @@ function mapEntityBase(row: Record<string, unknown>, language?: string | null) {
     })),
     hidden: Boolean(row.hidden),
     accountability: parseAccountability(backendConfig.accountability),
+    defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
     internal: readInternal(backendConfig),
     __language: language ?? null,
     __apiName: String(row.api_name),
@@ -606,6 +612,7 @@ export const resolvers = {
         )
       }
       const where = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
+      // audit-ignore: SQL-DYNAMIC where is built from $n placeholders only (filters[]), never raw user SQL
       const rows = await query(
         `SELECT id, entity_api_name, group_key, sub_group, role_id, payload,
                 created_at, updated_at
@@ -891,7 +898,12 @@ export const resolvers = {
       _: unknown,
       __: unknown,
       ctx: GraphQlAuthContext,
-    ) => requireAuthenticatedUser(ctx, { allowPasswordChange: true }),
+    ) =>
+      requireAuthenticatedUser(ctx, {
+        allowPasswordChange: true,
+        // Keep real admin flags so "View as role" UI stays available.
+        applyRolePreview: false,
+      }),
 
     users: async (
       _: unknown,
@@ -1233,11 +1245,18 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      const me = await assertEntityPermission(ctx, args.entity, 'update')
+      const me = await assertEntityPermission(ctx, args.entity, 'update', {
+        recordId: args.id,
+      })
       const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
-        before = await findOneRecord(args.entity, String(args.id))
+        before = await findOneRecord(
+          args.entity,
+          String(args.id),
+          null,
+          SYSTEM_RECORD_ACCESS,
+        )
       } catch {
         before = null
       }
@@ -1272,12 +1291,18 @@ export const resolvers = {
       const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
-        before = await findOneRecord(args.entity, String(args.id))
+        before = await findOneRecord(
+          args.entity,
+          String(args.id),
+          null,
+          SYSTEM_RECORD_ACCESS,
+        )
       } catch {
         before = null
       }
       const deleted = await softDeleteRecord(args.entity, String(args.id), undefined, {
         actorUserId,
+        access: { me },
       })
       try {
         await writeEntityAudit({
@@ -1304,23 +1329,30 @@ export const resolvers = {
       const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
-        before = await findOneRecord(args.entity, String(args.id))
+        before = await findOneRecord(
+          args.entity,
+          String(args.id),
+          null,
+          SYSTEM_RECORD_ACCESS,
+        )
       } catch {
         before = null
       }
-      await hardDeleteRecord(args.entity, String(args.id))
-      try {
-        await writeEntityAudit({
-          entityApiName: args.entity,
-          recordId: String(args.id),
-          action: 'DELETE',
-          before,
-          after: null,
-          userId: actorUserId,
-        })
-      } catch (error) {
-        console.warn('[audit] deleteRecord failed', error)
-      }
+      await hardDeleteAfterAudit({
+        audit: async () => {
+          await writeEntityAudit({
+            entityApiName: args.entity,
+            recordId: String(args.id),
+            action: 'DELETE',
+            before,
+            after: null,
+            userId: actorUserId,
+          })
+        },
+        delete: async () => {
+          await hardDeleteRecord(args.entity, String(args.id))
+        },
+      })
       return true
     },
 
@@ -1333,7 +1365,12 @@ export const resolvers = {
       const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
-        before = await findOneRecord(args.entity, String(args.id))
+        before = await findOneRecord(
+          args.entity,
+          String(args.id),
+          null,
+          SYSTEM_RECORD_ACCESS,
+        )
       } catch {
         before = null
       }
@@ -1510,6 +1547,7 @@ export const resolvers = {
           singleton?: boolean | null
           internal?: boolean | null
           accountability?: string | null
+          defaultFieldSensitivity?: number | null
         }
       },
       ctx: GraphQlAuthContext,
@@ -1524,6 +1562,10 @@ export const resolvers = {
           : input.accountability === null || input.accountability === ''
             ? null
             : parseAccountability(input.accountability)
+      const defaultFieldSensitivity =
+        input.defaultFieldSensitivity === undefined
+          ? undefined
+          : clampSensitivity(input.defaultFieldSensitivity)
 
       await updateEntityMeta(entityApiName, {
         label: input.label,
@@ -1534,6 +1576,7 @@ export const resolvers = {
         singleton: input.singleton,
         internal: input.internal,
         accountability,
+        defaultFieldSensitivity,
       })
       clearCrmStorageCache()
 
@@ -2035,6 +2078,7 @@ export const resolvers = {
           sourceLinkField: args.sourceLinkField ?? null,
           activeSourcesOnly: args.activeSourcesOnly !== false,
           actorUserId,
+          access: { me },
         })
       } catch (error) {
         if (error instanceof BulkUpdateRelatedError) {
@@ -2075,6 +2119,7 @@ export const resolvers = {
           filter: args.filter ?? null,
           recordIds: args.recordIds ?? null,
           actorUserId,
+          access: { me },
         })
       } catch (error) {
         if (error instanceof BulkUpdateRelatedError) {

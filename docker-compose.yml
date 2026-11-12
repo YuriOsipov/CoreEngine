@@ -4,10 +4,12 @@
 #   cp .env.docker.example .env
 #   cp .env.docker.example supabase/.env
 #   docker compose up -d db
+#   # Provision writes AUTH_JWT_SECRET into gitignored ./.env (+ supabase/.env); then start BFF.
 #   docker compose run --rm --workdir /app bff npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/provision-platform-db.mts --domain sales
 #   docker compose up -d bff
 #   # Web UI (profile) requires sibling ../docEngine checkout next to this repo:
 #   docker compose --profile ui up -d --build web
+# Does not set NODE_ENV=production (bootstrap weak-password refuse is production-only).
 #
 # BFF: http://localhost:4000/health   UI (optional): http://localhost:8080
 
@@ -56,7 +58,9 @@ services:
       # BFF publish is loopback-only below so LAN clients cannot hit :4000 and spoof XFF
       # via Docker Desktop's private-source NAT.
       TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
-      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-coreengine-docker-dev-jwt-secret-change-me}
+      # AUTH_JWT_SECRET comes from env_file (.env / supabase/.env) only — do not
+      # inject a compose default here (placeholder values are refused at BFF start).
+      # Provision (`ensure-auth-jwt-secret`) writes a unique secret into those files.
       DIRECTUS_RUNTIME: "off"
       RUNNING_IN_DOCKER: "1"
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
@@ -67,7 +71,8 @@ services:
     volumes:
       - ./scripts:/app/scripts:ro
       - ./supabase:/app/supabase
-      - ./.env:/app/.env:ro
+      # rw so `docker compose run … provision` can persist AUTH_JWT_SECRET into host .env
+      - ./.env:/app/.env
     depends_on:
       db:
         condition: service_healthy

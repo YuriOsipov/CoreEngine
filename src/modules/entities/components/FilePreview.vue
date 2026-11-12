@@ -6,6 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { getAccessToken } from '@/core/auth/session'
 import { updateFileMetadata } from '@/core/graphql/filesProxy'
 import { buildFileAssetUrl } from '@/core/fileImageValue'
 import { formatLocalizedDateTime } from '@/core/dateFormatting'
@@ -208,7 +209,11 @@ async function loadTextPreview(): Promise<void> {
   textPreviewLoading.value = true
 
   try {
-    const response = await fetch(assetUrl(), { credentials: 'include' })
+    const token = await getAccessToken()
+    const response = await fetch(assetUrl(), {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }

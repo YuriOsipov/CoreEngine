@@ -3,7 +3,7 @@
  * Population/PDF is not implemented in the BFF yet.
  * Full contract: docs/generate-document-api.md
  */
-import { findOneRecord } from '../adapters/records/facade.js'
+import { findOneRecord, SYSTEM_RECORD_ACCESS } from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 
@@ -121,7 +121,12 @@ export async function assertGenerateDocumentAllowed(
   }
 
   try {
-    await findOneRecord('doc_template', parsed.templateId, ['id'])
+    await findOneRecord(
+      'doc_template',
+      parsed.templateId,
+      ['id'],
+      SYSTEM_RECORD_ACCESS,
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (/not found/i.test(message)) {

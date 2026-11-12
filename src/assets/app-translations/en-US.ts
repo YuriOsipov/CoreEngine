@@ -53,7 +53,7 @@ const messages = {
     rolePreviewActual: 'My role ({role})',
     rolePreviewUnknownRole: 'Unknown',
     rolePreviewBanner:
-      'Preview mode: layouts, views, and access (including Read) follow role "{role}". API calls still use your admin account.',
+      'Preview mode: layouts, views, object access, and field security follow role "{role}". Setup admin actions still use your admin account. Audit stamps still record you as the actor.',
   },
   permissions: {
     checkingAccess: 'Checking access...',
@@ -712,6 +712,9 @@ const messages = {
       accountabilityAll: 'Track Activity & Revisions',
       accountabilityActivity: 'Track Activity',
       accountabilityNone: 'Do Not Track',
+      defaultFieldSensitivity: 'Default field security level',
+      defaultFieldSensitivityHint:
+        'Applied to new fields when Field security level is left at the default. Existing fields are unchanged. Domain packs can set backendConfig.defaultFieldSensitivity the same way. Roles still need Sensitive read / edit grants to see marked fields.',
       saved: 'Entity parameters saved',
       loadError: 'Failed to load entity parameters',
       saveError: 'Failed to save entity parameters',

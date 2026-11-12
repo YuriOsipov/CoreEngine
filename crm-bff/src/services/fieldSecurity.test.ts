@@ -17,10 +17,13 @@ vi.mock('../adapters/records/relations.js', () => ({
 import type { MeUser } from '../adapters/usersAdapter.js'
 import {
   applyFieldAccessToSchemaField,
+  assertFieldPathReadable,
+  assertFieldSensitivitySchemaReady,
   assertFieldsEditable,
   assertPayloadWritable,
   assertReadableQuery,
   clearFieldSecurityCache,
+  FIELD_SECURITY_CACHE_TTL_MS,
   filterReadableFieldPaths,
   redactRecord,
   resolveFieldAccess,
@@ -78,6 +81,12 @@ describe('fieldSecurity', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
+  it('does not treat a forgotten undefined me as a system bypass', async () => {
+    mockRegistry([])
+    const access = await resolveFieldAccess(undefined, 'employee')
+    expect([...(access?.unreadable ?? [])].sort()).toEqual(['cost_center', 'salary'])
+  })
+
   it('returns null for entities without sensitive fields', async () => {
     mockRegistry([])
     expect(await resolveFieldAccess(user(), 'opportunity')).toBeNull()
@@ -88,6 +97,40 @@ describe('fieldSecurity', () => {
     const access = await resolveFieldAccess(user(), 'employee')
     expect([...(access?.unreadable ?? [])].sort()).toEqual(['cost_center', 'salary'])
     expect([...(access?.uneditable ?? [])].sort()).toEqual(['cost_center', 'salary'])
+  })
+
+  it('elevates unmarked rollup fields from a sensitive child value field', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM public.fields')) {
+        return [
+          {
+            entity_api_name: 'employee',
+            field_api_name: 'salary',
+            sensitivity: 2,
+            interface: 'input',
+            options: {},
+          },
+          {
+            entity_api_name: 'account',
+            field_api_name: 'salary_sum',
+            sensitivity: 0,
+            interface: 'input',
+            options: {
+              computeMode: 'rollup',
+              rollup: {
+                childEntity: 'employee',
+                parentField: 'account',
+                valueField: 'salary',
+                op: 'SUM',
+              },
+            },
+          },
+        ]
+      }
+      return []
+    })
+    const access = await resolveFieldAccess(user(), 'account')
+    expect([...(access?.unreadable ?? [])]).toEqual(['salary_sum'])
   })
 
   it('applies tiers per entity: restricted read, no edit', async () => {
@@ -113,6 +156,39 @@ describe('fieldSecurity', () => {
   it('treats a pre-migration database as having no sensitive fields', async () => {
     query.mockRejectedValue(Object.assign(new Error('column does not exist'), { code: '42703' }))
     expect(await resolveFieldAccess(user(), 'employee')).toBeNull()
+  })
+
+  it('refuses production boot when sensitivity columns are missing (remark 1)', async () => {
+    const prev = process.env.NODE_ENV
+    process.env.NODE_ENV = 'production'
+    query.mockRejectedValue(
+      Object.assign(new Error('column does not exist'), { code: '42703' }),
+    )
+    await expect(assertFieldSensitivitySchemaReady()).rejects.toThrow(
+      /Refusing to start in production.*sensitivity/i,
+    )
+    process.env.NODE_ENV = prev
+  })
+
+  it('skips the sensitivity schema gate outside production', async () => {
+    const prev = process.env.NODE_ENV
+    process.env.NODE_ENV = 'development'
+    query.mockRejectedValue(
+      Object.assign(new Error('column does not exist'), { code: '42703' }),
+    )
+    await expect(assertFieldSensitivitySchemaReady()).resolves.toBeUndefined()
+    expect(query).not.toHaveBeenCalled()
+    process.env.NODE_ENV = prev
+  })
+
+  it('exposes a 30s per-process cache TTL and reloads after clear (remark 2)', async () => {
+    expect(FIELD_SECURITY_CACHE_TTL_MS).toBe(30_000)
+    mockRegistry([])
+    await resolveFieldAccess(user(), 'employee')
+    expect(query).toHaveBeenCalledTimes(2)
+    clearFieldSecurityCache()
+    await resolveFieldAccess(user(), 'employee')
+    expect(query).toHaveBeenCalledTimes(4)
   })
 
   it('redacts records and projections', async () => {
@@ -203,11 +279,83 @@ describe('fieldSecurity', () => {
     await expect(
       assertReadableQuery(me, 'opportunity', { filter: { account: { margin: { _gt: 0 } } } }),
     ).rejects.toThrow('Permission denied: read on account.margin')
+    // SOQL flattens WHERE account.margin > 0 to a dotted filter key; must not
+    // skip the hop walk (sort already blocked this path).
+    await expect(
+      assertReadableQuery(me, 'opportunity', {
+        filter: { 'account.margin': { _gt: 0 } },
+      }),
+    ).rejects.toThrow('Permission denied: read on account.margin')
+    await expect(
+      assertReadableQuery(me, 'opportunity', {
+        filter: { _or: [{ 'account.margin': { _gt: 100 } }, { name: { _eq: 'x' } }] },
+      }),
+    ).rejects.toThrow('account.margin')
+    await expect(
+      assertReadableQuery(me, 'opportunity', {
+        filter: { 'account.name': { _eq: 'Acme' } },
+      }),
+    ).resolves.toBeUndefined()
     await expect(
       assertReadableQuery(me, 'opportunity', { sort: ['account.margin'] }),
     ).rejects.toThrow('account.margin')
     await expect(
       assertReadableQuery(me, 'opportunity', { sort: ['account.name'] }),
     ).resolves.toBeUndefined()
+  })
+
+  it('rejects upsert / unique-key lookups on unreadable fields', async () => {
+    mockRegistry([])
+    const me = user()
+    await expect(assertFieldPathReadable(me, 'employee', 'salary')).rejects.toThrow(
+      'Permission denied: read on employee.salary',
+    )
+    await expect(assertFieldPathReadable(me, 'employee', 'name')).resolves.toBeUndefined()
+    await expect(
+      assertReadableQuery(me, 'employee', { paths: ['salary'] }),
+    ).rejects.toThrow('employee.salary')
+  })
+
+  it('rejects SOQL-style relation paths used in SELECT / WHERE', async () => {
+    mockRegistry([])
+    loadM2ORelations.mockImplementation(async (entity: string) =>
+      entity === 'opportunity'
+        ? [{ fieldApiName: 'account', relatedEntityApiName: 'account' }]
+        : [],
+    )
+    const me = user()
+    // Same gate REST SOQL uses after parse (fields + WHERE compiled to filter/sort/paths).
+    await expect(
+      assertReadableQuery(me, 'opportunity', { paths: ['account.margin'] }),
+    ).rejects.toThrow('account.margin')
+    await expect(
+      assertReadableQuery(me, 'opportunity', {
+        filter: { 'account.margin': { _eq: 1 } },
+        paths: ['account.name', 'name'],
+      }),
+    ).rejects.toThrow('account.margin')
+    await expect(
+      assertReadableQuery(me, 'opportunity', {
+        filter: { account: { margin: { _eq: 1 } } },
+        paths: ['account.name', 'name'],
+      }),
+    ).rejects.toThrow('account.margin')
+    await expect(
+      assertReadableQuery(me, 'opportunity', { paths: ['account.name', 'name'] }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('redacts nested expand payloads the same way as parent rows', async () => {
+    // expand=children loads each child via findManyRecords → redactRecords.
+    mockRegistry([])
+    const access = await resolveFieldAccess(user(), 'employee')
+    const children = [
+      { id: 'c1', name: 'A', salary: 100 },
+      { id: 'c2', name: 'B', salary: 200, cost_center: 'X' },
+    ]
+    expect(children.map((row) => redactRecord(row, access))).toEqual([
+      { id: 'c1', name: 'A' },
+      { id: 'c2', name: 'B' },
+    ])
   })
 })

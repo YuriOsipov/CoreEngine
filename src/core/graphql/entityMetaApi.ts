@@ -14,6 +14,8 @@ export interface EntityMetaDto {
   singleton: boolean
   internal: boolean
   accountability: EntityAccountability
+  /** Default sensitivity for new fields (0 none, 1 restricted, 2 confidential). */
+  defaultFieldSensitivity: number
   fields: Array<{
     apiName: string
     label: string
@@ -32,6 +34,7 @@ export interface UpdateEntityMetaInput {
   singleton?: boolean | null
   internal?: boolean | null
   accountability?: EntityAccountability
+  defaultFieldSensitivity?: number | null
 }
 
 const ENTITY_META_QUERY = /* GraphQL */ `
@@ -46,6 +49,7 @@ const ENTITY_META_QUERY = /* GraphQL */ `
       singleton
       internal
       accountability
+      defaultFieldSensitivity
       fields {
         apiName
         label
@@ -69,6 +73,7 @@ const UPDATE_ENTITY_META = /* GraphQL */ `
       singleton
       internal
       accountability
+      defaultFieldSensitivity
     }
   }
 `
@@ -107,6 +112,7 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
       singleton: boolean
       internal?: boolean | null
       accountability?: string | null
+      defaultFieldSensitivity?: number | null
       fields: EntityMetaDto['fields']
     }
   }>(ENTITY_META_QUERY, { apiName })
@@ -121,6 +127,7 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
     singleton: Boolean(row.singleton),
     internal: Boolean(row.internal),
     accountability: normalizeAccountability(row.accountability),
+    defaultFieldSensitivity: Number(row.defaultFieldSensitivity ?? 0) || 0,
     fields: row.fields ?? [],
   }
 }
@@ -143,6 +150,7 @@ export async function updateEntityMeta(
       singleton: boolean
       internal?: boolean | null
       accountability?: string | null
+      defaultFieldSensitivity?: number | null
     }
   }>(UPDATE_ENTITY_META, { entity, input })
   const row = data.updateEntityMeta
@@ -156,5 +164,6 @@ export async function updateEntityMeta(
     singleton: Boolean(row.singleton),
     internal: Boolean(row.internal),
     accountability: normalizeAccountability(row.accountability),
+    defaultFieldSensitivity: Number(row.defaultFieldSensitivity ?? 0) || 0,
   }
 }

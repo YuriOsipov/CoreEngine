@@ -1,4 +1,8 @@
-import { createRecord, findManyRecords } from '../adapters/recordsAdapter.js'
+import {
+  createRecord,
+  findManyRecords,
+  SYSTEM_RECORD_ACCESS,
+} from '../adapters/recordsAdapter.js'
 import { query } from '../db/pool.js'
 import { fkIdFromValue, loadM2ORelations } from '../adapters/records/relations.js'
 import {
@@ -117,6 +121,7 @@ async function loadTemplates(options: GenerateScheduleOptions) {
     limit: -1,
     filter,
     fields,
+    access: SYSTEM_RECORD_ACCESS,
   })
 
   const providerFilter =
@@ -160,6 +165,7 @@ async function loadExistingSlotKeys(options: GenerateScheduleOptions): Promise<S
     limit: -1,
     filter,
     fields: ['provider', 'type', 'date_start', 'date_end'],
+    access: SYSTEM_RECORD_ACCESS,
   })
 
   const keys = new Set<string>()
@@ -245,7 +251,9 @@ export async function generateScheduleSlots(
   }
 
   for (const payload of payloads) {
-    await createRecord(SCHEDULE_SLOT_COLLECTION, payload)
+    await createRecord(SCHEDULE_SLOT_COLLECTION, payload, null, {
+      access: SYSTEM_RECORD_ACCESS,
+    })
   }
 
   return {

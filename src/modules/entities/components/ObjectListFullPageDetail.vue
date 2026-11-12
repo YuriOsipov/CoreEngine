@@ -26,6 +26,7 @@ import type {
 import { loadEntityLayoutById } from '@/modules/config/services/layoutSettings'
 import { resolvePreferredBlockLayoutForCurrentUser } from '@/core/resolvePreferredBlockLayout'
 import { useEntityPermissions } from '@/core/entityPermissions'
+import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { useTranslation } from '@/core/translation'
 import {
   archiveObjectRecord,
@@ -51,7 +52,6 @@ const confirm = useConfirm()
 const toast = useToast()
 const {
   canRead: canReadRecord,
-  canUpdate: canUpdateRecord,
   canDelete: canDeleteRecord,
   ready: permissionsReady,
 } = useEntityPermissions(() => props.collection)
@@ -72,6 +72,10 @@ const hasParent = computed(
   () => props.parentId !== undefined && props.parentId !== null && props.parentId !== '',
 )
 const recordId = computed(() => String(props.parentId ?? ''))
+const { canEdit: canUpdateRecord } = useRecordEditAccess(
+  () => props.collection,
+  () => recordId.value,
+)
 const isArchivedRecord = computed(() => isRecordArchived(recordData.value))
 const showRenderer = computed(
   () =>

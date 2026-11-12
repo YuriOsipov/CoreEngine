@@ -337,11 +337,14 @@ export async function setFieldIsUnique(
 }
 
 /** Map Postgres unique_violation (23505) to a readable message. */
+/**
+ * Human-facing unique violation. Do **not** echo Postgres `detail` — it includes
+ * the conflicting field value and would leak restricted/confidential columns.
+ */
 export function formatUniqueViolationError(err: unknown): string | null {
   if (!err || typeof err !== 'object') return null
-  const pg = err as { code?: string; constraint?: string; detail?: string; message?: string }
+  const pg = err as { code?: string; constraint?: string }
   if (pg.code !== '23505') return null
-  const detail = pg.detail || pg.message || 'duplicate key value'
   const constraint = pg.constraint ? ` (${pg.constraint})` : ''
-  return `Unique constraint violated${constraint}: ${detail}`
+  return `Unique constraint violated${constraint}`
 }

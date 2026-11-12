@@ -1,4 +1,8 @@
-import { findManyRecords, updateRecord } from '../adapters/records/index.js'
+import {
+  findManyRecords,
+  SYSTEM_RECORD_ACCESS,
+  updateRecord,
+} from '../adapters/records/index.js'
 import { fkIdFromValue, readRecordField } from '../adapters/records/relations.js'
 import { loadEntityMeta } from '../schema/entityMeta.js'
 import { zonedYmd } from './cron.js'
@@ -320,10 +324,12 @@ export async function syncPromoPrices(
         f.fixedPrice,
         f.discountPercent,
       ],
+      access: SYSTEM_RECORD_ACCESS,
     }),
     findManyRecords(resolved.itemCollection, {
       limit: -1,
       fields: ['id', f.itemGroupField],
+      access: SYSTEM_RECORD_ACCESS,
     }),
     findManyRecords(resolved.itemPriceCollection, {
       limit: -1,
@@ -335,6 +341,7 @@ export async function syncPromoPrices(
         f.promoPrice,
         f.promotion,
       ],
+      access: SYSTEM_RECORD_ACCESS,
     }),
   ])
 
@@ -389,7 +396,9 @@ export async function syncPromoPrices(
       [f.promoPrice]: nextPromoPrice,
       [f.promotion]: nextPromotionId,
     }
-    await updateRecord(resolved.itemPriceCollection, id, patch)
+    await updateRecord(resolved.itemPriceCollection, id, patch, null, {
+      access: SYSTEM_RECORD_ACCESS,
+    })
 
     if (!winner) {
       cleared += 1

@@ -22,9 +22,12 @@ import {
   bffRefresh,
 } from './auth/localAuth.js'
 import { assertProductionBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
+import { assertFieldSensitivitySchemaReady } from './services/fieldSecurity.js'
+import { assertProductionFlowAuthConfig } from './flows/flowAuth.js'
 import { authJwtSecret } from './auth/jwt.js'
 import { bearerToken } from './auth/tokenClaims.js'
 import { requireAuthenticatedUser } from './auth/accessGuards.js'
+import { readRolePreviewHeader } from './auth/rolePreview.js'
 import { rateLimitConsume, rateLimitPeek, rateLimitReset } from './auth/rateLimit.js'
 import {
   assertFileParentWritable,
@@ -51,6 +54,23 @@ function isLocalDevOrigin(origin: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
 }
 
+/**
+ * `CORS_ORIGIN=*` with `credentials: true` would reflect any Origin. Never treat
+ * `*` as allow-all; production refuses to start if it is listed.
+ */
+function assertCorsConfigSafe(): void {
+  // audit-ignore: CORS-WILDCARD * is refused in production below; never treated as allow-all
+  if (!corsOriginAllowlist.includes('*')) return
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Refusing to start in production: CORS_ORIGIN must not include "*" when credentials are enabled. List explicit origins.',
+    )
+  }
+  console.warn(
+    '[cors] CORS_ORIGIN contains "*" — ignored while credentials are enabled; list explicit origins',
+  )
+}
+
 function resolveCorsOrigin(
   origin: string | undefined,
   cb: (err: Error | null, allow: boolean) => void,
@@ -59,7 +79,7 @@ function resolveCorsOrigin(
     cb(null, true)
     return
   }
-  if (corsOriginAllowlist.includes('*') || corsOriginAllowlist.includes(origin)) {
+  if (corsOriginAllowlist.includes(origin)) {
     cb(null, true)
     return
   }
@@ -91,6 +111,7 @@ const graphqlGuardsPlugin: Plugin = {
 /** Server context is supplied per request by the Fastify route (clientKey = request.ip). */
 const yoga = createYoga<{
   authorization: string | null
+  rolePreview: string | null
   clientKey: string
 }>({
   schema,
@@ -127,7 +148,27 @@ const DEFAULT_BODY_LIMIT = 1 * MB
 const DATA_BODY_LIMIT = Math.max(1, Number(process.env.BFF_DATA_BODY_LIMIT_MB) || 20) * MB
 
 const app = Fastify({
-  logger: true,
+  logger: {
+    redact: {
+      paths: ['req.headers.authorization', 'req.query.access_token'],
+      censor: '[Redacted]',
+    },
+    serializers: {
+      req(request) {
+        const url =
+          typeof request.url === 'string'
+            ? request.url.replace(/([?&]access_token=)[^&]*/gi, '$1[Redacted]')
+            : request.url
+        return {
+          method: request.method,
+          url,
+          host: request.headers?.host,
+          remoteAddress: request.socket?.remoteAddress,
+          remotePort: request.socket?.remotePort,
+        }
+      },
+    },
+  },
   bodyLimit: DEFAULT_BODY_LIMIT,
   trustProxy: resolveTrustProxy(),
 })
@@ -183,6 +224,7 @@ app.route({
   handler: async (request, reply) => {
     const response = await yoga.handleNodeRequestAndResponse(request, reply, {
       authorization: authHeaderFromFastify(request),
+      rolePreview: rolePreviewFromFastify(request),
       clientKey: request.ip || 'anon',
     })
     response.headers.forEach((value, key) => {
@@ -227,8 +269,9 @@ app.post('/auth/login', async (request, reply) => {
     return reply.status(400).send({ error: 'email and password are required' })
   }
 
-  // Per-account failure throttle (independent of client IP) against distributed brute force.
-  const accountKey = `login-account:${email.toLowerCase()}`
+  // Per IP+email failure throttle. Email-only keys would let an attacker lock
+  // a victim account from any network; scoping to the client IP avoids that.
+  const accountKey = `login-account:${clientKeyFromRequest(request)}:${email.toLowerCase()}`
   const accountLock = rateLimitPeek(accountKey, LOGIN_ACCOUNT_MAX_FAILURES)
   if (!accountLock.ok) {
     reply.header('retry-after', String(accountLock.retryAfterSec))
@@ -302,10 +345,10 @@ app.post('/auth/change-password', async (request, reply) => {
 
   let me
   try {
-    me = await requireAuthenticatedUser(
-      { authorization: authHeaderFromFastify(request) },
-      { allowPasswordChange: true },
-    )
+    me = await requireAuthenticatedUser(authContextFromFastify(request), {
+      allowPasswordChange: true,
+      applyRolePreview: false,
+    })
   } catch {
     return reply.status(401).send({ error: 'Authentication required' })
   }
@@ -356,9 +399,46 @@ function readMultipartString(
   return null
 }
 
+function rolePreviewFromFastify(request: {
+  headers: Record<string, unknown>
+}): string | null {
+  return readRolePreviewHeader(request.headers)
+}
+
+function authContextFromFastify(request: {
+  headers: Record<string, unknown>
+}): { authorization: string | null; rolePreview: string | null } {
+  return {
+    authorization: authHeaderFromFastify(request),
+    rolePreview: rolePreviewFromFastify(request),
+  }
+}
+
 function authHeaderFromFastify(request: { headers: Record<string, unknown> }): string | null {
   const raw = request.headers.authorization
   return typeof raw === 'string' ? raw : null
+}
+
+/**
+ * <img>/<iframe src> cannot send Authorization. Allow a short-lived access_token
+ * query on GET /assets only (same JWT as Bearer). Prefer the header when present.
+ */
+function authContextForAssetRequest(request: {
+  headers: Record<string, unknown>
+  query: Record<string, string>
+}): { authorization: string | null; rolePreview: string | null } {
+  const header = authHeaderFromFastify(request)
+  if (header) {
+    return {
+      authorization: header,
+      rolePreview: rolePreviewFromFastify(request),
+    }
+  }
+  const token = String(request.query.access_token || '').trim()
+  return {
+    authorization: token ? `Bearer ${token}` : null,
+    rolePreview: rolePreviewFromFastify(request),
+  }
 }
 
 function sendSafeHttpError(
@@ -384,15 +464,20 @@ function sendSafeHttpError(
 }
 
 app.post('/files', async (request, reply) => {
+  // Auth before multipart parse so anonymous callers cannot force buffer allocation.
+  let me
+  try {
+    me = await requireAuthenticatedUser(authContextFromFastify(request))
+  } catch (error) {
+    return sendSafeHttpError(reply, request, error, 'Upload failed')
+  }
+
   const file = await request.file()
   if (!file) {
     return reply.status(400).send({ error: 'file is required' })
   }
 
   try {
-    const me = await requireAuthenticatedUser({
-      authorization: authHeaderFromFastify(request),
-    })
     const buffer = await file.toBuffer()
     const parentCollection = readMultipartString(
       file.fields as unknown as Record<string, unknown> | undefined,
@@ -402,7 +487,7 @@ app.post('/files', async (request, reply) => {
       file.fields as unknown as Record<string, unknown> | undefined,
       'parent_record_id',
     )
-    await assertFileParentWritable(me, parentCollection)
+    await assertFileParentWritable(me, parentCollection, parentRecordId)
     const uploaded = await uploadFileBuffer({
       filename: file.filename,
       mimeType: file.mimetype,
@@ -413,7 +498,8 @@ app.post('/files', async (request, reply) => {
     })
     return reply.send(uploaded)
   } catch (error) {
-    return sendSafeHttpError(reply, request, error, 'Upload failed')
+    const message = error instanceof Error ? error.message : 'Upload failed'
+    return sendSafeHttpError(reply, request, error, message)
   }
 })
 
@@ -422,9 +508,7 @@ app.patch<{
   Body: Record<string, unknown>
 }>('/files/:id', async (request, reply) => {
   try {
-    const me = await requireAuthenticatedUser({
-      authorization: authHeaderFromFastify(request),
-    })
+    const me = await requireAuthenticatedUser(authContextFromFastify(request))
     await assertFileWritable(me, request.params.id)
     const data = await updateFileRecord(request.params.id, request.body ?? {})
     return reply.send(data)
@@ -441,9 +525,7 @@ app.post<{
   }
 }>('/files/:id/link', async (request, reply) => {
   try {
-    const me = await requireAuthenticatedUser({
-      authorization: authHeaderFromFastify(request),
-    })
+    const me = await requireAuthenticatedUser(authContextFromFastify(request))
     const parentCollection = String(request.body?.parent_collection || '').trim()
     const parentRecordId = String(request.body?.parent_record_id || '').trim()
     if (!parentCollection || !parentRecordId) {
@@ -453,7 +535,7 @@ app.post<{
     }
     // Linking exposes the file to the target record's readers — caller must be able to read it.
     await assertFileReadable(me, request.params.id)
-    await assertFileParentWritable(me, parentCollection)
+    await assertFileParentWritable(me, parentCollection, parentRecordId)
     const data = await linkFileToRecord({
       fileId: request.params.id,
       parentCollection,
@@ -471,9 +553,7 @@ app.delete<{
   Querystring: { parent_collection?: string; parent_record_id?: string }
 }>('/files/:id', async (request, reply) => {
   try {
-    const me = await requireAuthenticatedUser({
-      authorization: authHeaderFromFastify(request),
-    })
+    const me = await requireAuthenticatedUser(authContextFromFastify(request))
     const parentCollection = String(request.query.parent_collection || '').trim()
     const parentRecordId = String(request.query.parent_record_id || '').trim()
     if (parentCollection && parentRecordId) {
@@ -487,7 +567,7 @@ app.delete<{
       if (!attached) {
         return reply.status(404).send({ error: 'File not found' })
       }
-      await assertFileParentWritable(me, parentCollection)
+      await assertFileParentWritable(me, parentCollection, parentRecordId)
     } else {
       await assertFileWritable(me, request.params.id)
     }
@@ -510,11 +590,11 @@ app.get<{
   Params: { id: string }
   Querystring: Record<string, string>
 }>('/assets/:id', async (request, reply) => {
-  const search = new URLSearchParams(request.query).toString()
+  const queryForAsset = { ...request.query }
+  delete queryForAsset.access_token
+  const search = new URLSearchParams(queryForAsset).toString()
   try {
-    const me = await requireAuthenticatedUser({
-      authorization: authHeaderFromFastify(request),
-    })
+    const me = await requireAuthenticatedUser(authContextForAssetRequest(request))
     await assertFileReadable(me, request.params.id)
     const asset = await loadAsset(request.params.id, search)
     if (!asset) {
@@ -574,8 +654,12 @@ async function start() {
   try {
     // Fail fast: login/refresh call signAccessToken and otherwise surface as HTTP 500.
     authJwtSecret()
+    assertCorsConfigSafe()
+    assertProductionFlowAuthConfig()
     // Production: refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …).
     await assertProductionBootstrapPasswordsSafe()
+    // Production: field-level security columns must exist (no silent FLS-off).
+    await assertFieldSensitivitySchemaReady()
     await app.listen({ port, host: '0.0.0.0' })
     app.log.info(`GraphQL ready at http://localhost:${port}/graphql`)
     app.log.info(`Auth proxy at http://localhost:${port}/auth/login`)

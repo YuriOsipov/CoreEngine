@@ -8,6 +8,8 @@ import {
   loadFormulaFields,
   resolveComputeMode,
 } from './fieldMeta.js'
+// Field-level sensitivity for formula/rollup/template fields is inherited in
+// computedSensitivity.ts (elevateComputedSensitivities) and applied via fieldSecurity.
 
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}

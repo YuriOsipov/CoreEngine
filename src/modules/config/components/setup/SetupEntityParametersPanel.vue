@@ -15,6 +15,7 @@ import {
   updateEntityMeta,
   type EntityAccountability,
 } from '@/core/graphql/entityMetaApi'
+import { clampSensitivity, sensitivityOptions } from '@/core/fieldSensitivity'
 import CrmIconPicker from '@/core/ui-kit/CrmIconPicker.vue'
 import { clearMetadataCache } from '@/modules/entities/services/collectionSchema'
 import SetupUniqueGroupsPanel from './SetupUniqueGroupsPanel.vue'
@@ -45,9 +46,11 @@ const form = reactive({
   hidden: false,
   internal: false,
   accountability: 'all' as AccountabilityUi,
+  defaultFieldSensitivity: 0,
 })
 
 const fieldOptions = ref<Array<{ label: string; value: string }>>([])
+const defaultSensitivitySelectOptions = computed(() => sensitivityOptions())
 
 const accountabilityOptions = computed(() => [
   {
@@ -97,6 +100,7 @@ async function load(): Promise<void> {
     form.hidden = data.hidden
     form.internal = data.internal
     form.accountability = toAccountabilityUi(data.accountability)
+    form.defaultFieldSensitivity = clampSensitivity(data.defaultFieldSensitivity)
     fieldOptions.value = data.fields
       .filter((f) => f.apiName !== 'id' && f.type.toUpperCase() !== 'ALIAS')
       .map((f) => ({
@@ -124,6 +128,7 @@ async function save(): Promise<void> {
       hidden: form.hidden,
       internal: form.internal,
       accountability: fromAccountabilityUi(form.accountability),
+      defaultFieldSensitivity: clampSensitivity(form.defaultFieldSensitivity),
     })
     clearMetadataCache()
     toast.add({
@@ -316,6 +321,38 @@ onMounted(() => {
         <Select
           v-model="form.accountability"
           :options="accountabilityOptions"
+          option-label="label"
+          option-value="value"
+          class="w-full"
+        />
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="inline-flex items-center gap-1">
+          {{
+            t(
+              'setup.entityParameters.defaultFieldSensitivity',
+              'Default field security level',
+            )
+          }}
+          <button
+            type="button"
+            class="setup-entity-parameters__hint"
+            v-tooltip.bottom="
+              hintTooltip(
+                t(
+                  'setup.entityParameters.defaultFieldSensitivityHint',
+                  'Applied to new fields when Field security level is left at the default. Existing fields are unchanged. Domain packs can set backendConfig.defaultFieldSensitivity the same way. Roles still need Sensitive read / edit grants to see marked fields.',
+                ),
+              )
+            "
+          >
+            i
+          </button>
+        </label>
+        <Select
+          v-model="form.defaultFieldSensitivity"
+          :options="defaultSensitivitySelectOptions"
           option-label="label"
           option-value="value"
           class="w-full"

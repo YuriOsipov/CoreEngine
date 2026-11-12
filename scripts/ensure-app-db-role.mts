@@ -176,6 +176,18 @@ async function main(): Promise<void> {
   await admin.query(
     `GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${appIdent}`,
   )
+  // Column defaults / legacy SQL may reference extensions.gen_random_uuid().
+  const extensions = await admin.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_namespace WHERE nspname = 'extensions'
+     ) AS exists`,
+  )
+  if (extensions.rows[0]?.exists) {
+    await admin.query(`GRANT USAGE ON SCHEMA extensions TO ${appIdent}`)
+    await admin.query(
+      `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA extensions TO ${appIdent}`,
+    )
+  }
   if (crm.rows[0]?.exists) {
     await admin.query(`GRANT USAGE, CREATE ON SCHEMA crm_schema TO ${appIdent}`)
     await admin.query(

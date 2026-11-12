@@ -37,6 +37,7 @@ export async function triggerFlowViaBff(
   }
 
   const token = await getAccessToken()
+  const { rolePreviewRequestHeaders } = await import('@/core/rolePreview')
   const response = await fetch(
     `${bffBaseUrl()}/flows/trigger/${encodeURIComponent(key)}`,
     {
@@ -45,6 +46,7 @@ export async function triggerFlowViaBff(
         'Content-Type': 'application/json',
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...rolePreviewRequestHeaders(),
       },
       credentials: 'include',
       body: JSON.stringify(payload),

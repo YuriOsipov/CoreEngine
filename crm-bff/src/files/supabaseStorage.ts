@@ -16,16 +16,15 @@ export function filesBucket(): string {
 }
 
 function storageConfig(): { baseUrl: string; serviceKey: string } | null {
+  // Server-only names — never VITE_* (Vite inlines those into the browser bundle).
   const baseUrl = (
-    process.env.VITE_SUPABASE_URL ||
-    process.env.SUPABASE_PUBLIC_URL ||
     process.env.SUPABASE_URL ||
+    process.env.SUPABASE_PUBLIC_URL ||
     ''
   ).replace(/\/$/, '')
   const serviceKey =
     process.env.SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
     ''
   if (!baseUrl || !serviceKey) return null
   return { baseUrl, serviceKey }

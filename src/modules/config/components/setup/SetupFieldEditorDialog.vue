@@ -8,6 +8,7 @@ export default {
 import { computed, reactive, ref, watch } from 'vue'
 import type { LayoutFieldChildLookup } from '@/interfaces'
 import { useTranslation } from '@/core/translation'
+import { fetchEntityMeta } from '@/core/graphql/entityMetaApi'
 import {
   fetchEntityFieldsAndRelations,
   type RegistryFieldInputDto,
@@ -1568,6 +1569,14 @@ function resetFromProps(): void {
   form.isUnique = false
   form.isIndexed = false
   form.sensitivity = 0
+  void fetchEntityMeta(props.collection)
+    .then((meta) => {
+      if (props.mode !== 'create') return
+      form.sensitivity = clampSensitivity(meta.defaultFieldSensitivity)
+    })
+    .catch(() => {
+      /* keep 0 when meta is unavailable */
+    })
   form.useInSearch = false
   form.sort = 0
   form.isLookup = false

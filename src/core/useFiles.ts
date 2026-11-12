@@ -119,7 +119,7 @@ export function fileAssetUrl(id: string): string {
 
 export function fileDownloadUrl(id: string): string {
   if (!id) return '#'
-  return `${proxyFileAssetUrl(id)}?download`
+  return proxyFileAssetUrl(id, { download: '1' })
 }
 
 export function fileSizeLabel(bytes?: number): string {

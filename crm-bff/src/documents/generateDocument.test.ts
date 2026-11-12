@@ -7,6 +7,7 @@ vi.mock('../services/rolePermissions.js', () => ({
 }))
 vi.mock('../adapters/records/facade.js', () => ({
   findOneRecord: (...args: unknown[]) => findOneRecord(...args),
+  SYSTEM_RECORD_ACCESS: Object.freeze({ me: null, system: true }),
 }))
 
 import {
@@ -67,7 +68,12 @@ describe('generateDocument (Phase 0 stub)', () => {
       [me, 'opportunity', 'read'],
       [me, 'opportunity', 'update'],
     ])
-    expect(findOneRecord).toHaveBeenCalledWith('doc_template', 'tmpl-1', ['id'])
+    expect(findOneRecord).toHaveBeenCalledWith(
+      'doc_template',
+      'tmpl-1',
+      ['id'],
+      expect.objectContaining({ me: null }),
+    )
   })
 
   it('skips update when persist=false', async () => {

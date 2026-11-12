@@ -3,6 +3,10 @@
  * Physical crm_schema columns are applied via ddlSync when applyDdl is true.
  */
 import { query } from '../db/pool.js'
+import {
+  loadStoredSensitivityByEntity,
+  requiredComputedSensitivity,
+} from '../computed/computedSensitivity.js'
 import { clearComputedFieldMetaCache } from '../computed/fieldMeta.js'
 import { clampSensitivity, clearFieldSecurityCache } from '../services/fieldSecurity.js'
 import { syncAutoNumberCounterFromOptions } from '../computed/applyAutoNumber.js'
@@ -13,14 +17,22 @@ import {
   resolveCrmStorageConfig,
   shouldPromoteField,
 } from './crmStorage.js'
-import { applyDdlActions, planEntityDdlSync } from './ddlSync.js'
+import { applyDdlActions, planEntityDdlSync, type DdlAction } from './ddlSync.js'
 import {
   applyUniqueIndexActions,
   planUniqueIndexActions,
 } from './uniqueGroups.js'
 import { createRegistryEntity, ensureLeanJunctionEntity } from './entityRegistry.js'
-import { updateEntityMeta } from './entityMeta.js'
+import {
+  resolveEntityDefaultFieldSensitivity,
+  updateEntityMeta,
+} from './entityMeta.js'
 import { clearRecordRelationsCache } from '../adapters/records/relations.js'
+import { clearUsersProfileColumnCache } from '../adapters/postgresUsers.js'
+import {
+  isUsersAssetCollection,
+  USERS_RESERVED_COLUMNS,
+} from '../users/userNames.js'
 
 const FIELD_TYPES = new Set([
   'STRING',
@@ -210,14 +222,47 @@ function shouldApplyTypedDdl(
   backendConfig: unknown,
   entityApiName: string,
 ): boolean {
+  // PLATFORM `users` maps to public.app_users — custom fields need DDL there.
+  if (isUsersAssetCollection(entityApiName)) return true
   const target = String(backendTarget).toUpperCase()
   if (target === 'HASURA') return true
   if (target !== 'SUPABASE') return false
   return resolveCrmStorageConfig(backendConfig, entityApiName).storage === 'typed'
 }
 
+/**
+ * Plan ADD COLUMN for custom User profile fields on public.app_users.
+ * Never coerce/drop reserved auth columns; skip jsonb backfill / CRM FKs.
+ */
+async function planUsersAppUsersDdl(entityApiName: string): Promise<DdlAction[]> {
+  const planned = await planEntityDdlSync(entityApiName, {
+    schema: 'public',
+    table: 'app_users',
+    includeFk: false,
+    includeBackfill: false,
+  })
+  return planned.filter((action) => {
+    if (action.type === 'CREATE_TABLE') return false
+    if (action.type === 'BACKFILL_COLUMN') return false
+    if (action.type === 'CREATE_FK') return false
+    if (action.type === 'COERCE_FK_TEXT' || action.type === 'COERCE_COLUMN_TYPE') {
+      return false
+    }
+    if (action.fieldApiName && USERS_RESERVED_COLUMNS.has(action.fieldApiName)) {
+      return false
+    }
+    return true
+  })
+}
+
 async function applyDdlAndUniques(entityApiName: string): Promise<void> {
   const entity = await resolveEntityRow(entityApiName)
+  if (isUsersAssetCollection(entityApiName)) {
+    const ddl = await planUsersAppUsersDdl(entityApiName)
+    await applyDdlActions(ddl)
+    clearUsersProfileColumnCache()
+    return
+  }
   if (String(entity.backend_target).toUpperCase() === 'HASURA') {
     const { syncHasuraEntityColumns } = await import(
       '../adapters/records/backends/hasura/ddl.js'
@@ -470,6 +515,7 @@ async function createM2MRegistryField(
         interface: 'select-dropdown-m2o',
         required: true,
         isIndexed: true,
+        sensitivity: 0,
         relationKind: 'M2O',
         relatedEntity: parentApiName,
       },
@@ -487,6 +533,7 @@ async function createM2MRegistryField(
         interface: 'select-dropdown-m2o',
         required: true,
         isIndexed: true,
+        sensitivity: 0,
         relationKind: 'M2O',
         relatedEntity: relatedApiName,
         relationMeta: {
@@ -647,6 +694,25 @@ export async function createRegistryField(
       ? normalizeFloatFieldOptions(input.options)
       : asObject(input.options)
 
+  // Explicit 0/1/2 wins; omitted/null uses entity backend_config.defaultFieldSensitivity.
+  // Formula/rollup fields inherit at least the max sensitivity of their sources.
+  let sensitivity =
+    input.sensitivity === undefined || input.sensitivity === null
+      ? await resolveEntityDefaultFieldSensitivity(entityApiName)
+      : clampSensitivity(input.sensitivity)
+  try {
+    const sourceMap = await loadStoredSensitivityByEntity()
+    const required = await requiredComputedSensitivity(
+      entityApiName,
+      fieldOptions,
+      iface,
+      sourceMap,
+    )
+    if (required > sensitivity) sensitivity = required
+  } catch {
+    // Pre-migration / empty registry: keep requested sensitivity.
+  }
+
   const inserted = await query<{ id: string }>(
     `INSERT INTO public.fields (
        entity_id, api_name, label, field_type, interface,
@@ -671,7 +737,7 @@ export async function createRegistryField(
       sort,
       Boolean(input.isUnique),
       Boolean(input.isIndexed) || Boolean(relationKind),
-      clampSensitivity(input.sensitivity),
+      sensitivity,
     ],
   )
   const fieldId = inserted[0]?.id
@@ -806,6 +872,38 @@ export async function updateRegistryField(
           : null
   }
 
+  let nextSensitivity: number | null =
+    input.sensitivity != null ? clampSensitivity(input.sensitivity) : null
+  // When options/sensitivity change, bump formula/rollup to max(source tiers).
+  if (
+    nextOptionsJson != null ||
+    input.sensitivity !== undefined ||
+    iface !== undefined
+  ) {
+    try {
+      const currentFull = await loadFieldById(fieldId)
+      const effectiveOptions =
+        nextOptionsJson != null
+          ? asObject(JSON.parse(nextOptionsJson) as unknown)
+          : asObject(current.options)
+      const effectiveIface =
+        iface ?? String(currentFull?.interface || current.field_type || '')
+      const sourceMap = await loadStoredSensitivityByEntity()
+      const required = await requiredComputedSensitivity(
+        String(current.entity_api_name),
+        effectiveOptions,
+        effectiveIface,
+        sourceMap,
+      )
+      const baseline =
+        nextSensitivity ??
+        clampSensitivity(currentFull?.sensitivity ?? 0)
+      if (required > baseline) nextSensitivity = required
+    } catch {
+      // Keep requested sensitivity when registry lookup fails.
+    }
+  }
+
   await query(
     `UPDATE public.fields SET
        api_name = COALESCE($2, api_name),
@@ -842,7 +940,7 @@ export async function updateRegistryField(
         ? Boolean(input.isIndexed) ||
           String(input.relationKind || '').toUpperCase() === 'M2O'
         : null,
-      input.sensitivity != null ? clampSensitivity(input.sensitivity) : null,
+      nextSensitivity,
     ],
   )
 
@@ -947,11 +1045,18 @@ export async function deleteRegistryField(
   clearCrmStorageCache()
   clearComputedFieldMetaCache()
   clearFieldSecurityCache()
+  if (isUsersAssetCollection(entityApiName)) {
+    clearUsersProfileColumnCache()
+  }
 
   // Do not DROP physical columns by default (data safety). applyDdl only refreshes indexes.
   if (options?.applyDdl) {
-    const unique = await planUniqueIndexActions(entityApiName)
-    await applyUniqueIndexActions(unique)
+    if (isUsersAssetCollection(entityApiName)) {
+      await applyDdlAndUniques(entityApiName)
+    } else {
+      const unique = await planUniqueIndexActions(entityApiName)
+      await applyUniqueIndexActions(unique)
+    }
   }
 
   return true

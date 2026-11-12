@@ -24,13 +24,16 @@ import {
   hardDeleteRecord,
   softDeleteRecord,
   updateRecord,
+  SYSTEM_RECORD_ACCESS,
 } from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { writeAuditEntry } from '../audit/auditService.js'
+import { hardDeleteAfterAudit } from '../audit/hardDeleteAfterAudit.js'
 import {
   PASSWORD_CHANGE_REQUIRED,
   requireAuthenticatedUser,
 } from '../auth/accessGuards.js'
+import { readRolePreviewHeader } from '../auth/rolePreview.js'
 import { loadEntityUniqueGroups } from '../schema/uniqueGroups.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 import {
@@ -56,10 +59,13 @@ function authHeaderFromRequest(request: FastifyRequest): AuthHeader {
 /** Validate Bearer JWT resolves to a real user (not merely that a token string is present). */
 async function requireAuth(
   reply: FastifyReply,
-  authHeader: AuthHeader,
+  request: FastifyRequest,
 ): Promise<MeUser | null> {
   try {
-    return await requireAuthenticatedUser({ authorization: authHeader })
+    return await requireAuthenticatedUser({
+      authorization: authHeaderFromRequest(request),
+      rolePreview: readRolePreviewHeader(request.headers as Record<string, unknown>),
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
     if (message === PASSWORD_CHANGE_REQUIRED) {
@@ -226,10 +232,12 @@ async function resolveRecordId(
   }
   await assertFieldPathReadable(me, collection, field)
 
+  const access = { me }
   const result = await findManyRecords(collection, {
     filter: { [field]: { _eq: value } },
     fields: ['id'],
     limit: 2,
+    access,
   })
   const nodes = result.nodes ?? []
   if (!nodes.length) {
@@ -269,10 +277,12 @@ async function resolveUpsertRecordId(
       throw new Error(`upsert with by=${byField} requires body.${byField}`)
     }
     const value = String(data[byField]).trim()
+    const access = { me }
     const result = await findManyRecords(collection, {
       filter: { [byField]: { _eq: value } },
       fields: ['id'],
       limit: 2,
+      access,
     })
     const nodes = result.nodes ?? []
     if (nodes.length > 1) {
@@ -299,7 +309,7 @@ async function resolveUpsertRecordId(
   let existing: Record<string, unknown> | null = null
   try {
     // Existence probe only — full row loaded after permission checks.
-    existing = await findOneRecord(collection, recordId, ['id'])
+    existing = await findOneRecord(collection, recordId, ['id'], { me })
   } catch {
     existing = null
   }
@@ -312,8 +322,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     reply: FastifyReply,
     q: string,
   ): Promise<FastifyReply> {
-    const authHeader = authHeaderFromRequest(request)
-    const me = await requireAuth(reply, authHeader)
+    const me = await requireAuth(reply, request)
     if (!me) return reply
     try {
       const parsed = parseSoql(q)
@@ -380,8 +389,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     if (!collection) {
       return reply.status(400).send({ error: 'collection is required' })
     }
-    const authHeader = authHeaderFromRequest(request)
-    const me = await requireAuth(reply, authHeader)
+    const me = await requireAuth(reply, request)
     if (!me) return reply
 
     try {
@@ -431,8 +439,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     if (!collection || !key) {
       return reply.status(400).send({ error: 'collection and id are required' })
     }
-    const authHeader = authHeaderFromRequest(request)
-    const me = await requireAuth(reply, authHeader)
+    const me = await requireAuth(reply, request)
     if (!me) return reply
 
     try {
@@ -474,8 +481,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     if (!collection) {
       return reply.status(400).send({ error: 'collection is required' })
     }
-    const authHeader = authHeaderFromRequest(request)
-    const me = await requireAuth(reply, authHeader)
+    const me = await requireAuth(reply, request)
     if (!me) return reply
 
     const data = asObject(request.body)
@@ -501,7 +507,12 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         if (existing && recordId) {
           let before: Record<string, unknown> | null = existing
           try {
-            before = await findOneRecord(collection, recordId, null)
+            before = await findOneRecord(
+              collection,
+              recordId,
+              null,
+              SYSTEM_RECORD_ACCESS,
+            )
           } catch {
             before = existing
           }
@@ -585,8 +596,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     if (!collection || !key) {
       return reply.status(400).send({ error: 'collection and id are required' })
     }
-    const authHeader = authHeaderFromRequest(request)
-    const me = await requireAuth(reply, authHeader)
+    const me = await requireAuth(reply, request)
     if (!me) return reply
 
     const data = asObject(request.body)
@@ -594,12 +604,12 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     const fields = parseCsvFields(request.query.fields)
 
     try {
-      await assertMeEntityPermission(me, collection, 'update')
-      const actorUserId = actorIdFromMe(me)
       const id = await resolveRecordId(me, collection, key)
+      await assertMeEntityPermission(me, collection, 'update', { recordId: id })
+      const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
-        before = await findOneRecord(collection, id, null)
+        before = await findOneRecord(collection, id, null, SYSTEM_RECORD_ACCESS)
       } catch {
         before = null
       }
@@ -638,8 +648,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
     if (!collection || !key) {
       return reply.status(400).send({ error: 'collection and id are required' })
     }
-    const authHeader = authHeaderFromRequest(request)
-    const me = await requireAuth(reply, authHeader)
+    const me = await requireAuth(reply, request)
     if (!me) return reply
 
     const hard = flagTrue(request.query.hard)
@@ -653,30 +662,33 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       const id = await resolveRecordId(me, collection, key)
       let before: Record<string, unknown> | null = null
       try {
-        before = await findOneRecord(collection, id, null)
+        before = await findOneRecord(collection, id, null, SYSTEM_RECORD_ACCESS)
       } catch {
         before = null
       }
 
       if (hard) {
-        await hardDeleteRecord(collection, id)
-        try {
-          await writeAuditEntry({
-            entityApiName: collection,
-            recordId: id,
-            action: 'DELETE',
-            before,
-            after: null,
-            userId: actorUserId,
-          })
-        } catch (error) {
-          request.log.warn({ err: error }, '[audit] REST hard delete failed')
-        }
+        await hardDeleteAfterAudit({
+          audit: async () => {
+            await writeAuditEntry({
+              entityApiName: collection,
+              recordId: id,
+              action: 'DELETE',
+              before,
+              after: null,
+              userId: actorUserId,
+            })
+          },
+          delete: async () => {
+            await hardDeleteRecord(collection, id)
+          },
+        })
         return reply.send({ ok: true, hard: true })
       }
 
       const deleted = await softDeleteRecord(collection, id, undefined, {
         actorUserId,
+        access: { me },
       })
       try {
         await writeAuditEntry({

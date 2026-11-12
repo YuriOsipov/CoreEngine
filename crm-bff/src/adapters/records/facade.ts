@@ -6,10 +6,16 @@ import {
 } from '../../roles/roleNames.js'
 import { isUsersAssetCollection } from '../../users/userNames.js'
 import { listRoles } from '../../services/rolesService.js'
-import { listUsers } from '../usersAdapter.js'
+import { listUsers, updateUserProfile } from '../usersAdapter.js'
 import { findFile, findFiles, listFiles, listRecordFiles } from '../filesAdapter.js'
 import { assertMeEntityPermission } from '../../services/rolePermissions.js'
-import type { RecordAccess, RecordsListParams, RecordsListResult } from './types.js'
+import type {
+  FacadeListParams,
+  RecordAccess,
+  RecordsListParams,
+  RecordsListResult,
+} from './types.js'
+import { isSystemRecordAccess, SYSTEM_RECORD_ACCESS } from './types.js'
 import { resolveRecordsStore } from './registry.js'
 import { resolveCanonicalEntityApiName } from './entityName.js'
 import {
@@ -67,31 +73,38 @@ import type { MeUser } from '../usersAdapter.js'
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
 export type { RecordsBackend } from './registry.js'
 export type {
+  FacadeListParams,
   RecordAccess,
   RecordsListParams,
   RecordsListResult,
   RecordsStore,
 } from './types.js'
+export { isSystemRecordAccess, SYSTEM_RECORD_ACCESS } from './types.js'
 export { clearRecordRelationsCache } from './relations.js'
 
 export type RecordWriteOptions = {
   /** Authenticated actor (`backend_user_id`) for Created By / Last Modified By. */
   actorUserId?: string | null
   /**
-   * Verified caller: writes touching fields above the role's edit sensitivity
-   * are rejected. The returned record is unredacted (audit needs it); API
-   * boundaries redact with `redactRecordForMe`.
+   * Required. Pass `{ me }` for user writes or `SYSTEM_RECORD_ACCESS` for
+   * trusted server jobs. Omitting access is a type error.
    */
-  access?: RecordAccess | null
+  access: RecordAccess
 }
 
 /** Caller-sent payload (before server hooks) plus nested junction links it implies. */
 async function assertWriteAllowed(
-  me: MeUser | null | undefined,
+  access: RecordAccess,
   apiName: string,
   data: Record<string, unknown>,
 ): Promise<void> {
-  if (!me) return
+  if (isSystemRecordAccess(access)) return
+  const me = access.me
+  if (!me) {
+    throw new Error(
+      'Record write requires authenticated `{ me }` or SYSTEM_RECORD_ACCESS',
+    )
+  }
   assertPayloadWritable(data, await resolveFieldAccess(me, apiName))
   const [m2a, o2m] = await Promise.all([
     loadM2ARelations(apiName),
@@ -116,14 +129,16 @@ async function assertWriteAllowed(
   }
 }
 
-/** True when `access.me` may read `entity` (system callers with no access skip the check). */
+/** True when `access.me` may read `entity` (SYSTEM_RECORD_ACCESS skips the check). */
 async function canReadWithAccess(
-  access: RecordAccess | null | undefined,
+  access: RecordAccess,
   entity: string,
 ): Promise<boolean> {
-  if (!access?.me) return true
+  if (isSystemRecordAccess(access)) return true
+  const me = access.me
+  if (me === null || me === undefined) return false
   try {
-    await assertMeEntityPermission(access.me, entity, 'read')
+    await assertMeEntityPermission(me, entity, 'read')
     return true
   } catch {
     return false
@@ -131,10 +146,9 @@ async function canReadWithAccess(
 }
 
 function withAccess(
-  params: RecordsListParams,
-  access: RecordAccess | null | undefined,
-): RecordsListParams {
-  if (!access) return params
+  params: Omit<RecordsListParams, 'access'>,
+  access: RecordAccess,
+): FacadeListParams {
   return { ...params, access }
 }
 
@@ -198,8 +212,8 @@ async function stampAuditUsers(
 async function expandM2O(
   entity: string,
   nodes: Record<string, unknown>[],
+  access: RecordAccess,
   fields?: string[] | null,
-  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   if (!nodes.length || !fields?.length) return nodes
   if (!fields.some((field) => field.includes('.'))) return nodes
@@ -298,7 +312,7 @@ async function hydratePolymorphicItems(
   collectionField: string,
   itemField: string,
   itemFields: string[] | null,
-  access?: RecordAccess | null,
+  access: RecordAccess,
 ): Promise<Record<string, unknown>[]> {
   const byCollection = new Map<string, Set<string>>()
   for (const row of rows) {
@@ -353,8 +367,8 @@ async function hydratePolymorphicItems(
 async function expandM2A(
   entity: string,
   nodes: Record<string, unknown>[],
+  access: RecordAccess,
   fields?: string[] | null,
-  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   if (!nodes.length || !fields?.length) return nodes
 
@@ -447,8 +461,8 @@ async function expandM2A(
 async function expandO2M(
   entity: string,
   nodes: Record<string, unknown>[],
+  access: RecordAccess,
   fields?: string[] | null,
-  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
   if (!nodes.length || !fields?.length) return nodes
 
@@ -535,12 +549,12 @@ async function expandO2M(
 async function expandRecordRelations(
   entity: string,
   nodes: Record<string, unknown>[],
+  access: RecordAccess,
   fields?: string[] | null,
-  access?: RecordAccess | null,
 ): Promise<Record<string, unknown>[]> {
-  const withM2O = await expandM2O(entity, nodes, fields, access)
-  const withO2M = await expandO2M(entity, withM2O, fields, access)
-  return expandM2A(entity, withO2M, fields, access)
+  const withM2O = await expandM2O(entity, nodes, access, fields)
+  const withO2M = await expandO2M(entity, withM2O, access, fields)
+  return expandM2A(entity, withO2M, access, fields)
 }
 
 function idsFromFilter(filter: Record<string, unknown> | null | undefined): string[] {
@@ -714,7 +728,7 @@ async function physicalStoreFields(
 
 export async function findManyRecords(
   entity: string,
-  params: RecordsListParams = {},
+  params: FacadeListParams,
 ): Promise<RecordsListResult> {
   assertListOffsetAllowed(params.offset)
   if (isFilesAssetCollection(entity)) {
@@ -728,7 +742,7 @@ export async function findManyRecords(
   }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  const me = params.access?.me ?? null
+  const me = params.access.me
   const fieldAccess = await resolveFieldAccess(me, apiName)
   if (me) {
     await assertReadableQuery(me, apiName, { filter: params.filter, sort: params.sort })
@@ -745,8 +759,8 @@ export async function findManyRecords(
   result.nodes = await expandRecordRelations(
     apiName,
     result.nodes,
-    fields,
     params.access,
+    fields,
   )
   result.nodes = await attachLiveRollupsOnRead(apiName, result.nodes, fields)
   result.nodes = redactRecords(result.nodes, fieldAccess)
@@ -756,8 +770,8 @@ export async function findManyRecords(
 export async function findOneRecord(
   entity: string,
   id: string,
-  fields?: string[] | null,
-  access?: RecordAccess | null,
+  fields: string[] | null | undefined,
+  access: RecordAccess,
 ): Promise<Record<string, unknown>> {
   if (isFilesAssetCollection(entity)) {
     const row = await findFile(id, fields ?? undefined)
@@ -775,6 +789,8 @@ export async function findOneRecord(
       ids: [String(id)],
       fields: fields ?? null,
       limit: 1,
+      includeEmail: true,
+      includeInactive: true,
     })
     const row = rows[0]
     if (!row) throw new Error(`User not found: ${id}`)
@@ -782,11 +798,11 @@ export async function findOneRecord(
   }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  const fieldAccess = await resolveFieldAccess(access?.me, apiName)
+  const fieldAccess = await resolveFieldAccess(access.me, apiName)
   const readable = filterReadableFieldPaths(fields, fieldAccess)
   const storeFields = await physicalStoreFields(apiName, readable)
   const record = await store.findOne(apiName, id, storeFields)
-  const [expanded] = await expandRecordRelations(apiName, [record], readable, access)
+  const [expanded] = await expandRecordRelations(apiName, [record], access, readable)
   const [withRollups] = await attachLiveRollupsOnRead(
     apiName,
     [expanded ?? record],
@@ -801,7 +817,7 @@ export type ExpandChildrenOptions = {
   /** Include public.files linked via parent_collection/parent_record_id. */
   includeFiles?: boolean
   /** Verified caller — child collections and files are gated per entity. */
-  access?: RecordAccess | null
+  access: RecordAccess
 }
 
 /**
@@ -812,10 +828,10 @@ export async function expandRecordWithChildren(
   entity: string,
   recordId: string,
   record: Record<string, unknown>,
-  options: ExpandChildrenOptions = {},
+  options: ExpandChildrenOptions,
 ): Promise<Record<string, unknown>> {
   const apiName = await resolveEntity(entity)
-  const access = options.access ?? null
+  const access = options.access
   const limit =
     options.limit != null && options.limit >= 0
       ? Math.min(Math.trunc(options.limit), 500)
@@ -869,12 +885,17 @@ export async function expandRecordWithChildren(
 export async function createRecord(
   entity: string,
   data: Record<string, unknown>,
-  fields?: string[] | null,
-  options?: RecordWriteOptions,
+  fields: string[] | null | undefined,
+  options: RecordWriteOptions,
 ): Promise<Record<string, unknown>> {
+  if (isUsersAssetCollection(entity)) {
+    throw new Error(
+      'Create users via Setup → Users (records API cannot create login users)',
+    )
+  }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  await assertWriteAllowed(options?.access?.me, apiName, data)
+  await assertWriteAllowed(options.access, apiName, data)
   const withoutClientAudit = await sanitizeHtmlFieldWrites(
     apiName,
     stripClientAuditUserFields(data),
@@ -912,7 +933,7 @@ export async function createRecord(
         before: null,
         after: created,
       })
-      const record = await findOneRecord(apiName, parentId, fields)
+      const record = await findOneRecord(apiName, parentId, fields, options.access)
       scheduleAutomationFlows({
         entityApiName: apiName,
         recordId: parentId,
@@ -953,12 +974,26 @@ export async function updateRecord(
   entity: string,
   id: string,
   data: Record<string, unknown>,
-  fields?: string[] | null,
-  options?: RecordWriteOptions,
+  fields: string[] | null | undefined,
+  options: RecordWriteOptions,
 ): Promise<Record<string, unknown>> {
+  if (isUsersAssetCollection(entity)) {
+    await assertWriteAllowed(options.access, entity, data)
+    const updated = await updateUserProfile(String(id), data)
+    if (fields?.length) {
+      const projected: Record<string, unknown> = {}
+      for (const field of fields) {
+        const base = String(field).split(/[.:(]/)[0] ?? String(field)
+        if (base in updated) projected[base] = updated[base]
+      }
+      if (!('id' in projected) && 'id' in updated) projected.id = updated.id
+      return projected
+    }
+    return updated
+  }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  await assertWriteAllowed(options?.access?.me, apiName, data)
+  await assertWriteAllowed(options.access, apiName, data)
   let existing: Record<string, unknown> | null = null
   try {
     existing = await store.findOne(apiName, String(id), null)
@@ -993,7 +1028,7 @@ export async function updateRecord(
     before: existing,
     after: updated,
   })
-  const record = await findOneRecord(apiName, String(id), fields)
+  const record = await findOneRecord(apiName, String(id), fields, options.access)
   scheduleAutomationFlows({
     entityApiName: apiName,
     recordId: String(id),
@@ -1009,8 +1044,13 @@ export async function softDeleteRecord(
   entity: string,
   id: string,
   visited: Set<string> = new Set(),
-  options?: RecordWriteOptions,
+  options: RecordWriteOptions = { access: SYSTEM_RECORD_ACCESS },
 ): Promise<Record<string, unknown>> {
+  if (isUsersAssetCollection(entity)) {
+    throw new Error(
+      'Deactivate users via Setup → Users (records API cannot archive login users)',
+    )
+  }
   const apiName = await resolveEntity(entity)
   const recordId = String(id)
   const visitKey = `${apiName}:${recordId}`
@@ -1080,6 +1120,11 @@ export async function restoreRecord(
   id: string,
   visited: Set<string> = new Set(),
 ): Promise<Record<string, unknown>> {
+  if (isUsersAssetCollection(entity)) {
+    throw new Error(
+      'Reactivate users via Setup → Users (records API cannot restore login users)',
+    )
+  }
   const apiName = await resolveEntity(entity)
   const recordId = String(id)
   const visitKey = `${apiName}:${recordId}`
@@ -1118,6 +1163,11 @@ export async function hardDeleteRecord(
   entity: string,
   id: string,
 ): Promise<boolean> {
+  if (isUsersAssetCollection(entity)) {
+    throw new Error(
+      'Delete users via Setup → Users (records API cannot hard-delete login users)',
+    )
+  }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
   let existing: Record<string, unknown> | null = null
@@ -1144,10 +1194,10 @@ export async function aggregateRecords(
     filter?: Record<string, unknown> | null
     limit?: number
   },
-  access?: RecordAccess | null,
+  access: RecordAccess,
 ): Promise<Record<string, unknown>[]> {
   const apiName = await resolveEntity(entity)
-  if (access?.me) {
+  if (access.me) {
     await assertReadableQuery(access.me, apiName, {
       filter: options.filter,
       groupBy: options.groupBy,

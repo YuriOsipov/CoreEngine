@@ -11,7 +11,10 @@ import {
 import { isSensitivityMatrixFieldDefinition } from '@/core/sensitivityField'
 import { isRepeaterFieldDefinition } from '@/core/repeaterField'
 import { isSystemAuditUserFieldName } from '@/core/layoutFieldRules'
-import { USERS_ASSET_COLLECTION } from '@/core/usersField'
+import {
+  isUsersLayoutExcludedField,
+  USERS_ASSET_COLLECTION,
+} from '@/core/usersField'
 import { keysEqual } from '@/core/utils/object'
 import type { PaletteItem } from './fieldPalette'
 
@@ -214,6 +217,7 @@ function mapPrimitiveTypeComponent(type: string): PrimeVueComponentType | null {
 export function isLayoutEligibleField(field: FieldDefinition): boolean {
   if (field.meta?.hidden) return false
   if (SYSTEM_FIELD_NAMES.has(field.field)) return false
+  if (isUsersLayoutExcludedField(field.collection, field.field)) return false
   return mapFieldTypeToComponent(field) !== null
 }
 

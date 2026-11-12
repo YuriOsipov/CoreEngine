@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js'
+import { clampSensitivity } from '../services/fieldSecurity.js'
 
 export type EntityAccountability = 'all' | 'activity' | null
 
@@ -13,6 +14,11 @@ export interface EntityMetaInput {
   internal?: boolean | null
   /** `all` | `activity` | null (do not track). Omit to leave unchanged. */
   accountability?: EntityAccountability | undefined
+  /**
+   * Default `fields.sensitivity` for new fields when create omits sensitivity
+   * (0 none, 1 restricted, 2 confidential). Omit to leave unchanged.
+   */
+  defaultFieldSensitivity?: number | null
 }
 
 export interface EntityMetaRow {
@@ -26,6 +32,8 @@ export interface EntityMetaRow {
   singleton: boolean
   internal: boolean
   accountability: EntityAccountability
+  /** Applied when createRegistryField omits sensitivity. */
+  defaultFieldSensitivity: number
   backendConfig: Record<string, unknown>
 }
 
@@ -53,6 +61,18 @@ export function readInternal(config: Record<string, unknown>): boolean {
   return config.internal === true
 }
 
+/** Entity / pack default for new fields (backend_config.defaultFieldSensitivity). */
+export function parseDefaultFieldSensitivity(raw: unknown): number {
+  if (raw == null || raw === '') return 0
+  return clampSensitivity(raw)
+}
+
+export function readDefaultFieldSensitivity(
+  config: Record<string, unknown>,
+): number {
+  return parseDefaultFieldSensitivity(config.defaultFieldSensitivity)
+}
+
 export async function loadEntityMeta(entityApiName: string): Promise<EntityMetaRow | null> {
   const rows = await query(
     `SELECT id, api_name, label, icon, display_template, hidden, singleton, backend_config
@@ -75,6 +95,7 @@ export async function loadEntityMeta(entityApiName: string): Promise<EntityMetaR
     singleton: Boolean(row.singleton),
     internal: readInternal(backendConfig),
     accountability: parseAccountability(backendConfig.accountability),
+    defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
     backendConfig,
   }
 }
@@ -122,6 +143,11 @@ export async function updateEntityMeta(
   if (input.accountability !== undefined) {
     configPatch.accountability = input.accountability
   }
+  if (input.defaultFieldSensitivity !== undefined) {
+    configPatch.defaultFieldSensitivity = clampSensitivity(
+      input.defaultFieldSensitivity,
+    )
+  }
   if (input.internal !== undefined && input.internal !== null) {
     configPatch.internal = Boolean(input.internal)
   }
@@ -164,4 +190,12 @@ export async function resolveEntityAccountability(
 ): Promise<EntityAccountability> {
   const meta = await loadEntityMeta(entityApiName)
   return meta?.accountability ?? 'all'
+}
+
+/** Sensitivity applied when create omits an explicit field sensitivity. */
+export async function resolveEntityDefaultFieldSensitivity(
+  entityApiName: string,
+): Promise<number> {
+  const meta = await loadEntityMeta(entityApiName)
+  return meta?.defaultFieldSensitivity ?? 0
 }

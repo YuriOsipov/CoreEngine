@@ -1,4 +1,5 @@
 import { findManyRecords, updateRecord } from '../adapters/recordsAdapter.js'
+import type { RecordAccess } from '../adapters/records/types.js'
 import { readRecordField } from '../adapters/records/relations.js'
 import {
   BulkUpdateRelatedError,
@@ -16,6 +17,8 @@ export interface BulkUpdateFilteredInput {
   formula?: string | null
   multiplier: number
   actorUserId?: string | null
+  /** Verified caller — field security on list + writes. */
+  access: RecordAccess
   /** Soft cap to avoid runaway updates. Default 5000. */
   maxRecords?: number
 }
@@ -80,6 +83,10 @@ export async function bulkUpdateFilteredFromAction(
   if (!Number.isFinite(multiplier)) {
     throw new BulkUpdateRelatedError(400, 'multiplier must be a finite number')
   }
+  if (!input.access) {
+    throw new BulkUpdateRelatedError(400, 'access is required')
+  }
+  const access = input.access
 
   const formula = input.formula?.trim() || '{{source}} * {{prompt}}'
   evaluateBulkUpdateFormula(formula, 1, 1)
@@ -100,6 +107,7 @@ export async function bulkUpdateFilteredFromAction(
       filter: { id: { _in: limited } },
       fields,
       limit: -1,
+      access,
     })
     nodes = result.nodes
   } else {
@@ -111,6 +119,7 @@ export async function bulkUpdateFilteredFromAction(
       filter,
       fields,
       limit: maxRecords,
+      access,
     })
     nodes = result.nodes
   }
@@ -144,7 +153,7 @@ export async function bulkUpdateFilteredFromAction(
       id,
       { [targetField]: nextValue },
       ['id', targetField],
-      { actorUserId: input.actorUserId ?? null },
+      { actorUserId: input.actorUserId ?? null, access },
     )
     updatedCount += 1
   }

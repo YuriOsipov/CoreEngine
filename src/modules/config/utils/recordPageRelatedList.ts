@@ -9,6 +9,7 @@ import {
   isDataTableField,
   isFilesField,
   isM2ABuilderField,
+  isSingleFileField,
 } from '@/core/fieldHelpers'
 import { keysEqual } from '@/core/utils/object'
 import {
@@ -22,7 +23,8 @@ import { buildRecordPageFilesField } from '@/modules/config/utils/recordPageFile
 /** Fields that Page Layout Related List and object-list Detail panel can host. */
 export function isBlockLayoutRelatedListField(field: LayoutFieldMetadata): boolean {
   if (isDataTableField(field)) return Boolean(field.relatedCollection)
-  if (isFilesField(field)) return true
+  // Multi-file Attachments only — single Image is a normal labeled form field.
+  if (isFilesField(field)) return !isSingleFileField(field)
   if (isM2ABuilderField(field)) return true
   return false
 }

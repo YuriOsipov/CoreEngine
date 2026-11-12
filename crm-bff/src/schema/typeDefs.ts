@@ -206,6 +206,8 @@ export const typeDefs = /* GraphQL */ `
     hidden: Boolean!
     """all | activity | null (do not track). Default all when unset."""
     accountability: String
+    """Default sensitivity for new fields (0 none, 1 restricted, 2 confidential)."""
+    defaultFieldSensitivity: Int!
     """Platform / internal object — hidden from Object Manager pickers."""
     internal: Boolean!
     fields: [Field!]!
@@ -223,6 +225,8 @@ export const typeDefs = /* GraphQL */ `
     internal: Boolean
     """Pass null to disable tracking. Use \"all\" or \"activity\"."""
     accountability: String
+    """Default sensitivity for newly created fields (0–2)."""
+    defaultFieldSensitivity: Int
   }
 
   """Create a new registry object (Object Manager)."""

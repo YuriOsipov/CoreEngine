@@ -9,7 +9,9 @@ import {
   type CrmRecordRelation,
 } from '../../../../schema/crmStorage.js'
 import { formatUniqueViolationError } from '../../../../schema/uniqueGroups.js'
+import { filterM2OSearchLabelFields } from '../../m2oSearchAccess.js'
 import { loadM2ORelations } from '../../relations.js'
+import type { MeUser } from '../../../usersAdapter.js'
 import type { RecordsListParams, RecordsListResult } from '../../types.js'
 
 interface BusinessRecordRow {
@@ -650,12 +652,14 @@ function pickM2OSearchFields(relation: CrmRecordRelation): CrmPromotedField[] {
 
 /**
  * Correlated EXISTS: related row Display Template (or name/title/label) ILIKE q.
- * Reuses the join shape from m2oSortSubquery.
+ * Reuses the join shape from m2oSortSubquery. Respects related-entity ACL and
+ * field sensitivity on template / fallback label columns.
  */
 async function m2oSearchExistsSql(
   parentRelation: CrmRecordRelation,
   field: CrmPromotedField,
   patternIndex: number,
+  me: MeUser | null | undefined,
 ): Promise<SqlFragment | null> {
   const relatedEntityApiName = field.relatedEntityApiName
   if (!relatedEntityApiName) return null
@@ -667,9 +671,11 @@ async function m2oSearchExistsSql(
     : ''
 
   const templateFields = displayTemplateFields(relatedRelation.displayTemplate)
-  const labelFields = [
+  // Related-entity ACL + unreadable fields via resolveFieldAccess / assertMeEntityPermission.
+  const labelFields = await filterM2OSearchLabelFields(me, relatedEntityApiName, [
     ...new Set([...templateFields, 'name', 'title', 'label']),
-  ]
+  ])
+  if (!labelFields?.length) return null
   const ilikeParts = labelFields.map(
     (labelField) =>
       `${relatedSortExpr('r', relatedRelation, labelField)} ILIKE $${patternIndex}`,
@@ -696,6 +702,7 @@ async function compileListSearch(
   search: string,
   startIndex: number,
   excludeFields?: string[] | null,
+  me?: MeUser | null,
 ): Promise<SqlFragment | null> {
   const q = search.trim()
   if (!q) return null
@@ -723,7 +730,7 @@ async function compileListSearch(
   }
 
   for (const field of m2os) {
-    const existsFrag = await m2oSearchExistsSql(relation, field, index)
+    const existsFrag = await m2oSearchExistsSql(relation, field, index, me)
     if (!existsFrag) continue
     parts.push(existsFrag.sql)
     params.push(pattern)
@@ -942,6 +949,7 @@ export async function postgresFindMany(
       params.search,
       next,
       params.searchExcludeFields,
+      params.access?.me,
     )
     if (searchFrag) {
       where.push(searchFrag.sql)

@@ -47,7 +47,7 @@ export async function triggerFlow(
     auth.via === 'jwt' && auth.me
       ? { kind: 'user', me: auth.me }
       : auth.via === 'service_key'
-        ? { kind: 'system' }
+        ? { kind: 'service' }
         : { kind: 'anonymous' }
 
   try {

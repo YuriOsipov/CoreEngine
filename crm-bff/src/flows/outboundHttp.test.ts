@@ -14,6 +14,7 @@ describe('address classification', () => {
     '0.0.0.0',
     '::1',
     'fe80::1',
+    'fd00:ec2::254',
     '::ffff:127.0.0.1',
     '::ffff:169.254.169.254',
   ])('hard-blocks %s even when private is allowed', (address) => {

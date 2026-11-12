@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
 
 export interface RegistryFileRow {
@@ -88,12 +89,15 @@ export async function postgresUpsertFile(input: {
   parentCollection?: string | null
   parentRecordId?: string | null
 }): Promise<RegistryFileRow> {
+  // Always supply id from Node — referencing extensions.gen_random_uuid() in SQL
+  // requires USAGE on schema extensions even inside COALESCE (plan-time resolve).
+  const id = (input.id || '').trim() || randomUUID()
   const rows = await query<RegistryFileRow>(
     `INSERT INTO public.files (
        id, backend_target, backend_file_id, filename, mime_type, filesize, title, uploaded_by, meta,
        parent_collection, parent_record_id
      ) VALUES (
-       COALESCE($1::uuid, extensions.gen_random_uuid()),
+       $1::uuid,
        $2, $3, $4, $5, $6, $7, $8::uuid, COALESCE($9::jsonb, '{}'::jsonb),
        NULLIF($10, ''), NULLIF($11, '')
      )
@@ -110,7 +114,7 @@ export async function postgresUpsertFile(input: {
        deleted_at = NULL
      RETURNING ${FILE_ROW_SELECT}`,
     [
-      input.id ?? null,
+      id,
       input.backendTarget,
       input.backendFileId,
       input.filename ?? null,

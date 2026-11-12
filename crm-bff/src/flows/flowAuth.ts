@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { bearerToken } from '../auth/tokenClaims.js'
 import { verifyAccessToken } from '../auth/jwt.js'
 import { PASSWORD_CHANGE_REQUIRED, requireAuthenticatedUser } from '../auth/accessGuards.js'
+import { readRolePreviewHeader } from '../auth/rolePreview.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 
 /** Outbound + inbound marker so n8n↔BFF loops can be detected. */
@@ -41,6 +42,16 @@ function safeEqualString(a: string, b: string): boolean {
 export function flowsTriggerRequireAuth(): boolean {
   // Default on — local smoke scripts call runLocalFlow directly (no HTTP).
   return envFlag('FLOWS_TRIGGER_REQUIRE_AUTH', true)
+}
+
+/** Production: open flow triggers (REQUIRE_AUTH=false) are refused at boot. */
+export function assertProductionFlowAuthConfig(): void {
+  if (process.env.NODE_ENV !== 'production') return
+  if (flowsTriggerRequireAuth()) return
+  throw new Error(
+    'Refusing to start in production: FLOWS_TRIGGER_REQUIRE_AUTH=false opens /flows/trigger. ' +
+      'Require JWT or FLOWS_TRIGGER_SERVICE_KEY.',
+  )
 }
 
 export function flowsRejectAutomationReentry(): boolean {
@@ -132,7 +143,12 @@ export async function authorizeFlowTrigger(input: {
     // Signature alone is not enough: deactivated / deleted users and pending
     // password changes must be refused like every other authenticated route.
     try {
-      const me = await requireAuthenticatedUser({ authorization: `Bearer ${token}` })
+      const me = await requireAuthenticatedUser({
+        authorization: `Bearer ${token}`,
+        rolePreview: readRolePreviewHeader(
+          (input.headers ?? {}) as Record<string, unknown>,
+        ),
+      })
       return { ok: true, actorId: me.id, via: 'jwt', me }
     } catch (error) {
       const message = error instanceof Error ? error.message : ''

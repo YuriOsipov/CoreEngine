@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { query } from '../../../../db/pool.js'
 import { assertGqlName, directusRequest, graphqlLiteral } from './client.js'
+import { expandDottedFilterKeys } from '../../expandDottedFilterKeys.js'
 import type { RecordsAggregateOptions, RecordsListParams, RecordsListResult } from '../../types.js'
 import { aggregateSelectFields, groupAggregateRows } from '../../groupAggregate.js'
 
@@ -273,7 +274,13 @@ function compileFilter(
   includeDeleted: boolean | undefined,
 ): Record<string, unknown> | null {
   const parts: Record<string, unknown>[] = []
-  const compiled = compileFilterNode(config, filter ?? null)
+  const expanded = expandDottedFilterKeys(filter ?? null)
+  const compiled = compileFilterNode(
+    config,
+    expanded && typeof expanded === 'object' && !Array.isArray(expanded)
+      ? (expanded as Record<string, unknown>)
+      : null,
+  )
   if (compiled) parts.push(compiled)
   if (!includeDeleted && config.statusField) {
     parts.push({ [config.statusField]: { _neq: 'archived' } })
@@ -420,6 +427,8 @@ function listArgs(
     filter?: Record<string, unknown> | null
     includeDeleted?: boolean
     search?: string | null
+    /** When set, Directus global `search` is omitted (it cannot exclude fields). */
+    searchExcludeFields?: string[] | null
     sort?: string[] | null
     limit?: number
     offset?: number
@@ -428,8 +437,11 @@ function listArgs(
   const parts: string[] = []
   const filter = compileFilter(config, params.filter ?? null, params.includeDeleted)
   if (filter) parts.push(`filter: ${graphqlLiteral(filter)}`)
+  // Directus `search` hits every text column. If the caller cannot read some of
+  // them, skip search rather than matching against restricted values.
   const q = params.search?.trim()
-  if (q) parts.push(`search: ${JSON.stringify(q)}`)
+  const searchBlocked = (params.searchExcludeFields?.length ?? 0) > 0
+  if (q && !searchBlocked) parts.push(`search: ${JSON.stringify(q)}`)
   const sort = compileSort(config, params.sort)
   if (sort) parts.push(`sort: ${graphqlLiteral(sort)}`)
   if (params.limit != null && params.limit >= 0) parts.push(`limit: ${params.limit}`)
@@ -450,6 +462,7 @@ export async function directusFindMany(
     filter: params.filter ?? null,
     includeDeleted: params.includeDeleted,
     search: params.search,
+    searchExcludeFields: params.searchExcludeFields,
     sort: params.sort,
     limit: params.limit ?? 50,
     offset: params.offset ?? 0,
@@ -458,6 +471,7 @@ export async function directusFindMany(
     filter: params.filter ?? null,
     includeDeleted: params.includeDeleted,
     search: params.search,
+    searchExcludeFields: params.searchExcludeFields,
   })
   const queryText = /* GraphQL */ `
     query DirectusFindMany {

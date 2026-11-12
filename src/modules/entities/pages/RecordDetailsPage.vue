@@ -40,6 +40,7 @@ import {
   useTranslatedCollection,
 } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
+import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { renderTemplateLabel } from '../utils/recordDisplay'
 import {
   fetchCollectionDisplayTemplate,
@@ -97,13 +98,16 @@ const detailCollectionName = computed(() =>
 )
 const detailCollectionLabel = useTranslatedCollection(() => detailCollectionName.value)
 const {
-  canUpdate: canUpdateRecord,
   canDelete: canDeleteRecord,
   canRead: canReadRecord,
   ready: permissionsReady,
 } = useEntityPermissions(() => detailCollectionName.value)
 const detailRecordId = computed(() =>
   pathPairs.value[pathPairs.value.length - 1]?.id || recordId.value,
+)
+const { canEdit: canUpdateRecord } = useRecordEditAccess(
+  () => detailCollectionName.value,
+  () => detailRecordId.value,
 )
 
 const parentPathPair = computed(() =>

@@ -6,6 +6,12 @@ vi.mock('../adapters/usersAdapter.js', () => ({
   fetchMe: (...args: unknown[]) => fetchMe(...args),
 }))
 
+const applyRolePreview = vi.fn(async (me: unknown, _preview?: unknown) => me)
+
+vi.mock('./rolePreview.js', () => ({
+  applyRolePreview: (me: unknown, preview?: unknown) => applyRolePreview(me, preview),
+}))
+
 import {
   PASSWORD_CHANGE_REQUIRED,
   requireAdminAccess,
@@ -15,6 +21,8 @@ import {
 describe('requireAuthenticatedUser', () => {
   beforeEach(() => {
     fetchMe.mockReset()
+    applyRolePreview.mockClear()
+    applyRolePreview.mockImplementation(async (me: unknown) => me)
   })
 
   it('rejects missing Authorization header without calling DB-backed me', async () => {
@@ -64,6 +72,37 @@ describe('requireAuthenticatedUser', () => {
     )
     expect(me.id).toBe('u1')
     expect(me.mustChangePassword).toBe(true)
+  })
+
+  it('applies role preview by default and can skip it for GraphQL me', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'u1',
+      adminAccess: true,
+      roleId: 'admin',
+      roleAdminAccess: true,
+      mustChangePassword: false,
+    })
+    applyRolePreview.mockResolvedValue({
+      id: 'u1',
+      adminAccess: false,
+      roleId: 'pricing',
+      roleAdminAccess: false,
+      mustChangePassword: false,
+    })
+    const previewed = await requireAuthenticatedUser({
+      authorization: 'Bearer t',
+      rolePreview: 'pricing',
+    })
+    expect(previewed.roleId).toBe('pricing')
+    expect(applyRolePreview).toHaveBeenCalled()
+
+    applyRolePreview.mockClear()
+    const real = await requireAuthenticatedUser(
+      { authorization: 'Bearer t', rolePreview: 'pricing' },
+      { applyRolePreview: false },
+    )
+    expect(real.adminAccess).toBe(true)
+    expect(applyRolePreview).not.toHaveBeenCalled()
   })
 })
 

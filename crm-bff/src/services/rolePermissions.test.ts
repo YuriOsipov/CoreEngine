@@ -64,6 +64,43 @@ describe('assertEntityPermission', () => {
     ).resolves.toMatchObject({ id: 'user-1' })
   })
 
+  it('allows non-admins to update their own users record', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'user-1',
+      adminAccess: false,
+      roleId: 'role-1',
+      roleAdminAccess: false,
+      mustChangePassword: false,
+    })
+    await expect(
+      assertEntityPermission(
+        { authorization: 'Bearer t' },
+        'users',
+        'update',
+        { recordId: 'user-1' },
+      ),
+    ).resolves.toMatchObject({ id: 'user-1' })
+  })
+
+  it('denies non-admins updating another users record', async () => {
+    fetchMe.mockResolvedValue({
+      id: 'user-1',
+      adminAccess: false,
+      roleId: 'role-1',
+      roleAdminAccess: false,
+      mustChangePassword: false,
+    })
+    query.mockResolvedValueOnce([]) // userRecordMatchesMe miss
+    await expect(
+      assertEntityPermission(
+        { authorization: 'Bearer t' },
+        'users',
+        'update',
+        { recordId: 'other-user' },
+      ),
+    ).rejects.toThrow('Permission denied: update on users')
+  })
+
   it('blocks entity access while must_change_password is set', async () => {
     fetchMe.mockResolvedValue({
       id: 'user-1',

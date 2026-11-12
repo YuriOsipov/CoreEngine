@@ -65,7 +65,7 @@ describe('requireAuthenticatedUser', () => {
 })
 
 describe('sensitive read resolvers require auth / entity read', () => {
-  const noAuth = { authorization: null, clientKey: 'test' }
+  const noAuth = { authorization: null, rolePreview: null, clientKey: 'test' }
 
   beforeEach(() => {
     fetchMe.mockResolvedValue({

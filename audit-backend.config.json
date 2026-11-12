@@ -1,0 +1,4 @@
+{
+  "authOnlyRest": ["POST /api/v1/documents/generate"],
+  "authOnlyMutations": ["Mutation.generateDocument"]
+}

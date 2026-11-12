@@ -12,7 +12,6 @@ export function directusGraphqlUrl(): string {
   }
   const origin = (
     process.env.DIRECTUS_URL ||
-    process.env.VITE_DIRECTUS_URL ||
     'http://localhost:8055'
   )
     .trim()

@@ -9,6 +9,8 @@ export {
   resolveRecordsBackend,
   resolveRecordsStore,
   softDeleteRecord,
+  isSystemRecordAccess,
+  SYSTEM_RECORD_ACCESS,
   updateRecord,
 } from './records/facade.js'
 export type { RecordsBackend } from './records/registry.js'

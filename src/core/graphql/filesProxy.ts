@@ -1,4 +1,4 @@
-import { getAccessToken } from '@/core/auth/session'
+import { getAccessToken, readAuthSession } from '@/core/auth/session'
 import { graphqlUrl } from './client'
 import { featureFlags, refuseLegacyFallback } from './featureFlags'
 import { fetchFilesFromGraphQL, fetchRecordFilesFromGraphQL } from './filesApi'
@@ -18,9 +18,11 @@ export function canUseFilesProxy(): boolean {
 async function authHeaders(
   extra?: Record<string, string>,
 ): Promise<Record<string, string>> {
+  const { rolePreviewRequestHeaders } = await import('@/core/rolePreview')
   const token = await getAccessToken()
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...rolePreviewRequestHeaders(),
     ...(extra ?? {}),
   }
 }
@@ -31,11 +33,18 @@ export function bffFileAssetUrl(
 ): string {
   if (!fileId) return ''
   const base = `${bffBaseUrl()}/assets/${encodeURIComponent(fileId)}`
-  if (!params || Object.keys(params).length === 0) return base
   const search = new URLSearchParams(
-    Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])),
+    Object.fromEntries(
+      Object.entries(params ?? {}).map(([key, value]) => [key, String(value)]),
+    ),
   )
-  return `${base}?${search.toString()}`
+  // <img>/<iframe> cannot send Authorization — BFF accepts access_token on GET /assets.
+  const token = readAuthSession()?.accessToken?.trim()
+  if (token && !search.has('access_token')) {
+    search.set('access_token', token)
+  }
+  const qs = search.toString()
+  return qs ? `${base}?${qs}` : base
 }
 
 /** Asset URL — BFF only. */

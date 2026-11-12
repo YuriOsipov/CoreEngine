@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { requireAuthenticatedUser } from '../auth/accessGuards.js'
+import { readRolePreviewHeader } from '../auth/rolePreview.js'
 import {
   DOCUMENTS_GENERATE_STUB_CODE,
   DocumentsGenerateStubError,
@@ -28,10 +29,14 @@ export async function registerDocumentsRestApi(
   app: FastifyInstance,
 ): Promise<void> {
   app.post('/api/v1/documents/generate', async (request, reply) => {
-    const authHeader = authHeaderFromRequest(request)
     let me: MeUser
     try {
-      me = await requireAuthenticatedUser({ authorization: authHeader })
+      me = await requireAuthenticatedUser({
+        authorization: authHeaderFromRequest(request),
+        rolePreview: readRolePreviewHeader(
+          request.headers as Record<string, unknown>,
+        ),
+      })
     } catch {
       return reply
         .status(401)

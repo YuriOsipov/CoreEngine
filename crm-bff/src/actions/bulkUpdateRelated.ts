@@ -3,6 +3,8 @@ import {
   findManyRecords,
   updateRecord,
 } from '../adapters/recordsAdapter.js'
+import type { RecordAccess } from '../adapters/records/types.js'
+import { SYSTEM_RECORD_ACCESS } from '../adapters/records/types.js'
 import {
   loadM2ORelations,
   loadO2MRelations,
@@ -28,6 +30,8 @@ export interface BulkUpdateRelatedInput {
   /** When sourceCollection is set, filter source with is_active = true. Default true. */
   activeSourcesOnly?: boolean | null
   actorUserId?: string | null
+  /** Verified caller — field security on list + writes. */
+  access: RecordAccess
 }
 
 export interface BulkUpdateRelatedResult {
@@ -219,10 +223,17 @@ async function bulkUpsertRelatedFromSource(
     new Set(['id', sourcePath, sourceRoot].filter(Boolean)),
   )
 
+  const access = input.access ?? SYSTEM_RECORD_ACCESS
+  const writeOpts = {
+    actorUserId: input.actorUserId ?? null,
+    access,
+  }
+
   const { nodes: sourceNodes } = await findManyRecords(sourceCollection, {
     filter: sourceFilter,
     fields: sourceFields,
     limit: -1,
+    access,
   })
 
   const relatedFields = Array.from(
@@ -232,6 +243,7 @@ async function bulkUpsertRelatedFromSource(
     filter: { [parentFkField]: { _eq: recordId } },
     fields: relatedFields,
     limit: -1,
+    access,
   })
 
   const relatedBySourceId = new Map<string, Record<string, unknown>>()
@@ -279,7 +291,7 @@ async function bulkUpsertRelatedFromSource(
         id,
         { [targetField]: nextValue },
         ['id', targetField],
-        { actorUserId: input.actorUserId ?? null },
+        writeOpts,
       )
       updatedCount += 1
       continue
@@ -293,7 +305,7 @@ async function bulkUpsertRelatedFromSource(
         [targetField]: nextValue,
       },
       ['id'],
-      { actorUserId: input.actorUserId ?? null },
+      writeOpts,
     )
     createdCount += 1
   }
@@ -333,6 +345,10 @@ export async function bulkUpdateRelatedFromAction(
   if (!Number.isFinite(multiplier)) {
     throw new BulkUpdateRelatedError(400, 'multiplier must be a finite number')
   }
+  if (!input.access) {
+    throw new BulkUpdateRelatedError(400, 'access is required')
+  }
+  const access = input.access
   if (sourceCollection && !sourceLinkField) {
     throw new BulkUpdateRelatedError(
       400,
@@ -373,6 +389,7 @@ export async function bulkUpdateRelatedFromAction(
     filter: { [parentFkField]: { _eq: recordId } },
     fields,
     limit: -1,
+    access,
   })
 
   let updatedCount = 0
@@ -405,7 +422,7 @@ export async function bulkUpdateRelatedFromAction(
       id,
       { [targetField]: nextValue },
       ['id', targetField],
-      { actorUserId: input.actorUserId ?? null },
+      { actorUserId: input.actorUserId ?? null, access },
     )
     updatedCount += 1
   }

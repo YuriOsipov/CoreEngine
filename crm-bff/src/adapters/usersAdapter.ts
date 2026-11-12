@@ -1,6 +1,11 @@
 import { bearerToken } from '../auth/tokenClaims.js'
 import { verifyAccessToken } from '../auth/jwt.js'
-import { hasAppUsers, postgresFetchMe, postgresListUsers } from './postgresUsers.js'
+import {
+  hasAppUsers,
+  postgresFetchMe,
+  postgresListUsers,
+  postgresUpdateUserProfile,
+} from './postgresUsers.js'
 
 export interface MeUser {
   id: string | null
@@ -23,6 +28,8 @@ interface ListUsersOptions {
   sort?: string[] | null
   /** Admins only — non-admins never receive email in list projections. */
   includeEmail?: boolean
+  /** Detail-by-id may include inactive users. */
+  includeInactive?: boolean
 }
 
 /**
@@ -33,6 +40,15 @@ export async function listUsers(
 ): Promise<Record<string, unknown>[]> {
   if (!(await hasAppUsers())) return []
   return postgresListUsers(options)
+}
+
+/** Profile/layout fields only — role / is_active / passwords stay on Setup → Users. */
+export async function updateUserProfile(
+  id: string,
+  data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!(await hasAppUsers())) throw new Error(`User not found: ${id}`)
+  return postgresUpdateUserProfile(id, data)
 }
 
 function emptyMe(): MeUser {

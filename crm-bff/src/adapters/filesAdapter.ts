@@ -36,7 +36,7 @@ function useSupabaseUploads(): boolean {
 function requireSupabaseFiles(purpose: string): void {
   if (useSupabaseUploads() && isSupabaseStorageConfigured()) return
   throw new Error(
-    `Files backend refused (${purpose}): set SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY) plus VITE_SUPABASE_URL, and FILES_BACKEND=supabase.`,
+    `Files backend refused (${purpose}): set SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY) plus SUPABASE_URL (or SUPABASE_PUBLIC_URL), and FILES_BACKEND=supabase.`,
   )
 }
 

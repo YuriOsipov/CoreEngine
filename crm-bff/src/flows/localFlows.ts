@@ -1,4 +1,8 @@
-import { findOneRecord, updateRecord } from '../adapters/records/facade.js'
+import {
+  findOneRecord,
+  SYSTEM_RECORD_ACCESS,
+  updateRecord,
+} from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { writeAuditEntry } from '../audit/auditService.js'
 import { query } from '../db/pool.js'
@@ -28,12 +32,14 @@ export interface LocalFlowResult {
 
 /**
  * Who is running the flow.
- * - system: server-side callers (record automations, scheduler, service key)
- * - user: JWT caller of POST /flows/trigger — role + entity ACL enforced
+ * - system: trusted in-process callers (record automations, scheduler) — full patch
+ * - service: HTTP FLOWS_TRIGGER_SERVICE_KEY — payload keys still limited by allowedFields
+ * - user: JWT caller of POST /flows/trigger — role + entity ACL + allowedFields
  * - anonymous: FLOWS_TRIGGER_REQUIRE_AUTH=false — never allowed to write records
  */
 export type FlowInvoker =
   | { kind: 'system' }
+  | { kind: 'service' }
   | { kind: 'user'; me: MeUser }
   | { kind: 'anonymous' }
 
@@ -202,7 +208,9 @@ async function runUpdateRecordHandler(
     ...asObject(body.data),
   }
 
-  if (invoker.kind === 'user') {
+  // HTTP callers (user JWT + service key) may only send keys listed in allowedFields.
+  // Trusted in-process `system` invokers keep full payload freedom.
+  if (invoker.kind === 'user' || invoker.kind === 'service') {
     const allowedFields = new Set(stringList(config.allowedFields))
     const rejected = Object.keys(payloadPatch).filter((field) => !allowedFields.has(field))
     if (rejected.length) {
@@ -211,6 +219,8 @@ async function runUpdateRecordHandler(
         `Flow "${key}" does not allow patching: ${rejected.join(', ')} (config.allowedFields)`,
       )
     }
+  }
+  if (invoker.kind === 'user') {
     try {
       await assertMeEntityPermission(invoker.me, collection, 'update')
       await assertFieldsEditable(invoker.me, collection, Object.keys(payloadPatch))
@@ -232,13 +242,18 @@ async function runUpdateRecordHandler(
   }
 
   const actorUserId = invoker.kind === 'user' ? invoker.me.id : null
+  const writeAccess =
+    invoker.kind === 'user' ? { me: invoker.me } : SYSTEM_RECORD_ACCESS
   let before: Record<string, unknown> | null = null
   try {
-    before = await findOneRecord(collection, recordId, null)
+    before = await findOneRecord(collection, recordId, null, SYSTEM_RECORD_ACCESS)
   } catch {
     before = null
   }
-  const updated = await updateRecord(collection, recordId, patch, null, { actorUserId })
+  const updated = await updateRecord(collection, recordId, patch, null, {
+    actorUserId,
+    access: writeAccess,
+  })
   try {
     await writeAuditEntry({
       entityApiName: collection,

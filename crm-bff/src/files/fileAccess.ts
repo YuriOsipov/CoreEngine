@@ -16,23 +16,37 @@ function uploadedById(row: Record<string, unknown>): string | null {
   return String(raw)
 }
 
-async function parentCollectionsForFile(
+type FileParentRef = { collection: string; recordId: string | null }
+
+async function parentRefsForFile(
   fileId: string,
   row: Record<string, unknown>,
-): Promise<string[]> {
-  const out = new Set<string>()
+): Promise<FileParentRef[]> {
+  const out: FileParentRef[] = []
+  const seen = new Set<string>()
+  const push = (collection: string, recordId: string | null) => {
+    const key = `${collection}\0${recordId ?? ''}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ collection, recordId })
+  }
   const parent = String(row.parent_collection || '').trim()
-  if (parent) out.add(parent)
+  if (parent) {
+    const recordId = String(row.parent_record_id || '').trim() || null
+    push(parent, recordId)
+  }
   try {
     const links = await listFileParentLinks(fileId)
     for (const link of links) {
       const collection = String(link.parent_collection || '').trim()
-      if (collection) out.add(collection)
+      if (!collection) continue
+      const recordId = String(link.parent_record_id || '').trim() || null
+      push(collection, recordId)
     }
   } catch {
     // Links table may be unavailable in older DBs — fall back to row parent only.
   }
-  return [...out]
+  return out
 }
 
 /**
@@ -55,16 +69,16 @@ export async function assertFileReadable(
 
   if (me.adminAccess || me.roleAdminAccess) return row
 
-  const parents = await parentCollectionsForFile(id, row)
+  const parents = await parentRefsForFile(id, row)
   if (!parents.length) {
     const uploader = uploadedById(row)
     if (uploader && uploader === String(me.id)) return row
     throw new Error('Permission denied: read on files')
   }
 
-  for (const collection of parents) {
+  for (const parent of parents) {
     try {
-      await assertMeEntityPermission(me, collection, 'read')
+      await assertMeEntityPermission(me, parent.collection, 'read')
       return row
     } catch {
       // try next parent
@@ -110,16 +124,18 @@ export async function assertFileWritable(
 
   if (me.adminAccess || me.roleAdminAccess) return row
 
-  const parents = await parentCollectionsForFile(id, row)
+  const parents = await parentRefsForFile(id, row)
   if (!parents.length) {
     const uploader = uploadedById(row)
     if (uploader && uploader === String(me.id)) return row
     throw new Error('Permission denied: update on files')
   }
 
-  for (const collection of parents) {
+  for (const parent of parents) {
     try {
-      await assertMeEntityPermission(me, collection, 'update')
+      await assertMeEntityPermission(me, parent.collection, 'update', {
+        recordId: parent.recordId,
+      })
       return row
     } catch {
       // try next parent
@@ -128,12 +144,15 @@ export async function assertFileWritable(
   throw new Error('Permission denied: update on files')
 }
 
-/** Upload/link to a parent requires update on that collection. */
+/** Upload/link to a parent requires update on that collection (and record for users). */
 export async function assertFileParentWritable(
   me: MeUser,
   parentCollection: string | null | undefined,
+  parentRecordId?: string | null,
 ): Promise<void> {
   const collection = String(parentCollection || '').trim()
   if (!collection) return
-  await assertMeEntityPermission(me, collection, 'update')
+  await assertMeEntityPermission(me, collection, 'update', {
+    recordId: parentRecordId,
+  })
 }

@@ -54,6 +54,8 @@ for (const [network, prefix] of [
 ] as const) {
   hardBlocked.addSubnet(network, prefix, 'ipv6')
 }
+// AWS IMDS IPv6 (link-local unique-local metadata endpoint).
+hardBlocked.addAddress('fd00:ec2::254', 'ipv6')
 
 function normalizeIp(address: string): { address: string; family: 4 | 6 } | null {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)

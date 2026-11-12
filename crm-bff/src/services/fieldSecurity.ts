@@ -4,6 +4,7 @@ import {
   loadM2ORelations,
   loadO2MRelations,
 } from '../adapters/records/relations.js'
+import { elevateComputedSensitivities } from '../computed/computedSensitivity.js'
 
 /**
  * Field-level security by sensitivity tier.
@@ -17,7 +18,8 @@ import {
 
 export const MAX_SENSITIVITY = 2
 
-const CACHE_TTL_MS = 30_000
+/** Per-process tier/field cache. Other BFF instances can lag up to this after a downgrade. */
+export const FIELD_SECURITY_CACHE_TTL_MS = 30_000
 const MAX_FILTER_DEPTH = 6
 
 export function clampSensitivity(value: unknown): number {
@@ -49,7 +51,8 @@ function entityKey(entity: string): string {
   return String(entity || '').trim().toLowerCase()
 }
 
-/** Pre-migration databases lack the columns; treat as "nothing sensitive". */
+/** Pre-migration databases lack the columns; treat as "nothing sensitive" (non-prod only). */
+// audit-ignore: FAIL-OPEN-SCHEMA soft-fail is non-prod only; production refuses via assertFieldSensitivitySchemaReady
 function isMissingColumnError(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === '42703'
 }
@@ -62,6 +65,28 @@ function warnMissingColumns(): void {
   )
 }
 
+/**
+ * Production boot gate: refuse start when sensitivity columns are absent.
+ * Non-production keeps the soft warn path in loadSensitiveFields.
+ */
+export async function assertFieldSensitivitySchemaReady(): Promise<void> {
+  if (process.env.NODE_ENV !== 'production') return
+  try {
+    await query(
+      `SELECT f.sensitivity, p.max_read_sensitivity, p.max_edit_sensitivity
+       FROM public.fields f
+       CROSS JOIN public.role_permissions p
+       LIMIT 0`,
+    )
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error
+    throw new Error(
+      'Refusing to start in production: field sensitivity columns are missing. ' +
+        'Run registry migrations (npm run registry:migrate) before deploying.',
+    )
+  }
+}
+
 async function loadSensitiveFields(): Promise<Map<string, Map<string, number>>> {
   if (sensitiveFields && sensitiveFields.expiresAt > Date.now()) {
     return sensitiveFields.byEntity
@@ -70,31 +95,73 @@ async function loadSensitiveFields(): Promise<Map<string, Map<string, number>>> 
 
   sensitiveFieldsLoad = (async () => {
     const byEntity = new Map<string, Map<string, number>>()
+    const computed: Array<{
+      entity: string
+      apiName: string
+      options: Record<string, unknown>
+      fieldInterface: string
+    }> = []
     try {
+      // Include open (0) formula/rollup fields so we can elevate them from sources.
       const rows = await query<{
         entity_api_name: string
         field_api_name: string
         sensitivity: number
+        interface: string
+        options: Record<string, unknown> | null
       }>(
         `SELECT e.api_name AS entity_api_name,
                 f.api_name AS field_api_name,
-                f.sensitivity
+                f.sensitivity,
+                f.interface,
+                f.options
          FROM public.fields f
          JOIN public.entities e ON e.id = f.entity_id
-         WHERE f.sensitivity > 0
-           AND e.deleted_at IS NULL`,
+         WHERE e.deleted_at IS NULL
+           AND (
+             f.sensitivity > 0
+             OR f.options->>'computeMode' IN ('formula', 'rollup')
+             OR f.options->>'compute_mode' IN ('formula', 'rollup')
+             OR f.options ? 'rollup'
+             OR f.options ? 'formula'
+             OR f.options ? 'expression'
+             OR f.options ? 'compute'
+           )`,
       )
       for (const row of rows) {
         const key = entityKey(row.entity_api_name)
-        const fields = byEntity.get(key) ?? new Map<string, number>()
-        fields.set(row.field_api_name, clampSensitivity(row.sensitivity))
-        byEntity.set(key, fields)
+        const tier = clampSensitivity(row.sensitivity)
+        if (tier > 0) {
+          const fields = byEntity.get(key) ?? new Map<string, number>()
+          fields.set(row.field_api_name, tier)
+          byEntity.set(key, fields)
+        }
+        const options =
+          row.options && typeof row.options === 'object' && !Array.isArray(row.options)
+            ? row.options
+            : {}
+        computed.push({
+          entity: row.entity_api_name,
+          apiName: row.field_api_name,
+          options,
+          fieldInterface: String(row.interface ?? ''),
+        })
       }
+      await elevateComputedSensitivities(byEntity, computed)
     } catch (error) {
       if (!isMissingColumnError(error)) throw error
+      // audit-ignore: FAIL-OPEN-SCHEMA production boot uses assertFieldSensitivitySchemaReady()
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+          'Field sensitivity columns are missing. Run registry migrations before deploying.',
+        )
+      }
       warnMissingColumns()
     }
-    sensitiveFields = { byEntity, expiresAt: Date.now() + CACHE_TTL_MS }
+    sensitiveFields = {
+      byEntity,
+      expiresAt: Date.now() + FIELD_SECURITY_CACHE_TTL_MS,
+    }
     return byEntity
   })()
 
@@ -132,9 +199,18 @@ async function loadRoleTiers(roleRef: string): Promise<Map<string, RoleTiers>> {
     }
   } catch (error) {
     if (!isMissingColumnError(error)) throw error
+    // audit-ignore: FAIL-OPEN-SCHEMA production boot uses assertFieldSensitivitySchemaReady()
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'Field sensitivity columns are missing. Run registry migrations before deploying.',
+      )
+    }
     warnMissingColumns()
   }
-  roleTierCache.set(roleRef, { byEntity, expiresAt: Date.now() + CACHE_TTL_MS })
+  roleTierCache.set(roleRef, {
+    byEntity,
+    expiresAt: Date.now() + FIELD_SECURITY_CACHE_TTL_MS,
+  })
   return byEntity
 }
 
@@ -146,8 +222,13 @@ export interface FieldAccess {
   uneditable: ReadonlySet<string>
 }
 
+/**
+ * Admins bypass. Explicit system caller is `me === null` (from SYSTEM_RECORD_ACCESS).
+ * `undefined` means the call site forgot the actor — do not elevate (fail closed).
+ */
 function bypassesFieldSecurity(me: MeUser | null | undefined): boolean {
-  if (!me) return true
+  if (me === null) return true
+  if (me === undefined) return false
   return Boolean(me.adminAccess || me.roleAdminAccess)
 }
 
@@ -309,15 +390,17 @@ async function assertFilterReadable(
   }
   if (!isPlainObject(filter)) return
 
-  const access = await resolveFieldAccess(me, entity)
   for (const [key, value] of Object.entries(filter)) {
     if (key === '_and' || key === '_or' || key === '_not') {
       await assertFilterReadable(me, entity, value, depth + 1)
       continue
     }
     if (key.startsWith('_')) continue
-    if (access?.unreadable.has(key)) throw deniedError(entity, key, 'read')
-    if (!isPlainObject(value)) continue
+    // SOQL / Supabase often flatten relation predicates to dotted keys
+    // (`manager.salary`); those must use the same hop walk as sort paths.
+    // Nested object form `{ manager: { salary: … } }` is handled below.
+    await assertFieldPathReadable(me, entity, key)
+    if (key.includes('.') || !isPlainObject(value)) continue
 
     const nested: Record<string, unknown> = {}
     for (const [childKey, childValue] of Object.entries(value)) {

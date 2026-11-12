@@ -175,12 +175,59 @@ export async function bffLogin(input: {
   return { ok: true, session: await issueSession(user) }
 }
 
+async function recordConsumedRefreshToken(
+  tokenHash: string,
+  userId: string,
+): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO public.app_refresh_token_consumed (token_hash, user_id)
+       VALUES ($1, $2::uuid)
+       ON CONFLICT (token_hash) DO NOTHING`,
+      [tokenHash, userId],
+    )
+    // Bound table growth — keep roughly one refresh TTL of history.
+    await query(
+      `DELETE FROM public.app_refresh_token_consumed
+       WHERE consumed_at < now() - ($1::int * interval '1 second')`,
+      [REFRESH_TTL_SEC],
+    )
+  } catch (error) {
+    // Pre-migration DBs lack the table; rotation still works, reuse detection does not.
+    if ((error as { code?: string } | null)?.code !== '42P01') throw error
+  }
+}
+
+async function findConsumedRefreshUser(tokenHash: string): Promise<string | null> {
+  try {
+    const rows = await query<{ user_id: string }>(
+      `SELECT user_id::text AS user_id
+       FROM public.app_refresh_token_consumed
+       WHERE token_hash = $1
+       LIMIT 1`,
+      [tokenHash],
+    )
+    return rows[0]?.user_id ?? null
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === '42P01') return null
+    throw error
+  }
+}
+
 export async function bffRefresh(input: {
   refreshToken: string
 }): Promise<
   { ok: true; session: AuthSessionPayload } | { ok: false; status: number; error: string }
 > {
   const tokenHash = hashRefreshToken(input.refreshToken)
+
+  // Reuse of a rotated token → revoke every session for that user.
+  const reusedUserId = await findConsumedRefreshUser(tokenHash)
+  if (reusedUserId) {
+    await revokeAllRefreshTokensForUser(reusedUserId)
+    return { ok: false, status: 401, error: 'Refresh failed' }
+  }
+
   const rows = await query<{ user_id: string }>(
     `DELETE FROM public.app_refresh_tokens
      WHERE token_hash = $1 AND expires_at > now()
@@ -189,6 +236,7 @@ export async function bffRefresh(input: {
   )
   const row = rows[0]
   if (!row?.user_id) return { ok: false, status: 401, error: 'Refresh failed' }
+  await recordConsumedRefreshToken(tokenHash, row.user_id)
   const user = await loadUserById(row.user_id)
   if (!user || !user.is_active) {
     return { ok: false, status: 401, error: 'Refresh failed' }

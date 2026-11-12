@@ -12,6 +12,9 @@ import {
 } from '../../../../schema/crmStorage.js'
 import { assertGqlName, graphqlLiteral, hasuraRequest } from './client.js'
 import { resolveCanonicalEntityApiName } from '../../entityName.js'
+import { expandDottedFilterKeys } from '../../expandDottedFilterKeys.js'
+import { filterM2OSearchLabelFields } from '../../m2oSearchAccess.js'
+import type { MeUser } from '../../../usersAdapter.js'
 import type { RecordsListParams, RecordsListResult } from '../../types.js'
 import { aggregateSelectFields, groupAggregateRows } from '../../groupAggregate.js'
 
@@ -404,7 +407,14 @@ function compileWhere(
   extraSearchOr: Record<string, unknown>[] = [],
 ): Record<string, unknown> | null {
   const parts: Record<string, unknown>[] = []
-  const compiled = compileWhereNode(config, filter ?? null, types)
+  const expanded = expandDottedFilterKeys(filter ?? null)
+  const compiled = compileWhereNode(
+    config,
+    expanded && typeof expanded === 'object' && !Array.isArray(expanded)
+      ? (expanded as Record<string, unknown>)
+      : null,
+    types,
+  )
   if (compiled) parts.push(compiled)
 
   if (!includeDeleted) {
@@ -445,6 +455,7 @@ async function buildM2OSearchOrClauses(
   collection: string,
   q: string,
   remainingSlots: number,
+  me?: MeUser | null,
 ): Promise<Record<string, unknown>[]> {
   if (!q || remainingSlots <= 0) return []
 
@@ -467,7 +478,7 @@ async function buildM2OSearchOrClauses(
       const relatedRelation = await resolveRecordRelation(relatedEntity)
       const relatedConfig = await resolveHasuraConfig(relatedEntity)
       const relatedTypes = await loadHasuraFieldTypes(relatedConfig)
-      const labelFields = [
+      const candidateLabels = [
         ...new Set([
           ...displayTemplateFields(relatedRelation.displayTemplate),
           'name',
@@ -479,7 +490,12 @@ async function buildM2OSearchOrClauses(
         if (!Object.keys(relatedTypes).length) return true
         return relatedTypes[name] === 'String'
       })
-      if (!labelFields.length) continue
+      const labelFields = await filterM2OSearchLabelFields(
+        me,
+        relatedEntity,
+        candidateLabels,
+      )
+      if (!labelFields?.length) continue
 
       const where = {
         _or: labelFields.map((name) => ({
@@ -855,6 +871,7 @@ export async function hasuraFindMany(
         collection,
         q,
         Math.max(0, LIST_SEARCH_FIELD_CAP - Math.min(textSlots, LIST_SEARCH_FIELD_CAP)),
+        params.access?.me,
       )
     : []
   const where = compileWhere(

@@ -58,7 +58,7 @@ export interface ItemGroupPriceTreeQueryArgs {
   flatten?: boolean | null
   config?: ItemGroupPriceTreeConfig | Record<string, unknown> | null
   /** Verified caller — field-level security applies to both collections. */
-  access?: RecordAccess | null
+  access: RecordAccess
 }
 
 interface HierarchyNode {
@@ -420,8 +420,12 @@ function buildItemGroupPriceTree(
  * (exact group-field match — descendants stay on child nodes).
  */
 export async function loadItemGroupPriceTree(
-  args: ItemGroupPriceTreeQueryArgs = {},
+  args: ItemGroupPriceTreeQueryArgs,
 ): Promise<ItemGroupPriceTreeResult> {
+  if (!args.access) {
+    throw new Error('loadItemGroupPriceTree requires access')
+  }
+  const access = args.access
   const config = parseTreeConfig(args.config)
   let parentField = config.groupParentField
   if (!parentField) {
@@ -462,13 +466,13 @@ export async function loadItemGroupPriceTree(
       fields: ['id', resolved.groupLabelField, resolved.groupParentField],
       sort: [resolved.groupLabelField],
       limit: -1,
-      access: args.access ?? undefined,
+      access,
     }),
     findManyRecords(resolved.itemPriceCollection, {
       fields: requestedFields,
       filter: priceFilter,
       limit: -1,
-      access: args.access ?? undefined,
+      access,
     }),
   ])
 

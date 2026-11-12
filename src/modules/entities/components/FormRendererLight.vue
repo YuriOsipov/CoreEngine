@@ -41,6 +41,7 @@ import {
   isActivityLogField,
   isDocEngineField,
   isSchedulerField,
+  isSingleFileField,
   isTreeTableField,
   relatedFieldValue,
   treeTableSummary,
@@ -311,13 +312,25 @@ watch(
               </template>
 
               <template v-else-if="isFilesField(field)">
-                <AttachedDataTableField
-                  :field="field"
-                  :model-value="modelValue"
-                  :parent-id="parentId"
-                  :parent-name="parentName"
-                  readonly
-                />
+                <div
+                  v-if="isSingleFileField(field)"
+                  class="text-muted-color text-xs font-medium leading-tight"
+                  :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
+                >{{ fieldLabels.getLabel(field) }}</div>
+                <div
+                  :class="{
+                    'flex-1 min-w-0 w-full':
+                      isGroupInlineLabels(group) && isSingleFileField(field),
+                  }"
+                >
+                  <AttachedDataTableField
+                    :field="field"
+                    :model-value="modelValue"
+                    :parent-id="parentId"
+                    :parent-name="parentName"
+                    readonly
+                  />
+                </div>
               </template>
 
               <template v-else-if="isActivityLogField(field)">

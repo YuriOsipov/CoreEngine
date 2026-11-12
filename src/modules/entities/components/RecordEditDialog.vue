@@ -26,6 +26,7 @@ import {
   useTranslation,
 } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
+import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 
 const props = defineProps<{
   visible: boolean
@@ -45,8 +46,11 @@ const emit = defineEmits<{
 const { t } = useTranslation()
 const confirm = useConfirm()
 const toast = useToast()
-const { canDelete: canDeleteRecord, canUpdate: canUpdateRecord } =
-  useEntityPermissions(() => props.collection)
+const { canDelete: canDeleteRecord } = useEntityPermissions(() => props.collection)
+const { canEdit: canUpdateRecord } = useRecordEditAccess(
+  () => props.collection,
+  () => (props.recordId == null ? null : String(props.recordId)),
+)
 const showDeleteAction = computed(
   () => Boolean(props.allowDelete) && canDeleteRecord.value,
 )

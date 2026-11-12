@@ -15,7 +15,7 @@ services:
   graphql-engine:
     image: hasura/graphql-engine:v2.45.1
     ports:
-      - "8090:8080"
+      - "127.0.0.1:8090:8080"
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"

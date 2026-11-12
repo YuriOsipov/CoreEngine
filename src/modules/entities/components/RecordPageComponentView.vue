@@ -40,6 +40,7 @@ import {
 } from '@/core/dynamicPicklist'
 import { useTranslation, useTranslatedCollection } from '@/core/translation'
 import { canReadEntity, useEntityPermissions } from '@/core/entityPermissions'
+import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { isRecordPagePathReadonly } from '@/core/layoutFieldRules'
 
 type HighlightsBarAction =
@@ -75,8 +76,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
-const { canUpdate: canUpdateRecord, canDelete: canDeleteRecord } =
-  useEntityPermissions(() => props.collection)
+const { canDelete: canDeleteRecord } = useEntityPermissions(() => props.collection)
+const { canEdit: canUpdateRecord } = useRecordEditAccess(
+  () => props.collection,
+  () => props.recordId,
+)
 const collectionLabel = useTranslatedCollection(() => props.collection)
 const collectionIcon = ref<string | null>(null)
 const displayTemplate = ref<string | undefined>(undefined)

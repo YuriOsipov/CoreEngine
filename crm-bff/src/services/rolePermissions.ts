@@ -1,7 +1,9 @@
 import { query, withTransaction } from '../db/pool.js'
 import { PASSWORD_CHANGE_REQUIRED } from '../auth/accessGuards.js'
+import { applyRolePreview } from '../auth/rolePreview.js'
 import { fetchMe, type MeUser } from '../adapters/usersAdapter.js'
 import { REGISTRY_PLATFORM_ENTITIES } from '../schema/platformEntities.js'
+import { isUsersAssetCollection } from '../users/userNames.js'
 import {
   clampSensitivity,
   clearFieldSecurityCache,
@@ -242,6 +244,31 @@ type PermissionFlags = {
   canExport: boolean
 }
 
+export type EntityPermissionOptions = {
+  /** Required for non-admin self-update on `users`. */
+  recordId?: string | null
+}
+
+/** True when `recordId` is this caller's app_users row (id or backend_user_id). */
+export async function userRecordMatchesMe(
+  me: MeUser,
+  recordId: string,
+): Promise<boolean> {
+  const meId = String(me.id || '').trim()
+  const target = String(recordId || '').trim()
+  if (!meId || !target) return false
+  if (meId === target) return true
+  const rows = await query<{ ok: number }>(
+    `SELECT 1 AS ok
+     FROM public.app_users
+     WHERE (backend_user_id = $1 OR id::text = $1)
+       AND (backend_user_id = $2 OR id::text = $2)
+     LIMIT 1`,
+    [meId, target],
+  )
+  return Boolean(rows[0])
+}
+
 /**
  * One round trip: match app_roles by backend_role_id or id, then the matrix row.
  * Missing role and missing row both return null (deny).
@@ -294,6 +321,7 @@ export async function assertMeEntityPermission(
   me: MeUser | null | undefined,
   entityApiName: string,
   action: PermissionAction,
+  options?: EntityPermissionOptions,
 ): Promise<MeUser> {
   const entity = String(entityApiName || '').trim()
   if (!entity) throw new Error('entity is required')
@@ -318,6 +346,13 @@ export async function assertMeEntityPermission(
   // dedicated assertFileReadable / recordFiles (parent) paths.
   if (action === 'read' && (entity === 'users' || entity === 'roles')) {
     return me
+  }
+
+  // User profile: any authenticated user may update their own record.
+  if (action === 'update' && isUsersAssetCollection(entity)) {
+    const recordId = String(options?.recordId || '').trim()
+    if (recordId && (await userRecordMatchesMe(me, recordId))) return me
+    throw new Error(`Permission denied: ${action} on ${entity}`)
   }
 
   const flags = await loadPermissionFlags(me.roleId, entity)
@@ -399,12 +434,14 @@ export async function visibleSchemaEntityNames(me: MeUser): Promise<Set<string> 
  * Admins bypass. Missing permission row = deny.
  */
 export async function assertEntityPermission(
-  ctx: { authorization: string | null } | undefined,
+  ctx: { authorization: string | null; rolePreview?: string | null } | undefined,
   entityApiName: string,
   action: PermissionAction,
+  options?: EntityPermissionOptions,
 ): Promise<MeUser> {
   const me = await fetchMe({ authorization: ctx?.authorization ?? null })
-  return assertMeEntityPermission(me, entityApiName, action)
+  const effective = await applyRolePreview(me, ctx?.rolePreview)
+  return assertMeEntityPermission(effective, entityApiName, action, options)
 }
 
 /** Entities list for permission matrix UI (excludes PLATFORM / system objects). */

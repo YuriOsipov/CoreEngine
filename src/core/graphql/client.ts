@@ -1,4 +1,5 @@
 import { getAccessToken } from '@/core/auth/session'
+import { rolePreviewRequestHeaders } from '@/core/rolePreview'
 
 const graphqlUrl =
   (import.meta.env.VITE_GRAPHQL_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -20,6 +21,7 @@ export async function graphqlRequest<T>(
       'Content-Type': 'application/json',
       Accept: 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...rolePreviewRequestHeaders(),
     },
     credentials: 'include',
     body: JSON.stringify({ query, variables }),

@@ -22,7 +22,7 @@ describe('requireAdminAccess', () => {
 })
 
 describe('Setup / registry mutations require admin', () => {
-  const noAuth = { authorization: null, clientKey: 'test' }
+  const noAuth = { authorization: null, rolePreview: null, clientKey: 'test' }
 
   it('createRegistryEntity rejects unauthenticated callers before registry work', async () => {
     await expect(
@@ -54,7 +54,7 @@ describe('Setup / registry mutations require admin', () => {
         {
           input: { apiName: 'throwaway_entity', label: 'Throwaway' },
         },
-        { authorization: 'Bearer user-token', clientKey: 'test' },
+        { authorization: 'Bearer user-token', rolePreview: null, clientKey: 'test' },
       ),
     ).rejects.toThrow('Admin access required')
   })

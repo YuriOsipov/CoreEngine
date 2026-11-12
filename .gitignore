@@ -23,8 +23,10 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
-# Local Cursor agent rules (keep on disk; do not publish)
+# Local Cursor agent rules / ignore (keep on disk; do not publish)
 .cursor/rules/
+.cursorrules
+.cursorignore
 .DS_Store
 *.suo
 *.ntvs*

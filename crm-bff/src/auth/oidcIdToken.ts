@@ -58,6 +58,20 @@ export async function verifyOidcIdToken(
     algorithms: ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
   })
 
+  const audiences = Array.isArray(payload.aud)
+    ? payload.aud.map(String)
+    : payload.aud != null
+      ? [String(payload.aud)]
+      : []
+  const azp = strClaim(payload, 'azp')
+  // OIDC Core: multi-audience tokens must carry azp naming the authorized party.
+  if (audiences.length > 1) {
+    if (!azp) throw new Error('OIDC id_token missing azp for multi-audience token')
+    if (azp !== cfg.clientId) throw new Error('OIDC id_token azp mismatch')
+  } else if (azp && azp !== cfg.clientId) {
+    throw new Error('OIDC id_token azp mismatch')
+  }
+
   const sub = strClaim(payload, 'sub')
   if (!sub) throw new Error('OIDC id_token missing sub')
 
@@ -69,24 +83,20 @@ export async function verifyOidcIdToken(
   const email = strClaim(payload, 'email')
   if (!email) throw new Error('OIDC id_token missing email')
 
-  const emailVerified = boolClaim(payload, 'email_verified')
-  // Auth0 often sets email_verified; Keycloak realm email-as-username users may omit it.
-  // Require verified when the claim is present as false; allow missing only in non-prod.
-  if (payload.email_verified === false) {
-    throw new Error('OIDC email is not verified')
-  }
-  if (
-    process.env.NODE_ENV === 'production' &&
-    payload.email_verified === undefined
-  ) {
+  // Email linking / JIT require a positively verified address — missing is not verified.
+  if (payload.email_verified === undefined) {
     throw new Error('OIDC id_token missing email_verified')
+  }
+  const emailVerified = boolClaim(payload, 'email_verified')
+  if (!emailVerified) {
+    throw new Error('OIDC email is not verified')
   }
 
   return {
     iss: cfg.issuer,
     sub,
     email,
-    emailVerified: emailVerified || payload.email_verified === undefined,
+    emailVerified: true,
     givenName: strClaim(payload, 'given_name'),
     familyName: strClaim(payload, 'family_name'),
     nonce,

@@ -276,6 +276,7 @@ export async function loginWithBff(input: {
     email: input.email,
     password: input.password,
   })
+  clearOidcBrowserSessionFlag()
   const written = writeAuthSession(session)
   return {
     ...written,
@@ -328,8 +329,40 @@ export async function refreshAuthSession(
   return writeAuthSession(session)
 }
 
-export async function logoutWithBff(): Promise<void> {
+const OIDC_SESSION_FLAG_KEY = 'coreengine.auth.viaOidc'
+
+export function markOidcBrowserSession(): void {
+  try {
+    localStorage.setItem(OIDC_SESSION_FLAG_KEY, '1')
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function clearOidcBrowserSessionFlag(): void {
+  try {
+    localStorage.removeItem(OIDC_SESSION_FLAG_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+function hadOidcBrowserSession(): boolean {
+  try {
+    return localStorage.getItem(OIDC_SESSION_FLAG_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Revoke BFF session. When the browser signed in via OIDC, also navigates to
+ * `/auth/oidc/logout` so the IdP session ends (`id_token_hint` cookie).
+ * Callers must not navigate away when `idpLogout` is true.
+ */
+export async function logoutWithBff(): Promise<{ idpLogout: boolean }> {
   const session = readAuthSession()
+  const endIdp = hadOidcBrowserSession()
   try {
     if (session?.refreshToken) {
       await authRequest<{ ok: boolean }>('/auth/logout', {
@@ -339,7 +372,18 @@ export async function logoutWithBff(): Promise<void> {
     }
   } finally {
     clearAuthSession()
+    clearOidcBrowserSessionFlag()
   }
+  if (endIdp) {
+    const status = await fetchOidcStatus()
+    if (status.enabled) {
+      const url = new URL(`${bffBaseUrl()}/auth/oidc/logout`)
+      url.searchParams.set('redirect', '/login')
+      window.location.assign(url.toString())
+      return { idpLogout: true }
+    }
+  }
+  return { idpLogout: false }
 }
 
 export interface OidcStatus {
@@ -390,5 +434,6 @@ export async function completeOidcTicket(
   const session = await authRequest<AuthSessionResponse>('/auth/oidc/session', {
     ticket,
   })
+  markOidcBrowserSession()
   return writeAuthSession(session)
 }

@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
 import type { OidcIdClaims } from './oidcIdToken.js'
-import { readOidcConfig } from './oidcConfig.js'
+import {
+  isOidcEmailDomainAllowed,
+  readOidcConfig,
+} from './oidcConfig.js'
 
 export interface LinkedAuthUser {
   id: string
@@ -14,9 +17,15 @@ export interface LinkedAuthUser {
   must_change_password: boolean
 }
 
-async function loadLinkedUser(whereSql: string, params: unknown[]): Promise<LinkedAuthUser | null> {
-  const rows = await query<LinkedAuthUser>(
-    `SELECT u.id::text AS id,
+function isUniqueViolation(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      (error as { code?: string }).code === '23505',
+  )
+}
+
+const LINKED_USER_SELECT = `SELECT u.id::text AS id,
             u.backend_user_id,
             u.email,
             u.is_active,
@@ -26,10 +35,32 @@ async function loadLinkedUser(whereSql: string, params: unknown[]): Promise<Link
             COALESCE(c.must_change_password, false) AS must_change_password
      FROM public.app_users u
      LEFT JOIN public.app_roles r ON r.id = u.role_id
-     LEFT JOIN public.app_user_credentials c ON c.user_id = u.id
-     WHERE ${whereSql}
-     LIMIT 1`,
-    params,
+     LEFT JOIN public.app_user_credentials c ON c.user_id = u.id`
+
+async function loadLinkedUserById(userId: string): Promise<LinkedAuthUser | null> {
+  const rows = await query<LinkedAuthUser>(
+    LINKED_USER_SELECT + ' WHERE u.id = $1::uuid LIMIT 1',
+    [userId],
+  )
+  return rows[0] ?? null
+}
+
+async function loadLinkedUserBySubject(
+  issuer: string,
+  subject: string,
+): Promise<LinkedAuthUser | null> {
+  const rows = await query<LinkedAuthUser>(
+    LINKED_USER_SELECT +
+      ' WHERE u.oidc_issuer = $1 AND u.oidc_subject = $2 LIMIT 1',
+    [issuer, subject],
+  )
+  return rows[0] ?? null
+}
+
+async function loadLinkedUserByEmail(email: string): Promise<LinkedAuthUser | null> {
+  const rows = await query<LinkedAuthUser>(
+    LINKED_USER_SELECT + ' WHERE lower(u.email) = lower($1) LIMIT 1',
+    [email],
   )
   return rows[0] ?? null
 }
@@ -47,6 +78,20 @@ async function linkOidcFields(
      WHERE id = $1::uuid`,
     [userId, issuer, subject],
   )
+}
+
+function rejectDomain(email: string): {
+  ok: false
+  status: number
+  error: string
+} | null {
+  const cfg = readOidcConfig()
+  if (isOidcEmailDomainAllowed(email, cfg.allowedEmailDomains)) return null
+  return {
+    ok: false,
+    status: 403,
+    error: 'SSO email domain is not allowed',
+  }
 }
 
 async function createJitUser(claims: OidcIdClaims): Promise<LinkedAuthUser | null> {
@@ -87,12 +132,12 @@ async function createJitUser(claims: OidcIdClaims): Promise<LinkedAuthUser | nul
       claims.sub,
     ],
   )
-  return loadLinkedUser('u.id = $1::uuid', [userId])
+  return loadLinkedUserById(userId)
 }
 
 /**
  * Resolve or create app_users from verified OIDC id_token claims.
- * Prefer (issuer, sub); else link by verified email; else optional JIT.
+ * Prefer (issuer, sub); else link by verified email (non-admin); else optional JIT.
  */
 export async function resolveUserFromOidcClaims(
   claims: OidcIdClaims,
@@ -100,10 +145,7 @@ export async function resolveUserFromOidcClaims(
   | { ok: true; user: LinkedAuthUser }
   | { ok: false; status: number; error: string }
 > {
-  const bySubject = await loadLinkedUser(
-    'u.oidc_issuer = $1 AND u.oidc_subject = $2',
-    [claims.iss, claims.sub],
-  )
+  const bySubject = await loadLinkedUserBySubject(claims.iss, claims.sub)
   if (bySubject) {
     if (!bySubject.is_active) {
       return { ok: false, status: 403, error: 'Account is inactive' }
@@ -111,10 +153,30 @@ export async function resolveUserFromOidcClaims(
     return { ok: true, user: bySubject }
   }
 
-  const byEmail = await loadLinkedUser('lower(u.email) = lower($1)', [claims.email])
+  const domainReject = rejectDomain(claims.email)
+  if (domainReject) return domainReject
+
+  const byEmail = await loadLinkedUserByEmail(claims.email)
   if (byEmail) {
     if (!byEmail.is_active) {
       return { ok: false, status: 403, error: 'Account is inactive' }
+    }
+    // Email takeover is only safe with a positively verified IdP email claim.
+    if (!claims.emailVerified) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'SSO email is not verified; cannot link by email',
+      }
+    }
+    // Admin accounts must be linked by pre-set oidc_issuer/subject — never by email.
+    if (byEmail.is_admin) {
+      return {
+        ok: false,
+        status: 403,
+        error:
+          'Admin accounts cannot be linked by email. An operator must set oidc_issuer and oidc_subject on the user.',
+      }
     }
     // Do not steal an account already linked to a different IdP subject.
     const existingLink = await query<{ oidc_subject: string | null }>(
@@ -130,7 +192,7 @@ export async function resolveUserFromOidcClaims(
       }
     }
     await linkOidcFields(byEmail.id, claims.iss, claims.sub)
-    const refreshed = await loadLinkedUser('u.id = $1::uuid', [byEmail.id])
+    const refreshed = await loadLinkedUserById(byEmail.id)
     if (!refreshed) {
       return { ok: false, status: 500, error: 'SSO link failed' }
     }
@@ -146,6 +208,14 @@ export async function resolveUserFromOidcClaims(
     }
   }
 
+  if (!claims.emailVerified) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'SSO email is not verified; cannot provision account',
+    }
+  }
+
   try {
     const created = await createJitUser(claims)
     if (!created || !created.is_active) {
@@ -153,6 +223,18 @@ export async function resolveUserFromOidcClaims(
     }
     return { ok: true, user: created }
   } catch (error) {
+    // Concurrent first logins can race the unique email / oidc subject indexes.
+    if (isUniqueViolation(error)) {
+      const raced =
+        (await loadLinkedUserBySubject(claims.iss, claims.sub)) ||
+        (await loadLinkedUserByEmail(claims.email))
+      if (raced?.is_active) {
+        return { ok: true, user: raced }
+      }
+      if (raced && !raced.is_active) {
+        return { ok: false, status: 403, error: 'Account is inactive' }
+      }
+    }
     const message = error instanceof Error ? error.message : 'SSO provisioning failed'
     return { ok: false, status: 500, error: message }
   }

@@ -45,36 +45,117 @@ export async function loadStoredSensitivityByEntity(): Promise<
   return byEntity
 }
 
-/**
- * Field paths a formula template reads (same-record or `m2o.field` hops).
- * Used to inherit sensitivity from sources onto the computed field.
- */
-function collectArgsFromCall(expr: string): string[] {
+/** Function / keyword tokens that are not field paths. */
+const EXPRESSION_NON_FIELD_TOKENS = new Set([
+  'INT',
+  'FLOAT',
+  'STRING',
+  'DATE',
+  'SLUG',
+  'CURRENCY',
+  'ABS',
+  'SQRT',
+  'SUM',
+  'AVERAGE',
+  'CEIL',
+  'FLOOR',
+  'ROUND',
+  'EXP',
+  'LOG',
+  'MAX',
+  'MIN',
+  'NULL',
+  'NOT_NULL',
+  'NOT',
+  'LENGTH',
+  'FIRST',
+  'LAST',
+  'JSON_PARSE',
+  'JSON_STRINGIFY',
+  'SUBTRACT',
+  'MULTIPLY',
+  'DIVIDE',
+  'REMAINDER',
+  'DATE_ADD_DAYS',
+  'POWER',
+  'CONCAT',
+  'EQUAL',
+  'NOT_EQUAL',
+  'GT',
+  'GTE',
+  'LT',
+  'LTE',
+  'AND',
+  'OR',
+  'JSON_GET',
+  'IF',
+  'IFS',
+  'FIND',
+  'FIND_BETWEEN',
+  'TRUE',
+  'FALSE',
+  'FN',
+])
+
+function parseCallArgs(expr: string): string[] | null {
   const op = parseOp(expr)
   if (op) return op.args
   // Same shape as parseOp, but allow lowercase function names from Setup UI.
   const match = expr.trim().match(/^([a-zA-Z_][\w]*)\((.+)\)$/)
-  if (!match) return []
-  return parseOp(`FN(${match[2]})`)?.args ?? []
+  if (!match) return null
+  return parseOp(`FN(${match[2]})`)?.args ?? null
 }
 
+/**
+ * Recursively collect field paths an expression reads (mirrors parseExpression).
+ * Covers bare paths, nested calls, and arithmetic fallbacks like `a + b`.
+ */
+export function collectExpressionSourcePaths(expr: string): string[] {
+  const out = new Set<string>()
+  collectExpressionSourcePathsInto(expr, out)
+  return [...out]
+}
+
+function collectExpressionSourcePathsInto(
+  expr: string,
+  out: Set<string>,
+): void {
+  const exp = String(expr || '').trim()
+  if (!exp || exp.startsWith('$')) return
+  if (exp.startsWith('"') && exp.endsWith('"')) return
+  if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(exp)) return
+
+  if (/^[a-zA-Z_][\w.]*$/.test(exp)) {
+    if (!EXPRESSION_NON_FIELD_TOKENS.has(exp.toUpperCase())) out.add(exp)
+    return
+  }
+
+  const args = parseCallArgs(exp)
+  if (args) {
+    for (const arg of args) collectExpressionSourcePathsInto(arg, out)
+    return
+  }
+
+  // Exotic / arithmetic expressions: harvest identifier and dotted paths.
+  for (const pathMatch of exp.matchAll(
+    /\b([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)*)\b/g,
+  )) {
+    const token = pathMatch[1]!
+    if (EXPRESSION_NON_FIELD_TOKENS.has(token.toUpperCase())) continue
+    if (token.startsWith('$')) continue
+    out.add(token)
+  }
+}
+
+/**
+ * Field paths a formula template reads (same-record or `m2o.field` hops).
+ * Used to inherit sensitivity from sources onto the computed field.
+ */
 export function collectComputedSourcePaths(template: string): string[] {
   const out = new Set<string>()
   for (const match of String(template || '').matchAll(/\{\{([\s\S]*?)\}\}/g)) {
-    const expr = (match[1] ?? '').trim()
-    if (!expr || expr.startsWith('$')) continue
-    if (/^[a-zA-Z_][\w.]*$/.test(expr)) {
-      out.add(expr)
-      continue
-    }
-    for (const pathMatch of expr.matchAll(
-      /\b([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*)+)\b/g,
-    )) {
-      out.add(pathMatch[1]!)
-    }
-    for (const arg of collectArgsFromCall(expr)) {
-      const a = arg.trim()
-      if (/^[a-zA-Z_][\w.]*$/.test(a) && !a.startsWith('$')) out.add(a)
+    for (const path of collectExpressionSourcePaths(match[1] ?? '')) {
+      out.add(path)
     }
   }
   return [...out]

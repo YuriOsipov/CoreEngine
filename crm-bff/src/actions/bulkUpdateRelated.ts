@@ -1,6 +1,7 @@
 import {
   createRecord,
   findManyRecords,
+  findOneRecord,
   updateRecord,
 } from '../adapters/recordsAdapter.js'
 import type { RecordAccess } from '../adapters/records/types.js'
@@ -364,6 +365,15 @@ export async function bulkUpdateRelatedFromAction(
 
   // Validate formula once before looping rows.
   evaluateBulkUpdateFormula(formula, 1, 1)
+
+  // Parent must be readable under owner RLS — do not mutate related rows of
+  // someone else's parent when the parent entity is owner-secured.
+  try {
+    await findOneRecord(collection, recordId, ['id'], access)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Parent record not accessible'
+    throw new BulkUpdateRelatedError(403, message)
+  }
 
   if (sourceCollection && sourceLinkField) {
     return bulkUpsertRelatedFromSource({

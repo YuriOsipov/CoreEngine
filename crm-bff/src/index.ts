@@ -33,6 +33,16 @@ import {
   isOidcEnabled,
   readOidcConfig,
 } from './auth/oidcConfig.js'
+import {
+  buildOidcIdTokenClearCookie,
+  buildOidcIdTokenSetCookie,
+  buildOidcStateClearCookie,
+  buildOidcStateSetCookie,
+  OIDC_ID_TOKEN_COOKIE,
+  OIDC_STATE_COOKIE,
+  readRequestCookie,
+} from './auth/oidcStateCookie.js'
+import { oidcPublicErrorCode } from './auth/oidcPublicErrors.js'
 import { assertProductionBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
 import { assertFieldSensitivitySchemaReady } from './services/fieldSecurity.js'
 import { assertProductionFlowAuthConfig } from './flows/flowAuth.js'
@@ -263,6 +273,33 @@ const LOGIN_ACCOUNT_WINDOW_MS = 15 * 60_000
 
 app.get('/auth/oidc/status', async () => oidcStatusPayload())
 
+function oidcCookieSecure(request: {
+  protocol?: string
+  headers: Record<string, unknown>
+}): boolean {
+  const forwarded = request.headers['x-forwarded-proto']
+  if (typeof forwarded === 'string') {
+    return forwarded.split(',')[0]?.trim().toLowerCase() === 'https'
+  }
+  return request.protocol === 'https'
+}
+
+function appendSetCookie(
+  reply: { getHeader: (name: string) => unknown; header: (name: string, value: unknown) => unknown },
+  value: string,
+): void {
+  const existing = reply.getHeader('set-cookie')
+  if (!existing) {
+    reply.header('set-cookie', value)
+    return
+  }
+  if (Array.isArray(existing)) {
+    reply.header('set-cookie', [...existing.map(String), value])
+    return
+  }
+  reply.header('set-cookie', [String(existing), value])
+}
+
 app.get('/auth/oidc/login', async (request, reply) => {
   const limit = rateLimitConsume(
     `oidc-login:${clientKeyFromRequest(request)}`,
@@ -280,6 +317,12 @@ app.get('/auth/oidc/login', async (request, reply) => {
   if (!result.ok) {
     return reply.status(result.status).send({ error: result.error })
   }
+  reply.header(
+    'set-cookie',
+    buildOidcStateSetCookie(result.state, {
+      secure: oidcCookieSecure(request),
+    }),
+  )
   return reply.redirect(result.url)
 })
 
@@ -299,21 +342,31 @@ app.get('/auth/oidc/callback', async (request, reply) => {
     error?: unknown
     error_description?: unknown
   }
+  const stateCookie = readRequestCookie(
+    request.headers.cookie,
+    OIDC_STATE_COOKIE,
+  )
   const result = await completeOidcCallback({
     code: typeof query.code === 'string' ? query.code : null,
     state: typeof query.state === 'string' ? query.state : null,
+    stateCookie,
     error: typeof query.error === 'string' ? query.error : null,
     errorDescription:
       typeof query.error_description === 'string' ? query.error_description : null,
   })
+  appendSetCookie(
+    reply,
+    buildOidcStateClearCookie({ secure: oidcCookieSecure(request) }),
+  )
   if (!result.ok) {
-    // Prefer JSON for API clients; browsers get a soft redirect to login with error.
+    request.log.warn({ err: result.error, status: result.status }, 'OIDC callback failed')
+    // Prefer JSON for API clients; browsers get a generic code only (no account enumeration).
     const accept = String(request.headers.accept || '')
     if (accept.includes('application/json')) {
       return reply.status(result.status).send({ error: result.error })
     }
     const ui = new URL('/login', `${readOidcConfig().uiOrigin}/`)
-    ui.searchParams.set('sso_error', result.error)
+    ui.searchParams.set('sso_error', oidcPublicErrorCode(result))
     return reply.redirect(ui.toString())
   }
   return reply.redirect(result.uiRedirect)
@@ -335,15 +388,30 @@ app.post('/auth/oidc/session', async (request, reply) => {
   if (!result.ok) {
     return reply.status(result.status).send({ error: result.error })
   }
+  if (result.idToken) {
+    const idCookie = buildOidcIdTokenSetCookie(result.idToken, {
+      secure: oidcCookieSecure(request),
+    })
+    if (idCookie) appendSetCookie(reply, idCookie)
+  }
   return result.session
 })
 
 app.get('/auth/oidc/logout', async (request, reply) => {
   const query = request.query as { redirect?: unknown }
+  const idTokenHint = readRequestCookie(
+    request.headers.cookie,
+    OIDC_ID_TOKEN_COOKIE,
+  )
   const result = await buildOidcLogoutRedirect({
     postLogoutRedirect:
       typeof query.redirect === 'string' ? query.redirect : '/login',
+    idTokenHint,
   })
+  appendSetCookie(
+    reply,
+    buildOidcIdTokenClearCookie({ secure: oidcCookieSecure(request) }),
+  )
   if (!result.ok) {
     return reply.status(result.status).send({ error: result.error })
   }

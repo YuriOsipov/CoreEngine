@@ -197,8 +197,10 @@ function updateTranslationLanguage(language: TranslationLanguage): void {
 async function handleLogout(): Promise<void> {
   loggingOut.value = true
   try {
-    await logoutWithBff()
-    await router.replace({ name: 'login' })
+    const result = await logoutWithBff()
+    if (!result.idpLogout) {
+      await router.replace({ name: 'login' })
+    }
   } finally {
     loggingOut.value = false
   }

@@ -70,6 +70,10 @@ const messages = {
     password: 'Пароль',
     loginFailed: 'Не вдалося увійти. Перевірте email і пароль.',
     rememberMe: 'Залишатися в системі 30 днів',
+    ssoFailed:
+      'Не вдалося увійти через SSO. Спробуйте ще раз або зверніться до адміністратора.',
+    ssoDenied: 'Вхід через SSO скасовано або відхилено.',
+    ssoUnavailable: 'SSO тимчасово недоступне. Спробуйте трохи пізніше.',
   },
   mainPage: {
     homeNotConfigured: 'Головну сторінку для цієї програми не налаштовано.',
@@ -639,7 +643,7 @@ const messages = {
     },
     roles: {
       title: 'Ролі',
-      hint: 'Групи користувачів з правами Create / Read / Update / Delete / Import / Export для колекцій.',
+      hint: 'Групи користувачів з CRUD, Import / Export, чутливістю полів і опційними View All / Modify All для owner row security.',
       new: 'Нова роль',
       edit: 'Редагувати роль',
       loading: 'Завантаження ролей...',
@@ -662,6 +666,12 @@ const messages = {
       canDelete: 'Delete',
       canImport: 'Import',
       canExport: 'Export',
+      canViewAll: 'View all',
+      canViewAllHint:
+        'Бачити всі рядки на об’єктах з Owner row security (не лише Created By = я). Потрібен Read. Для менеджерів / лідів.',
+      canModifyAll: 'Modify all',
+      canModifyAllHint:
+        'Редагувати або видаляти будь-який рядок на об’єктах з Owner row security. Включає View all. Потрібні Update / Delete.',
       sensitiveRead: 'Читання чутливих',
       sensitiveReadHint:
         'Найвищий рівень чутливості полів, який ця роль бачить в об’єкті. Поля вище цього рівня API ніколи не повертає.',

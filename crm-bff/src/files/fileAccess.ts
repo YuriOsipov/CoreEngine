@@ -1,9 +1,10 @@
 /**
- * Gate file reads on parent-record entity read (not a global files bypass).
+ * Gate file reads on parent-record entity read + owner RLS (not a global files bypass).
  */
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { findFile } from '../adapters/filesAdapter.js'
 import { listFileParentLinks } from '../adapters/postgresFiles.js'
+import { findOneRecord } from '../adapters/records/facade.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 
 function uploadedById(row: Record<string, unknown>): string | null {
@@ -79,6 +80,10 @@ export async function assertFileReadable(
   for (const parent of parents) {
     try {
       await assertMeEntityPermission(me, parent.collection, 'read')
+      // Entity ACL is not enough when the parent is owner-secured.
+      if (parent.recordId) {
+        await findOneRecord(parent.collection, parent.recordId, ['id'], { me })
+      }
       return row
     } catch {
       // try next parent

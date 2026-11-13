@@ -181,8 +181,8 @@ describe('fieldSecurity', () => {
     process.env.NODE_ENV = prev
   })
 
-  it('exposes a 30s per-process cache TTL and reloads after clear (remark 2)', async () => {
-    expect(FIELD_SECURITY_CACHE_TTL_MS).toBe(30_000)
+  it('exposes a short per-process cache TTL and reloads after clear', async () => {
+    expect(FIELD_SECURITY_CACHE_TTL_MS).toBe(5_000)
     mockRegistry([])
     await resolveFieldAccess(user(), 'employee')
     expect(query).toHaveBeenCalledTimes(2)

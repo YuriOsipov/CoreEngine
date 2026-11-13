@@ -9,6 +9,8 @@ import {
   generateOidcState,
   generatePkcePair,
 } from './oidcPkce.js'
+import { fetchOidcHttp } from './oidcFetch.js'
+import { oidcStateCookieMatches } from './oidcStateCookie.js'
 import {
   storeOidcPending,
   storeOidcSessionTicket,
@@ -37,7 +39,10 @@ export function oidcStatusPayload(): {
 
 export async function buildOidcAuthorizeRedirect(input: {
   redirectPath?: string | null
-}): Promise<{ ok: true; url: string } | { ok: false; status: number; error: string }> {
+}): Promise<
+  | { ok: true; url: string; state: string }
+  | { ok: false; status: number; error: string }
+> {
   const cfg = readOidcConfig()
   if (!cfg.enabled) {
     return { ok: false, status: 404, error: 'OIDC SSO is not enabled' }
@@ -47,11 +52,18 @@ export async function buildOidcAuthorizeRedirect(input: {
     const { verifier, challenge } = generatePkcePair()
     const state = generateOidcState()
     const nonce = generateOidcNonce()
-    storeOidcPending(state, {
+    const stored = storeOidcPending(state, {
       codeVerifier: verifier,
       nonce,
       redirectPath: safeRedirectPath(input.redirectPath),
     })
+    if (!stored) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'SSO temporarily unavailable (too many pending logins)',
+      }
+    }
 
     const url = new URL(discovery.authorization_endpoint)
     url.searchParams.set('client_id', cfg.clientId)
@@ -63,7 +75,7 @@ export async function buildOidcAuthorizeRedirect(input: {
     url.searchParams.set('code_challenge', challenge)
     url.searchParams.set('code_challenge_method', 'S256')
 
-    return { ok: true, url: url.toString() }
+    return { ok: true, url: url.toString(), state }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OIDC authorize failed'
     return { ok: false, status: 502, error: message }
@@ -84,7 +96,7 @@ async function exchangeAuthorizationCode(input: {
     client_secret: cfg.clientSecret,
     code_verifier: input.codeVerifier,
   })
-  const response = await fetch(discovery.token_endpoint, {
+  const response = await fetchOidcHttp(discovery.token_endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -117,6 +129,7 @@ async function exchangeAuthorizationCode(input: {
 export async function completeOidcCallback(input: {
   code?: string | null
   state?: string | null
+  stateCookie?: string | null
   error?: string | null
   errorDescription?: string | null
 }): Promise<
@@ -138,6 +151,15 @@ export async function completeOidcCallback(input: {
   const state = String(input.state || '').trim()
   if (!code || !state) {
     return { ok: false, status: 400, error: 'Missing OIDC code or state' }
+  }
+
+  // Login CSRF: state must match the HttpOnly cookie set on /auth/oidc/login.
+  if (!oidcStateCookieMatches(state, input.stateCookie)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Invalid or missing OIDC state cookie',
+    }
   }
 
   const pending = takeOidcPending(state)
@@ -165,11 +187,19 @@ export async function completeOidcCallback(input: {
     })
 
     const ticketId = randomUUID()
-    storeOidcSessionTicket(ticketId, {
+    const ticketStored = storeOidcSessionTicket(ticketId, {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires: session.expires,
+      id_token: tokens.id_token,
     })
+    if (!ticketStored) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'SSO temporarily unavailable (too many pending sessions)',
+      }
+    }
 
     const ui = new URL('/login/oidc/callback', `${cfg.uiOrigin}/`)
     ui.searchParams.set('ticket', ticketId)
@@ -184,7 +214,7 @@ export async function completeOidcCallback(input: {
 }
 
 export function redeemOidcTicket(ticket: string):
-  | { ok: true; session: AuthSessionPayload }
+  | { ok: true; session: AuthSessionPayload; idToken: string | null }
   | { ok: false; status: number; error: string } {
   const id = String(ticket || '').trim()
   if (!id) {
@@ -196,6 +226,7 @@ export function redeemOidcTicket(ticket: string):
   }
   return {
     ok: true,
+    idToken: stored.id_token ?? null,
     session: {
       access_token: stored.access_token,
       refresh_token: stored.refresh_token,
@@ -209,6 +240,7 @@ export function redeemOidcTicket(ticket: string):
 
 export async function buildOidcLogoutRedirect(input: {
   postLogoutRedirect?: string | null
+  idTokenHint?: string | null
 }): Promise<{ ok: true; url: string | null } | { ok: false; status: number; error: string }> {
   const cfg = readOidcConfig()
   if (!cfg.enabled) {
@@ -226,6 +258,10 @@ export async function buildOidcLogoutRedirect(input: {
     const url = new URL(discovery.end_session_endpoint)
     url.searchParams.set('client_id', cfg.clientId)
     url.searchParams.set('post_logout_redirect_uri', post)
+    const hint = String(input.idTokenHint || '').trim()
+    if (hint) {
+      url.searchParams.set('id_token_hint', hint)
+    }
     return { ok: true, url: url.toString() }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OIDC logout failed'

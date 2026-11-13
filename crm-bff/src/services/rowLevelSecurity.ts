@@ -2,14 +2,27 @@ import { query } from '../db/pool.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import type { RecordAccess } from '../adapters/records/types.js'
 import { isSystemRecordAccess } from '../adapters/records/types.js'
+import { resolveRoleOwnerBypass } from './rolePermissions.js'
 
 /**
  * Owner-based row-level security (MVP).
  *
  * Opt-in per entity via `backend_config.rowLevelSecurity = "owner"`.
  * Non-admin users may only list/read/update/delete rows where
- * `user_created` equals their `backend_user_id`. Admins and
- * `SYSTEM_RECORD_ACCESS` bypass. No share table / hierarchy yet.
+ * `user_created` equals `me.id`. That id is `app_users.backend_user_id`
+ * (see `postgresFetchMe` / `actorIdFromMe`) — the same value stamped into
+ * `user_created` on create. It is **not** the app_users UUID PK.
+ * Legacy rows with null `user_created` are invisible to non-admins (by design).
+ * Admins, `SYSTEM_RECORD_ACCESS`, and role **View All** / **Modify All** bypass
+ * (read vs write). No share table / hierarchy yet.
+ *
+ * Enforcement surface (keep in sync when adding loaders):
+ * - Facade: `findManyRecords` / `findOneRecord` / update / delete / `aggregateRecords`
+ *   (also covers REST `/api/v1/*`, SOQL `/api/v1/query`, M2O/O2M/M2A expand,
+ *   reverse-child expand, and bulk actions that call the facade).
+ * - GraphQL: `record` / `records` / mutations via facade; `recordActivities`,
+ *   `recordRevisions`, `recordFiles`, and `bulkUpdateRelatedFromAction` assert
+ *   parent readability via `findOneRecord` before side reads/writes.
  */
 
 export type RowLevelSecurityMode = 'owner' | null
@@ -161,9 +174,20 @@ export function assertRecordOwner(
   }
 }
 
+async function roleBypassesOwnerForAction(
+  me: MeUser | null | undefined,
+  entityApiName: string,
+  action: 'read' | 'update' | 'delete',
+): Promise<boolean> {
+  if (!me) return false
+  const scope = await resolveRoleOwnerBypass(me, entityApiName)
+  if (action === 'read') return scope.viewAll
+  return scope.modifyAll
+}
+
 /**
- * When entity is owner-secured and caller is a non-admin user, return a
- * filter that restricts to their rows. Otherwise return the input filter.
+ * When entity is owner-secured and caller is a non-admin user without View All,
+ * return a filter that restricts to their rows. Otherwise return the input filter.
  */
 export async function applyOwnerFilterIfNeeded(
   entityApiName: string,
@@ -173,6 +197,9 @@ export async function applyOwnerFilterIfNeeded(
   if (bypassesRowLevelSecurity(access)) return filter
   const mode = await resolveEntityRowLevelSecurity(entityApiName)
   if (mode !== 'owner') return filter
+  if (await roleBypassesOwnerForAction(access.me, entityApiName, 'read')) {
+    return filter
+  }
   const me = access.me
   const myId = me && typeof me.id === 'string' ? me.id.trim() : ''
   if (!myId) {
@@ -183,7 +210,8 @@ export async function applyOwnerFilterIfNeeded(
 
 /**
  * After loading a row by id: enforce owner mode for non-admin callers.
- * No-op when entity is not owner-secured or caller bypasses.
+ * No-op when entity is not owner-secured, caller is admin/system, or role has
+ * View All (read) / Modify All (update|delete).
  */
 export async function assertOwnerAccessIfNeeded(
   entityApiName: string,
@@ -194,9 +222,55 @@ export async function assertOwnerAccessIfNeeded(
   if (bypassesRowLevelSecurity(access)) return
   const mode = await resolveEntityRowLevelSecurity(entityApiName)
   if (mode !== 'owner') return
+  if (await roleBypassesOwnerForAction(access.me, entityApiName, action)) {
+    return
+  }
   const me = access.me
   if (!me) {
     throw new Error(`Permission denied: ${action} on ${entityApiName}`)
   }
   assertRecordOwner(me, entityApiName, record, action)
+}
+
+/**
+ * Owner predicate for nested/related queries (M2O EXISTS, Hasura related search).
+ * Returns null when no restriction applies (off, admin, View All, system).
+ * Returns an impossible filter when the caller has no usable id (deny).
+ */
+export async function relatedOwnerFilterIfNeeded(
+  entityApiName: string,
+  me: MeUser | null | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!me || isAdminMe(me)) return null
+  const mode = await resolveEntityRowLevelSecurity(entityApiName)
+  if (mode !== 'owner') return null
+  if (await roleBypassesOwnerForAction(me, entityApiName, 'read')) return null
+  const myId = typeof me.id === 'string' ? me.id.trim() : ''
+  if (!myId) {
+    // No actor id → match nothing (do not widen to all rows).
+    return { [ROW_OWNER_FIELD]: { _eq: '__rls_deny__' } }
+  }
+  return ownerEqFilter(myId)
+}
+
+/**
+ * SQL AND-fragment for a related-table alias (`r.user_created = $n`).
+ * `ownerColumnExpr` must already be a safe identifier/expression (not user input).
+ */
+export async function relatedOwnerSqlIfNeeded(
+  entityApiName: string,
+  me: MeUser | null | undefined,
+  ownerColumnExpr: string,
+  paramIndex: number,
+): Promise<{ sql: string; params: unknown[] } | null> {
+  if (!me || isAdminMe(me)) return null
+  const mode = await resolveEntityRowLevelSecurity(entityApiName)
+  if (mode !== 'owner') return null
+  if (await roleBypassesOwnerForAction(me, entityApiName, 'read')) return null
+  const myId = typeof me.id === 'string' ? me.id.trim() : ''
+  if (!myId) return { sql: 'FALSE', params: [] }
+  return {
+    sql: `(${ownerColumnExpr}) = $${paramIndex}`,
+    params: [myId],
+  }
 }

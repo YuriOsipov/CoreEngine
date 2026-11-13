@@ -181,42 +181,68 @@ export async function bffLogin(input: {
   return { ok: true, session: await issueSession(user) }
 }
 
-async function recordConsumedRefreshToken(
-  tokenHash: string,
-  userId: string,
-): Promise<void> {
+/** Concurrent tab / retry of the same refresh within this window is not treated as theft. */
+export const REFRESH_REUSE_GRACE_MS = 10_000
+
+async function pruneConsumedRefreshTokens(): Promise<void> {
   try {
-    await query(
-      `INSERT INTO public.app_refresh_token_consumed (token_hash, user_id)
-       VALUES ($1, $2::uuid)
-       ON CONFLICT (token_hash) DO NOTHING`,
-      [tokenHash, userId],
-    )
-    // Bound table growth — keep roughly one refresh TTL of history.
     await query(
       `DELETE FROM public.app_refresh_token_consumed
        WHERE consumed_at < now() - ($1::int * interval '1 second')`,
       [REFRESH_TTL_SEC],
     )
   } catch (error) {
-    // Pre-migration DBs lack the table; rotation still works, reuse detection does not.
     if ((error as { code?: string } | null)?.code !== '42P01') throw error
   }
 }
 
-async function findConsumedRefreshUser(tokenHash: string): Promise<string | null> {
+async function findConsumedRefresh(tokenHash: string): Promise<{
+  user_id: string
+  consumed_at: string
+} | null> {
   try {
-    const rows = await query<{ user_id: string }>(
-      `SELECT user_id::text AS user_id
+    const rows = await query<{ user_id: string; consumed_at: string }>(
+      `SELECT user_id::text AS user_id, consumed_at::text AS consumed_at
        FROM public.app_refresh_token_consumed
        WHERE token_hash = $1
        LIMIT 1`,
       [tokenHash],
     )
-    return rows[0]?.user_id ?? null
+    return rows[0] ?? null
   } catch (error) {
     if ((error as { code?: string } | null)?.code === '42P01') return null
     throw error
+  }
+}
+
+async function consumeRefreshTokenAtomic(
+  tokenHash: string,
+): Promise<string | null> {
+  try {
+    // Single statement: DELETE + INSERT so a crash cannot drop reuse detection.
+    const rows = await query<{ user_id: string }>(
+      `WITH deleted AS (
+         DELETE FROM public.app_refresh_tokens
+         WHERE token_hash = $1 AND expires_at > now()
+         RETURNING user_id
+       )
+       INSERT INTO public.app_refresh_token_consumed (token_hash, user_id)
+       SELECT $1, user_id FROM deleted
+       RETURNING user_id::text AS user_id`,
+      [tokenHash],
+    )
+    void pruneConsumedRefreshTokens()
+    return rows[0]?.user_id ?? null
+  } catch (error) {
+    // Pre-migration DBs lack the consumed table — fall back to DELETE-only rotation.
+    if ((error as { code?: string } | null)?.code !== '42P01') throw error
+    const rows = await query<{ user_id: string }>(
+      `DELETE FROM public.app_refresh_tokens
+       WHERE token_hash = $1 AND expires_at > now()
+       RETURNING user_id::text AS user_id`,
+      [tokenHash],
+    )
+    return rows[0]?.user_id ?? null
   }
 }
 
@@ -227,23 +253,28 @@ export async function bffRefresh(input: {
 > {
   const tokenHash = hashRefreshToken(input.refreshToken)
 
-  // Reuse of a rotated token → revoke every session for that user.
-  const reusedUserId = await findConsumedRefreshUser(tokenHash)
-  if (reusedUserId) {
-    await revokeAllRefreshTokensForUser(reusedUserId)
+  const consumed = await findConsumedRefresh(tokenHash)
+  if (consumed) {
+    const consumedAtMs = Date.parse(consumed.consumed_at)
+    const ageMs = Number.isFinite(consumedAtMs)
+      ? Date.now() - consumedAtMs
+      : Number.POSITIVE_INFINITY
+    if (ageMs <= REFRESH_REUSE_GRACE_MS) {
+      // Benign client retry / second tab — issue another session, do not global-revoke.
+      const user = await loadUserById(consumed.user_id)
+      if (!user || !user.is_active) {
+        return { ok: false, status: 401, error: 'Refresh failed' }
+      }
+      return { ok: true, session: await issueSession(user) }
+    }
+    // Reuse outside the grace window → revoke every session for that user.
+    await revokeAllRefreshTokensForUser(consumed.user_id)
     return { ok: false, status: 401, error: 'Refresh failed' }
   }
 
-  const rows = await query<{ user_id: string }>(
-    `DELETE FROM public.app_refresh_tokens
-     WHERE token_hash = $1 AND expires_at > now()
-     RETURNING user_id::text AS user_id`,
-    [tokenHash],
-  )
-  const row = rows[0]
-  if (!row?.user_id) return { ok: false, status: 401, error: 'Refresh failed' }
-  await recordConsumedRefreshToken(tokenHash, row.user_id)
-  const user = await loadUserById(row.user_id)
+  const userId = await consumeRefreshTokenAtomic(tokenHash)
+  if (!userId) return { ok: false, status: 401, error: 'Refresh failed' }
+  const user = await loadUserById(userId)
   if (!user || !user.is_active) {
     return { ok: false, status: 401, error: 'Refresh failed' }
   }

@@ -6,7 +6,7 @@ Vue 3 + Vite + TypeScript. Schema-driven objects, layouts, documents, dashboards
 
 **DocEngine (UI documents):** interactive HTML/PDF editing ships as a **sibling repo**, not this tree. It is **public** on GitHub ([YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine)) under the **MIT License** (same author). Local installs use `file:../docEngine`; CI swaps those deps for in-repo stubs. The MIT / self-hosted “free” pitch for CoreEngine’s document UI depends on that public MIT sibling — clone it next to this repo for `npm run dev` / the optional Docker `ui` profile. Server `generateDocument` in CoreEngine remains a Phase 0 stub (HTTP 501).
 
-**Project status:** early-stage. The idea is clear (git-versioned domain packs, role layouts, pricing/document features), but CoreEngine is **not yet** a drop-in NocoBase or Salesforce alternative for production adoption. Expect gaps in durable automation, full row-level sharing (owner MVP only), and the server documents API (still a stub). Optional OIDC SSO is available via an external IdP. Interactive DocEngine in the UI works today when the sibling is present.
+**Project status:** early-stage. Aimed at **SMB and mid-market** teams (not full Salesforce Enterprise sharing). The idea is clear (git-versioned domain packs, role layouts, pricing/document features), but CoreEngine is **not yet** a drop-in NocoBase or Salesforce alternative for production adoption. Expect gaps in durable automation, **manual share / groups / hierarchy** (owner row security + role View/Modify all cover the common “my rows / manager sees all” pattern), and the server documents API (still a stub). Optional OIDC SSO is available via an external IdP. Interactive DocEngine in the UI works today when the sibling is present.
 
 **CoreEngine takes the core Salesforce ideas** (custom objects, relationships, role-based layouts, record pages with related lists, and in-app document generation) **and delivers them as a modern, self-hosted, free platform** with git-versioned domain packs — without the per-seat cost or complexity of the full Salesforce stack.
 
@@ -30,7 +30,7 @@ Build internal and vertical applications with custom objects, relationships, rol
 | Need | CoreEngine | NocoBase | Twenty | Retool | Salesforce |
 |------|------------|----------|--------|--------|------------|
 | Custom objects + relationships | Strong | Excellent | Strong | Query existing data | Excellent |
-| Role layouts, list filters, object CRUD, field-level tiers | Strong (UX + BFF); **owner RLS MVP** (opt-in); no share rules yet | Strong (field + record/sharing rules) | Permissions-focused | Build separate UIs | Excellent |
+| Role layouts, list filters, object CRUD, field-level tiers | Strong (UX + BFF); **owner RLS** + role **View/Modify all**; no manual share yet | Strong (field + record/sharing rules) | Permissions-focused | Build separate UIs | Excellent |
 | CRM pipeline + email/calendar | Starter pack | Build / plugins | Strong | Build it | Excellent |
 | Campaign → promo pricing engine | Built-in | Build it | Custom objects | Build it | Custom / AppExchange |
 | Document generation (PDF/HTML) | UI DocEngine (public MIT sibling); server API stub (501) | Plugins / build | Limited | Build it | Good (packages) |
@@ -47,7 +47,7 @@ How CoreEngine maps to common platform checklist items today:
 | Area | CoreEngine today |
 |------|------------------|
 | **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks** (scheduled jobs). Visual multi-step designer lives in **n8n** (or similar), not inside CoreEngine. |
-| **Permissions** | Partial — **Object-level CRUD** + **field-level sensitivity tiers** + opt-in **owner row security** (MVP) at the BFF. **Not** full sharing rules / groups / hierarchy. Gaps vs NocoBase-class platforms are mainly richer row-level sharing. |
+| **Permissions** | Partial — **Object-level CRUD** + **field-level sensitivity tiers** + opt-in **owner row security** with role **View all / Modify all** at the BFF. **Not** manual share / groups / hierarchy. Aimed at SMB / mid-market; richer sharing later if demos need handoffs. |
 | **Authentication** | Partial — local email/password via BFF JWT (`/auth/login`, refresh). Optional **OIDC SSO** via external IdP (Keycloak / Auth0 / …); MFA is configured on the IdP. See [`docs/oidc-sso.md`](docs/oidc-sso.md). |
 | **Version control** | Partial — schemas, layouts, roles, and templates ship as **domain packs** (JSON under `supabase/domains/`) with `platform:export-pack` / `apply-pack`; versioned in **git**. No in-app config revision UI. |
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
@@ -86,18 +86,19 @@ How CoreEngine maps to common platform checklist items today:
 - Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL ([`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md)).
 
 ### Permissions & authentication
-- **Object-level CRUD** (+ import/export) matrix per role — **enforced by the BFF** on GraphQL/REST record operations; admins bypass; role preview in the UI.
+- **Object-level CRUD** (+ import/export) matrix per role — **enforced by the BFF** on GraphQL/REST record operations; admins bypass; role preview in the UI. Setup → Roles also grants optional **View all** / **Modify all** per object (see owner row security below).
 - **Field-level security (sensitivity flags)** — mark a field Restricted or Confidential in Setup → Fields; grant a per-role max read/edit tier in Setup → Roles. Platform default is open (new fields = None) until an admin marks them; a role with no grant sees none of the marked ones. Admins bypass. UI hide alone is not enough — the BFF enforces.
   - **Entity / pack default:** Setup → Entity parameters → **Default field security level** (`backend_config.defaultFieldSensitivity`, also settable in domain-pack entity JSON). New fields inherit that tier when create omits an explicit sensitivity; existing fields are unchanged.
   - **Covered (unit-tested gates / redaction):** record reads & writes; filters, sorts, aggregates — FLS `assertReadableQuery` runs in the facade **before** every store (Supabase, Hasura, Directus). Dotted SOQL keys like `manager.salary` are hop-checked then expanded to nested filters for Hasura/Directus (same shape Supabase EXISTS already used). List search: Supabase/Hasura exclude parent unreadable fields **and** M2O “Use in search” hops (related entity read ACL + template/fallback label sensitivity); Directus omits global search when any parent field is unreadable. Also: revision snapshot redaction; export/import pickers; upsert / unique-key lookups; `expand=children`; bulk update-by-filter / related; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (+ Setup clamp); facade `access` required (`{ me }` / `SYSTEM_RECORD_ACCESS`); production boot refuses missing sensitivity columns; hard delete audits **before** erase (`hardDeleteAfterAudit`); refresh-token reuse revokes all sessions (migration `202611120001_refresh_token_reuse.sql`).
   - **Open / limited:** interactive DocEngine / `doc_value` follow document-object ACL (admin-only matrix today), not source-field sensitivity; server `generateDocument` is still a 501 stub; **ddlSync** only shapes physical columns — it does not read or enforce sensitivity (FLS stays in BFF + registry); record automations `setFields` / `notify` are trusted server rules; child value lookups have no dedicated FLS test; seeded **n8n automation user is an admin**; rollup **filters** on sensitive child fields and non-`{{…}}` formula idioms are not fully modeled; COUNT(`*`) rollups have no value-field tier; field-tier cache is **30s per process** (`FIELD_SECURITY_CACHE_TTL_MS`) — Setup clears the local instance immediately, other replicas can lag until TTL; create/update/soft-delete audit failures are still warn-only (hard delete is fail-closed).
 - **Field sensitivity is column-level.** Flags mean “this column is sensitive for most roles on every record of the object.” They do **not** by themselves cover “Sales can see salary only for their own team.”
-- **Owner row security (MVP)** — opt-in per object so non-admins only reach rows they created. Default is **off** (unchanged behaviour until an admin enables it).
-  - **Enable:** Setup → Entity parameters → **Owner row security**, or set `backend_config.rowLevelSecurity` to `"owner"` in entity / pack JSON (`null` or omit = off). Requires **Created By** (`user_created`) on the object — create already stamps it server-side; clients cannot set or change it.
-  - **Enforced (BFF facade):** list, get-by-id, update, soft-delete, restore, and aggregates on GraphQL/REST/SOQL-style paths. Filter becomes `user_created = me.id` (ANDed with the caller’s filter). Unauthorized get/update/delete → `Permission denied`. Soft-delete cascades run as system after the parent ownership check.
-  - **Bypass:** real admins and trusted `SYSTEM_RECORD_ACCESS` jobs. **Admin “View as role”** strips admin for record ACL, so previewing a non-admin role also applies owner filters (useful for testing).
-  - **Not yet:** manual share, public groups, role hierarchy, criteria sharing rules, or a separate transferable `owner_id`. Role **list filters/views** stay UX-only and are **not** a substitute for this API gate.
-  - **Tests:** `crm-bff/src/services/rowLevelSecurity.test.ts`.
+- **Owner row security** — opt-in per object so users without View/Modify all only reach rows they created. Default is **off**. Fits SMB / mid “private to creator + manager sees all” without Salesforce sharing rules.
+  - **Enable object:** Setup → Entity parameters → **Owner row security**, or `backend_config.rowLevelSecurity = "owner"` in entity / pack JSON (`null` / omit = off). Needs **Created By** (`user_created`) — stamped on create; clients cannot set it.
+  - **Typical setup:** Reps = Read/Update on the object (owner filter applies). Managers = same CRUD **plus View all** (and **Modify all** if they may edit anyone’s rows). Platform admins always bypass. Apply kernel migration `202611130002_role_permissions_view_modify_all.sql` (`npm run registry:migrate`) before using the new role columns.
+  - **Enforced (BFF facade):** list, get-by-id, update, soft-delete, restore, aggregates (GraphQL / REST / SOQL-style). Without View all → `user_created = me.id`. Unauthorized get/update/delete → `Permission denied`. Soft-delete cascades run as system after the parent ownership check.
+  - **Bypass:** admins; `SYSTEM_RECORD_ACCESS`; role **View all** (read/list/aggregate, still needs Read); role **Modify all** (update/delete/restore, implies View all, still needs Update/Delete). **View as role** applies the previewed role’s owner / View-all rules.
+  - **Not yet:** manual share, public groups, role hierarchy, criteria rules, transferable `owner_id`. Role **list filters/views** are UX-only — not an API substitute for owner security.
+  - **Tests:** `crm-bff/src/services/rowLevelSecurity.test.ts` (includes View all / Modify all bypass cases).
 - **Admin “View as role”** — sends `X-Role-Preview` so object ACL, field security, and owner row security follow the selected role **without creating a test user**. Setup admin mutations and GraphQL `me` keep real admin identity; audit stamps still record the admin as the actor.
 - **Per-role layouts** and **per-role list filters/views** (each role’s own record-list filters). Conditional field/group **hide / readonly** on layouts is UI behavior on top of, not instead of, field-level API security.
 - **Auth:** BFF local login (`VITE_AUTH_MODE=bff`) issuing verified Bearer access tokens (**15-minute** TTL) + refresh tokens. Optional **OIDC SSO** (`OIDC_ENABLED`) — Authorization Code + PKCE against an external IdP (Keycloak, Auth0, …); BFF verifies the ID token and issues the same CoreEngine session. **Roles and admin flags stay in CoreEngine** (Setup → Users / Roles) — IdP groups/roles are not synced. MFA / enterprise policies live on the IdP. Automation users: `npm run registry:seed-n8n-automation-user`. See **OIDC SSO (Keycloak)** below and [`docs/oidc-sso.md`](docs/oidc-sso.md).
@@ -213,21 +214,23 @@ OIDC_ISSUER=http://localhost:8081/realms/coreengine
 # Docker BFF → Keycloak service name (browser still uses OIDC_ISSUER):
 OIDC_INTERNAL_ISSUER=http://keycloak:8080/realms/coreengine
 OIDC_CLIENT_ID=coreengine
-OIDC_CLIENT_SECRET=coreengine-dev-client-secret-change-me
+OIDC_CLIENT_SECRET=
 OIDC_REDIRECT_URI=http://localhost:4000/auth/oidc/callback
 OIDC_UI_ORIGIN=http://localhost:5173
 OIDC_DISPLAY_NAME=Keycloak
 ```
 
+Set `OIDC_CLIENT_SECRET` from Keycloak → Clients → `coreengine` → Credentials (leave empty in committed examples).
+
 Login page shows **Sign in with Keycloak** when `GET http://localhost:4000/auth/oidc/status` returns `enabled: true`.
 
 **New users (default — JIT off):**
 
-1. Create the user in CoreEngine (**Setup → Users**) with email + **role**.
+1. Create the user in CoreEngine (**Setup → Users**) with email + **non-admin** role.
 2. Create the same email in Keycloak (`coreengine` realm → Users → Add user; set password; Email verified On).
-3. Sign in via **Sign in with Keycloak** — first login links by email.
+3. Sign in via **Sign in with Keycloak** — first login links by email (`email_verified` required). Admins must set `oidc_issuer`/`oidc_subject` instead of email-link.
 
-Keycloak Groups / realm roles are **not** mapped to CoreEngine roles. Change ACL in Setup → Users / Roles. Optional JIT (`OIDC_JIT_PROVISION` + `OIDC_DEFAULT_ROLE_BACKEND_ID`) can auto-create unknown emails into one default role — still no IdP group sync. Full detail: [`docs/oidc-sso.md`](docs/oidc-sso.md).
+Keycloak Groups / realm roles are **not** mapped to CoreEngine roles. Change ACL in Setup → Users / Roles. Optional JIT (`OIDC_JIT_PROVISION` + `OIDC_DEFAULT_ROLE_BACKEND_ID` + `OIDC_ALLOWED_EMAIL_DOMAINS`) can auto-create unknown emails into one default role — still no IdP group sync. Admin accounts are never email-linked; set `oidc_issuer`/`oidc_subject` explicitly. Full detail: [`docs/oidc-sso.md`](docs/oidc-sso.md).
 
 ### Local (npm)
 
@@ -271,7 +274,7 @@ What the BFF enforces today, and what operators must still do in production:
 | **Admin status** | Taken from the **database** (`is_admin` / role flags via `fetchMe`), not trusted from JWT / IdP claims. Setup stays on the real admin identity even when `X-Role-Preview` is set. |
 | **Setup mutations** | GraphQL Setup / registry mutations require **admin** (`requireAdminAccess`). Non-admins cannot change entities, fields, roles, layouts, or packs through those resolvers. |
 | **Field tiers** | Field sensitivity `0` / `1` / `2` + per-role max read/edit — enforced on record GraphQL/REST/SOQL paths (see Permissions). UI hide alone is not enough. **Production refuses to start** if sensitivity columns are missing (no silent FLS-off). In-memory tier cache TTL is **30s** per BFF process — Setup clears the local cache immediately; other instances can lag up to that TTL after a privilege downgrade. |
-| **Owner row security** | Opt-in per entity (`backend_config.rowLevelSecurity = "owner"`, Setup → Entity parameters). Non-admins are limited to their **Created By** (`user_created`) rows on list/get/update/delete/restore/aggregate. Admins and system jobs bypass; **View as role** applies the previewed role’s owner filter. **No** share table, groups, or hierarchy yet — list filters alone are not enough without this toggle. |
+| **Owner row security** | Opt-in per entity (`rowLevelSecurity: owner`). Default path: creator-only rows. Managers: Setup → Roles → **View all** / **Modify all** on that object (migration `202611130002_…`). Admins / system bypass. **No** manual share, groups, or hierarchy — list filters alone are not enough without the owner toggle. |
 | **Hasura / Directus** | Optional record backends for the BFF only. Keep their admin consoles, GraphQL endpoints, and secrets **off public networks**; clients talk to CoreEngine BFF, not those engines directly. |
 | **Scheduler** | In-process (`TASK_SCHEDULER_ENABLED`, default on). Run it on **one** BFF instance; disable on extras — there is no leader election. |
 | **Flows** | `FLOWS_TRIGGER_REQUIRE_AUTH=false` is **refused in production**. HTTP service-key callers still respect flow `allowedFields` on payload patches (trusted in-process `system` invokers do not). |
@@ -295,7 +298,7 @@ GitHub Actions runs three jobs on `main` (and `workflow_dispatch`): BFF typechec
 
 - **Guard audit** — `crm-bff/src/resolvers/resolverAccessPolicy.test.ts` classifies every GraphQL Query/Mutation root and asserts the matching access guard.
 - **Field-leak / field-security tests** — `crm-bff/src/services/fieldSecurity.test.ts` (tier gates / redaction) plus related coverage such as `uniqueGroups.formatError.test.ts` (unique-violation responses must not echo Postgres `detail` values).
-- **Owner row security** — `crm-bff/src/services/rowLevelSecurity.test.ts` (owner filter merge, assert/bypass helpers).
+- **Owner row security** — `crm-bff/src/services/rowLevelSecurity.test.ts` (owner filter merge, assert helpers, View all / Modify all bypass).
 
 CI swaps the sibling `file:../docEngine` dependency for in-repo stubs under `ci/stubs/` so the production bundle is gated without requiring a DocEngine checkout. Vite only aliases `@docengine/field-date` to the sibling when that path exists.
 
@@ -315,7 +318,7 @@ CI swaps the sibling `file:../docEngine` dependency for in-repo stubs under `ci/
 | `VITE_AUTH_MODE` | `bff` — login via BFF `/auth/login` |
 | `OIDC_ENABLED` / `OIDC_ISSUER` / `OIDC_CLIENT_*` | Optional SSO — see **OIDC SSO (Keycloak)** above and [`docs/oidc-sso.md`](docs/oidc-sso.md) |
 | `OIDC_INTERNAL_ISSUER` | Optional; Docker BFF discovery/JWKS via Keycloak service (`http://keycloak:8080/realms/…`) while token `iss` stays `OIDC_ISSUER` |
-| `OIDC_JIT_PROVISION` / `OIDC_DEFAULT_ROLE_BACKEND_ID` | Optional auto-create of unknown SSO emails into one CoreEngine role (default off) |
+| `OIDC_JIT_PROVISION` / `OIDC_DEFAULT_ROLE_BACKEND_ID` / `OIDC_ALLOWED_EMAIL_DOMAINS` | Optional auto-create of unknown SSO emails into one CoreEngine role (default off; domains required when JIT is on) |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase / PostgREST (optional registry REST) |
 | `DIRECTUS_RUNTIME` | Must be `off` (legacy HTTP SDK refuse; GraphQL adapter is separate) |
 | `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset). Record and document email stays in n8n |

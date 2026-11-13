@@ -12,14 +12,18 @@ import { elevateComputedSensitivities } from '../computed/computedSensitivity.js
  * fields.sensitivity (0 none, 1 restricted, 2 confidential) is compared with
  * role_permissions.max_read_sensitivity / max_edit_sensitivity for the entity.
  * Admins and system callers (no `me`) bypass. Both lookups are cached in memory
- * and cleared when Setup changes a field or a role matrix; the TTL bounds
- * staleness when several BFF instances run.
+ * (including formula/rollup elevation). Setup field/role writes call
+ * `clearFieldSecurityCache()` on this process immediately; the TTL only bounds
+ * staleness on other BFF instances until their cache expires.
  */
 
 export const MAX_SENSITIVITY = 2
 
-/** Per-process tier/field cache. Other BFF instances can lag up to this after a downgrade. */
-export const FIELD_SECURITY_CACHE_TTL_MS = 30_000
+/**
+ * Per-process tier/field cache (stores elevated computed tiers too).
+ * Same-instance Setup mutations clear immediately; multi-instance lag ≤ TTL.
+ */
+export const FIELD_SECURITY_CACHE_TTL_MS = 5_000
 const MAX_FILTER_DEPTH = 6
 
 export function clampSensitivity(value: unknown): number {

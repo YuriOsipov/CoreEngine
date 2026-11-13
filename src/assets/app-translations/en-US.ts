@@ -69,6 +69,9 @@ const messages = {
     password: 'Password',
     loginFailed: 'Sign-in failed. Check your email and password.',
     rememberMe: 'Keep me signed in for 30 days',
+    ssoFailed: 'Sign-in with SSO failed. Try again or contact an administrator.',
+    ssoDenied: 'SSO sign-in was cancelled or denied.',
+    ssoUnavailable: 'SSO is temporarily unavailable. Try again shortly.',
   },
   mainPage: {
     homeNotConfigured: 'Home page is not configured for this app.',
@@ -638,7 +641,7 @@ const messages = {
     },
     roles: {
       title: 'Roles',
-      hint: 'User groups with collection Create / Read / Update / Delete / Import / Export permissions.',
+      hint: 'User groups with object CRUD, Import / Export, field sensitivity, and optional View All / Modify All for owner row security.',
       new: 'New role',
       edit: 'Edit role',
       loading: 'Loading roles...',
@@ -661,6 +664,12 @@ const messages = {
       canDelete: 'Delete',
       canImport: 'Import',
       canExport: 'Export',
+      canViewAll: 'View all',
+      canViewAllHint:
+        'See every row on objects with Owner row security (not only Created By = me). Still needs Read. For sales managers / team leads.',
+      canModifyAll: 'Modify all',
+      canModifyAllHint:
+        'Edit or delete any row on objects with Owner row security. Implies View all. Still needs Update / Delete.',
       sensitiveRead: 'Sensitive read',
       sensitiveReadHint:
         'Highest field sensitivity this role can see on the object. Fields above it are never returned by the API.',

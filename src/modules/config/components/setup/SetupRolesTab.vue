@@ -36,6 +36,8 @@ type PermissionFlag =
   | 'canDelete'
   | 'canImport'
   | 'canExport'
+  | 'canViewAll'
+  | 'canModifyAll'
 
 interface PermissionMatrixRow {
   entityApiName: string
@@ -47,6 +49,8 @@ interface PermissionMatrixRow {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  canViewAll: boolean
+  canModifyAll: boolean
   maxReadSensitivity: number
   maxEditSensitivity: number
 }
@@ -115,10 +119,17 @@ function buildMatrix(
       canDelete: Boolean(granted?.canDelete),
       canImport: Boolean(granted?.canImport),
       canExport: Boolean(granted?.canExport),
+      canViewAll: Boolean(granted?.canViewAll || granted?.canModifyAll),
+      canModifyAll: Boolean(granted?.canModifyAll),
       maxReadSensitivity: clampSensitivity(granted?.maxReadSensitivity),
       maxEditSensitivity: clampSensitivity(granted?.maxEditSensitivity),
     }
   })
+}
+
+function setModifyAll(row: PermissionMatrixRow, value: boolean): void {
+  row.canModifyAll = value
+  if (value) row.canViewAll = true
 }
 
 function setReadSensitivity(row: PermissionMatrixRow, value: number): void {
@@ -165,6 +176,8 @@ function openCreate(): void {
     row.canDelete = true
     row.canImport = true
     row.canExport = true
+    row.canViewAll = false
+    row.canModifyAll = false
   }
   dialogVisible.value = true
 }
@@ -196,6 +209,9 @@ function setAll(action: 'all' | 'none' | 'read'): void {
       row.canDelete = true
       row.canImport = true
       row.canExport = true
+      // View/Modify All stay off — managers opt in per object for owner RLS.
+      row.canViewAll = false
+      row.canModifyAll = false
     } else if (action === 'none') {
       row.canCreate = false
       row.canRead = false
@@ -203,6 +219,8 @@ function setAll(action: 'all' | 'none' | 'read'): void {
       row.canDelete = false
       row.canImport = false
       row.canExport = false
+      row.canViewAll = false
+      row.canModifyAll = false
       row.maxReadSensitivity = SENSITIVITY_NONE
       row.maxEditSensitivity = SENSITIVITY_NONE
     } else {
@@ -212,6 +230,8 @@ function setAll(action: 'all' | 'none' | 'read'): void {
       row.canDelete = false
       row.canImport = false
       row.canExport = false
+      row.canViewAll = false
+      row.canModifyAll = false
       row.maxEditSensitivity = SENSITIVITY_NONE
     }
   }
@@ -230,7 +250,14 @@ function columnAllEnabled(flag: PermissionFlag): boolean {
 function toggleColumn(flag: PermissionFlag): void {
   const enable = !columnAllEnabled(flag)
   for (const row of filteredMatrix.value) {
-    row[flag] = enable
+    if (flag === 'canModifyAll') {
+      setModifyAll(row, enable)
+    } else {
+      row[flag] = enable
+      if (flag === 'canViewAll' && !enable) {
+        row.canModifyAll = false
+      }
+    }
   }
 }
 
@@ -263,6 +290,8 @@ async function save(): Promise<void> {
           canDelete: row.canDelete,
           canImport: row.canImport,
           canExport: row.canExport,
+          canViewAll: row.canModifyAll || row.canViewAll,
+          canModifyAll: row.canModifyAll,
           maxReadSensitivity: row.maxReadSensitivity,
           maxEditSensitivity: Math.min(row.maxEditSensitivity, row.maxReadSensitivity),
         })),
@@ -325,7 +354,7 @@ onMounted(() => {
           {{
             t(
               'setup.roles.hint',
-              'User groups with collection Create / Read / Update / Delete / Import / Export permissions.',
+              'User groups with object CRUD, Import / Export, field sensitivity, and optional View All / Modify All for owner row security.',
             )
           }}
         </p>
@@ -436,7 +465,7 @@ onMounted(() => {
           ? t('setup.roles.edit', 'Edit role')
           : t('setup.roles.new', 'New role')
       "
-      :style="{ width: 'min(88rem, 98vw)' }"
+      :style="{ width: 'min(96rem, 98vw)' }"
       :dismissable-mask="true"
     >
       <div class="flex flex-col gap-3">
@@ -664,6 +693,70 @@ onMounted(() => {
                 <Checkbox
                   v-model="data.canExport"
                   binary
+                />
+              </template>
+            </Column>
+            <Column style="width: 5.75rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="
+                    t(
+                      'setup.roles.canViewAllHint',
+                      'See every row on objects with Owner row security (not only Created By = me). Still needs Read. For sales managers / team leads.',
+                    )
+                  "
+                  @click="toggleColumn('canViewAll')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canViewAll')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canViewAll', 'View all') }}</span>
+                </button>
+              </template>
+              <template #body="{ data }">
+                <Checkbox
+                  :model-value="data.canViewAll"
+                  binary
+                  :disabled="data.canModifyAll"
+                  @update:model-value="
+                    (v: boolean) => {
+                      data.canViewAll = Boolean(v)
+                      if (!v) data.canModifyAll = false
+                    }
+                  "
+                />
+              </template>
+            </Column>
+            <Column style="width: 6.25rem; text-align: center">
+              <template #header>
+                <button
+                  type="button"
+                  class="setup-roles-col-toggle"
+                  v-tooltip.bottom="
+                    t(
+                      'setup.roles.canModifyAllHint',
+                      'Edit or delete any row on objects with Owner row security. Implies View all. Still needs Update / Delete.',
+                    )
+                  "
+                  @click="toggleColumn('canModifyAll')"
+                >
+                  <Checkbox
+                    :model-value="columnAllEnabled('canModifyAll')"
+                    binary
+                    readonly
+                  />
+                  <span>{{ t('setup.roles.canModifyAll', 'Modify all') }}</span>
+                </button>
+              </template>
+              <template #body="{ data }">
+                <Checkbox
+                  :model-value="data.canModifyAll"
+                  binary
+                  @update:model-value="setModifyAll(data, Boolean($event))"
                 />
               </template>
             </Column>

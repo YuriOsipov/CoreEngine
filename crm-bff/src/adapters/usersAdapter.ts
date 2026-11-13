@@ -8,6 +8,10 @@ import {
 } from './postgresUsers.js'
 
 export interface MeUser {
+  /**
+   * Actor id for audit + owner RLS: `app_users.backend_user_id` (not the UUID PK).
+   * Same value stamped into `user_created` / `user_updated` and used as JWT `sub`.
+   */
   id: string | null
   firstName: string | null
   lastName: string | null

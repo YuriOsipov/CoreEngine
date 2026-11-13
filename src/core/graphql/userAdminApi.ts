@@ -247,6 +247,10 @@ export interface RolePermissionDto {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  /** Bypass owner RLS for reads (still needs canRead). */
+  canViewAll: boolean
+  /** Bypass owner RLS for update/delete (still needs canUpdate/canDelete). */
+  canModifyAll: boolean
   /** Highest field sensitivity tier readable (0 none, 1 restricted, 2 confidential). */
   maxReadSensitivity: number
   /** Highest field sensitivity tier editable; never above read. */
@@ -269,6 +273,8 @@ const ROLE_PERMISSIONS_QUERY = /* GraphQL */ `
       canDelete
       canImport
       canExport
+      canViewAll
+      canModifyAll
       maxReadSensitivity
       maxEditSensitivity
     }
@@ -298,6 +304,8 @@ const REPLACE_ROLE_PERMISSIONS = /* GraphQL */ `
       canDelete
       canImport
       canExport
+      canViewAll
+      canModifyAll
       maxReadSensitivity
       maxEditSensitivity
     }

@@ -40,6 +40,16 @@ export interface RolePermissionRow {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  /**
+   * Bypass owner row security for reads (list/get/aggregate).
+   * Still requires can_read. Modify All implies View All.
+   */
+  canViewAll: boolean
+  /**
+   * Bypass owner row security for update/delete/restore.
+   * Still requires can_update / can_delete. Implies canViewAll for RLS.
+   */
+  canModifyAll: boolean
   /** Highest fields.sensitivity tier this role may read (0 = none). */
   maxReadSensitivity: number
   /** Highest fields.sensitivity tier this role may edit; never above read. */
@@ -54,8 +64,26 @@ export interface RolePermissionInput {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  canViewAll?: boolean | null
+  canModifyAll?: boolean | null
   maxReadSensitivity?: number | null
   maxEditSensitivity?: number | null
+}
+
+/** Owner-RLS bypass flags for a role on one entity. */
+export type RoleOwnerBypass = {
+  viewAll: boolean
+  modifyAll: boolean
+}
+
+const OWNER_BYPASS_CACHE_TTL_MS = 30_000
+const ownerBypassCache = new Map<
+  string,
+  { byEntity: Map<string, RoleOwnerBypass>; expiresAt: number }
+>()
+
+export function clearRoleOwnerBypassCache(): void {
+  ownerBypassCache.clear()
 }
 
 /** Admin-equivalent matrix row (full CRUD, every sensitivity tier). */
@@ -68,6 +96,8 @@ export function fullAccessPermissionRow(entityApiName: string): RolePermissionRo
     canDelete: true,
     canImport: true,
     canExport: true,
+    canViewAll: true,
+    canModifyAll: true,
     maxReadSensitivity: MAX_SENSITIVITY,
     maxEditSensitivity: MAX_SENSITIVITY,
   }
@@ -103,28 +133,36 @@ export async function listRolePermissions(
     can_delete: boolean
     can_import: boolean
     can_export: boolean
+    can_view_all: boolean
+    can_modify_all: boolean
     max_read_sensitivity: number | null
     max_edit_sensitivity: number | null
   }>(
     `SELECT entity_api_name, can_create, can_read, can_update, can_delete,
-            can_import, can_export, max_read_sensitivity, max_edit_sensitivity
+            can_import, can_export, can_view_all, can_modify_all,
+            max_read_sensitivity, max_edit_sensitivity
      FROM public.role_permissions
      WHERE role_id = $1::uuid
      ORDER BY entity_api_name ASC`,
     [appRoleId],
   )
 
-  return rows.map((row) => ({
-    entityApiName: row.entity_api_name,
-    canCreate: Boolean(row.can_create),
-    canRead: Boolean(row.can_read),
-    canUpdate: Boolean(row.can_update),
-    canDelete: Boolean(row.can_delete),
-    canImport: Boolean(row.can_import),
-    canExport: Boolean(row.can_export),
-    maxReadSensitivity: clampSensitivity(row.max_read_sensitivity),
-    maxEditSensitivity: clampSensitivity(row.max_edit_sensitivity),
-  }))
+  return rows.map((row) => {
+    const canModifyAll = Boolean(row.can_modify_all)
+    return {
+      entityApiName: row.entity_api_name,
+      canCreate: Boolean(row.can_create),
+      canRead: Boolean(row.can_read),
+      canUpdate: Boolean(row.can_update),
+      canDelete: Boolean(row.can_delete),
+      canImport: Boolean(row.can_import),
+      canExport: Boolean(row.can_export),
+      canViewAll: canModifyAll || Boolean(row.can_view_all),
+      canModifyAll,
+      maxReadSensitivity: clampSensitivity(row.max_read_sensitivity),
+      maxEditSensitivity: clampSensitivity(row.max_edit_sensitivity),
+    }
+  })
 }
 
 /** Replace all permissions for a role (full matrix upsert). */
@@ -138,6 +176,7 @@ export async function replaceRolePermissions(
   const cleaned = permissions
     .map((row) => {
       const maxRead = clampSensitivity(row.maxReadSensitivity)
+      const canModifyAll = Boolean(row.canModifyAll)
       return {
         entityApiName: String(row.entityApiName || '').trim(),
         canCreate: Boolean(row.canCreate),
@@ -146,6 +185,8 @@ export async function replaceRolePermissions(
         canDelete: Boolean(row.canDelete),
         canImport: Boolean(row.canImport),
         canExport: Boolean(row.canExport),
+        canModifyAll,
+        canViewAll: canModifyAll || Boolean(row.canViewAll),
         maxReadSensitivity: maxRead,
         maxEditSensitivity: Math.min(clampSensitivity(row.maxEditSensitivity), maxRead),
       }
@@ -172,15 +213,18 @@ export async function replaceRolePermissions(
         !row.canUpdate &&
         !row.canDelete &&
         !row.canImport &&
-        !row.canExport
+        !row.canExport &&
+        !row.canViewAll &&
+        !row.canModifyAll
       ) {
         continue
       }
       await tx(
         `INSERT INTO public.role_permissions (
            role_id, entity_api_name, can_create, can_read, can_update, can_delete,
-           can_import, can_export, max_read_sensitivity, max_edit_sensitivity
-         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+           can_import, can_export, can_view_all, can_modify_all,
+           max_read_sensitivity, max_edit_sensitivity
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           appRoleId,
           row.entityApiName,
@@ -190,6 +234,8 @@ export async function replaceRolePermissions(
           row.canDelete,
           row.canImport,
           row.canExport,
+          row.canViewAll,
+          row.canModifyAll,
           row.maxReadSensitivity,
           row.maxEditSensitivity,
         ],
@@ -197,6 +243,7 @@ export async function replaceRolePermissions(
     }
   })
   clearFieldSecurityCache()
+  clearRoleOwnerBypassCache()
 
   return listRolePermissions(appRoleId)
 }
@@ -305,6 +352,65 @@ async function loadPermissionFlags(
     canDelete: Boolean(row.can_delete),
     canImport: Boolean(row.can_import),
     canExport: Boolean(row.can_export),
+  }
+}
+
+function entityScopeKey(entity: string): string {
+  return String(entity || '')
+    .trim()
+    .toLowerCase()
+}
+
+/**
+ * View All / Modify All for owner RLS. Admins are handled by callers.
+ * Cached briefly per role; cleared when the matrix is saved.
+ */
+export async function resolveRoleOwnerBypass(
+  me: MeUser | null | undefined,
+  entityApiName: string,
+): Promise<RoleOwnerBypass> {
+  const none: RoleOwnerBypass = { viewAll: false, modifyAll: false }
+  if (!me?.id || me.adminAccess || me.roleAdminAccess) {
+    return { viewAll: true, modifyAll: true }
+  }
+  const roleRef = String(me.roleId || '').trim()
+  const entity = String(entityApiName || '').trim()
+  if (!roleRef || !entity) return none
+
+  const cached = ownerBypassCache.get(roleRef)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.byEntity.get(entityScopeKey(entity)) ?? none
+  }
+
+  try {
+    const rows = await query<{
+      entity_api_name: string
+      can_view_all: boolean
+      can_modify_all: boolean
+    }>(
+      `SELECT p.entity_api_name, p.can_view_all, p.can_modify_all
+       FROM public.app_roles r
+       JOIN public.role_permissions p ON p.role_id = r.id
+       WHERE r.backend_role_id = $1 OR r.id::text = $1`,
+      [roleRef],
+    )
+    const byEntity = new Map<string, RoleOwnerBypass>()
+    for (const row of rows) {
+      const modifyAll = Boolean(row.can_modify_all)
+      byEntity.set(entityScopeKey(row.entity_api_name), {
+        modifyAll,
+        viewAll: modifyAll || Boolean(row.can_view_all),
+      })
+    }
+    ownerBypassCache.set(roleRef, {
+      byEntity,
+      expiresAt: Date.now() + OWNER_BYPASS_CACHE_TTL_MS,
+    })
+    return byEntity.get(entityScopeKey(entity)) ?? none
+  } catch (error) {
+    // Pre-migration DBs lack the columns — treat as no bypass.
+    if ((error as { code?: string } | null)?.code === '42703') return none
+    throw error
   }
 }
 

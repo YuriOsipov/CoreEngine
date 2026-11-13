@@ -175,7 +175,10 @@ function stripClientAuditUserFields(
   return next
 }
 
-/** Stamp audit users + dates (server-owned; clients cannot set these). */
+/**
+ * Stamp audit users + dates (server-owned; clients cannot set these).
+ * `actorUserId` must be `me.id` / `backend_user_id` so owner RLS can match it.
+ */
 async function stampAuditUsers(
   entityApiName: string,
   data: Record<string, unknown>,
@@ -1169,6 +1172,7 @@ export async function restoreRecord(
   entity: string,
   id: string,
   visited: Set<string> = new Set(),
+  access: RecordAccess = SYSTEM_RECORD_ACCESS,
 ): Promise<Record<string, unknown>> {
   if (isUsersAssetCollection(entity)) {
     throw new Error(
@@ -1195,6 +1199,15 @@ export async function restoreRecord(
   } catch {
     existing = null
   }
+  // Cascade children use SYSTEM_RECORD_ACCESS; user-facing restores pass `{ me }`.
+  if (!isSystemRecordAccess(access)) {
+    await assertOwnerAccessIfNeeded(
+      apiName,
+      access,
+      existing ?? { user_created: null },
+      'update',
+    )
+  }
   const restored = await store.restore(apiName, recordId)
   await recomputeRollupsForChildChange(apiName, {
     before: existing,
@@ -1203,7 +1216,7 @@ export async function restoreRecord(
 
   // After parent is live again, restore archived CASCADE children (depth-first).
   await enforceCascadeRestore(apiName, recordId, async (childEntity, childId) => {
-    await restoreRecord(childEntity, childId, visited)
+    await restoreRecord(childEntity, childId, visited, SYSTEM_RECORD_ACCESS)
   })
 
   return restored
@@ -1212,6 +1225,7 @@ export async function restoreRecord(
 export async function hardDeleteRecord(
   entity: string,
   id: string,
+  access: RecordAccess = SYSTEM_RECORD_ACCESS,
 ): Promise<boolean> {
   if (isUsersAssetCollection(entity)) {
     throw new Error(
@@ -1225,6 +1239,14 @@ export async function hardDeleteRecord(
     existing = await store.findOne(apiName, String(id), null)
   } catch {
     existing = null
+  }
+  if (!isSystemRecordAccess(access)) {
+    await assertOwnerAccessIfNeeded(
+      apiName,
+      access,
+      existing ?? { user_created: null },
+      'delete',
+    )
   }
   const ok = await store.hardDelete(apiName, id)
   if (ok && existing) {

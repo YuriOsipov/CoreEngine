@@ -694,7 +694,9 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.entity, 'read')
+      const me = await assertEntityPermission(ctx, args.entity, 'read')
+      // Parent row must be readable under owner RLS (same as `record`).
+      await findOneRecord(args.entity, String(args.recordId), ['id'], { me })
       return listRecordActivities({
         entityApiName: args.entity,
         recordId: String(args.recordId),
@@ -713,8 +715,9 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      // Same object read gate as `record` — revisions must not bypass entity ACL.
+      // Same object read gate as `record` — revisions must not bypass entity ACL / RLS.
       const me = await assertEntityPermission(ctx, args.entity, 'read')
+      await findOneRecord(args.entity, String(args.recordId), ['id'], { me })
       const revisions = await listRecordRevisions({
         entityApiName: args.entity,
         recordId: String(args.recordId),
@@ -751,7 +754,9 @@ export const resolvers = {
       args: { collection: string; recordId: string; fields?: string[] | null },
       ctx: GraphQlAuthContext,
     ) => {
-      await assertEntityPermission(ctx, args.collection, 'read')
+      const me = await assertEntityPermission(ctx, args.collection, 'read')
+      // Parent row must be readable under owner RLS before listing linked files.
+      await findOneRecord(args.collection, String(args.recordId), ['id'], { me })
       return listRecordFiles(String(args.collection), String(args.recordId), args.fields)
     },
 
@@ -1767,6 +1772,10 @@ export const resolvers = {
           canDelete: boolean
           canImport: boolean
           canExport: boolean
+          canViewAll?: boolean | null
+          canModifyAll?: boolean | null
+          maxReadSensitivity?: number | null
+          maxEditSensitivity?: number | null
         }>
       },
       ctx: GraphQlAuthContext,

@@ -679,6 +679,10 @@ export const typeDefs = /* GraphQL */ `
     canDelete: Boolean!
     canImport: Boolean!
     canExport: Boolean!
+    """Bypass owner RLS for reads on this entity (still needs canRead). Modify All implies View All."""
+    canViewAll: Boolean!
+    """Bypass owner RLS for update/delete/restore (still needs canUpdate/canDelete)."""
+    canModifyAll: Boolean!
     """Highest field sensitivity tier readable on this entity (0 none, 1 restricted, 2 confidential)."""
     maxReadSensitivity: Int!
     """Highest field sensitivity tier editable on this entity; never above maxReadSensitivity."""
@@ -699,6 +703,8 @@ export const typeDefs = /* GraphQL */ `
     canDelete: Boolean!
     canImport: Boolean!
     canExport: Boolean!
+    canViewAll: Boolean
+    canModifyAll: Boolean
     maxReadSensitivity: Int
     maxEditSensitivity: Int
   }

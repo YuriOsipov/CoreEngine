@@ -1,4 +1,5 @@
 import { oidcDiscoveryUrl, readOidcConfig } from './oidcConfig.js'
+import { fetchOidcHttp } from './oidcFetch.js'
 
 export interface OidcDiscoveryDocument {
   issuer: string
@@ -16,9 +17,23 @@ export function resetOidcDiscoveryCache(): void {
   discoveryCache = null
 }
 
-function rewriteInternalUrl(url: string, publicIssuer: string, internalIssuer: string): string {
-  if (!url.startsWith(publicIssuer)) return url
-  return `${internalIssuer}${url.slice(publicIssuer.length)}`
+/**
+ * Rewrite URLs that belong to `fromIssuer` onto `toIssuer`.
+ * Requires an exact match or a `/` boundary so `https://idp` does not
+ * match `https://idp.evil.com`.
+ */
+export function rewriteInternalUrl(
+  url: string,
+  fromIssuer: string,
+  toIssuer: string,
+): string {
+  const from = fromIssuer.replace(/\/+$/, '')
+  const to = toIssuer.replace(/\/+$/, '')
+  if (!from || !to) return url
+  if (url === from) return to
+  const prefix = `${from}/`
+  if (!url.startsWith(prefix)) return url
+  return `${to}/${url.slice(prefix.length)}`
 }
 
 export async function fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
@@ -31,7 +46,7 @@ export async function fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
 
   const fetchBase = cfg.internalIssuer || cfg.issuer
   const url = oidcDiscoveryUrl(fetchBase)
-  const response = await fetch(url, {
+  const response = await fetchOidcHttp(url, {
     headers: { Accept: 'application/json' },
   })
   if (!response.ok) {

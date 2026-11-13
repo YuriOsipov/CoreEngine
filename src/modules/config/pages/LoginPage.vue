@@ -30,7 +30,21 @@ const forceChange = ref(
 
 onMounted(async () => {
   if (typeof route.query.sso_error === 'string' && route.query.sso_error.trim()) {
-    error.value = route.query.sso_error.trim()
+    const code = route.query.sso_error.trim()
+    if (code === 'sso_denied') {
+      error.value = t('auth.ssoDenied', 'SSO sign-in was cancelled or denied.')
+    } else if (code === 'sso_unavailable') {
+      error.value = t(
+        'auth.ssoUnavailable',
+        'SSO is temporarily unavailable. Try again shortly.',
+      )
+    } else {
+      // Generic only — never echo IdP / account-existence detail from the URL.
+      error.value = t(
+        'auth.ssoFailed',
+        'Sign-in with SSO failed. Try again or contact an administrator.',
+      )
+    }
   }
   const status = await fetchOidcStatus()
   oidcEnabled.value = status.enabled

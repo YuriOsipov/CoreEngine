@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { SYSTEM_RECORD_ACCESS } from '../adapters/records/types.js'
+
+const resolveRoleOwnerBypass = vi.fn()
+
+vi.mock('./rolePermissions.js', () => ({
+  resolveRoleOwnerBypass: (...args: unknown[]) => resolveRoleOwnerBypass(...args),
+}))
+
 import {
+  applyOwnerFilterIfNeeded,
+  assertOwnerAccessIfNeeded,
   assertRecordOwner,
   bypassesRowLevelSecurity,
+  clearRowLevelSecurityCache,
   mergeOwnerFilter,
   ownerEqFilter,
   parseRowLevelSecurity,
@@ -11,6 +21,15 @@ import {
   readRowLevelSecurity,
   ROW_OWNER_FIELD,
 } from './rowLevelSecurity.js'
+
+vi.mock('../db/pool.js', () => ({
+  query: vi.fn(async () => [
+    {
+      api_name: 'opportunity',
+      backend_config: { rowLevelSecurity: 'owner' },
+    },
+  ]),
+}))
 
 function me(partial: Partial<MeUser> & { id: string }): MeUser {
   return {
@@ -102,5 +121,54 @@ describe('bypassesRowLevelSecurity', () => {
     )
     expect(bypassesRowLevelSecurity({ me: me({ id: 'u1' }) })).toBe(false)
     expect(bypassesRowLevelSecurity({ me: null })).toBe(false)
+  })
+})
+
+describe('View all / Modify all bypass', () => {
+  beforeEach(() => {
+    clearRowLevelSecurityCache()
+    resolveRoleOwnerBypass.mockReset()
+    resolveRoleOwnerBypass.mockResolvedValue({ viewAll: false, modifyAll: false })
+  })
+
+  it('skips owner list filter when role has View all', async () => {
+    resolveRoleOwnerBypass.mockResolvedValue({ viewAll: true, modifyAll: false })
+    const filter = { name: { _eq: 'Acme' } }
+    await expect(
+      applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, filter),
+    ).resolves.toEqual(filter)
+  })
+
+  it('applies owner filter when role has neither View nor Modify all', async () => {
+    const filter = { name: { _eq: 'Acme' } }
+    await expect(
+      applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, filter),
+    ).resolves.toEqual({
+      _and: [filter, { [ROW_OWNER_FIELD]: { _eq: 'u1' } }],
+    })
+  })
+
+  it('allows update of another user row when role has Modify all', async () => {
+    resolveRoleOwnerBypass.mockResolvedValue({ viewAll: true, modifyAll: true })
+    await expect(
+      assertOwnerAccessIfNeeded(
+        'opportunity',
+        { me: me({ id: 'u1' }) },
+        { user_created: 'u2' },
+        'update',
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  it('denies update of another user row with View all only', async () => {
+    resolveRoleOwnerBypass.mockResolvedValue({ viewAll: true, modifyAll: false })
+    await expect(
+      assertOwnerAccessIfNeeded(
+        'opportunity',
+        { me: me({ id: 'u1' }) },
+        { user_created: 'u2' },
+        'update',
+      ),
+    ).rejects.toThrow('Permission denied: update on opportunity')
   })
 })

@@ -17,6 +17,7 @@ const OIDC_KEYS = [
   'OIDC_DISPLAY_NAME',
   'OIDC_JIT_PROVISION',
   'OIDC_DEFAULT_ROLE_BACKEND_ID',
+  'OIDC_ALLOWED_EMAIL_DOMAINS',
   'OIDC_AUDIENCE',
   'CORS_ORIGIN',
 ] as const
@@ -45,7 +46,7 @@ describe('oidcConfig', () => {
     expect(() => assertOidcConfigReady()).toThrow(/OIDC_CLIENT_ID/)
   })
 
-  it('requires default role when JIT is on', () => {
+  it('requires default role and email domains when JIT is on', () => {
     clearOidcEnv()
     process.env.OIDC_ENABLED = 'true'
     process.env.OIDC_ISSUER = 'http://localhost:8081/realms/coreengine'
@@ -55,6 +56,16 @@ describe('oidcConfig', () => {
     process.env.OIDC_UI_ORIGIN = 'http://localhost:5173'
     process.env.OIDC_JIT_PROVISION = 'true'
     expect(() => assertOidcConfigReady()).toThrow(/OIDC_DEFAULT_ROLE_BACKEND_ID/)
+    process.env.OIDC_DEFAULT_ROLE_BACKEND_ID = 'member'
+    resetOidcConfigCache()
+    expect(() => assertOidcConfigReady()).toThrow(/OIDC_ALLOWED_EMAIL_DOMAINS/)
+    process.env.OIDC_ALLOWED_EMAIL_DOMAINS = 'example.com, @Acme.COM'
+    resetOidcConfigCache()
+    expect(() => assertOidcConfigReady()).not.toThrow()
+    expect(readOidcConfig().allowedEmailDomains).toEqual([
+      'example.com',
+      'acme.com',
+    ])
   })
 
   it('passes when fully configured', () => {

@@ -1,6 +1,6 @@
 /**
  * In-process PKCE/state + one-time session tickets.
- * Multi-instance BFF needs sticky sessions or a shared store — document in README.
+ * Multi-instance BFF needs sticky sessions or a shared store — see docs/oidc-sso.md.
  */
 
 export interface OidcPendingAuth {
@@ -16,11 +16,17 @@ export interface OidcSessionTicket {
   refresh_token: string
   expires: number
   must_change_password?: boolean
+  /** IdP ID token for RP-initiated logout (`id_token_hint`). */
+  id_token?: string
   createdAt: number
 }
 
 const PENDING_TTL_MS = 10 * 60_000
 const TICKET_TTL_MS = 60_000
+/** Cap pending PKCE entries so a multi-IP flood cannot grow unbounded (rate limit is per IP). */
+const MAX_PENDING = 5_000
+/** Cap one-time session tickets (short TTL; still bound memory). */
+const MAX_TICKETS = 5_000
 
 const pendingByState = new Map<string, OidcPendingAuth>()
 const ticketsById = new Map<string, OidcSessionTicket>()
@@ -35,9 +41,18 @@ function prune(): void {
   }
 }
 
-export function storeOidcPending(state: string, pending: Omit<OidcPendingAuth, 'createdAt'>): void {
+/**
+ * Store PKCE pending auth. Returns false when the store is at capacity
+ * (caller should fail closed with 503).
+ */
+export function storeOidcPending(
+  state: string,
+  pending: Omit<OidcPendingAuth, 'createdAt'>,
+): boolean {
   prune()
+  if (pendingByState.size >= MAX_PENDING) return false
   pendingByState.set(state, { ...pending, createdAt: Date.now() })
+  return true
 }
 
 export function takeOidcPending(state: string): OidcPendingAuth | null {
@@ -49,12 +64,17 @@ export function takeOidcPending(state: string): OidcPendingAuth | null {
   return pending
 }
 
+/**
+ * Store one-time session ticket. Returns false when at capacity.
+ */
 export function storeOidcSessionTicket(
   ticketId: string,
   session: Omit<OidcSessionTicket, 'createdAt'>,
-): void {
+): boolean {
   prune()
+  if (ticketsById.size >= MAX_TICKETS) return false
   ticketsById.set(ticketId, { ...session, createdAt: Date.now() })
+  return true
 }
 
 export function takeOidcSessionTicket(ticketId: string): OidcSessionTicket | null {
@@ -70,4 +90,19 @@ export function takeOidcSessionTicket(ticketId: string): OidcSessionTicket | nul
 export function resetOidcStateStores(): void {
   pendingByState.clear()
   ticketsById.clear()
+}
+
+/** Test helper. */
+export function oidcPendingStoreSize(): number {
+  return pendingByState.size
+}
+
+/** Test helper. */
+export function oidcTicketStoreSize(): number {
+  return ticketsById.size
+}
+
+/** Test helper — expose caps. */
+export function oidcStoreCaps(): { maxPending: number; maxTickets: number } {
+  return { maxPending: MAX_PENDING, maxTickets: MAX_TICKETS }
 }

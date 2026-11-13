@@ -39,6 +39,21 @@ describe('computedSensitivity', () => {
     ])
   })
 
+  it('collects sources from arithmetic and nested call expressions', () => {
+    expect(collectComputedSourcePaths('{{salary + bonus}}').sort()).toEqual([
+      'bonus',
+      'salary',
+    ])
+    expect(
+      collectComputedSourcePaths(
+        '{{IF(EQUAL(status, "x"), secret_field, open_field)}}',
+      ).sort(),
+    ).toEqual(['open_field', 'secret_field', 'status'])
+    expect(
+      collectComputedSourcePaths('{{MULTIPLY(account.margin, quantity)}}').sort(),
+    ).toEqual(['account.margin', 'quantity'])
+  })
+
   it('requires rollup fields to inherit child value-field sensitivity', async () => {
     const byEntity = new Map([
       ['employee', new Map([['salary', 2]])],

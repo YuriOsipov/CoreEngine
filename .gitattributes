@@ -1,0 +1,1 @@
+docker/supabase/volumes/db/*.sh text eol=lf

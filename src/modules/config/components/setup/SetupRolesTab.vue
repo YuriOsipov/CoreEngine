@@ -378,7 +378,17 @@ onMounted(() => {
         sortable
         style="width: 16rem"
         header-style="width: 16rem"
-      />
+      >
+        <template #body="{ data }">
+          <button
+            type="button"
+            class="setup-link setup-link--button"
+            @click="openEdit(data)"
+          >
+            {{ data.name }}
+          </button>
+        </template>
+      </Column>
       <Column
         field="isAdmin"
         :header="t('setup.roles.columnAdmin', 'Admin')"
@@ -401,17 +411,10 @@ onMounted(() => {
       />
       <Column
         :header="t('setup.columnActions', 'Actions')"
-        style="width: 8rem"
-        header-style="width: 8rem"
+        style="width: 5rem"
+        header-style="width: 5rem"
       >
         <template #body="{ data }">
-          <Button
-            icon="pi pi-pencil"
-            text
-            rounded
-            :aria-label="t('common.edit', 'Edit')"
-            @click="openEdit(data)"
-          />
           <Button
             icon="pi pi-trash"
             text

@@ -47,6 +47,8 @@ const form = reactive({
   internal: false,
   accountability: 'all' as AccountabilityUi,
   defaultFieldSensitivity: 0,
+  /** Maps to backend_config.rowLevelSecurity = "owner" | null. */
+  ownerRowSecurity: false,
 })
 
 const fieldOptions = ref<Array<{ label: string; value: string }>>([])
@@ -101,6 +103,7 @@ async function load(): Promise<void> {
     form.internal = data.internal
     form.accountability = toAccountabilityUi(data.accountability)
     form.defaultFieldSensitivity = clampSensitivity(data.defaultFieldSensitivity)
+    form.ownerRowSecurity = data.rowLevelSecurity === 'owner'
     fieldOptions.value = data.fields
       .filter((f) => f.apiName !== 'id' && f.type.toUpperCase() !== 'ALIAS')
       .map((f) => ({
@@ -129,6 +132,7 @@ async function save(): Promise<void> {
       internal: form.internal,
       accountability: fromAccountabilityUi(form.accountability),
       defaultFieldSensitivity: clampSensitivity(form.defaultFieldSensitivity),
+      rowLevelSecurity: form.ownerRowSecurity ? 'owner' : null,
     })
     clearMetadataCache()
     toast.add({
@@ -357,6 +361,35 @@ onMounted(() => {
           option-value="value"
           class="w-full"
         />
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <div class="flex align-items-center justify-content-between gap-2">
+          <label class="inline-flex items-center gap-1 m-0">
+            {{
+              t(
+                'setup.entityParameters.ownerRowSecurity',
+                'Owner row security',
+              )
+            }}
+            <button
+              type="button"
+              class="setup-entity-parameters__hint"
+              v-tooltip.bottom="
+                hintTooltip(
+                  t(
+                    'setup.entityParameters.ownerRowSecurityHint',
+                    'When on, non-admin users can only list, open, edit, and delete records they created (Created By / user_created). Admins still see all rows. Requires Created By on the object. Manual sharing and team hierarchy are not included yet.',
+                  ),
+                )
+              "
+              :aria-label="t('common.moreInfo', 'More information')"
+            >
+              i
+            </button>
+          </label>
+          <ToggleSwitch v-model="form.ownerRowSecurity" />
+        </div>
       </div>
     </div>
 

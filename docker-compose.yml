@@ -1,39 +1,31 @@
-# CoreEngine local try-out stack (Postgres + BFF + optional web UI).
+# CoreEngine all-in-one: vendored Supabase (include) + BFF + optional web UI.
 #
 # Quick start:
 #   cp .env.docker.example .env
-#   cp .env.docker.example supabase/.env
-#   docker compose up -d db
-#   # Provision writes AUTH_JWT_SECRET into gitignored ./.env (+ supabase/.env); then start BFF.
-#   docker compose run --rm --workdir /app bff npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/provision-platform-db.mts --domain sales
+#   cp docker/supabase/.env.example docker/supabase/.env
+#   # Set the SAME POSTGRES_PASSWORD in BOTH files; copy SERVICE_ROLE_KEY into .env.
+#   # Also set POSTGRES_APP_PASSWORD in docker/supabase/.env (init script) and .env.
+#   docker compose up -d
+#   docker compose run --rm --workdir /app bff \
+#     npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env \
+#     ./scripts/ensure-app-db-role.mts --as-superuser
+#   docker compose run --rm --workdir /app bff \
+#     npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env \
+#     ./scripts/provision-platform-db.mts --domain sales
 #   docker compose up -d bff
-#   # Web UI (profile) requires sibling ../docEngine checkout next to this repo:
 #   docker compose --profile ui up -d --build web
-# Does not set NODE_ENV=production (bootstrap weak-password refuse is production-only).
 #
-# BFF: http://localhost:4000/health   UI (optional): http://localhost:8080
+# Lightweight: docker-compose.minimal.yml
+# External host Supabase: docker-compose.supabase.yml on top of minimal.
+#
+# Endpoints: BFF :4000/health | UI :8080 | Supabase Envoy :8000
+# Does not set NODE_ENV=production (bootstrap weak-password refuse is production-only).
+
+include:
+  - path: docker/supabase/docker-compose.yml
+    env_file: docker/supabase/.env
 
 services:
-  db:
-    image: postgres:15-bookworm
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-coreengine}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (superuser) in .env}
-      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-coreengine_app}
-      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD (BFF role) in .env}
-    ports:
-      # Loopback only — never expose Postgres on all interfaces.
-      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}:5432"
-    volumes:
-      - coreengine_pg:/var/lib/postgresql/data
-      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-coreengine}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   bff:
     build:
       context: .
@@ -43,38 +35,55 @@ services:
         required: false
       - path: supabase/.env
         required: false
+      - path: docker/supabase/.env
+        required: false
     environment:
       POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-coreengine}
-      # BFF + provisioning use the non-superuser app role (see docker/postgres-init).
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
       POSTGRES_USER: ${POSTGRES_APP_USER:-coreengine_app}
       POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
       POSTGRES_BOOTSTRAP_USER: ${POSTGRES_APP_USER:-coreengine_app}
       POSTGRES_BOOTSTRAP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
-      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-coreengine_app}:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:5432/${POSTGRES_DB:-coreengine}
+      POSTGRES_SUPERUSER: postgres
+      POSTGRES_SUPERUSER_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-coreengine_app}:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
       AUTH_BACKEND: local
-      # Trust X-Forwarded-For only from loopback / compose peers (nginx `web`).
-      # BFF publish is loopback-only below so LAN clients cannot hit :4000 and spoof XFF
-      # via Docker Desktop's private-source NAT.
-      TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
-      # AUTH_JWT_SECRET comes from env_file (.env / supabase/.env) only — do not
-      # inject a compose default here (placeholder values are refused at BFF start).
-      # Provision (`ensure-auth-jwt-secret`) writes a unique secret into those files.
       DIRECTUS_RUNTIME: "off"
       RUNNING_IN_DOCKER: "1"
+      # OIDC (optional) — set OIDC_ENABLED=true in .env; Keycloak via docker-compose.keycloak.yml
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_INTERNAL_ISSUER: ${OIDC_INTERNAL_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:4000/auth/oidc/callback}
+      OIDC_UI_ORIGIN: ${OIDC_UI_ORIGIN:-http://localhost:5173}
+      OIDC_DISPLAY_NAME: ${OIDC_DISPLAY_NAME:-SSO}
+      OIDC_JIT_PROVISION: ${OIDC_JIT_PROVISION:-false}
+      OIDC_DEFAULT_ROLE_BACKEND_ID: ${OIDC_DEFAULT_ROLE_BACKEND_ID:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      # So `scripts/*.mts` can resolve `pg` / `dotenv` from crm-bff when run via compose.
+      NODE_PATH: /app/crm-bff/node_modules
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       PORT: 4000
+      FILES_BACKEND: supabase
+      SUPABASE_URL: ${SUPABASE_URL:-http://api-gw:8000}
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-http://localhost:8000}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?Set SERVICE_ROLE_KEY in .env (copy from docker/supabase/.env)}
     ports:
-      # Loopback only — same rationale as Postgres; browser traffic should use nginx :8080.
       - "127.0.0.1:${BFF_PUBLISH_PORT:-4000}:4000"
     volumes:
       - ./scripts:/app/scripts:ro
       - ./supabase:/app/supabase
-      # rw so `docker compose run … provision` can persist AUTH_JWT_SECRET into host .env
       - ./.env:/app/.env
     depends_on:
       db:
+        condition: service_healthy
+      api-gw:
+        condition: service_healthy
+      storage:
         condition: service_healthy
 
   web:
@@ -86,6 +95,3 @@ services:
       - "${WEB_PUBLISH_PORT:-8080}:80"
     depends_on:
       - bff
-
-volumes:
-  coreengine_pg:

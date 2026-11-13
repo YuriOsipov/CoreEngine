@@ -1,6 +1,11 @@
 {
   "roles": [
     {
+      "name": "Pricing Manager",
+      "isAdmin": false,
+      "permissions": "full_pack"
+    },
+    {
       "name": "Sales Manager",
       "isAdmin": false,
       "permissions": "full_pack"

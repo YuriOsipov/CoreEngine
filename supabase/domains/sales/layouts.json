@@ -2,19 +2,416 @@
   "layouts": [
     {
       "entityApiName": "account",
+      "groupKey": "entity",
+      "settingId": "f7b29fff-fa95-4652-9550-f459a6137e30",
+      "payload": {
+        "name": "Account",
+        "__meta": {
+          "name": "Account",
+          "role": null,
+          "status": "published",
+          "settingId": "f7b29fff-fa95-4652-9550-f459a6137e30"
+        },
+        "entity": "account",
+        "fields": [
+          {
+            "id": "fld_bfc9616019d2",
+            "field": "last_name",
+            "label": "Last Name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_0ca65e6c5522",
+            "field": "fist_name",
+            "label": "Fist name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_6946d81169bf",
+            "field": "phone",
+            "label": "Phone",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_0d869af209d1",
+            "field": "website",
+            "label": "Website",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_0f800b3a4794",
+            "field": "price_group",
+            "label": "Price group",
+            "component": "AutoComplete",
+            "relatedCollection": "price_group"
+          },
+          {
+            "id": "fld_d5181cb8d4eb",
+            "field": "type",
+            "label": "Type",
+            "component": "Select"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Account",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_bfc9616019d2",
+                    "span": 6,
+                    "field": "last_name",
+                    "label": "Last Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_0ca65e6c5522",
+                    "span": 6,
+                    "field": "fist_name",
+                    "label": "Fist name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_6946d81169bf",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_0d869af209d1",
+                    "span": 6,
+                    "field": "website",
+                    "label": "Website",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_0f800b3a4794",
+                    "span": 6,
+                    "field": "price_group",
+                    "label": "Price group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "price_group"
+                  },
+                  {
+                    "id": "fld_d5181cb8d4eb",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        },
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "account",
+      "groupKey": "entity",
+      "settingId": "5227cd35-fcc2-415a-a9b5-16a4d79d3f84",
+      "payload": {
+        "name": "Account related",
+        "__meta": {
+          "name": "Account related",
+          "role": null,
+          "status": "published",
+          "settingId": "5227cd35-fcc2-415a-a9b5-16a4d79d3f84"
+        },
+        "entity": "account",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Account",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_4f0840b4eb5f",
+                    "span": 12,
+                    "field": "contact_account_id",
+                    "label": "Contacts",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": null,
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "id",
+                          "header": "Id",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "name",
+                          "header": "Name",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "position",
+                          "header": "Position",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "phone",
+                          "header": "Phone",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "email",
+                          "header": "Email",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "date_updated",
+                          "format": "dd.MM.yyyy HH:mm",
+                          "header": "Date Updated",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "contact"
+                  },
+                  {
+                    "id": "fld_fd2749115107",
+                    "span": 12,
+                    "field": "opportunity_account_id",
+                    "label": "Opportunities",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "date_created",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "name",
+                          "header": "Name",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "date_created",
+                          "header": "Date Created",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        },
+                        {
+                          "field": "amount",
+                          "header": "Amount",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "stage",
+                          "header": "Stage",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
+                          "field": "close_date",
+                          "header": "Close date",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "opportunity"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": false,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "account",
+      "groupKey": "entity",
+      "settingId": "b0c7a822-13cf-4805-889d-45c644007297",
+      "payload": {
+        "name": "Account",
+        "__meta": {
+          "name": "Account",
+          "role": null,
+          "status": "published",
+          "settingId": "b0c7a822-13cf-4805-889d-45c644007297"
+        },
+        "entity": "account",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Account",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_e783fc9150b7",
+                    "span": 6,
+                    "field": "last_name",
+                    "label": "Last Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_e1c27fca3c84",
+                    "span": 6,
+                    "field": "fist_name",
+                    "label": "Fist name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_d7768c79ba66",
+                    "span": 6,
+                    "field": "website",
+                    "label": "Website",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_cc385fdb6f83",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_c1197b2df33c",
+                    "span": 6,
+                    "field": "industry",
+                    "label": "Industry",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_e1ba1739d973",
+                    "span": 6,
+                    "field": "price_group",
+                    "label": "Price group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "price_group"
+                  },
+                  {
+                    "id": "fld_08f29b8d3bc0",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  },
+                  {
+                    "id": "fld_86ac7cda1ec9",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "value": "partner",
+                        "operator": "_eq",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              },
+              {
+                "id": "grp_1d7bcc895e",
+                "title": "Address",
+                "fields": [
+                  {
+                    "id": "fld_625f67fb90c9",
+                    "span": 6,
+                    "field": "shipping_address",
+                    "label": "Shipping address",
+                    "component": "Address"
+                  },
+                  {
+                    "id": "fld_61e5edd6734a",
+                    "span": 6,
+                    "field": "billing_address",
+                    "label": "Billing Address",
+                    "component": "Address"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": false
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "account",
       "groupKey": "form",
+      "settingId": "2514e6d9-513d-47c9-903f-c5c5c7c9b729",
       "payload": {
         "fields": [
           "name",
           "industry",
           "website",
-          "phone"        ]
+          "phone"
+        ]
       },
       "subGroup": "default"
     },
     {
       "entityApiName": "account",
       "groupKey": "list",
+      "settingId": "db4cdd8d-1a79-4f16-8786-6789d327f148",
       "payload": {
         "sort": [
           "name"
@@ -22,25 +419,1193 @@
         "columns": [
           "name",
           "industry",
-          "phone"        ]
+          "phone"
+        ]
       },
       "subGroup": "default"
     },
     {
+      "entityApiName": "account",
+      "groupKey": "list",
+      "settingId": "d605dcbe-ce78-49bc-8f2b-a1a1a1be6acd",
+      "payload": {
+        "name": "Accounts",
+        "sort": {
+          "field": "last_name",
+          "order": 1
+        },
+        "logic": "and",
+        "__meta": {
+          "name": "Accounts",
+          "role": null,
+          "status": "published",
+          "settingId": "d605dcbe-ce78-49bc-8f2b-a1a1a1be6acd"
+        },
+        "columns": [
+          {
+            "field": "name",
+            "header": "Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "last_name",
+            "header": "Last Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "fist_name",
+            "header": "Fist name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "industry",
+            "header": "Industry",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "website",
+            "header": "Website",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "phone",
+            "header": "Phone",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "date_created",
+            "header": "Date Created",
+            "enabled": true,
+            "component": "DatePicker"
+          },
+          {
+            "field": "billing_address",
+            "header": "Billing Address",
+            "enabled": true,
+            "component": "Address"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
+    },
+    {
+      "entityApiName": "account",
+      "groupKey": "list",
+      "settingId": "8c82065f-578b-494a-afa0-ccbf52180893",
+      "payload": {
+        "name": "account",
+        "__meta": {
+          "name": "account",
+          "role": null,
+          "status": "published",
+          "settingId": "8c82065f-578b-494a-afa0-ccbf52180893"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {
+          "__all_records__": {
+            "sort": null,
+            "columns": [
+              {
+                "field": "last_name",
+                "header": "Last Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "fist_name",
+                "header": "Fist name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "price_group",
+                "header": "Price group",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "price_group"
+              },
+              {
+                "field": "type",
+                "header": "Type",
+                "enabled": true,
+                "component": "Select"
+              },
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "industry",
+                "header": "Industry",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "shipping_address",
+                "header": "Shipping address",
+                "enabled": true,
+                "component": "Address"
+              },
+              {
+                "field": "user_created",
+                "header": "User Created",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "users"
+              },
+              {
+                "field": "date_created",
+                "header": "Date Created",
+                "enabled": true,
+                "component": "DatePicker"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          },
+          "__recently_viewed__": {
+            "sort": null,
+            "columns": [
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "last_name",
+                "header": "Last Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "fist_name",
+                "header": "Fist name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "industry",
+                "header": "Industry",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "website",
+                "header": "Website",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "phone",
+                "header": "Phone",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "date_created",
+                "header": "Date Created",
+                "enabled": true,
+                "component": "DatePicker"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          }
+        },
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "account",
+      "groupKey": "RecordPage",
+      "settingId": "268a48cd-bb6a-4a1a-b20f-b93f640098bd",
+      "payload": {
+        "name": "Account",
+        "__meta": {
+          "name": "Account",
+          "role": null,
+          "status": "published",
+          "settingId": "268a48cd-bb6a-4a1a-b20f-b93f640098bd"
+        },
+        "entity": "account",
+        "regions": [
+          {
+            "id": "region_66avvsbz",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_wmdy6ior",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              },
+              {
+                "id": "cmp_lwtny2qd",
+                "type": "path",
+                "field": "type",
+                "label": "Path",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_x8sfdq9w",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_6m98qj3n",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_9dmfja5b",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_vzdy42qf",
+                "type": "detail",
+                "label": "Account related",
+                "defaultTabId": null,
+                "pageLayoutId": "5227cd35-fcc2-415a-a9b5-16a4d79d3f84",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 37,
+        "pageLayoutId": "b0c7a822-13cf-4805-889d-45c644007297",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "entity",
+      "settingId": "daa46c36-b03c-40cd-bf5f-bf08792854fa",
+      "payload": {
+        "name": "Campaign",
+        "__meta": {
+          "name": "Campaign",
+          "role": null,
+          "status": "published",
+          "settingId": "daa46c36-b03c-40cd-bf5f-bf08792854fa"
+        },
+        "entity": "campaign",
+        "fields": [
+          {
+            "id": "fld_5cc8403728ba",
+            "field": "description",
+            "label": "Description",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_8ce69a994993",
+            "field": "is_active",
+            "label": "Is Active",
+            "component": "Checkbox"
+          },
+          {
+            "id": "fld_11a660abb38b",
+            "field": "date_start",
+            "label": "Date start",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_6c0e374d8327",
+            "field": "date_end",
+            "label": "Date end",
+            "component": "DatePicker"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Campaign",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_5cc8403728ba",
+                    "span": 6,
+                    "field": "description",
+                    "label": "Description",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_8ce69a994993",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  },
+                  {
+                    "id": "fld_11a660abb38b",
+                    "span": 6,
+                    "field": "date_start",
+                    "label": "Date start",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_6c0e374d8327",
+                    "span": 6,
+                    "field": "date_end",
+                    "label": "Date end",
+                    "component": "DatePicker"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        },
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "entity",
+      "settingId": "7a800dd3-e53e-41db-b026-ae4dfdf37e46",
+      "payload": {
+        "name": "Campaign related",
+        "__meta": {
+          "name": "Campaign related",
+          "role": null,
+          "status": "published",
+          "settingId": "7a800dd3-e53e-41db-b026-ae4dfdf37e46"
+        },
+        "entity": "campaign",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Main",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "Promotions",
+                "fields": [
+                  {
+                    "id": "fld_0210fb172e67",
+                    "span": 12,
+                    "field": "promotion_campaign",
+                    "label": "Promotion Campaign",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "description",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "description",
+                          "header": "Description",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "item_group",
+                          "header": "Item group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item_group"
+                        },
+                        {
+                          "field": "item_price_group",
+                          "header": "Item price group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item_price_group"
+                        },
+                        {
+                          "field": "item",
+                          "header": "Item",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item"
+                        },
+                        {
+                          "field": "date_start",
+                          "header": "Date start",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        },
+                        {
+                          "field": "date_end",
+                          "header": "Date end",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        },
+                        {
+                          "field": "promo_type",
+                          "header": "Promo type",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
+                          "field": "fixed_price",
+                          "header": "Fixed price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "discount_percent",
+                          "header": "Discount %",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "promotion"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": false,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "entity",
+      "settingId": "a6e94010-ce29-4b8a-84f3-093e49c05570",
+      "payload": {
+        "name": "Campaign",
+        "__meta": {
+          "name": "Campaign",
+          "role": null,
+          "status": "published",
+          "settingId": "a6e94010-ce29-4b8a-84f3-093e49c05570"
+        },
+        "entity": "campaign",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Campaign",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_b1bb564b64c5",
+                    "span": 6,
+                    "field": "description",
+                    "label": "Description",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_9b9ae50840ac",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  },
+                  {
+                    "id": "fld_caccf1909200",
+                    "span": 6,
+                    "field": "date_start",
+                    "label": "Date start",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_aa176f92aefb",
+                    "span": 6,
+                    "field": "date_end",
+                    "label": "Date end",
+                    "component": "DatePicker"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              },
+              {
+                "id": "grp_97e2365dd7",
+                "title": "Promotions",
+                "fields": [
+                  {
+                    "id": "fld_43f6d7a1304c",
+                    "span": 12,
+                    "field": "promotion_campaign",
+                    "label": "Promotion Campaign",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "date_start",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "description",
+                          "header": "Description",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "date_start",
+                          "format": "yy-mm-dd",
+                          "header": "Date start",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        },
+                        {
+                          "field": "date_end",
+                          "header": "Date end",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        },
+                        {
+                          "field": "item_group",
+                          "header": "Item group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item_group"
+                        },
+                        {
+                          "field": "price_group",
+                          "header": "price group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "price_group"
+                        },
+                        {
+                          "field": "item",
+                          "header": "Item",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item"
+                        },
+                        {
+                          "field": "promo_type",
+                          "header": "Promo type",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
+                          "field": "fixed_price",
+                          "header": "Fixed price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "discount_percent",
+                          "header": "Discount %",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "promotion"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "form",
+      "settingId": "5ad34e79-6195-4c42-a3e9-a5208e4ecb4d",
+      "payload": {
+        "fields": [
+          "name",
+          "date_start",
+          "date_end",
+          "description"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "list",
+      "settingId": "1859341e-3443-4bd7-ae27-9fe1bb68685a",
+      "payload": {
+        "sort": [
+          "-date_start"
+        ],
+        "columns": [
+          "name",
+          "date_start",
+          "date_end"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "list",
+      "settingId": "c22fb93a-bc6b-46bd-b82d-a032ff3aacfc",
+      "payload": {
+        "name": "campaign",
+        "__meta": {
+          "name": "campaign",
+          "role": null,
+          "status": "published",
+          "settingId": "c22fb93a-bc6b-46bd-b82d-a032ff3aacfc"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {
+          "__all_records__": {
+            "sort": null,
+            "columns": [
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "description",
+                "header": "Description",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "date_start",
+                "header": "Date start",
+                "enabled": true,
+                "component": "DatePicker"
+              },
+              {
+                "field": "date_end",
+                "header": "Date end",
+                "enabled": true,
+                "component": "DatePicker"
+              },
+              {
+                "field": "is_active",
+                "header": "Is Active",
+                "enabled": true,
+                "component": "Checkbox"
+              },
+              {
+                "field": "date_updated",
+                "header": "Date Updated",
+                "enabled": true,
+                "component": "DatePicker"
+              },
+              {
+                "field": "user_created",
+                "header": "User Created",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "users"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          },
+          "__recently_viewed__": {
+            "sort": null,
+            "columns": [
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "description",
+                "header": "Description",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "is_active",
+                "header": "Is Active",
+                "enabled": true,
+                "component": "Checkbox"
+              },
+              {
+                "field": "user_created",
+                "header": "User Created",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "users"
+              },
+              {
+                "field": "date_created",
+                "header": "Date Created",
+                "enabled": true,
+                "component": "DatePicker"
+              },
+              {
+                "field": "date_start",
+                "header": "Date start",
+                "enabled": true,
+                "component": "DatePicker"
+              },
+              {
+                "field": "date_end",
+                "header": "Date end",
+                "enabled": true,
+                "component": "DatePicker"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          }
+        },
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "campaign",
+      "groupKey": "RecordPage",
+      "settingId": "98dc2f66-2e44-466a-a0e0-763a78144d7f",
+      "payload": {
+        "name": "Campaign",
+        "__meta": {
+          "name": "Campaign",
+          "role": null,
+          "status": "published",
+          "settingId": "98dc2f66-2e44-466a-a0e0-763a78144d7f"
+        },
+        "entity": "campaign",
+        "regions": [
+          {
+            "id": "region_7xcgoyzz",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_ugeuyb05",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_tnfr9bmy",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_pw3i75by",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": "7a800dd3-e53e-41db-b026-ae4dfdf37e46",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_6k66u0nr",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "a6e94010-ce29-4b8a-84f3-093e49c05570",
+        "sidebarEnabled": false,
+        "listDetailPanel": {
+          "enabled": true,
+          "masterSize": 60,
+          "detailMinSize": 15
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "contact",
+      "groupKey": "entity",
+      "settingId": "82c408f5-9f1e-4185-b2b2-afc4e153a2b3",
+      "payload": {
+        "name": "Contact",
+        "__meta": {
+          "name": "Contact",
+          "role": null,
+          "status": "published",
+          "settingId": "82c408f5-9f1e-4185-b2b2-afc4e153a2b3"
+        },
+        "entity": "contact",
+        "fields": [
+          {
+            "id": "fld_ae515bd85678",
+            "field": "account_id",
+            "label": "Account",
+            "component": "AutoComplete",
+            "relatedCollection": "account"
+          },
+          {
+            "id": "fld_91e34fc70f0d",
+            "field": "position",
+            "label": "Position",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_da71f0fe6671",
+            "field": "last_name",
+            "label": "Last Name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_48ba32e812b9",
+            "field": "first_name",
+            "label": "First Name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_bf845b6d4022",
+            "field": "phone",
+            "label": "Phone",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_5889e9bb7361",
+            "field": "email",
+            "label": "Email",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_43f60e4bcf38",
+            "field": "note",
+            "label": "Note",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_9b54ccc90783",
+            "field": "is_active",
+            "label": "Is Active",
+            "component": "Checkbox"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Contact",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_e9b1d197892a",
+                    "span": 12,
+                    "field": "block_layout_6fc94457-4c03-4cf5-ba62-371ab566afe1",
+                    "label": "Contact",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "6fc94457-4c03-4cf5-ba62-371ab566afe1"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "contact",
+      "groupKey": "entity",
+      "settingId": "6fc94457-4c03-4cf5-ba62-371ab566afe1",
+      "payload": {
+        "name": "Contact",
+        "__meta": {
+          "name": "Contact",
+          "role": null,
+          "status": "published",
+          "settingId": "6fc94457-4c03-4cf5-ba62-371ab566afe1"
+        },
+        "entity": "contact",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Contact",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_ae515bd85678",
+                    "span": 6,
+                    "field": "account_id",
+                    "label": "Account",
+                    "component": "AutoComplete",
+                    "relatedCollection": "account"
+                  },
+                  {
+                    "id": "fld_91e34fc70f0d",
+                    "span": 6,
+                    "field": "position",
+                    "label": "Position",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_da71f0fe6671",
+                    "span": 6,
+                    "field": "last_name",
+                    "label": "Last Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_48ba32e812b9",
+                    "span": 6,
+                    "field": "first_name",
+                    "label": "First Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_bf845b6d4022",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_5889e9bb7361",
+                    "span": 6,
+                    "field": "email",
+                    "label": "Email",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_43f60e4bcf38",
+                    "span": 6,
+                    "field": "note",
+                    "label": "Note",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_9b54ccc90783",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ]
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "contact",
+      "groupKey": "entity",
+      "settingId": "d785d29c-5e29-4c28-bd8b-703dce75a9ac",
+      "payload": {
+        "name": "Contact related",
+        "__meta": {
+          "name": "Contact related",
+          "role": null,
+          "status": "published",
+          "settingId": "d785d29c-5e29-4c28-bd8b-703dce75a9ac"
+        },
+        "entity": "contact",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Contact",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "Related",
+                "fields": [
+                  {
+                    "id": "fld_73620deeeca5",
+                    "span": 12,
+                    "field": "message_contact",
+                    "label": "Message",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "date_created",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "name",
+                          "header": "Name",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "type",
+                          "header": "Type",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
+                          "field": "body",
+                          "header": "Body",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "is_active",
+                          "header": "Is Active",
+                          "enabled": true,
+                          "component": "Checkbox"
+                        },
+                        {
+                          "field": "result",
+                          "header": "Result",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
+                          "field": "date_created",
+                          "format": "dd.MM.yyyy HH:mm",
+                          "header": "Date Created",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "message"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": false,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
       "entityApiName": "contact",
       "groupKey": "form",
+      "settingId": "a7a18805-1bd8-41bc-8789-73cb241191bb",
       "payload": {
         "fields": [
           "name",
           "email",
           "phone",
-          "account_id"        ]
+          "account_id"
+        ]
       },
       "subGroup": "default"
     },
     {
       "entityApiName": "contact",
       "groupKey": "list",
+      "settingId": "e5f0f9e1-7d86-4e6d-ba2b-fe4353f5da19",
       "payload": {
         "sort": [
           "name"
@@ -49,27 +1614,2485 @@
           "name",
           "email",
           "phone",
-          "account_id"        ]
+          "account_id"
+        ]
       },
       "subGroup": "default"
     },
     {
+      "entityApiName": "contact",
+      "groupKey": "list",
+      "settingId": "2fe28d66-5de7-4f31-85d4-b5b24047d23e",
+      "payload": {
+        "name": "contact",
+        "__meta": {
+          "name": "contact",
+          "role": null,
+          "status": "published",
+          "settingId": "2fe28d66-5de7-4f31-85d4-b5b24047d23e"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {
+          "__all_records__": {
+            "sort": null,
+            "columns": [
+              {
+                "field": "id",
+                "header": "Id",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "position",
+                "header": "Position",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "note",
+                "header": "Note",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "is_active",
+                "header": "Is Active",
+                "enabled": true,
+                "component": "Checkbox"
+              },
+              {
+                "field": "user_created",
+                "header": "User Created",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "users"
+              },
+              {
+                "field": "date_created",
+                "header": "Date Created",
+                "enabled": true,
+                "component": "DatePicker"
+              },
+              {
+                "field": "email",
+                "header": "Email",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "phone",
+                "header": "Phone",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "account_id",
+                "header": "Account",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "account"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          }
+        },
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "contact",
+      "groupKey": "RecordPage",
+      "settingId": "b4894d7b-444c-46fb-8aa2-912e1e366791",
+      "payload": {
+        "name": "Contact",
+        "__meta": {
+          "name": "Contact",
+          "role": null,
+          "status": "published",
+          "settingId": "b4894d7b-444c-46fb-8aa2-912e1e366791"
+        },
+        "entity": "contact",
+        "regions": [
+          {
+            "id": "region_mcxa78t7",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_xfkrg001",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_ufjbwaoa",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_7yqi78yu",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_q24bb9vf",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_nw0sqrpr",
+                "type": "detail",
+                "label": "Contact related",
+                "defaultTabId": null,
+                "pageLayoutId": "d785d29c-5e29-4c28-bd8b-703dce75a9ac",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 45,
+        "pageLayoutId": "6fc94457-4c03-4cf5-ba62-371ab566afe1",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "entity",
+      "settingId": "86d26a5b-af10-4577-9013-d72e258ca7e9",
+      "payload": {
+        "name": "Item",
+        "__meta": {
+          "name": "Item",
+          "role": null,
+          "status": "published",
+          "settingId": "86d26a5b-af10-4577-9013-d72e258ca7e9"
+        },
+        "entity": "item",
+        "fields": [
+          {
+            "id": "fld_938406726e14",
+            "field": "description",
+            "label": "Description",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_60bcbba48a1e",
+            "field": "code",
+            "label": "Code",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_20116dd62d71",
+            "field": "group",
+            "label": "Group",
+            "component": "AutoComplete",
+            "relatedCollection": "item_group"
+          },
+          {
+            "id": "fld_1d33fc84cb0f",
+            "field": "base_price",
+            "label": "Base price",
+            "component": "InputNumber"
+          },
+          {
+            "id": "fld_fd1a8f799500",
+            "field": "type",
+            "label": "Type",
+            "component": "Select"
+          },
+          {
+            "id": "fld_e71d8c688025",
+            "field": "upc",
+            "label": "UPC",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_1a3a258af7ce",
+            "field": "min_qty",
+            "label": "Min qty",
+            "component": "InputNumber"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_a0358d57bc1b",
+                    "span": 12,
+                    "field": "block_layout_a0555412-180a-4d5c-92fa-931b54286784",
+                    "label": "Item",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "a0555412-180a-4d5c-92fa-931b54286784"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "entity",
+      "settingId": "5dfb2816-f636-4660-9139-a2bdb6d37de5",
+      "payload": {
+        "name": "Item related",
+        "__meta": {
+          "name": "Item related",
+          "role": null,
+          "status": "published",
+          "settingId": "5dfb2816-f636-4660-9139-a2bdb6d37de5"
+        },
+        "entity": "item",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_97bf30f3ece9",
+                    "span": 12,
+                    "field": "item_price_item",
+                    "label": "Item Price Item",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "price_group",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "price_group",
+                          "header": "Price group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "price_group"
+                        },
+                        {
+                          "field": "price",
+                          "header": "Price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "promo_price",
+                          "header": "Promo price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "promotion",
+                          "header": "Promotion",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "promotion"
+                        },
+                        {
+                          "field": "date_updated",
+                          "header": "Date Updated",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "item_price"
+                  },
+                  {
+                    "id": "fld_92423aec0a3a",
+                    "span": 12,
+                    "field": "item_variant_item",
+                    "label": "Item Variant Item",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": null,
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "variant",
+                          "header": "variant",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "variant"
+                        },
+                        {
+                          "field": "is_active",
+                          "header": "Is Active",
+                          "enabled": true,
+                          "component": "Checkbox"
+                        },
+                        {
+                          "field": "date_created",
+                          "header": "Date Created",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "item_variant"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": false,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "entity",
+      "settingId": "a0555412-180a-4d5c-92fa-931b54286784",
+      "payload": {
+        "name": "Item",
+        "__meta": {
+          "name": "Item",
+          "role": null,
+          "status": "published",
+          "settingId": "a0555412-180a-4d5c-92fa-931b54286784"
+        },
+        "entity": "item",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_938406726e14",
+                    "span": 6,
+                    "field": "description",
+                    "label": "Description",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_60bcbba48a1e",
+                    "span": 6,
+                    "field": "code",
+                    "label": "Code",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_20116dd62d71",
+                    "span": 6,
+                    "field": "group",
+                    "label": "Group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item_group"
+                  },
+                  {
+                    "id": "fld_1d33fc84cb0f",
+                    "span": 6,
+                    "field": "base_price",
+                    "label": "Base price",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_fd1a8f799500",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_e71d8c688025",
+                    "span": 6,
+                    "field": "upc",
+                    "label": "UPC",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_1a3a258af7ce",
+                    "span": 6,
+                    "field": "min_qty",
+                    "label": "Min qty",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_309cb54ce94a",
+                    "span": 6,
+                    "field": "variant_type",
+                    "label": "Variant Type",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_6fbd599956be",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  },
+                  {
+                    "id": "fld_c437a1a2d652",
+                    "span": 12,
+                    "field": "image",
+                    "files": {
+                      "columns": [],
+                      "display": "thumbnail",
+                      "multiple": false,
+                      "previewSize": "md",
+                      "allowedMimeTypes": [
+                        "image/"
+                      ]
+                    },
+                    "label": "image",
+                    "component": "Files",
+                    "relatedCollection": "files"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "form",
+      "settingId": "74359b1b-8f20-4a31-9684-00024544f982",
+      "payload": {
+        "fields": [
+          "name",
+          "group",
+          "base_price"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "list",
+      "settingId": "aee92573-2238-43a6-b8ae-ea6165737a8c",
+      "payload": {
+        "sort": [
+          "name"
+        ],
+        "columns": [
+          "name",
+          "group",
+          "base_price"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "list",
+      "settingId": "94cd5d51-515a-43e5-9608-a3d7254f77e6",
+      "payload": {
+        "name": "item",
+        "__meta": {
+          "name": "item",
+          "role": null,
+          "status": "published",
+          "settingId": "94cd5d51-515a-43e5-9608-a3d7254f77e6"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {
+          "__all_records__": {
+            "sort": {
+              "field": "name",
+              "order": 1
+            },
+            "columns": [
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "base_price",
+                "header": "Base price",
+                "enabled": true,
+                "component": "InputNumber"
+              },
+              {
+                "field": "code",
+                "header": "Code",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "group",
+                "header": "Group",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "item_group"
+              },
+              {
+                "field": "min_qty",
+                "header": "Min qty",
+                "enabled": true,
+                "component": "InputNumber"
+              },
+              {
+                "field": "type",
+                "header": "Type",
+                "enabled": true,
+                "component": "Select"
+              },
+              {
+                "field": "upc",
+                "header": "UPC",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "is_active",
+                "header": "Is Active",
+                "enabled": true,
+                "component": "Checkbox"
+              },
+              {
+                "field": "user_created",
+                "header": "User Created",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "users"
+              },
+              {
+                "field": "date_created",
+                "header": "Date Created",
+                "enabled": true,
+                "component": "DatePicker"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          },
+          "__recently_viewed__": {
+            "sort": {
+              "field": "id",
+              "order": 1
+            },
+            "columns": [
+              {
+                "field": "id",
+                "header": "Id",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "base_price",
+                "header": "Base price",
+                "enabled": true,
+                "component": "InputNumber"
+              },
+              {
+                "field": "code",
+                "header": "Code",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "cost",
+                "header": "Cost",
+                "enabled": true,
+                "component": "InputNumber"
+              },
+              {
+                "field": "group",
+                "header": "Group",
+                "enabled": true,
+                "component": "AutoComplete",
+                "relatedCollection": "item_group"
+              },
+              {
+                "field": "image",
+                "header": "image",
+                "enabled": true,
+                "component": "Files"
+              },
+              {
+                "field": "min_qty",
+                "header": "Min qty",
+                "enabled": true,
+                "component": "InputNumber"
+              },
+              {
+                "field": "type",
+                "header": "Type",
+                "enabled": true,
+                "component": "Select"
+              },
+              {
+                "field": "upc",
+                "header": "UPC",
+                "enabled": true,
+                "component": "InputText"
+              },
+              {
+                "field": "variant_type",
+                "header": "Variant Type",
+                "enabled": true,
+                "component": "Select"
+              },
+              {
+                "field": "name",
+                "header": "Name",
+                "enabled": true,
+                "component": "InputText"
+              }
+            ],
+            "groupBy": null,
+            "recordLinkField": null
+          }
+        },
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "RecordPage",
+      "settingId": "a1bb3c0c-8ce8-42c5-abb2-17301290457a",
+      "payload": {
+        "name": "Item",
+        "__meta": {
+          "name": "Item",
+          "role": null,
+          "status": "published",
+          "settingId": "a1bb3c0c-8ce8-42c5-abb2-17301290457a"
+        },
+        "entity": "item",
+        "regions": [
+          {
+            "id": "region_7bzp1kvy",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_0s11d26c",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_zoeozpsp",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_7179vfv6",
+                "type": "detail",
+                "label": "Item",
+                "defaultTabId": null,
+                "pageLayoutId": "a0555412-180a-4d5c-92fa-931b54286784",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_azojks5x",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_zfvs6acl",
+                "type": "files",
+                "label": "Files",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "relatedCollection": "files"
+              },
+              {
+                "id": "cmp_lkkna87p",
+                "type": "detail",
+                "label": "Item related",
+                "defaultTabId": null,
+                "pageLayoutId": "5dfb2816-f636-4660-9139-a2bdb6d37de5",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 39,
+        "pageLayoutId": "a0555412-180a-4d5c-92fa-931b54286784",
+        "sidebarEnabled": true,
+        "listDetailPanel": {
+          "enabled": true,
+          "masterSize": 60,
+          "detailMinSize": 15,
+          "relatedListsSource": "block",
+          "relatedListsBlockId": "5dfb2816-f636-4660-9139-a2bdb6d37de5"
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item",
+      "groupKey": "Tree",
+      "settingId": "fd8c8e40-74f2-4e3d-bbcd-fb0d8c37a98b",
+      "payload": {
+        "main": {
+          "sort": null,
+          "collection": "item",
+          "groupField": "group",
+          "labelField": "description",
+          "primaryKey": "id",
+          "labelFields": [
+            "description",
+            "code",
+            "base_price",
+            "min_qty",
+            "upc",
+            "type",
+            "group"
+          ]
+        },
+        "name": "Item",
+        "group": {
+          "collection": "item_group",
+          "labelField": "name",
+          "primaryKey": "id",
+          "parentField": "parent_group"
+        },
+        "__meta": {
+          "name": "Item",
+          "role": null,
+          "status": "published",
+          "settingId": "fd8c8e40-74f2-4e3d-bbcd-fb0d8c37a98b"
+        },
+        "destination": {
+          "key": "item_items",
+          "collection": ""
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "entity",
+      "settingId": "89ac3ee8-ff80-4290-92c7-634c737f07ab",
+      "payload": {
+        "name": "Item Group",
+        "__meta": {
+          "name": "Item Group",
+          "role": null,
+          "status": "published",
+          "settingId": "89ac3ee8-ff80-4290-92c7-634c737f07ab"
+        },
+        "entity": "item_group",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item Group",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_46e0f670af4e",
+                    "span": 6,
+                    "field": "name",
+                    "label": "Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_046b9f69efb3",
+                    "span": 6,
+                    "field": "parent_group",
+                    "label": "Parent group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item_group"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "form",
+      "settingId": "9fe185e7-6b7f-4fb3-b069-29db643e1e7b",
+      "payload": {
+        "fields": [
+          "name",
+          "parent"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "list",
+      "settingId": "3242111c-ef17-4f7a-9c42-47bb6b401e7b",
+      "payload": {
+        "sort": [
+          "name"
+        ],
+        "columns": [
+          "name",
+          "parent"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "list",
+      "settingId": "e5592cf8-2fe1-45f7-b0c3-7a1f5351b634",
+      "payload": {
+        "name": "groups",
+        "sort": {
+          "field": "name",
+          "order": 1
+        },
+        "logic": "and",
+        "__meta": {
+          "name": "groups",
+          "role": null,
+          "status": "published",
+          "settingId": "e5592cf8-2fe1-45f7-b0c3-7a1f5351b634"
+        },
+        "columns": [
+          {
+            "field": "parent_group",
+            "header": "Parent group",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "item_group"
+          },
+          {
+            "field": "name",
+            "header": "Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "is_active",
+            "header": "Is Active",
+            "enabled": true,
+            "component": "Checkbox"
+          },
+          {
+            "field": "user_created",
+            "header": "User Created",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "users"
+          },
+          {
+            "field": "date_created",
+            "header": "Date Created",
+            "enabled": true,
+            "component": "DatePicker"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "list",
+      "settingId": "9064737f-2712-4fd9-86b9-7e3d14a191e1",
+      "payload": {
+        "name": "item_group",
+        "__meta": {
+          "name": "item_group",
+          "role": null,
+          "status": "published",
+          "settingId": "9064737f-2712-4fd9-86b9-7e3d14a191e1"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {},
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "RecordPage",
+      "settingId": "eac2c683-0a78-4506-afcf-d8e8b3692d36",
+      "payload": {
+        "name": "Item Group",
+        "__meta": {
+          "name": "Item Group",
+          "role": null,
+          "status": "published",
+          "settingId": "eac2c683-0a78-4506-afcf-d8e8b3692d36"
+        },
+        "entity": "item_group",
+        "regions": [
+          {
+            "id": "region_tda55vsw",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_c9bh2qsu",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_2adii8a1",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_wqz8ijb4",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_b5bxxjsk",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "89ac3ee8-ff80-4290-92c7-634c737f07ab",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_group",
+      "groupKey": "Tree",
+      "settingId": "7d0feb33-80cf-428a-a61e-21048ed8a2d2",
+      "payload": {
+        "main": {
+          "sort": {
+            "field": "name",
+            "order": 1
+          },
+          "collection": "item_group",
+          "groupField": "id",
+          "labelField": "name",
+          "primaryKey": "id",
+          "labelFields": [
+            "name",
+            "is_active",
+            "user_created",
+            "date_created",
+            "user_updated"
+          ]
+        },
+        "name": "Item Group",
+        "group": {
+          "collection": "item_group",
+          "labelField": "name",
+          "primaryKey": "id",
+          "parentField": "parent_group"
+        },
+        "__meta": {
+          "name": "Item Group",
+          "role": null,
+          "status": "published",
+          "settingId": "7d0feb33-80cf-428a-a61e-21048ed8a2d2"
+        },
+        "destination": {
+          "key": "item_group_items",
+          "collection": ""
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "entity",
+      "settingId": "78632830-e133-411d-90f3-d298332bd9c4",
+      "payload": {
+        "name": "Item Price",
+        "__meta": {
+          "name": "Item Price",
+          "role": null,
+          "status": "published",
+          "settingId": "78632830-e133-411d-90f3-d298332bd9c4"
+        },
+        "entity": "item_price",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item Price",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_75791531a5c5",
+                    "span": 6,
+                    "field": "item",
+                    "label": "Item",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item"
+                  },
+                  {
+                    "id": "fld_b99efb059ab3",
+                    "span": 6,
+                    "field": "price_group",
+                    "label": "Price group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "price_group"
+                  },
+                  {
+                    "id": "fld_f7074e9e12ea",
+                    "span": 6,
+                    "field": "price",
+                    "label": "Price",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_1e37a00537a2",
+                    "span": 6,
+                    "field": "promo_price",
+                    "label": "Promo price",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_e9832e04f4a6",
+                    "span": 6,
+                    "field": "promotion",
+                    "label": "Promotion",
+                    "component": "AutoComplete",
+                    "relatedCollection": "promotion"
+                  },
+                  {
+                    "id": "fld_ef89459565a5",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "form",
+      "settingId": "fdd8137b-1931-4e63-864b-fb5a0c509fa7",
+      "payload": {
+        "fields": [
+          "name",
+          "item",
+          "price_group",
+          "price",
+          "promo_price",
+          "promotion"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "list",
+      "settingId": "abd5ed25-dabc-4c9a-a690-836e821923e8",
+      "payload": {
+        "sort": [
+          "name"
+        ],
+        "columns": [
+          "name",
+          "item",
+          "price_group",
+          "price",
+          "promo_price",
+          "promotion"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "list",
+      "settingId": "54ce2d6d-8d4a-48fa-abf9-285cffab5669",
+      "payload": {
+        "name": "Group prices",
+        "sort": {
+          "field": "item",
+          "order": 1
+        },
+        "logic": "and",
+        "__meta": {
+          "name": "Group prices",
+          "role": null,
+          "status": "published",
+          "settingId": "54ce2d6d-8d4a-48fa-abf9-285cffab5669"
+        },
+        "columns": [
+          {
+            "field": "item",
+            "header": "Item",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "item"
+          },
+          {
+            "field": "price",
+            "header": "Price",
+            "enabled": true,
+            "component": "InputNumber",
+            "inlineEditable": true
+          },
+          {
+            "field": "new_price",
+            "header": "New Price",
+            "enabled": true,
+            "component": "InputNumber",
+            "inlineEditable": true
+          },
+          {
+            "field": "item.base_price",
+            "header": "Base price",
+            "enabled": true,
+            "component": "InputNumber"
+          },
+          {
+            "field": "price_discount",
+            "header": "Price disc. (%)",
+            "enabled": true,
+            "component": "InputNumber"
+          },
+          {
+            "field": "new_price_discount",
+            "header": "New price disc. (%)",
+            "enabled": true,
+            "component": "InputNumber"
+          },
+          {
+            "field": "price_difference",
+            "header": "Price difference",
+            "enabled": true,
+            "component": "InputNumber"
+          },
+          {
+            "field": "item.group",
+            "header": "Item / Group",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "item_group"
+          },
+          {
+            "field": "promotion",
+            "header": "Promotion",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "promotion"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [
+          {
+            "id": "flt_363c32bc306f",
+            "type": "uuid",
+            "field": "price_group",
+            "value": null,
+            "operator": "_eq",
+            "required": true,
+            "fieldWidth": 2
+          }
+        ],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "list",
+      "settingId": "13e2e4a7-ccf4-48f6-93cb-4c09f5b5e280",
+      "payload": {
+        "name": "item_price",
+        "__meta": {
+          "name": "item_price",
+          "role": null,
+          "status": "published",
+          "settingId": "13e2e4a7-ccf4-48f6-93cb-4c09f5b5e280"
+        },
+        "actions": [
+          {
+            "id": "list_action_1792653041548",
+            "label": "Set new price",
+            "behavior": "bulkUpdate",
+            "bulkUpdate": {
+              "formula": "{{source}} * (1 - {{prompt}} / 100)",
+              "sourcePath": "item.base_price",
+              "promptLabel": "Discount(%)",
+              "targetField": "new_price",
+              "successMessage": "Records updated.",
+              "confirmBeforeRun": true
+            },
+            "recordScope": "filtered"
+          },
+          {
+            "id": "list_action_1792782570585",
+            "label": "Price list report",
+            "behavior": "openDocument",
+            "document": {
+              "viewMode": "html",
+              "templateId": "2e165446-1e4d-4322-82be-a3b53f39430e",
+              "skipInteractiveFill": true
+            },
+            "recordScope": "filtered"
+          }
+        ],
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {},
+        "relatedTransfer": null,
+        "inlineEditRefresh": "fields",
+        "inlineEditRefreshFields": [
+          "price_discount",
+          "new_price_discount"
+        ]
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "RecordPage",
+      "settingId": "b31621cd-e3e1-46ec-bf60-e9efbeb34e14",
+      "payload": {
+        "name": "Item Price",
+        "__meta": {
+          "name": "Item Price",
+          "role": null,
+          "status": "published",
+          "settingId": "b31621cd-e3e1-46ec-bf60-e9efbeb34e14"
+        },
+        "entity": "item_price",
+        "regions": [
+          {
+            "id": "region_fdot1apr",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_348hdnol",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_28cwk09h",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_m9m9xxl1",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_30vzok1d",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_kkholrjc",
+                "type": "activityLog",
+                "label": "Activity log",
+                "activityLog": {
+                  "actions": [
+                    "create",
+                    "update",
+                    "delete"
+                  ],
+                  "maxItems": 5,
+                  "showDeltas": true
+                },
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "78632830-e133-411d-90f3-d298332bd9c4",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_price",
+      "groupKey": "Tree",
+      "settingId": "329ee815-65f9-4989-a663-1a7c924b86f0",
+      "payload": {
+        "main": {
+          "sort": {
+            "field": "item",
+            "order": 1
+          },
+          "collection": "item_price",
+          "groupField": "item.group",
+          "labelField": "name",
+          "primaryKey": "id",
+          "labelFields": [
+            "name"
+          ]
+        },
+        "name": "Item Price",
+        "group": {
+          "collection": "item_group",
+          "labelField": "name",
+          "primaryKey": "id",
+          "parentField": "parent_group"
+        },
+        "__meta": {
+          "name": "Item Price",
+          "role": null,
+          "status": "published",
+          "settingId": "329ee815-65f9-4989-a663-1a7c924b86f0"
+        },
+        "destination": {
+          "key": "item_price_items",
+          "collection": ""
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_variant",
+      "groupKey": "entity",
+      "settingId": "4e4c3434-ad3b-4ef4-88df-a2a429dcc001",
+      "payload": {
+        "name": "Item Variant",
+        "__meta": {
+          "name": "Item Variant",
+          "role": null,
+          "status": "published",
+          "settingId": "4e4c3434-ad3b-4ef4-88df-a2a429dcc001"
+        },
+        "entity": "item_variant",
+        "fields": [
+          {
+            "id": "fld_1e3dc45ff36b",
+            "field": "item",
+            "label": "Item",
+            "component": "AutoComplete",
+            "relatedCollection": "item"
+          },
+          {
+            "id": "fld_d20dad547af5",
+            "field": "variant",
+            "label": "variant",
+            "component": "AutoComplete",
+            "relatedCollection": "variant"
+          },
+          {
+            "id": "fld_48b41d8b5957",
+            "field": "is_active",
+            "label": "Is Active",
+            "component": "Checkbox"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item Variant",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_c4708ed506bf",
+                    "span": 12,
+                    "field": "block_layout_759cd05e-8c4f-4568-affe-45c4f65a3a36",
+                    "label": "Item Variant",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "759cd05e-8c4f-4568-affe-45c4f65a3a36"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "item_variant",
+      "groupKey": "entity",
+      "settingId": "759cd05e-8c4f-4568-affe-45c4f65a3a36",
+      "payload": {
+        "name": "Item Variant",
+        "__meta": {
+          "name": "Item Variant",
+          "role": null,
+          "status": "published",
+          "settingId": "759cd05e-8c4f-4568-affe-45c4f65a3a36"
+        },
+        "entity": "item_variant",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Item Variant",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_1e3dc45ff36b",
+                    "span": 6,
+                    "field": "item",
+                    "label": "Item",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item"
+                  },
+                  {
+                    "id": "fld_d20dad547af5",
+                    "span": 6,
+                    "field": "variant",
+                    "label": "variant",
+                    "component": "AutoComplete",
+                    "relatedCollection": "variant"
+                  },
+                  {
+                    "id": "fld_48b41d8b5957",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ]
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "item_variant",
+      "groupKey": "field",
+      "settingId": "d99fa4d1-1580-48a1-a165-1b2754ac497e",
+      "payload": {
+        "name": "variant",
+        "__meta": {
+          "name": "variant",
+          "role": null,
+          "status": "published",
+          "settingId": "d99fa4d1-1580-48a1-a165-1b2754ac497e"
+        },
+        "filter": {
+          "type": {
+            "_eq": "$parent.variant_type"
+          }
+        },
+        "collection": "variant",
+        "valueField": "id",
+        "parentField": "item",
+        "sourceField": "item",
+        "childSourceField": "id",
+        "defaultValueField": ""
+      },
+      "subGroup": "variant"
+    },
+    {
+      "entityApiName": "item_variant",
+      "groupKey": "RecordPage",
+      "settingId": "4a006fb0-2609-4420-a46d-967e86a3c9b1",
+      "payload": {
+        "name": "Item Variant",
+        "__meta": {
+          "name": "Item Variant",
+          "role": null,
+          "status": "published",
+          "settingId": "4a006fb0-2609-4420-a46d-967e86a3c9b1"
+        },
+        "entity": "item_variant",
+        "regions": [
+          {
+            "id": "region_ukh2h2v0",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_21ttw8b6",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_uw50okbs",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_6w3bezl6",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_kvsfyv0f",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "759cd05e-8c4f-4568-affe-45c4f65a3a36",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "entity",
+      "settingId": "96d2ab3b-587d-4d39-b7ca-d925200941e4",
+      "payload": {
+        "name": "Message",
+        "__meta": {
+          "name": "Message",
+          "role": null,
+          "status": "published",
+          "settingId": "96d2ab3b-587d-4d39-b7ca-d925200941e4"
+        },
+        "entity": "message",
+        "fields": [
+          {
+            "id": "fld_52ca11051532",
+            "field": "body",
+            "label": "Body",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_835be3aa65eb",
+            "field": "type",
+            "label": "Type",
+            "component": "Select"
+          },
+          {
+            "id": "fld_63ee73fd9c97",
+            "field": "email",
+            "label": "Email",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_13276ecf86bb",
+            "field": "phone",
+            "label": "Phone",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_d85b34bdc7fc",
+            "field": "result",
+            "label": "Result",
+            "component": "Select"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Message",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_52ca11051532",
+                    "span": 6,
+                    "field": "body",
+                    "label": "Body",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_835be3aa65eb",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_63ee73fd9c97",
+                    "span": 6,
+                    "field": "email",
+                    "label": "Email",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_13276ecf86bb",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_d85b34bdc7fc",
+                    "span": 6,
+                    "field": "result",
+                    "label": "Result",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_4c913893d5ac",
+                    "span": 12,
+                    "field": "files:message",
+                    "files": {
+                      "columns": [],
+                      "display": "thumbnail",
+                      "multiple": true,
+                      "allowedMimeTypes": []
+                    },
+                    "label": "Attachments",
+                    "component": "Files",
+                    "relatedCollection": "files"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "entity",
+      "settingId": "f2530d70-265e-4740-9b90-1655b8e16193",
+      "payload": {
+        "name": "Message",
+        "__meta": {
+          "name": "Message",
+          "role": null,
+          "status": "published",
+          "settingId": "f2530d70-265e-4740-9b90-1655b8e16193"
+        },
+        "entity": "message",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Message",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_ecffb4eeac6b",
+                    "span": 6,
+                    "field": "contact",
+                    "label": "Contact",
+                    "component": "Select",
+                    "relatedCollection": "contact"
+                  },
+                  {
+                    "id": "fld_776fc9cfb979",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_65d25f99de64",
+                    "span": 12,
+                    "field": "body",
+                    "label": "Body",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_23300416654b",
+                    "span": 6,
+                    "field": "email",
+                    "label": "Email",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_cfa91299857c",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_122401fcbf91",
+                    "span": 6,
+                    "field": "result",
+                    "label": "Result",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_2f1bc6ba1dbe",
+                    "span": 6,
+                    "field": "opportunity",
+                    "label": "Opportunity",
+                    "readonly": true,
+                    "component": "AutoComplete",
+                    "relatedCollection": "opportunity"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "field",
+      "settingId": "df48b7b2-5978-47e8-a7aa-8530f0307045",
+      "payload": {
+        "name": "contact",
+        "__meta": {
+          "name": "contact",
+          "role": null,
+          "status": "published",
+          "settingId": "df48b7b2-5978-47e8-a7aa-8530f0307045"
+        },
+        "filter": {
+          "account_id": {
+            "_eq": "$parent.account_id"
+          }
+        },
+        "collection": "contact",
+        "valueField": "id",
+        "parentField": "opportunity",
+        "sourceField": "opportunity",
+        "childSourceField": "",
+        "defaultValueField": ""
+      },
+      "subGroup": "contact"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "field",
+      "settingId": "dbcc3c18-6cf3-4b24-a269-4b8760d3e9f5",
+      "payload": {
+        "name": "email",
+        "__meta": {
+          "name": "email",
+          "role": null,
+          "status": "published",
+          "settingId": "dbcc3c18-6cf3-4b24-a269-4b8760d3e9f5"
+        },
+        "filter": null,
+        "collection": "contact",
+        "valueField": "email",
+        "parentField": "",
+        "sourceField": "contact",
+        "childSourceField": "id",
+        "defaultValueField": ""
+      },
+      "subGroup": "email"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "field",
+      "settingId": "226588cd-3f13-47fe-bc8f-ff4462b96b05",
+      "payload": {
+        "name": "phone",
+        "__meta": {
+          "name": "phone",
+          "role": null,
+          "status": "published",
+          "settingId": "226588cd-3f13-47fe-bc8f-ff4462b96b05"
+        },
+        "filter": null,
+        "collection": "contact",
+        "valueField": "phone",
+        "parentField": "",
+        "sourceField": "contact",
+        "childSourceField": "id",
+        "defaultValueField": ""
+      },
+      "subGroup": "phone"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "RecordPage",
+      "settingId": "89281e24-dba4-4751-9ec1-53db381f3375",
+      "payload": {
+        "name": "Message",
+        "__meta": {
+          "name": "Message",
+          "role": null,
+          "status": "published",
+          "settingId": "89281e24-dba4-4751-9ec1-53db381f3375"
+        },
+        "entity": "message",
+        "regions": [
+          {
+            "id": "region_nu14sf5f",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_xaah22df",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_ey1vt5ug",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_9j3n9fej",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_899vwf3y",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_uylvezb6",
+                "type": "files",
+                "label": "Files",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "relatedCollection": "files"
+              },
+              {
+                "id": "cmp_sr3l6mfb",
+                "type": "activityLog",
+                "label": "Activity log",
+                "activityLog": {
+                  "actions": [
+                    "create",
+                    "update",
+                    "delete"
+                  ],
+                  "maxItems": 5,
+                  "showDeltas": true
+                },
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "f2530d70-265e-4740-9b90-1655b8e16193",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "entity",
+      "settingId": "148d2a40-58fb-45f9-b4c5-16cea48d2cf6",
+      "payload": {
+        "name": "Opportunity",
+        "__meta": {
+          "name": "Opportunity",
+          "role": null,
+          "status": "published",
+          "settingId": "148d2a40-58fb-45f9-b4c5-16cea48d2cf6"
+        },
+        "entity": "opportunity",
+        "fields": [
+          {
+            "id": "fld_cd818e91585d",
+            "field": "account_id",
+            "label": "Account",
+            "component": "AutoComplete",
+            "relatedCollection": "account"
+          },
+          {
+            "id": "fld_775cd18d04fb",
+            "field": "close_date",
+            "label": "Close date",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_bc0f52855a52",
+            "field": "amount",
+            "label": "Amount",
+            "component": "InputNumber"
+          },
+          {
+            "id": "fld_f2312aa5945f",
+            "field": "stage",
+            "label": "Stage",
+            "component": "Select"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Opportunity",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_b9bdbaa55af1",
+                    "span": 12,
+                    "field": "block_layout_b23ee95a-9dc6-4bc0-86ab-cc39abd2fb36",
+                    "label": "Opportunity",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "b23ee95a-9dc6-4bc0-86ab-cc39abd2fb36"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "entity",
+      "settingId": "06c9fba4-2d67-4601-a6dd-9c1a38886b98",
+      "payload": {
+        "name": "Opportunity related",
+        "__meta": {
+          "name": "Opportunity related",
+          "role": null,
+          "status": "published",
+          "settingId": "06c9fba4-2d67-4601-a6dd-9c1a38886b98"
+        },
+        "entity": "opportunity",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Opportunity",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_1585f57a3fcb",
+                    "span": 12,
+                    "field": "opportunity_item_opportunity",
+                    "label": "Opportunity Item Opportunity",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "item",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "item",
+                          "header": "Item",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item"
+                        },
+                        {
+                          "field": "variant",
+                          "header": "variant",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "variant"
+                        },
+                        {
+                          "field": "price",
+                          "header": "Price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "quantity",
+                          "header": "Quantity",
+                          "enabled": true,
+                          "component": "InputNumber",
+                          "inlineEditable": true
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": {
+                        "source": {
+                          "mode": "tree",
+                          "fields": [
+                            "item",
+                            "price",
+                            "item.min_qty"
+                          ],
+                          "filter": {
+                            "price_group": {
+                              "_eq": "$parent.account_id.price_group"
+                            }
+                          },
+                          "itemCollection": "item_price",
+                          "itemGroupField": "item.group",
+                          "itemPrimaryKey": "id",
+                          "groupCollection": "item_group",
+                          "groupLabelField": "name",
+                          "groupPrimaryKey": "id",
+                          "itemLabelFields": [
+                            "item",
+                            "price",
+                            "item.min_qty"
+                          ],
+                          "groupParentField": "parent_group"
+                        },
+                        "target": {
+                          "columns": [
+                            {
+                              "field": "item",
+                              "header": "Item",
+                              "enabled": true
+                            },
+                            {
+                              "field": "price",
+                              "header": "Price",
+                              "enabled": true
+                            },
+                            {
+                              "field": "quantity",
+                              "header": "Quantity",
+                              "enabled": true
+                            }
+                          ],
+                          "itemField": "item",
+                          "collection": "opportunity_item",
+                          "parentField": "opportunity",
+                          "duplicateKey": "item",
+                          "totalFormulas": [],
+                          "editableFields": [
+                            "quantity"
+                          ]
+                        },
+                        "mapping": {
+                          "values": {},
+                          "lookups": {},
+                          "defaults": {},
+                          "copyFromSource": {
+                            "quantity": "item.min_qty"
+                          }
+                        }
+                      }
+                    },
+                    "relatedCollection": "opportunity_item"
+                  },
+                  {
+                    "id": "fld_01c522c76c83",
+                    "span": 12,
+                    "field": "message_opportunity",
+                    "label": "Message",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "date_created",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "name",
+                          "header": "Name",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "date_created",
+                          "format": "dd.MM.yyyy HH:mm",
+                          "header": "Date Created",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        },
+                        {
+                          "field": "contact",
+                          "header": "Contact",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "contact"
+                        },
+                        {
+                          "field": "body",
+                          "header": "Body",
+                          "enabled": true,
+                          "component": "InputText"
+                        },
+                        {
+                          "field": "result",
+                          "header": "Result",
+                          "enabled": true,
+                          "component": "Select"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "message"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "entity",
+      "settingId": "b23ee95a-9dc6-4bc0-86ab-cc39abd2fb36",
+      "payload": {
+        "name": "Opportunity",
+        "__meta": {
+          "name": "Opportunity",
+          "role": null,
+          "status": "published",
+          "settingId": "b23ee95a-9dc6-4bc0-86ab-cc39abd2fb36"
+        },
+        "entity": "opportunity",
+        "actions": [
+          {
+            "id": "act_2ff23b1ff0",
+            "name": "generate_report",
+            "label": "Generate report",
+            "behavior": "openDocument",
+            "document": {
+              "autoSave": false,
+              "viewMode": "pdf",
+              "attachFile": true,
+              "templateId": "e9175018-3cd7-4d73-b080-9aa76ac0b36b",
+              "skipInteractiveFill": true
+            },
+            "displayType": "document"
+          }
+        ],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Opportunity",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_253be6a91acb",
+                    "span": 6,
+                    "field": "account_id",
+                    "label": "Account",
+                    "component": "AutoComplete",
+                    "relatedCollection": "account"
+                  },
+                  {
+                    "id": "fld_775cd18d04fb",
+                    "span": 6,
+                    "field": "close_date",
+                    "label": "Close date",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_bc0f52855a52",
+                    "span": 6,
+                    "field": "amount",
+                    "label": "Amount",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_f2312aa5945f",
+                    "span": 6,
+                    "field": "stage",
+                    "label": "Stage",
+                    "component": "Select"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              },
+              {
+                "id": "grp_01f8c57991",
+                "title": "Attachments",
+                "fields": [
+                  {
+                    "id": "fld_eb245af09755",
+                    "span": 12,
+                    "field": "files:opportunity",
+                    "files": {
+                      "columns": [],
+                      "display": "thumbnail",
+                      "multiple": true,
+                      "allowedMimeTypes": []
+                    },
+                    "label": "Attachments",
+                    "component": "Files",
+                    "relatedCollection": "files"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
       "entityApiName": "opportunity",
       "groupKey": "form",
+      "settingId": "56b7d6f9-1a2f-4b27-a72e-0e53a553aeb5",
       "payload": {
         "fields": [
           "name",
           "stage",
-          "outcome",
           "amount",
           "close_date",
-          "account_id"        ]
+          "account_id"
+        ]
       },
       "subGroup": "default"
     },
     {
       "entityApiName": "opportunity",
       "groupKey": "list",
+      "settingId": "bf84793d-d6f2-4663-9933-0b251156c9c9",
       "payload": {
         "sort": [
           "-close_date"
@@ -77,96 +4100,1849 @@
         "columns": [
           "name",
           "stage",
-          "outcome",
           "amount",
           "close_date",
-          "account_id"        ]
+          "account_id"
+        ]
       },
       "subGroup": "default"
     },
     {
       "entityApiName": "opportunity",
-      "groupKey": "RecordPage",
-      "subGroup": "full",
+      "groupKey": "list",
+      "settingId": "53596681-57da-4afd-8b86-4aa1c2931e8e",
       "payload": {
-        "name": "Default",
+        "name": "all",
+        "sort": {
+          "field": "name",
+          "order": 1
+        },
+        "logic": "and",
+        "__meta": {
+          "name": "all",
+          "role": null,
+          "status": "published",
+          "settingId": "53596681-57da-4afd-8b86-4aa1c2931e8e"
+        },
+        "columns": [
+          {
+            "field": "name",
+            "header": "Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "account_id",
+            "header": "Account",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "account"
+          },
+          {
+            "field": "amount",
+            "header": "Amount",
+            "enabled": true,
+            "component": "InputNumber"
+          },
+          {
+            "field": "close_date",
+            "header": "Close date",
+            "enabled": true,
+            "component": "DatePicker"
+          },
+          {
+            "field": "stage",
+            "header": "Stage",
+            "enabled": true,
+            "component": "Select"
+          },
+          {
+            "field": "date_created",
+            "header": "Date Created",
+            "enabled": true,
+            "component": "DatePicker"
+          },
+          {
+            "field": "user_created",
+            "header": "User Created",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "users"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [
+          {
+            "id": "flt_5a0991a36d11",
+            "type": "uuid",
+            "field": "account_id",
+            "value": null,
+            "operator": "_eq"
+          }
+        ],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "list",
+      "settingId": "3d087854-28a5-4cc6-88e5-b90cd515d665",
+      "payload": {
+        "name": "opportunity",
+        "__meta": {
+          "name": "opportunity",
+          "role": null,
+          "status": "published",
+          "settingId": "3d087854-28a5-4cc6-88e5-b90cd515d665"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {},
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "opportunity",
+      "groupKey": "RecordPage",
+      "settingId": "f1533979-5109-4070-af4b-5bde1c5de3c1",
+      "payload": {
+        "name": "Opportunity",
+        "__meta": {
+          "name": "Opportunity",
+          "role": null,
+          "status": "published",
+          "settingId": "f1533979-5109-4070-af4b-5bde1c5de3c1"
+        },
         "entity": "opportunity",
-        "version": 1,
-        "pageLayoutId": null,
-        "sidebarEnabled": true,
-        "mainSize": 50,
-        "listDetailPanel": null,
         "regions": [
           {
-            "id": "region_header",
+            "id": "region_e8n92l4o",
             "key": "header",
             "title": "Header",
             "components": [
               {
-                "id": "cmp_highlights",
+                "id": "cmp_0oha5i6z",
                 "type": "highlights",
                 "label": "Highlights",
-                "visibleActionButtons": 5,
-                "actionLayoutId": null
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
               },
               {
-                "id": "cmp_path",
+                "id": "cmp_kzgp739h",
                 "type": "path",
-                "label": "Path",
                 "field": "stage",
-                "terminalField": "outcome",
-                "successTerminalValues": ["won"]
+                "label": "Path",
+                "readonly": false,
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "terminalField": "terminal",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "successTerminalValues": [
+                  "won"
+                ]
               }
             ]
           },
           {
-            "id": "region_main",
+            "id": "region_z9fwygom",
             "key": "main",
             "title": "Main",
             "components": [
               {
-                "id": "cmp_detail",
+                "id": "cmp_hyn7ew3b",
                 "type": "detail",
-                "label": "Record Detail",
-                "pageLayoutId": null
+                "label": "Opportunity",
+                "defaultTabId": null,
+                "pageLayoutId": "b23ee95a-9dc6-4bc0-86ab-cc39abd2fb36",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
               }
             ]
           },
           {
-            "id": "region_sidebar",
+            "id": "region_yqidsygb",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_vgckf1hv",
+                "tabs": [
+                  {
+                    "id": "tab_wttxergh",
+                    "title": "Related",
+                    "components": [
+                      {
+                        "id": "cmp_v4fbbp3l",
+                        "type": "relatedList",
+                        "label": "Related List",
+                        "defaultTabId": null,
+                        "pageLayoutId": "06c9fba4-2d67-4601-a6dd-9c1a38886b98",
+                        "actionLayoutId": null,
+                        "relatedFieldId": null,
+                        "compactLayoutId": null
+                      }
+                    ]
+                  },
+                  {
+                    "id": "tab_hu5zng8j",
+                    "title": "Activity",
+                    "components": [
+                      {
+                        "id": "cmp_stckbtfb",
+                        "type": "activityLog",
+                        "label": "Activity log",
+                        "activityLog": {
+                          "actions": [
+                            "create",
+                            "update",
+                            "delete"
+                          ],
+                          "maxItems": 5,
+                          "showDeltas": true
+                        },
+                        "defaultTabId": null,
+                        "pageLayoutId": null,
+                        "actionLayoutId": null,
+                        "relatedFieldId": null,
+                        "compactLayoutId": null
+                      }
+                    ]
+                  }
+                ],
+                "type": "tabs",
+                "label": "Tabs",
+                "defaultTabId": "tab_wttxergh",
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 40,
+        "pageLayoutId": "b23ee95a-9dc6-4bc0-86ab-cc39abd2fb36",
+        "sidebarEnabled": true,
+        "listDetailPanel": {
+          "enabled": true,
+          "masterSize": 60,
+          "contentMode": "fullPageLayout",
+          "orientation": "sideBySide",
+          "detailMinSize": 15
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "entity",
+      "settingId": "616a5b94-89f3-4c9b-beea-ff906eb61807",
+      "payload": {
+        "name": "Opportunity Item",
+        "__meta": {
+          "name": "Opportunity Item",
+          "role": null,
+          "status": "published",
+          "settingId": "616a5b94-89f3-4c9b-beea-ff906eb61807"
+        },
+        "entity": "opportunity_item",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Opportunity Item",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_13f6b17c9618",
+                    "span": 6,
+                    "field": "item",
+                    "label": "Item",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item"
+                  },
+                  {
+                    "id": "fld_1fbb4a2a3ac3",
+                    "span": 6,
+                    "field": "variant",
+                    "label": "variant",
+                    "component": "Select",
+                    "relatedCollection": "variant"
+                  },
+                  {
+                    "id": "fld_3652d8ccb82b",
+                    "span": 4,
+                    "field": "price",
+                    "label": "Price",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_70b6a931940b",
+                    "span": 4,
+                    "field": "quantity",
+                    "label": "Quantity",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_2ed9866b6d3e",
+                    "span": 4,
+                    "field": "total",
+                    "label": "Total",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_c60c7f3545b1",
+                    "span": 6,
+                    "field": "main_price",
+                    "label": "Main price",
+                    "readonly": true,
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_ef5abd04b36c",
+                    "span": 6,
+                    "field": "base_price",
+                    "label": "Base price",
+                    "readonly": true,
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_e7b3e952f59e",
+                    "span": 6,
+                    "field": "opportunity",
+                    "label": "Opportunity",
+                    "readonly": true,
+                    "component": "AutoComplete",
+                    "relatedCollection": "opportunity"
+                  },
+                  {
+                    "id": "fld_1467737126b0",
+                    "span": 6,
+                    "field": "promotion",
+                    "label": "Promotion",
+                    "readonly": true,
+                    "component": "AutoComplete",
+                    "relatedCollection": "promotion"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "field",
+      "settingId": "26cf1898-f8d2-47fd-bad0-2c1976d186c6",
+      "payload": {
+        "name": "main_price",
+        "__meta": {
+          "name": "main_price",
+          "role": null,
+          "status": "published",
+          "settingId": "26cf1898-f8d2-47fd-bad0-2c1976d186c6"
+        },
+        "filter": {
+          "price_group": {
+            "_eq": "$parent.account_id.price_group"
+          }
+        },
+        "collection": "item_price",
+        "valueField": "price",
+        "parentField": "opportunity",
+        "sourceField": "item",
+        "childSourceField": "item",
+        "defaultValueField": ""
+      },
+      "subGroup": "main_price"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "field",
+      "settingId": "95ca0793-b71b-4fb4-957e-818bb3c463bb",
+      "payload": {
+        "name": "price",
+        "__meta": {
+          "name": "price",
+          "role": null,
+          "status": "published",
+          "settingId": "95ca0793-b71b-4fb4-957e-818bb3c463bb"
+        },
+        "filter": {
+          "price_group": {
+            "_eq": "$parent.account_id.price_group"
+          }
+        },
+        "collection": "item_price",
+        "valueField": "price",
+        "parentField": "opportunity",
+        "sourceField": "item",
+        "childSourceField": "item",
+        "defaultValueField": ""
+      },
+      "subGroup": "price"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "field",
+      "settingId": "5fa1241a-062e-4de3-9876-29e5d357f2bc",
+      "payload": {
+        "name": "promotion",
+        "__meta": {
+          "name": "promotion",
+          "role": null,
+          "status": "published",
+          "settingId": "5fa1241a-062e-4de3-9876-29e5d357f2bc"
+        },
+        "filter": {
+          "price_group": {
+            "_eq": "$parent.account_id.price_group"
+          }
+        },
+        "collection": "item_price",
+        "valueField": "promotion",
+        "parentField": "opportunity",
+        "sourceField": "item",
+        "childSourceField": "item",
+        "defaultValueField": ""
+      },
+      "subGroup": "promotion"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "field",
+      "settingId": "3f46adb5-955e-464c-be85-5e8f1265d97e",
+      "payload": {
+        "name": "variant",
+        "__meta": {
+          "name": "variant",
+          "role": null,
+          "status": "published",
+          "settingId": "3f46adb5-955e-464c-be85-5e8f1265d97e"
+        },
+        "filter": null,
+        "collection": "item_variant",
+        "valueField": "variant",
+        "parentField": "",
+        "sourceField": "item",
+        "childSourceField": "item",
+        "defaultValueField": ""
+      },
+      "subGroup": "variant"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "RecordPage",
+      "settingId": "8df62a0e-efa4-44c3-a574-58eace264f36",
+      "payload": {
+        "name": "Opportunity Item",
+        "__meta": {
+          "name": "Opportunity Item",
+          "role": null,
+          "status": "published",
+          "settingId": "8df62a0e-efa4-44c3-a574-58eace264f36"
+        },
+        "entity": "opportunity_item",
+        "regions": [
+          {
+            "id": "region_xzsd574j",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_t954wac9",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_dbtdg49s",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_vej6xw2n",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_tgzjcrr6",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_z9t6vbzu",
+                "type": "activityLog",
+                "label": "Activity log",
+                "activityLog": {
+                  "actions": [
+                    "create",
+                    "update",
+                    "delete"
+                  ],
+                  "maxItems": 5,
+                  "showDeltas": true
+                },
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "616a5b94-89f3-4c9b-beea-ff906eb61807",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "opportunity_item",
+      "groupKey": "report",
+      "settingId": "697f6ad7-30c3-4b46-9fb3-e46c1d524cf4",
+      "payload": {
+        "id": "report_a24c5aa17c39",
+        "name": "sales",
+        "limit": -1,
+        "pivot": {
+          "rows": [
+            {
+              "sort": "asc",
+              "field": "opportunity.close_date",
+              "dateGrain": "month"
+            }
+          ],
+          "values": [
+            {
+              "field": "price",
+              "aggregate": "sum"
+            }
+          ],
+          "columns": [
+            {
+              "sort": "asc",
+              "field": "item.group",
+              "dateGrain": null
+            }
+          ],
+          "sortRowsByTotal": null
+        },
+        "title": "Sales",
+        "__meta": {
+          "name": "sales",
+          "role": null,
+          "status": "published",
+          "settingId": "697f6ad7-30c3-4b46-9fb3-e46c1d524cf4"
+        },
+        "folderId": null,
+        "collection": "opportunity_item",
+        "conditions": [],
+        "filterLogic": "and"
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "entity",
+      "settingId": "c3ec5a87-a65b-4593-8690-ee3f75a88eec",
+      "payload": {
+        "name": "Price Group",
+        "__meta": {
+          "name": "Price Group",
+          "role": null,
+          "status": "published",
+          "settingId": "c3ec5a87-a65b-4593-8690-ee3f75a88eec"
+        },
+        "entity": "price_group",
+        "fields": [
+          {
+            "id": "fld_b7dfe890e286",
+            "field": "name",
+            "label": "Name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_a73a363083cc",
+            "field": "discount",
+            "label": "Discount",
+            "component": "InputNumber"
+          },
+          {
+            "id": "fld_42fb1d8b45f8",
+            "field": "is_active",
+            "label": "Is Active",
+            "component": "Checkbox"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Price Group",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_9e615a762d80",
+                    "span": 12,
+                    "field": "block_layout_605efe15-8b73-4942-96b0-3da84dbaf3ff",
+                    "label": "Price Group",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "605efe15-8b73-4942-96b0-3da84dbaf3ff"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "entity",
+      "settingId": "01cbc139-2825-4035-b623-d84b17891e14",
+      "payload": {
+        "name": "Price Group related",
+        "__meta": {
+          "name": "Price Group related",
+          "role": null,
+          "status": "published",
+          "settingId": "01cbc139-2825-4035-b623-d84b17891e14"
+        },
+        "entity": "price_group",
+        "actions": [
+          {
+            "id": "act_1ef0044097",
+            "name": "update_new_price",
+            "label": "Update new price",
+            "behavior": "bulkUpdateRelated",
+            "displayType": "detailButton",
+            "bulkUpdateRelated": {
+              "formula": "{{source}} * (1 - {{prompt}} / 100)",
+              "sourcePath": "item.base_price",
+              "promptLabel": "Set discount (%)",
+              "targetField": "new_price",
+              "successMessage": "Related records updated.",
+              "confirmBeforeRun": true,
+              "relatedCollection": "item_price",
+              "refreshRecordAfterRun": true
+            }
+          },
+          {
+            "id": "act_a0365fd02a",
+            "name": "set_price",
+            "label": "Apply to current price",
+            "behavior": "bulkUpdateRelated",
+            "displayType": "detailButton",
+            "bulkUpdateRelated": {
+              "formula": "{{source}}",
+              "sourcePath": "base_price",
+              "promptLabel": "",
+              "targetField": "new_price",
+              "successMessage": "Related records updated.",
+              "sourceLinkField": "item",
+              "confirmBeforeRun": true,
+              "sourceCollection": "item",
+              "activeSourcesOnly": true,
+              "relatedCollection": "item_price",
+              "refreshRecordAfterRun": true
+            }
+          },
+          {
+            "id": "act_654d0cdcd8",
+            "name": "price_report",
+            "label": "Price report",
+            "behavior": "openDocument",
+            "document": {
+              "autoSave": false,
+              "viewMode": "pdf",
+              "templateId": "0145b42d-af52-4d77-829f-9f78c8ccbf4a",
+              "skipInteractiveFill": false
+            },
+            "displayType": "document"
+          }
+        ],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Price Group",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_bf23ed75268f",
+                    "span": 12,
+                    "field": "item_price_price_group",
+                    "label": "Item Price Price Group",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": {
+                        "field": "item",
+                        "order": 1
+                      },
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "item",
+                          "header": "Item",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item"
+                        },
+                        {
+                          "field": "price",
+                          "header": "Price",
+                          "enabled": true,
+                          "component": "InputNumber",
+                          "inlineEditable": true
+                        },
+                        {
+                          "field": "item.base_price",
+                          "header": "Item / Base price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "price_discount",
+                          "header": "Price discount (%)",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "new_price",
+                          "header": "New Price",
+                          "enabled": true,
+                          "component": "InputNumber",
+                          "inlineEditable": true
+                        },
+                        {
+                          "field": "new_price_discount",
+                          "header": "New price discount (%)",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "promo_price",
+                          "header": "Promo price",
+                          "enabled": true,
+                          "component": "InputNumber",
+                          "inlineEditable": true
+                        },
+                        {
+                          "field": "item.group",
+                          "header": "Item / Group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item_group"
+                        }
+                      ],
+                      "groupBy": null,
+                      "rowLimit": 15,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null,
+                      "inlineEditRefresh": "fields",
+                      "inlineEditRefreshFields": [
+                        "price_discount",
+                        "new_price_discount"
+                      ]
+                    },
+                    "relatedCollection": "item_price"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": true
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "entity",
+      "settingId": "605efe15-8b73-4942-96b0-3da84dbaf3ff",
+      "payload": {
+        "name": "Price Group",
+        "__meta": {
+          "name": "Price Group",
+          "role": null,
+          "status": "published",
+          "settingId": "605efe15-8b73-4942-96b0-3da84dbaf3ff"
+        },
+        "entity": "price_group",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Price Group",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_b7dfe890e286",
+                    "span": 6,
+                    "field": "name",
+                    "label": "Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_a73a363083cc",
+                    "span": 6,
+                    "field": "discount",
+                    "label": "Discount",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_42fb1d8b45f8",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": true
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "list",
+      "settingId": "7e235826-15b9-4738-9dde-18845957ab25",
+      "payload": {
+        "name": "Price group",
+        "sort": null,
+        "logic": "and",
+        "__meta": {
+          "name": "Price group",
+          "role": null,
+          "status": "published",
+          "settingId": "7e235826-15b9-4738-9dde-18845957ab25"
+        },
+        "columns": [
+          {
+            "field": "name",
+            "header": "Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "discount",
+            "header": "Discount",
+            "enabled": true,
+            "component": "InputNumber",
+            "inlineEditable": true
+          },
+          {
+            "field": "user_created",
+            "header": "User Created",
+            "enabled": true,
+            "component": "AutoComplete"
+          },
+          {
+            "field": "date_created",
+            "header": "Date Created",
+            "enabled": true,
+            "component": "DatePicker"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "list",
+      "settingId": "a068d2b3-7391-4229-996f-d2bf07a04bb8",
+      "payload": {
+        "name": "price_group",
+        "__meta": {
+          "name": "price_group",
+          "role": null,
+          "status": "published",
+          "settingId": "a068d2b3-7391-4229-996f-d2bf07a04bb8"
+        },
+        "actions": null,
+        "barcodeScan": null,
+        "detailPanel": null,
+        "predefinedViews": {},
+        "relatedTransfer": null,
+        "inlineEditRefresh": "off",
+        "inlineEditRefreshFields": []
+      },
+      "subGroup": "table_meta"
+    },
+    {
+      "entityApiName": "price_group",
+      "groupKey": "RecordPage",
+      "settingId": "e1af9e41-8d83-403b-b574-3ec35a5d56ed",
+      "payload": {
+        "name": "Price Group",
+        "__meta": {
+          "name": "Price Group",
+          "role": null,
+          "status": "published",
+          "settingId": "e1af9e41-8d83-403b-b574-3ec35a5d56ed"
+        },
+        "entity": "price_group",
+        "regions": [
+          {
+            "id": "region_o0p1sxct",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_y2dics1d",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": "01cbc139-2825-4035-b623-d84b17891e14",
+                "relatedFieldId": null,
+                "compactLayoutId": "c3ec5a87-a65b-4593-8690-ee3f75a88eec",
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_sm4oucg6",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_84eqq54j",
+                "type": "detail",
+                "label": "Price Group related",
+                "defaultTabId": null,
+                "pageLayoutId": "01cbc139-2825-4035-b623-d84b17891e14",
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_lye3auke",
             "key": "sidebar",
             "title": "Sidebar",
             "components": []
           }
-        ]
-      }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "605efe15-8b73-4942-96b0-3da84dbaf3ff",
+        "sidebarEnabled": false,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
     },
     {
-      "entityApiName": "quote",
+      "entityApiName": "promotion",
+      "groupKey": "entity",
+      "settingId": "1c424b32-2d4f-4d78-b961-ad5e02d494d3",
+      "payload": {
+        "name": "Promotion",
+        "__meta": {
+          "name": "Promotion",
+          "role": null,
+          "status": "published",
+          "settingId": "1c424b32-2d4f-4d78-b961-ad5e02d494d3"
+        },
+        "entity": "promotion",
+        "fields": [
+          {
+            "id": "fld_f34ded5cbb27",
+            "field": "campaign",
+            "label": "Campaign",
+            "component": "AutoComplete",
+            "relatedCollection": "campaign"
+          },
+          {
+            "id": "fld_88ab835265e0",
+            "field": "description",
+            "label": "Description",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_abc5407447e3",
+            "field": "date_start",
+            "label": "Date start",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_d9e73c4e9101",
+            "field": "date_end",
+            "label": "Date end",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_e2c777dd0f68",
+            "field": "item_group",
+            "label": "Item group",
+            "component": "AutoComplete",
+            "relatedCollection": "item_group"
+          },
+          {
+            "id": "fld_c24f4b8242eb",
+            "field": "item_price_group",
+            "label": "Item price group",
+            "component": "AutoComplete",
+            "relatedCollection": "item_price_group"
+          },
+          {
+            "id": "fld_260a215f9df0",
+            "field": "item",
+            "label": "Item",
+            "component": "AutoComplete",
+            "relatedCollection": "item"
+          },
+          {
+            "id": "fld_8d7cf5746acc",
+            "field": "promo_type",
+            "label": "Promo type",
+            "component": "Select"
+          },
+          {
+            "id": "fld_1f2f8a346b97",
+            "field": "fixed_price",
+            "label": "Fixed price",
+            "component": "InputNumber"
+          },
+          {
+            "id": "fld_7a916bf1a807",
+            "field": "discount_percent",
+            "label": "Discount %",
+            "component": "InputNumber"
+          },
+          {
+            "id": "fld_5915e7284c50",
+            "field": "is_active",
+            "label": "Is Active",
+            "component": "Checkbox"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Promotion",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_7a276d0eb16b",
+                    "span": 12,
+                    "field": "block_layout_8ccc4173-8812-4912-a3e3-2417586b0eca",
+                    "label": "Promotion",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "8ccc4173-8812-4912-a3e3-2417586b0eca"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "promotion",
+      "groupKey": "entity",
+      "settingId": "8ccc4173-8812-4912-a3e3-2417586b0eca",
+      "payload": {
+        "name": "Promotion",
+        "__meta": {
+          "name": "Promotion",
+          "role": null,
+          "status": "published",
+          "settingId": "8ccc4173-8812-4912-a3e3-2417586b0eca"
+        },
+        "entity": "promotion",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Promotion",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_f34ded5cbb27",
+                    "span": 6,
+                    "field": "campaign",
+                    "label": "Campaign",
+                    "component": "AutoComplete",
+                    "relatedCollection": "campaign"
+                  },
+                  {
+                    "id": "fld_88ab835265e0",
+                    "span": 6,
+                    "field": "description",
+                    "label": "Description",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_abc5407447e3",
+                    "span": 6,
+                    "field": "date_start",
+                    "label": "Date start",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_d9e73c4e9101",
+                    "span": 6,
+                    "field": "date_end",
+                    "label": "Date end",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_e2c777dd0f68",
+                    "span": 6,
+                    "field": "item_group",
+                    "label": "Item group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item_group"
+                  },
+                  {
+                    "id": "fld_1872cfaa3524",
+                    "span": 6,
+                    "field": "price_group",
+                    "label": "price group",
+                    "component": "AutoComplete",
+                    "relatedCollection": "price_group"
+                  },
+                  {
+                    "id": "fld_260a215f9df0",
+                    "span": 12,
+                    "field": "item",
+                    "label": "Item",
+                    "component": "AutoComplete",
+                    "relatedCollection": "item"
+                  },
+                  {
+                    "id": "fld_8d7cf5746acc",
+                    "span": 4,
+                    "field": "promo_type",
+                    "label": "Promo type",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_1f2f8a346b97",
+                    "span": 4,
+                    "field": "fixed_price",
+                    "label": "Fixed price",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_7a916bf1a807",
+                    "span": 4,
+                    "field": "discount_percent",
+                    "label": "Discount %",
+                    "component": "InputNumber"
+                  },
+                  {
+                    "id": "fld_5915e7284c50",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              },
+              {
+                "id": "grp_8795bcd5dd",
+                "title": "New Group",
+                "fields": [
+                  {
+                    "id": "fld_0a0a28eabc74",
+                    "span": 12,
+                    "field": "item_price_promotion",
+                    "label": "Item Price Promotion",
+                    "component": "DataTable",
+                    "dataTable": {
+                      "sort": null,
+                      "actions": null,
+                      "columns": [
+                        {
+                          "field": "item",
+                          "header": "Item",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item"
+                        },
+                        {
+                          "field": "item.group",
+                          "header": "Item / Group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "item_group"
+                        },
+                        {
+                          "field": "price_group",
+                          "header": "Price group",
+                          "enabled": true,
+                          "component": "AutoComplete",
+                          "relatedCollection": "price_group"
+                        },
+                        {
+                          "field": "price",
+                          "header": "Price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "promo_price",
+                          "header": "Promo price",
+                          "enabled": true,
+                          "component": "InputNumber"
+                        },
+                        {
+                          "field": "date_created",
+                          "header": "Date Created",
+                          "enabled": true,
+                          "component": "DatePicker"
+                        }
+                      ],
+                      "groupBy": null,
+                      "detailPanel": null,
+                      "recordLinkField": null,
+                      "relatedTransfer": null
+                    },
+                    "relatedCollection": "item_price"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "promotion",
       "groupKey": "form",
+      "settingId": "52822b03-503b-4fc1-b11b-2bc3156c4821",
       "payload": {
         "fields": [
           "name",
-          "total",
-          "valid_until",
-          "opportunity_id"        ]
+          "campaign",
+          "date_start",
+          "date_end",
+          "promo_type",
+          "fixed_price",
+          "discount_percent",
+          "item",
+          "item_group",
+          "item_price_group",
+          "description"
+        ]
       },
       "subGroup": "default"
     },
     {
-      "entityApiName": "quote",
+      "entityApiName": "promotion",
       "groupKey": "list",
+      "settingId": "f74168bb-a82a-4583-bb23-cd53a2bfacb6",
       "payload": {
         "sort": [
-          "-valid_until"
+          "-date_start"
         ],
         "columns": [
           "name",
-          "total",
-          "valid_until",
-          "opportunity_id"        ]
+          "campaign",
+          "date_start",
+          "date_end",
+          "promo_type",
+          "item",
+          "item_group",
+          "item_price_group"
+        ]
       },
       "subGroup": "default"
+    },
+    {
+      "entityApiName": "promotion",
+      "groupKey": "RecordPage",
+      "settingId": "5ffff46e-aee8-41fc-a45e-4b8f6572ba7d",
+      "payload": {
+        "name": "Promotion",
+        "__meta": {
+          "name": "Promotion",
+          "role": null,
+          "status": "published",
+          "settingId": "5ffff46e-aee8-41fc-a45e-4b8f6572ba7d"
+        },
+        "entity": "promotion",
+        "regions": [
+          {
+            "id": "region_y4d50m8r",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_ujp7elyo",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_b2jw8p9t",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_m1247gv6",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_h7mso1bo",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "8ccc4173-8812-4912-a3e3-2417586b0eca",
+        "sidebarEnabled": false,
+        "listDetailPanel": {
+          "enabled": true,
+          "masterSize": 60,
+          "detailMinSize": 15
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "users",
+      "groupKey": "entity",
+      "settingId": "eeeeeeee-eeee-4eee-8eee-eeeeeeee0002",
+      "payload": {
+        "name": "Users",
+        "__meta": {
+          "name": "Users",
+          "role": null,
+          "status": "published",
+          "settingId": "eeeeeeee-eeee-4eee-8eee-eeeeeeee0002"
+        },
+        "entity": "users",
+        "fields": [
+          {
+            "id": "field_first_name",
+            "field": "first_name",
+            "label": "First Name",
+            "component": "InputText"
+          },
+          {
+            "id": "field_last_name",
+            "field": "last_name",
+            "label": "Last Name",
+            "component": "InputText"
+          },
+          {
+            "id": "field_email",
+            "field": "email",
+            "label": "Email",
+            "component": "InputText"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Users",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "field_first_name",
+                    "field": "first_name",
+                    "label": "First Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "field_last_name",
+                    "field": "last_name",
+                    "label": "Last Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "field_email",
+                    "field": "email",
+                    "label": "Email",
+                    "component": "InputText"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "users",
+      "groupKey": "entity",
+      "settingId": "eeeeeeee-eeee-4eee-8eee-eeeeeeee0001",
+      "payload": {
+        "name": "Users",
+        "__meta": {
+          "name": "Users",
+          "role": null,
+          "status": "published",
+          "settingId": "eeeeeeee-eeee-4eee-8eee-eeeeeeee0001"
+        },
+        "entity": "users",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Users",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "field_last_name",
+                    "span": 6,
+                    "field": "last_name",
+                    "label": "Last Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "field_first_name",
+                    "span": 6,
+                    "field": "first_name",
+                    "label": "First Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_15d8f4a7dc53",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "field_email",
+                    "span": 6,
+                    "field": "email",
+                    "label": "Email",
+                    "component": "InputText"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              },
+              {
+                "id": "grp_a7c21552b5",
+                "title": "Extend info",
+                "fields": [
+                  {
+                    "id": "fld_01e696507eb7",
+                    "span": 6,
+                    "field": "address",
+                    "label": "Address",
+                    "component": "Address"
+                  },
+                  {
+                    "id": "fld_9abc052fb3b9",
+                    "span": 6,
+                    "field": "photo",
+                    "files": {
+                      "columns": [],
+                      "display": "thumbnail",
+                      "multiple": false,
+                      "previewSize": "md",
+                      "allowedMimeTypes": [
+                        "image/"
+                      ]
+                    },
+                    "label": "Photo",
+                    "component": "Files",
+                    "relatedCollection": "files"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": false
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "users",
+      "groupKey": "RecordPage",
+      "settingId": "d6b31fc7-813d-4e87-b2dc-4dc271757d87",
+      "payload": {
+        "name": "Users",
+        "__meta": {
+          "name": "Users",
+          "role": null,
+          "status": "published",
+          "settingId": "d6b31fc7-813d-4e87-b2dc-4dc271757d87"
+        },
+        "entity": "users",
+        "regions": [
+          {
+            "id": "region_oawvdneo",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_lwxiv2vq",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_ejh9ahdf",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_lgfx9hb4",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_lnl8d018",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "eeeeeeee-eeee-4eee-8eee-eeeeeeee0001",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "variant",
+      "groupKey": "entity",
+      "settingId": "4e4dcca7-9412-4caf-9469-0ae662296929",
+      "payload": {
+        "name": "Variant",
+        "__meta": {
+          "name": "Variant",
+          "role": null,
+          "status": "published",
+          "settingId": "4e4dcca7-9412-4caf-9469-0ae662296929"
+        },
+        "entity": "variant",
+        "fields": [
+          {
+            "id": "fld_acb48fcf500b",
+            "field": "name",
+            "label": "Name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_4f1f4fa04f9e",
+            "field": "type",
+            "label": "Type",
+            "component": "Select"
+          },
+          {
+            "id": "fld_d230dac6f261",
+            "field": "is_active",
+            "label": "Is Active",
+            "component": "Checkbox"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Variant",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_1d914a03eb45",
+                    "span": 12,
+                    "field": "block_layout_8133b937-9483-4af8-b758-6d09f44fdb1d",
+                    "label": "Variant",
+                    "component": "BlockLayout",
+                    "blockLayoutId": "8133b937-9483-4af8-b758-6d09f44fdb1d"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "variant",
+      "groupKey": "entity",
+      "settingId": "8133b937-9483-4af8-b758-6d09f44fdb1d",
+      "payload": {
+        "name": "Variant",
+        "__meta": {
+          "name": "Variant",
+          "role": null,
+          "status": "published",
+          "settingId": "8133b937-9483-4af8-b758-6d09f44fdb1d"
+        },
+        "entity": "variant",
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Variant",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_acb48fcf500b",
+                    "span": 6,
+                    "field": "name",
+                    "label": "Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_4f1f4fa04f9e",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_d230dac6f261",
+                    "span": 6,
+                    "field": "is_active",
+                    "label": "Is Active",
+                    "component": "Checkbox"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ]
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "variant",
+      "groupKey": "RecordPage",
+      "settingId": "0bf3fc4e-ba16-4a37-a512-eced98f76ed5",
+      "payload": {
+        "name": "Variant",
+        "__meta": {
+          "name": "Variant",
+          "role": null,
+          "status": "published",
+          "settingId": "0bf3fc4e-ba16-4a37-a512-eced98f76ed5"
+        },
+        "entity": "variant",
+        "regions": [
+          {
+            "id": "region_4x8im6a3",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_kphsbwzs",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_lgs3ehwj",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_8i931ipq",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_m30e5zfb",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": []
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "8133b937-9483-4af8-b758-6d09f44fdb1d",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
     }
   ]
 }

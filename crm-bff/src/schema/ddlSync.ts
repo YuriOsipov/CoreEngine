@@ -194,6 +194,16 @@ async function tableExists(schema: string, table: string): Promise<boolean> {
   return Boolean(rows[0]?.exists)
 }
 
+async function schemaExists(schema: string): Promise<boolean> {
+  const rows = await query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_namespace WHERE nspname = $1
+     ) AS exists`,
+    [schema],
+  )
+  return Boolean(rows[0]?.exists)
+}
+
 export async function listTypedTableColumns(
   schema: string,
   table: string,
@@ -671,12 +681,16 @@ export async function planEntityDdlSync(
   const relation = crmQualifiedTable({ schema, table }, entityApiName)
   const actions: DdlAction[] = []
 
-  actions.push({
-    type: 'ENSURE_SCHEMA',
-    entityApiName,
-    sql: `CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`,
-    message: `Ensure schema ${schema}`,
-  })
+  // Skip CREATE SCHEMA when it already exists — app roles often lack CREATE on
+  // the database, and IF NOT EXISTS still requires that privilege in Postgres.
+  if (!(await schemaExists(schema))) {
+    actions.push({
+      type: 'ENSURE_SCHEMA',
+      entityApiName,
+      sql: `CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`,
+      message: `Ensure schema ${schema}`,
+    })
+  }
 
   const exists = await tableExists(schema, table)
   const envelopeFlags = {

@@ -9,11 +9,14 @@ import {
 } from 'vue'
 import { currentUser } from '@/core/currentUser'
 import { useEntityPermissions } from '@/core/entityPermissions'
+import { getRolePreviewOverride } from '@/core/rolePreview'
+import { fetchAppRolesAdmin } from '@/core/graphql/userAdminApi'
 import { isUsersAssetCollection } from '@/core/usersField'
 
 /**
  * Record Edit access: normal matrix canUpdate, except `users` where
- * admins may edit any record and everyone may edit their own.
+ * real admins may edit any record and everyone may edit their own.
+ * Admin "View as role" must follow the previewed role (no admin bypass).
  */
 export function useRecordEditAccess(
   collection: MaybeRefOrGetter<string | null | undefined>,
@@ -32,6 +35,22 @@ export function useRecordEditAccess(
   const selfOrAdminUsersEdit = ref(false)
   const identityReady = ref(false)
 
+  async function previewRoleIsAdmin(roleRef: string): Promise<boolean> {
+    const raw = String(roleRef || '').trim()
+    if (!raw) return false
+    try {
+      const roles = await fetchAppRolesAdmin()
+      const matched = roles.find(
+        (role) =>
+          String(role.id) === raw ||
+          (role.backendRoleId != null && String(role.backendRoleId) === raw),
+      )
+      return Boolean(matched?.isAdmin)
+    } catch {
+      return false
+    }
+  }
+
   async function refreshUsersSelfEdit(): Promise<void> {
     const col = String(toValue(collection) || '').trim()
     if (!isUsersAssetCollection(col)) {
@@ -41,13 +60,34 @@ export function useRecordEditAccess(
     }
     try {
       const user = await currentUser()
-      if (user.isAdmin) {
+      const meId = user.id != null ? String(user.id).trim() : ''
+      const target = String(toValue(recordId) ?? '').trim()
+      const isSelf = Boolean(meId && target && meId === target)
+
+      if (!user.isAdmin) {
+        selfOrAdminUsersEdit.value = isSelf
+        return
+      }
+
+      // Real admin session (not previewing) → edit any user.
+      const preview = getRolePreviewOverride()
+      if (preview === undefined) {
         selfOrAdminUsersEdit.value = true
         return
       }
-      const meId = user.id != null ? String(user.id).trim() : ''
-      const target = String(toValue(recordId) ?? '').trim()
-      selfOrAdminUsersEdit.value = Boolean(meId && target && meId === target)
+
+      // Previewing "Default (all roles)" → no admin bypass; self only.
+      if (preview === null) {
+        selfOrAdminUsersEdit.value = isSelf
+        return
+      }
+
+      // Previewing a concrete role → admin bypass only if that role is admin.
+      if (await previewRoleIsAdmin(preview)) {
+        selfOrAdminUsersEdit.value = true
+        return
+      }
+      selfOrAdminUsersEdit.value = isSelf
     } catch {
       selfOrAdminUsersEdit.value = false
     } finally {

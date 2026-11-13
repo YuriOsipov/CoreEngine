@@ -125,7 +125,10 @@ interface PreparedDataTableContext {
   allFields?: FieldDefinition[]
 }
 
-/** Expand auto Name sorts onto Display Template fields when present. */
+/**
+ * Expand Name / Primary key (Id) sorts onto Display Template fields when present
+ * so default sort and header clicks order by the rendered label.
+ */
 async function resolveDataTableSortConfig(
   collection: string,
   sort: DataTableSortConfig | null,
@@ -133,12 +136,15 @@ async function resolveDataTableSortConfig(
   primaryKey: string,
 ): Promise<DataTableSortConfig | null> {
   if (!sort?.field?.trim()) return sort
-  if (!usesPrimaryKeyRecordLink(recordLinkField, primaryKey)) return sort
-  if (sort.field.trim() !== 'name') return sort
+  const field = sort.field.trim()
+  const isPkSort = field === primaryKey || field === 'id'
+  const isNameSort =
+    field === 'name' && usesPrimaryKeyRecordLink(recordLinkField, primaryKey)
+  if (!isPkSort && !isNameSort) return sort
 
   const template = await fetchCollectionDisplayTemplate(collection)
-  const fields = resolveNameLinkSortFields('name', template)
-  if (fields.length === 0 || (fields.length === 1 && fields[0] === 'name')) {
+  const fields = resolveNameLinkSortFields(field, template, primaryKey)
+  if (fields.length === 0 || (fields.length === 1 && fields[0] === field)) {
     return sort
   }
   return { ...sort, field: fields.join(',') }

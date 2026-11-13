@@ -302,7 +302,13 @@ onMounted(() => {
         header-style="width: 14rem"
       >
         <template #body="{ data }">
-          {{ userDisplayName(data) }}
+          <button
+            type="button"
+            class="setup-link setup-link--button"
+            @click="openEdit(data)"
+          >
+            {{ userDisplayName(data) }}
+          </button>
         </template>
       </Column>
       <Column
@@ -356,17 +362,10 @@ onMounted(() => {
       </Column>
       <Column
         :header="t('setup.columnActions', 'Actions')"
-        style="width: 8rem"
-        header-style="width: 8rem"
+        style="width: 5rem"
+        header-style="width: 5rem"
       >
         <template #body="{ data }">
-          <Button
-            icon="pi pi-pencil"
-            text
-            rounded
-            :aria-label="t('common.edit', 'Edit')"
-            @click="openEdit(data)"
-          />
           <Button
             icon="pi pi-key"
             text

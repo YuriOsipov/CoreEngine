@@ -185,6 +185,11 @@ const props = withDefaults(
     inlineEditRefresh?: 'off' | 'row' | 'fields'
     /** Field names merged when `inlineEditRefresh` is `fields`. */
     inlineEditRefreshFields?: string[]
+    /**
+     * Size the grid to its rows (page scrolls) instead of filling a pane/viewport.
+     * Used when list master-detail is collapsed so unused panel height is not left blank.
+     */
+    autoHeight?: boolean
   }>(),
   {
     paginator: false,
@@ -220,6 +225,7 @@ const props = withDefaults(
     inlineEditRefresh: 'off',
     inlineEditRefreshFields: () => [],
     filterRowsByParent: true,
+    autoHeight: false,
   },
 )
 
@@ -269,6 +275,12 @@ const localColumns = ref<CrmDataTableColumn[]>([...props.columns])
 const columnLayoutKey = ref(0)
 /** User-resized column widths (px), keyed by column field/header. */
 const columnWidthOverrides = ref<Record<string, string>>({})
+/**
+ * Explicit table pixel width after resize. Must stay in sync with column
+ * widths — if we only pin columns but leave table at minWidth:100%, free
+ * space redistributes into siblings on every Vue rebind.
+ */
+const tableLayoutWidthPx = ref<number | null>(null)
 /** User column order (resolveColumnKey values), restored from localStorage. */
 const storedColumnOrder = ref<string[] | null>(null)
 const sortField = ref<string | null>(props.defaultSortField ?? null)
@@ -522,6 +534,7 @@ watch(
   { immediate: true },
 )
 const isCompact = computed(() => typeof props.maxLocalRows === 'number' && props.maxLocalRows > 0)
+const useNaturalHeight = computed(() => isCompact.value || props.autoHeight)
 
 const isRowGroupingActive = computed(() => {
   if (!props.groupBy?.field?.trim()) return false
@@ -581,7 +594,7 @@ const activeRowsPerPage = computed(() =>
 )
 
 const scrollPanelStyle = computed(() =>
-  isCompact.value ? {} : { height: `${panelHeight.value}px` },
+  useNaturalHeight.value ? {} : { height: `${panelHeight.value}px` },
 )
 const canDragRows = computed(() => props.rowDraggable && !props.rowDragDisabled)
 
@@ -740,6 +753,21 @@ watch(
   { immediate: true },
 )
 
+function handleWindowScroll(): void {
+  if (!props.autoHeight) return
+  if (!props.lazy || !props.hasMore || props.loadingMore) return
+  const doc = document.documentElement
+  // Short content: scrollHeight ≈ viewport — do not treat as "at bottom" or we spam load-more.
+  if (doc.scrollHeight <= window.innerHeight + 1) return
+  const distanceToBottom =
+    doc.scrollHeight - (window.scrollY || doc.scrollTop) - window.innerHeight
+  if (distanceToBottom > loadMoreThreshold()) return
+  emit('load-more', {
+    offset: props.rows.length,
+    limit: dynamicPageSize.value,
+  })
+}
+
 onMounted(() => {
   void nextTick(() => {
     updatePanelHeight()
@@ -747,11 +775,13 @@ onMounted(() => {
     attachResizeObserver()
   })
   window.addEventListener('resize', handleResize)
+  window.addEventListener('scroll', handleWindowScroll, { passive: true })
   attachInnerScrollListener()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  window.removeEventListener('scroll', handleWindowScroll)
   detachInnerScrollListener()
   resizeObserver?.disconnect()
   resizeObserver = null
@@ -790,10 +820,13 @@ function updatePanelHeight(): void {
 }
 
 function containingPanelBottom(panel: HTMLElement): number | null {
+  if (useNaturalHeight.value) return null
   const host = panel.closest(
     '.object-list-master-detail__master, .object-list-master-detail__detail',
   )
   if (!(host instanceof HTMLElement)) return null
+  // Collapsed list chrome sizes to content — binding to host bottom is circular.
+  if (host.closest('.object-list-master-detail--collapsed-natural')) return null
   return host.getBoundingClientRect().bottom
 }
 
@@ -822,11 +855,13 @@ function measureRowsAndPageSize(): void {
 }
 
 function attachResizeObserver(): void {
-  if (isCompact.value) return
+  if (useNaturalHeight.value) return
   const panel = scrollPanel.value
   if (!panel) return
   const target =
+    panel.closest('.object-list-master-detail') ??
     panel.closest('.object-list-master-detail__master') ??
+    panel.closest('.object-list-table-host') ??
     panel.closest('.object-list-master-detail__detail') ??
     panel.closest('.app-shell') ??
     panel.parentElement
@@ -835,6 +870,20 @@ function attachResizeObserver(): void {
     updatePanelHeight()
   })
   resizeObserver.observe(target)
+}
+
+function resetPanelLayoutObserver(): void {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (useNaturalHeight.value) {
+    updatePanelHeight()
+    return
+  }
+  void nextTick(() => {
+    updatePanelHeight()
+    measureRowsAndPageSize()
+    attachResizeObserver()
+  })
 }
 
 function attachInnerScrollListener(): void {
@@ -866,8 +915,15 @@ function handleScroll(): void {
   })
 }
 
+watch(
+  () => props.autoHeight,
+  () => {
+    resetPanelLayoutObserver()
+  },
+)
+
 function handleCompactWheel(event: WheelEvent): void {
-  if (!isCompact.value || event.deltaY === 0) return
+  if (!useNaturalHeight.value || event.deltaY === 0) return
 
   // Let the table consume horizontal scroll (shift+wheel / trackpad X).
   if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
@@ -1483,9 +1539,23 @@ function parseStoredOrder(value: unknown): string[] | null {
   return order.length > 0 ? order : null
 }
 
+function sumStoredColumnWidths(widths: Record<string, string>): number | null {
+  const values = Object.values(widths)
+    .map((value) => Number.parseFloat(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  if (!values.length) return null
+  // Fixed chrome: row # (~44px) + actions (~56px) when present.
+  let chrome = 0
+  if (props.showRowNumbers) chrome += 44
+  if (isMultipleSelection.value) chrome += 48
+  if (showDeleteButtonEffective.value) chrome += 56
+  return Math.round(values.reduce((sum, value) => sum + value, 0) + chrome)
+}
+
 function loadColumnLayoutState(collection: string | null): void {
   if (!collection || typeof window === 'undefined') {
     columnWidthOverrides.value = {}
+    tableLayoutWidthPx.value = null
     storedColumnOrder.value = null
     return
   }
@@ -1502,18 +1572,19 @@ function loadColumnLayoutState(collection: string | null): void {
     }
     if (!raw) {
       columnWidthOverrides.value = {}
+      tableLayoutWidthPx.value = null
       storedColumnOrder.value = null
       return
     }
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       columnWidthOverrides.value = {}
+      tableLayoutWidthPx.value = null
       storedColumnOrder.value = null
       return
     }
     const record = parsed as Record<string, unknown>
-    // New shape: { widths, order? } (tableWidth ignored — caused sibling stretch)
-    // Legacy shape: flat Record<field, width>
+    // Shape: { widths, order?, tableWidth? } — Legacy: flat Record<field, width>
     const widthSource =
       record.widths && typeof record.widths === 'object' && !Array.isArray(record.widths)
         ? (record.widths as Record<string, unknown>)
@@ -1525,12 +1596,17 @@ function loadColumnLayoutState(collection: string | null): void {
       if (width) next[keyName] = width
     }
     columnWidthOverrides.value = next
+    const storedTableWidth = parseStoredWidth(record.tableWidth)
+    tableLayoutWidthPx.value = storedTableWidth
+      ? Number.parseFloat(storedTableWidth)
+      : sumStoredColumnWidths(next)
     storedColumnOrder.value = parseStoredOrder(record.order)
     if (storedColumnOrder.value?.length) {
       localColumns.value = applyStoredColumnOrder([...props.columns])
     }
   } catch {
     columnWidthOverrides.value = {}
+    tableLayoutWidthPx.value = null
     storedColumnOrder.value = null
   }
 }
@@ -1542,11 +1618,15 @@ function persistColumnLayoutState(): void {
     const payload: {
       widths: Record<string, string>
       order?: string[]
+      tableWidth?: string
     } = {
       widths: columnWidthOverrides.value,
     }
     if (storedColumnOrder.value?.length) {
       payload.order = storedColumnOrder.value
+    }
+    if (tableLayoutWidthPx.value && tableLayoutWidthPx.value > 0) {
+      payload.tableWidth = `${tableLayoutWidthPx.value}px`
     }
     window.localStorage.setItem(
       columnLayoutStorageKey(collection),
@@ -1557,6 +1637,16 @@ function persistColumnLayoutState(): void {
     // Ignore quota / private-mode failures.
   }
 }
+
+/** Keep OpenVue table width pinned so Vue rebinds cannot stretch to 100%. */
+const gridTableStyle = computed(() => {
+  const width = tableLayoutWidthPx.value
+  if (width && width > 0) {
+    const px = `${Math.round(width)}px`
+    return { width: px, minWidth: px }
+  }
+  return { width: 'max-content' }
+})
 
 watch(
   managedCollection,
@@ -1594,13 +1684,24 @@ function handleColumnResizeEnd(event: {
   const width = Math.round(th.getBoundingClientRect().width)
   if (width < 40) return
 
-  // Persist only the dragged column. Do not remount: OpenVue expand-mode
-  // already keeps siblings at their pre-resize sizes; remounting clears that
-  // and redistributes every column.
-  columnWidthOverrides.value = {
-    ...columnWidthOverrides.value,
-    [resolveColumnKey(column)]: `${width}px`,
-  }
+  // Snapshot every data column + the full header-row width at release.
+  // Expand mode only holds siblings in the DOM during drag; Vue rebind of
+  // columnStyle/tableStyle with minWidth:100% redistributes free space.
+  // Do not bump columnLayoutKey (remount would redistribute again).
+  const next = { ...columnWidthOverrides.value }
+  next[resolveColumnKey(column)] = `${width}px`
+  displayedColumns.value.forEach((col, index) => {
+    if (col.autoRecordId) return
+    const header = headers[dataStart + index]
+    if (!(header instanceof HTMLElement)) return
+    const w = Math.round(header.getBoundingClientRect().width)
+    if (w < 40) return
+    next[resolveColumnKey(col)] = `${w}px`
+  })
+  columnWidthOverrides.value = next
+  tableLayoutWidthPx.value = Math.round(
+    headers.reduce((sum, header) => sum + header.getBoundingClientRect().width, 0),
+  )
 
   persistColumnLayoutState()
 }
@@ -1665,11 +1766,15 @@ function handleSort(event: unknown): void {
 
 function resolveSortKey(fieldName: string): string {
   const column = displayedColumns.value.find((c) => c.field === fieldName)
-  // Auto Name link: sort by Display Template fields, not auto-number `name`.
-  if (column?.autoRecordId && fieldName === 'name') {
+  // Auto Name / Primary key link: sort by Display Template, not UUID / auto-number.
+  if (
+    column?.autoRecordId &&
+    (fieldName === 'name' || fieldName === managedPrimaryKey.value)
+  ) {
     const fields = resolveNameLinkSortFields(
-      'name',
+      fieldName,
       column.template || collectionDisplayTemplate.value,
+      managedPrimaryKey.value,
     )
     return fields.join(',')
   }
@@ -2242,13 +2347,10 @@ function syncM2OCellLabels(): void {
 
       const id = cell?.id ?? m2oId(rawValue)
       if (id === null) continue
-      if (
-        cell?.label &&
-        cell.label !== String(id) &&
-        !templateReferencesParent(column.template)
-      ) {
-        continue
-      }
+      // Always resolve via related-entity Display Template. Inline labels often
+      // fall back to `name` (auto-numbers like 0096) when nested DT fields were
+      // missing from the list payload — those must not skip the async fetch.
+      if (templateReferencesParent(column.template)) continue
 
       void loadM2OCellLabel(
         { ...column, relatedCollection, template: column.template },
@@ -2270,10 +2372,17 @@ async function loadM2OCellLabel(
 
   m2oCellLabelRequests.add(key)
   try {
+    // Prefer the related entity Display Template (authoritative). Only honor an
+    // explicit column template when it is set and not a bare {{name}} default.
+    const columnTemplate = column.template?.trim() || ''
+    const templateForFetch =
+      !columnTemplate || /^\{\{\s*name\s*\}\}$/i.test(columnTemplate)
+        ? undefined
+        : columnTemplate
     const option = await fetchRelatedCollectionOptionById(
       column.relatedCollection,
       id,
-      column.template,
+      templateForFetch,
     )
     if (option?.label && option.label !== String(id)) {
       m2oCellLabels[key] = option.label
@@ -2284,7 +2393,9 @@ async function loadM2OCellLabel(
 }
 
 function m2oCellLabelKey(column: CrmDataTableColumn, id: string | number): string {
-  return [column.relatedCollection ?? '', id, column.template ?? ''].join('.')
+  // Cache by related collection + id only so {{name}} layout stubs and entity DT
+  // share one authoritative label.
+  return [column.relatedCollection ?? '', String(id)].join('.')
 }
 
 function m2oId(value: unknown): string | number | null {
@@ -2705,7 +2816,7 @@ function compareRowsByField(
     <div
       ref="scrollPanel"
       class="crm-data-table__scroll-panel"
-      :class="{ 'crm-data-table__scroll-panel--compact': isCompact }"
+      :class="{ 'crm-data-table__scroll-panel--compact': useNaturalHeight }"
       :style="scrollPanelStyle"
       @scroll="handleScroll"
       @wheel="handleCompactWheel"
@@ -2738,6 +2849,7 @@ function compareRowsByField(
         :can-drag-rows="canDragRows"
         :show-delete-button="showDeleteButtonEffective"
         :empty-message="emptyMessageText"
+        :table-style="gridTableStyle"
         :format-group-header="formatGroupHeader"
         :resolve-column-key="resolveColumnKey"
         :column-style="columnStyle"

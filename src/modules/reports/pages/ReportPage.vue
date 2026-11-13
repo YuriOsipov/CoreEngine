@@ -6,15 +6,20 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useToast } from 'openvue/usetoast'
 import CrmVTablePivot from '@/core/ui-kit/CrmVTablePivot.vue'
 import { useTranslation } from '@/core/translation'
 import ReportDrillDownDialog from '../components/ReportDrillDownDialog.vue'
+import ReportTabularTable from '../components/ReportTabularTable.vue'
 import {
   executeReport,
-  listReports,
+  isPivotReport,
+  isTabularReport,
+  listReportsForCurrentRole,
   normalizeReportDefinition,
   pivotDimensionFields,
+  reportCanRun,
   resolveReportDateGrains,
   type ReportDefinition,
   type ReportPivotDrillDown,
@@ -24,6 +29,7 @@ import {
 const { t } = useTranslation()
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const reports = ref<ReportWithSetting[]>([])
 const selectedSettingId = ref<string | null>(null)
 const draft = ref<ReportDefinition | null>(null)
@@ -31,8 +37,6 @@ const draftSettingId = ref<string | number | null>(null)
 const rows = ref<Record<string, unknown>[]>([])
 const loading = ref(false)
 const running = ref(false)
-const error = ref<string | null>(null)
-const status = ref<string | null>(null)
 const drillDownVisible = ref(false)
 const drillDown = ref<ReportPivotDrillDown | null>(null)
 
@@ -47,7 +51,7 @@ const drillDownTitle = computed(() => {
   return t('reports.drillDownTitle', 'Drill down · {title}', { title: reportTitle })
 })
 const drillDownFieldLabels = computed<Record<string, string>>(() => {
-  if (!draft.value) return {}
+  if (!draft.value || !isPivotReport(draft.value)) return {}
   const labels: Record<string, string> = {}
   for (const field of [
     ...pivotDimensionFields(draft.value.pivot.rows),
@@ -58,13 +62,20 @@ const drillDownFieldLabels = computed<Record<string, string>>(() => {
   }
   return labels
 })
-const canRun = computed(() => Boolean(draft.value?.collection && draft.value.pivot.values.length > 0))
+const canRun = computed(() => reportCanRun(draft.value))
 const editInSetupRoute = computed(() => {
   if (!draftSettingId.value) return null
   return {
     name: 'setup-report-edit' as const,
     params: { settingId: String(draftSettingId.value) },
   }
+})
+const previewTitle = computed(() => {
+  if (!draft.value) return t('reports.title', 'Reports')
+  if (isTabularReport(draft.value)) {
+    return draft.value.title || t('reports.tabularReport', 'Tabular report')
+  }
+  return draft.value.title || t('reports.pivotTable', 'Pivot table')
 })
 
 onMounted(() => {
@@ -73,10 +84,8 @@ onMounted(() => {
 
 async function loadReportList(): Promise<void> {
   loading.value = true
-  error.value = null
-  status.value = null
   try {
-    const all = await listReports()
+    const all = await listReportsForCurrentRole()
     const curatedIds =
       typeof route.query.ids === 'string'
         ? route.query.ids.split(',').map((id) => id.trim()).filter(Boolean)
@@ -88,7 +97,12 @@ async function loadReportList(): Promise<void> {
       await selectReport(String(reports.value[0].settingId))
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('reports.failedLoadReports', 'Failed to load reports.')
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: err instanceof Error ? err.message : t('reports.failedLoadReports', 'Failed to load reports.'),
+      life: 4000,
+    })
   } finally {
     loading.value = false
   }
@@ -102,8 +116,6 @@ async function selectReport(settingId: string): Promise<void> {
   draftSettingId.value = report.settingId
   draft.value = await resolveReportDateGrains(normalizeReportDefinition(report.config))
   rows.value = []
-  status.value = null
-  error.value = null
   if (canRun.value) {
     await runCurrentReport()
   }
@@ -113,15 +125,23 @@ async function runCurrentReport(): Promise<void> {
   if (!draft.value || !canRun.value) return
 
   running.value = true
-  error.value = null
-  status.value = null
   try {
     rows.value = await executeReport(draft.value)
-    status.value = t('reports.loadedRows', 'Loaded {count} report rows.', {
-      count: rows.value.length,
+    toast.add({
+      severity: 'info',
+      summary: t('reports.title', 'Reports'),
+      detail: t('reports.loadedRows', 'Loaded {count} report rows.', {
+        count: rows.value.length,
+      }),
+      life: 3000,
     })
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('reports.failedRun', 'Failed to run report.')
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: err instanceof Error ? err.message : t('reports.failedRun', 'Failed to run report.'),
+      life: 4000,
+    })
   } finally {
     running.value = false
   }
@@ -143,9 +163,8 @@ function openInSetup(): void {
     <header class="app-header">
       <div class="app-header__row">
         <div>
-          <RouterLink to="/" class="nav-link">{{ t('common.allCollections', 'All collections') }}</RouterLink>
           <h1>{{ t('reports.title', 'Reports') }}</h1>
-          <p>{{ t('reports.runSubtitle', 'Run pivot reports and drill into source records.') }}</p>
+          <p>{{ t('reports.runSubtitle', 'Run pivot and tabular reports scoped to your role.') }}</p>
         </div>
       </div>
 
@@ -182,23 +201,6 @@ function openInSetup(): void {
           />
         </div>
       </div>
-
-      <Message
-        v-if="error"
-        severity="error"
-        :closable="false"
-        class="collections-message"
-      >
-        {{ error }}
-      </Message>
-      <Message
-        v-else-if="status"
-        severity="info"
-        :closable="false"
-        class="collections-message"
-      >
-        {{ status }}
-      </Message>
     </header>
 
     <section v-if="loading && reports.length === 0" class="page-loading">
@@ -211,7 +213,7 @@ function openInSetup(): void {
       class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-4 grid gap-4 mt-6 max-h-[calc(100vh-9rem)] overflow-auto"
     >
       <div class="flex items-center gap-3 justify-between">
-        <h2 class="m-0">{{ draft?.title || t('reports.pivotTable', 'Pivot table') }}</h2>
+        <h2 class="m-0">{{ previewTitle }}</h2>
         <small v-if="draft?.name" class="text-muted-color">{{ draft.name }}</small>
       </div>
 
@@ -220,20 +222,26 @@ function openInSetup(): void {
         <span>{{ t('reports.runningReport', 'Running report...') }}</span>
       </div>
       <CrmVTablePivot
-        v-else-if="draft"
+        v-else-if="draft && isPivotReport(draft)"
         :rows="rows"
         :pivot="draft.pivot"
         :collection="draft.collection"
         :empty-message="t('reports.runEmptyMessage', 'Run the report to show pivot data.')"
         @drill-down="openDrillDown"
       />
-      <Message v-else severity="info" :closable="false">
+      <ReportTabularTable
+        v-else-if="draft && isTabularReport(draft)"
+        :report="draft"
+        :rows="rows"
+        :empty-message="t('reports.runEmptyTabularMessage', 'Run the report to show tabular data.')"
+      />
+      <p v-else class="text-muted-color m-0">
         {{ t('reports.chooseExistingOrCreate', 'Choose an existing report or create a new one.') }}
-      </Message>
+      </p>
     </section>
 
     <ReportDrillDownDialog
-      v-if="draft"
+      v-if="draft && isPivotReport(draft)"
       v-model:visible="drillDownVisible"
       :title="drillDownTitle"
       :collection="draft.collection"

@@ -2,6 +2,7 @@ import { getPathValue } from '@/modules/entities/utils/recordDisplay'
 import {
   executeReport,
   getReportBySettingId,
+  isPivotReport,
   resolveReportDateGrains,
   type ReportPivotDimension,
   type ReportPivotValue,
@@ -24,7 +25,10 @@ export async function loadReportPanelSeries(
   if (!report) return null
 
   const config = await resolveReportDateGrains(report.config)
-  if (!config.collection || config.pivot.values.length === 0) return null
+  // Chart/metric panels require pivot aggregates; tabular reports are skipped.
+  if (!isPivotReport(config) || !config.collection || config.pivot.values.length === 0) {
+    return null
+  }
 
   const rows = await executeReport(config)
   const value = config.pivot.values[0]

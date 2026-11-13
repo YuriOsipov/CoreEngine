@@ -1,6 +1,7 @@
 import {
   deleteDashboardBridge,
   deletePanelBridge,
+  readPanelsBridge,
   upsertDashboardBridge,
   upsertPanelBridge,
 } from '@/core/graphql/dashboardsApi'
@@ -12,7 +13,7 @@ import type {
   UpsertPanelInput,
 } from '@/interfaces'
 import {
-  loadDashboardsWithPanels,
+  loadDashboardRecords,
   type DashboardWithPanels,
 } from './dashboardSettings'
 
@@ -39,6 +40,8 @@ export interface DesignerDashboardDraft {
   icon: string | null
   note: string | null
   color: string | null
+  roleId: string | null
+  lastRefreshedAt: string | null
   panels: DesignerPanelDraft[]
   /** Panel ids removed from an existing dashboard; deleted on save. */
   deletedPanelIds: string[]
@@ -52,6 +55,8 @@ export function createEmptyDraft(): DesignerDashboardDraft {
     icon: null,
     note: null,
     color: null,
+    roleId: null,
+    lastRefreshedAt: null,
     panels: [],
     deletedPanelIds: [],
     dirty: false,
@@ -67,6 +72,8 @@ export function draftFromDashboard(
     icon: dashboard.icon ?? null,
     note: dashboard.note ?? null,
     color: dashboard.color ?? null,
+    roleId: dashboard.roleId ?? null,
+    lastRefreshedAt: dashboard.lastRefreshedAt ?? null,
     panels: dashboard.panels.map((panel) => ({
       id: panel.id,
       dashboard: dashboard.id,
@@ -208,17 +215,80 @@ export function createPanelDraft(
 }
 
 export async function listDashboardSummaries(): Promise<DashboardRecord[]> {
-  const dashboards = await loadDashboardsWithPanels()
-  return dashboards.map(({ panels: _panels, ...rest }) => rest)
+  return loadDashboardRecords()
+}
+
+export interface DashboardListRow extends DashboardRecord {
+  panelCount: number
+}
+
+export async function listDashboardRows(): Promise<DashboardListRow[]> {
+  const [dashboards, panels] = await Promise.all([
+    loadDashboardRecords(),
+    readPanelsBridge({
+      fields: ['id', 'dashboard'],
+      sort: ['dashboard'],
+      limit: -1,
+    }),
+  ])
+  const counts = new Map<string, number>()
+  for (const panel of panels) {
+    const dashboard =
+      typeof panel.dashboard === 'string'
+        ? panel.dashboard
+        : panel.dashboard && typeof panel.dashboard === 'object'
+          ? String((panel.dashboard as { id?: unknown }).id ?? '')
+          : ''
+    if (!dashboard) continue
+    counts.set(dashboard, (counts.get(dashboard) ?? 0) + 1)
+  }
+  return dashboards.map((dashboard) => ({
+    ...dashboard,
+    panelCount: counts.get(dashboard.id) ?? 0,
+  }))
 }
 
 export async function loadDesignerDraft(
   dashboardId: string,
 ): Promise<DesignerDashboardDraft> {
-  const dashboards = await loadDashboardsWithPanels()
-  const found = dashboards.find((d) => d.id === dashboardId)
+  const id = String(dashboardId)
+  const [dashboards, panels] = await Promise.all([
+    loadDashboardRecords(),
+    readPanelsBridge({
+      fields: [
+        'id',
+        'dashboard',
+        'name',
+        'icon',
+        'color',
+        'show_header',
+        'note',
+        'type',
+        'position_x',
+        'position_y',
+        'width',
+        'height',
+        'options',
+      ],
+      filter: { dashboard: { _eq: id } },
+      sort: ['position_y', 'position_x'],
+      limit: -1,
+    }),
+  ])
+  const found = dashboards.find((d) => d.id === id)
   if (!found) throw new Error(`Dashboard not found: ${dashboardId}`)
-  return draftFromDashboard(found)
+  const withPanels: DashboardWithPanels = {
+    ...found,
+    panels: (panels as unknown as DashboardPanelRecord[]).map((panel) => ({
+      ...panel,
+      render: {
+        kind: 'unsupported' as const,
+        reason: '',
+        options: null,
+      },
+    })),
+  }
+  return draftFromDashboard(withPanels)
 }
 
 function toUpsertPanelInput(
@@ -258,6 +328,7 @@ export async function saveDesignerDraft(
     icon: draft.icon,
     note: draft.note,
     color: draft.color,
+    roleId: draft.roleId,
   }
   const savedDashboard = await upsertDashboardBridge(dashboardInput)
   const dashboardId = String(savedDashboard.id)

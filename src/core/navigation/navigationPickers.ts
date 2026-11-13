@@ -1,6 +1,5 @@
 import { readDashboardsBridge } from '@/core/graphql/dashboardsApi'
 import { listUserCollections } from '@/modules/entities/services/collectionSchema'
-import { readSettingRecords } from '@/core/graphql/settingRecordsBridge'
 import { loadListViews } from '@/modules/config/services/listViewSettings'
 
 export interface NavPickerOption {
@@ -29,23 +28,14 @@ export async function listNavDashboards(): Promise<NavPickerOption[]> {
 }
 
 export async function listNavReports(): Promise<NavPickerOption[]> {
-  const records = await readSettingRecords({
-    groups: ['report'],
-    subGroup: 'full',
-    limit: -1,
-  })
-
-  return records.map((record) => {
-    let title = record.name?.trim() || String(record.id)
-    const body =
-      typeof record.body === 'string'
-        ? safeParse(record.body)
-        : (record.body as Record<string, unknown> | null)
-    if (body && typeof body.title === 'string' && body.title.trim()) {
-      title = body.title.trim()
-    }
-    return { label: title, value: String(record.id) }
-  })
+  const { listReportsForCurrentRole } = await import(
+    '@/modules/reports/services/reportSettings'
+  )
+  const reports = await listReportsForCurrentRole()
+  return reports.map((report) => ({
+    label: report.title || report.name,
+    value: String(report.settingId),
+  }))
 }
 
 export async function listNavListViews(collection: string): Promise<NavPickerOption[]> {
@@ -54,15 +44,4 @@ export async function listNavListViews(collection: string): Promise<NavPickerOpt
     label: view.name,
     value: view.id,
   }))
-}
-
-function safeParse(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
 }

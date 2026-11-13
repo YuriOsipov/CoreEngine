@@ -27,10 +27,12 @@ We will acknowledge receipt when we can, triage severity, and coordinate a fix b
 ## Out of scope (for triage expectations)
 
 - Issues that require already having database / Hasura / Directus admin credentials, or a compromised `AUTH_JWT_SECRET`
-- Missing **row-level sharing** (not implemented — see README security checklist); that is a product gap, not a regression, unless a claim in docs incorrectly says it is enforced
+- Missing **full row-level sharing** (share rules / groups / hierarchy — see README). Opt-in **owner** RLS (`user_created`) is implemented; reporting “sharing rules” as complete when only owner mode exists is a docs bug
 - Denial-of-service from unbounded legitimate authenticated queries without a concrete auth/authorization flaw
 - Vulnerabilities only in third-party services you wire yourself (n8n, Hasura, Directus) when those endpoints are exposed contrary to the deployment checklist
 
 ## Deployment reminders
 
 Operators should follow the **Security model and deployment checklist** in [`README.md`](README.md): verified JWTs and short-lived access tokens, admin flags from the database, admin-only Setup mutations, field sensitivity tiers, no public Hasura/Directus, single scheduler instance, TLS termination, and rate limiting at the edge.
+
+For SSO, use an external OIDC IdP (`OIDC_*` — see [`docs/oidc-sso.md`](docs/oidc-sso.md)). Rotate IdP client secrets, enable MFA on the IdP, and do not trust IdP role claims for CoreEngine admin.

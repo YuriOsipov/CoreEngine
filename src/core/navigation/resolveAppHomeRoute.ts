@@ -5,7 +5,7 @@ import { resolveNavTarget } from './navTargetRoute'
 
 /**
  * Route for the current navigation app's configured Home landing.
- * Returns null when Home is left as the default Objects page (`/`).
+ * Returns null when Home is not configured (empty `/` state).
  */
 export async function resolveAppHomeRoute(): Promise<RouteLocationRaw | null> {
   const app = await resolveNavigationForCurrentUser()

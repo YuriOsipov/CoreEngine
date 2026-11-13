@@ -10,13 +10,14 @@ import { useRouter } from 'vue-router'
 const props = defineProps<{
   title: string
   detail: string
-  backLabel: string
-  backTo: string
+  backLabel?: string
+  backTo?: string
 }>()
 
 const router = useRouter()
 
 function goBack(): void {
+  if (!props.backTo) return
   void router.push(props.backTo)
 }
 </script>
@@ -27,6 +28,7 @@ function goBack(): void {
     <h2 class="crm-not-found-state__title">{{ title }}</h2>
     <p class="crm-not-found-state__detail">{{ detail }}</p>
     <Button
+      v-if="backLabel && backTo"
       :label="backLabel"
       size="small"
       icon="pi pi-arrow-left"

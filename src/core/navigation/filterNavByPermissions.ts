@@ -4,6 +4,8 @@ import {
   ensureEntityPermissions,
 } from '@/core/entityPermissions'
 
+let accessibleReportIds: Set<string> | null = null
+
 function objectCollectionFromTarget(target: NavTarget): string | null {
   if (target.kind === 'object') {
     const collection = String(target.collection || '').trim()
@@ -22,6 +24,12 @@ function objectCollectionFromTarget(target: NavTarget): string | null {
 }
 
 function canAccessNavTarget(target: NavTarget): boolean {
+  if (target.kind === 'reports') {
+    const ids = Array.isArray(target.reportIds) ? target.reportIds.map(String) : []
+    if (ids.length === 0) return true
+    if (!accessibleReportIds) return true
+    return ids.some((id) => accessibleReportIds!.has(id))
+  }
   const collection = objectCollectionFromTarget(target)
   if (!collection) return true
   return canReadEntity(collection)
@@ -46,12 +54,22 @@ function filterFavoriteLinks(items: NavLink[]): NavLink[] {
   return items.filter((item) => canAccessNavTarget(item.target))
 }
 
-/** Drop object links (and empty folders) the effective role cannot read. */
+/** Drop object/report links (and empty folders) the effective role cannot access. */
 export async function filterNavigationByReadAccess(
   app: NavigationApp | null,
   favorites: NavLink[] = [],
 ): Promise<{ app: NavigationApp | null; favorites: NavLink[] }> {
   await ensureEntityPermissions()
+  try {
+    const { listReportsForCurrentRole } = await import(
+      '@/modules/reports/services/reportSettings'
+    )
+    const reports = await listReportsForCurrentRole()
+    accessibleReportIds = new Set(reports.map((report) => String(report.settingId)))
+  } catch {
+    accessibleReportIds = null
+  }
+
   if (!app) {
     return { app: null, favorites: filterFavoriteLinks(favorites) }
   }

@@ -1,0 +1,83 @@
+# CoreEngine lightweight try-out (Postgres + BFF + optional web UI).
+# No Supabase Storage / Studio / PostgREST — use root docker-compose.yml for the all-in-one stack.
+#
+# Quick start:
+#   cp .env.docker.example .env
+#   cp .env.docker.example supabase/.env
+#   docker compose -f docker-compose.minimal.yml up -d db
+#   docker compose -f docker-compose.minimal.yml run --rm --workdir /app bff \
+#     npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env \
+#     ./scripts/provision-platform-db.mts --domain sales
+#   docker compose -f docker-compose.minimal.yml up -d bff
+#   docker compose -f docker-compose.minimal.yml --profile ui up -d --build web
+#
+# BFF: http://localhost:4000/health   UI (optional): http://localhost:8080
+
+services:
+  db:
+    image: postgres:15-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-coreengine}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (superuser) in .env}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-coreengine_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD (BFF role) in .env}
+    ports:
+      # Loopback only — never expose Postgres on all interfaces.
+      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}:5432"
+    volumes:
+      - coreengine_pg:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-coreengine}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bff:
+    build:
+      context: .
+      dockerfile: crm-bff/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+      - path: supabase/.env
+        required: false
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-coreengine}
+      # BFF + provisioning use the non-superuser app role (see docker/postgres-init).
+      POSTGRES_USER: ${POSTGRES_APP_USER:-coreengine_app}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+      POSTGRES_BOOTSTRAP_USER: ${POSTGRES_APP_USER:-coreengine_app}
+      POSTGRES_BOOTSTRAP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-coreengine_app}:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:5432/${POSTGRES_DB:-coreengine}
+      AUTH_BACKEND: local
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
+      DIRECTUS_RUNTIME: "off"
+      RUNNING_IN_DOCKER: "1"
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
+      PORT: 4000
+    ports:
+      - "127.0.0.1:${BFF_PUBLISH_PORT:-4000}:4000"
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./supabase:/app/supabase
+      - ./.env:/app/.env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    profiles: ["ui"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PUBLISH_PORT:-8080}:80"
+    depends_on:
+      - bff
+
+volumes:
+  coreengine_pg:

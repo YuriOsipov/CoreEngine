@@ -1,7 +1,14 @@
 import { query } from '../db/pool.js'
 import { clampSensitivity } from '../services/fieldSecurity.js'
+import {
+  clearRowLevelSecurityCache,
+  parseRowLevelSecurity,
+  readRowLevelSecurity,
+  type RowLevelSecurityMode,
+} from '../services/rowLevelSecurity.js'
 
 export type EntityAccountability = 'all' | 'activity' | null
+export type { RowLevelSecurityMode }
 
 export interface EntityMetaInput {
   label?: string | null
@@ -19,6 +26,11 @@ export interface EntityMetaInput {
    * (0 none, 1 restricted, 2 confidential). Omit to leave unchanged.
    */
   defaultFieldSensitivity?: number | null
+  /**
+   * Owner row security: `"owner"` | null (off). Omit to leave unchanged.
+   * Uses `user_created` as owner; admins bypass.
+   */
+  rowLevelSecurity?: RowLevelSecurityMode | undefined
 }
 
 export interface EntityMetaRow {
@@ -34,6 +46,8 @@ export interface EntityMetaRow {
   accountability: EntityAccountability
   /** Applied when createRegistryField omits sensitivity. */
   defaultFieldSensitivity: number
+  /** `owner` = non-admins only see / mutate their `user_created` rows. */
+  rowLevelSecurity: RowLevelSecurityMode
   backendConfig: Record<string, unknown>
 }
 
@@ -96,6 +110,7 @@ export async function loadEntityMeta(entityApiName: string): Promise<EntityMetaR
     internal: readInternal(backendConfig),
     accountability: parseAccountability(backendConfig.accountability),
     defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
+    rowLevelSecurity: readRowLevelSecurity(backendConfig),
     backendConfig,
   }
 }
@@ -148,6 +163,10 @@ export async function updateEntityMeta(
       input.defaultFieldSensitivity,
     )
   }
+  if (input.rowLevelSecurity !== undefined) {
+    // Persist explicit null as JSON null so packs/UI can turn owner mode off.
+    configPatch.rowLevelSecurity = parseRowLevelSecurity(input.rowLevelSecurity)
+  }
   if (input.internal !== undefined && input.internal !== null) {
     configPatch.internal = Boolean(input.internal)
   }
@@ -178,6 +197,10 @@ export async function updateEntityMeta(
       JSON.stringify(configPatch),
     ],
   )
+
+  if (input.rowLevelSecurity !== undefined) {
+    clearRowLevelSecurityCache()
+  }
 
   const updated = await loadEntityMeta(entityApiName)
   if (!updated) throw new Error(`Entity not found after update: ${entityApiName}`)

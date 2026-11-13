@@ -68,6 +68,10 @@ import {
   redactRecords,
   resolveFieldAccess,
 } from '../../services/fieldSecurity.js'
+import {
+  applyOwnerFilterIfNeeded,
+  assertOwnerAccessIfNeeded,
+} from '../../services/rowLevelSecurity.js'
 import type { MeUser } from '../usersAdapter.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
@@ -747,9 +751,15 @@ export async function findManyRecords(
   if (me) {
     await assertReadableQuery(me, apiName, { filter: params.filter, sort: params.sort })
   }
+  const securedFilter = await applyOwnerFilterIfNeeded(
+    apiName,
+    params.access,
+    params.filter,
+  )
   const fields = filterReadableFieldPaths(params.fields, fieldAccess)
   const storeParams = {
     ...params,
+    filter: securedFilter,
     fields: await physicalStoreFields(apiName, fields),
     searchExcludeFields: fieldAccess?.unreadable.size
       ? [...fieldAccess.unreadable]
@@ -802,6 +812,7 @@ export async function findOneRecord(
   const readable = filterReadableFieldPaths(fields, fieldAccess)
   const storeFields = await physicalStoreFields(apiName, readable)
   const record = await store.findOne(apiName, id, storeFields)
+  await assertOwnerAccessIfNeeded(apiName, access, record, 'read')
   const [expanded] = await expandRecordRelations(apiName, [record], access, readable)
   const [withRollups] = await attachLiveRollupsOnRead(
     apiName,
@@ -978,6 +989,19 @@ export async function updateRecord(
   options: RecordWriteOptions,
 ): Promise<Record<string, unknown>> {
   if (isUsersAssetCollection(entity)) {
+    // Defense in depth: users profile writes need update ACL (self or admin),
+    // not only field-sensitivity checks inside assertWriteAllowed.
+    if (!isSystemRecordAccess(options.access)) {
+      const me = options.access.me
+      if (!me) {
+        throw new Error(
+          'Record write requires authenticated `{ me }` or SYSTEM_RECORD_ACCESS',
+        )
+      }
+      await assertMeEntityPermission(me, entity, 'update', {
+        recordId: String(id),
+      })
+    }
     await assertWriteAllowed(options.access, entity, data)
     const updated = await updateUserProfile(String(id), data)
     if (fields?.length) {
@@ -999,6 +1023,17 @@ export async function updateRecord(
     existing = await store.findOne(apiName, String(id), null)
   } catch {
     existing = null
+  }
+  if (existing) {
+    await assertOwnerAccessIfNeeded(apiName, options.access, existing, 'update')
+  } else {
+    // Missing row: still run owner gate so attackers cannot probe via update.
+    await assertOwnerAccessIfNeeded(
+      apiName,
+      options.access,
+      { user_created: null },
+      'update',
+    )
   }
   const withoutClientAudit = await sanitizeHtmlFieldWrites(
     apiName,
@@ -1064,10 +1099,6 @@ export async function softDeleteRecord(
   }
   visited.add(visitKey)
 
-  await enforceSoftDeleteConstraints(apiName, recordId, async (childEntity, childId) => {
-    await softDeleteRecord(childEntity, childId, visited, options)
-  })
-
   const store = await resolveRecordsStore(apiName)
   let existing: Record<string, unknown> | null = null
   try {
@@ -1075,6 +1106,25 @@ export async function softDeleteRecord(
   } catch {
     existing = null
   }
+  if (existing) {
+    await assertOwnerAccessIfNeeded(apiName, options.access, existing, 'delete')
+  } else {
+    await assertOwnerAccessIfNeeded(
+      apiName,
+      options.access,
+      { user_created: null },
+      'delete',
+    )
+  }
+
+  // Cascade children as system — parent ownership already authorized the archive.
+  await enforceSoftDeleteConstraints(apiName, recordId, async (childEntity, childId) => {
+    await softDeleteRecord(childEntity, childId, visited, {
+      ...options,
+      access: SYSTEM_RECORD_ACCESS,
+    })
+  })
+
   const automationResult = await applyRecordAutomations(
     apiName,
     {},
@@ -1204,6 +1254,14 @@ export async function aggregateRecords(
       aggregate: options.aggregate,
     })
   }
+  const securedFilter = await applyOwnerFilterIfNeeded(
+    apiName,
+    access,
+    options.filter,
+  )
   const store = await resolveRecordsStore(apiName)
-  return store.aggregate(apiName, options)
+  return store.aggregate(apiName, {
+    ...options,
+    filter: securedFilter,
+  })
 }

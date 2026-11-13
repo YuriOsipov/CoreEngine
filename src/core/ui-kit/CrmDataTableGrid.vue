@@ -5,7 +5,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Dropdown as FloatingDropdown } from 'floating-vue'
 import type { RouteLocationRaw } from 'vue-router'
 import { RouterLink } from 'vue-router'
@@ -80,6 +80,8 @@ const props = defineProps<{
   canDragRows?: boolean
   showDeleteButton?: boolean
   emptyMessage: string
+  /** Table layout style from parent (pixel width after resize). */
+  tableStyle?: Record<string, string>
   formatGroupHeader: (row: Record<string, unknown>) => string
   resolveColumnKey: (column: CrmDataTableGridColumn) => string
   columnStyle: (column: CrmDataTableGridColumn) => Record<string, string>
@@ -122,7 +124,16 @@ const { t } = useTranslation()
 /** Client paginator page start index (lazy lists keep 0 — rows are already sliced). */
 const paginatorFirst = ref(0)
 
-const tableStyle = { minWidth: '100%' }
+/**
+ * Never force minWidth:100% — that makes the table fill the viewport and the
+ * browser redistributes free space into unfixed siblings (and width:auto
+ * action columns) whenever one column is resized.
+ */
+const resolvedTableStyle = computed(() =>
+  props.tableStyle && Object.keys(props.tableStyle).length
+    ? props.tableStyle
+    : { width: 'max-content' },
+)
 
 watch(
   () => [props.paginator, props.lazy, props.activeRowsPerPage, props.tableRows.length] as const,
@@ -252,7 +263,7 @@ function rowNumberLabel(index: number): number {
     :reorderable-columns="reorderableColumns"
     :resizable-columns="resizableColumns"
     column-resize-mode="expand"
-    :table-style="tableStyle"
+    :table-style="resolvedTableStyle"
     @update:expanded-row-groups="emit('update:expandedRowGroups', $event)"
     @update:selection="emit('update:selection', $event)"
     @sort="emit('sort', $event)"
@@ -265,6 +276,30 @@ function rowNumberLabel(index: number): number {
     <template v-if="isRowGroupingActive" #groupheader="{ data }">
       <span class="crm-data-table__group-header-label">{{ formatGroupHeader(data) }}</span>
     </template>
+    <Column
+      v-if="rowDraggable"
+      column-key="row-drag"
+      :reorderable-column="false"
+      header=""
+      style="width: 3.5rem; min-width: 3.5rem"
+    >
+      <template #body="{ data }">
+        <Button
+          type="button"
+          icon="pi pi-arrows-alt"
+          size="small"
+          text
+          severity="secondary"
+          class="crm-data-table__drag-handle"
+          :disabled="rowDragDisabled"
+          :draggable="canDragRows"
+          :aria-label="t('datatable.dragRow', 'Drag row')"
+          @click.stop
+          @dragstart="emit('row-drag-start', { row: data, event: $event })"
+          @dragend="emit('row-drag-end', { row: data, event: $event })"
+        />
+      </template>
+    </Column>
     <Column
       v-if="showRowNumbers"
       column-key="row-number"
@@ -411,36 +446,12 @@ function rowNumberLabel(index: number): number {
     </Column>
 
     <Column
-      v-if="rowDraggable"
-      column-key="row-drag"
-      :reorderable-column="false"
-      header=""
-      style="width: 3.5rem; min-width: 3.5rem"
-    >
-      <template #body="{ data }">
-        <Button
-          type="button"
-          icon="pi pi-arrows-alt"
-          size="small"
-          text
-          severity="secondary"
-          class="crm-data-table__drag-handle"
-          :disabled="rowDragDisabled"
-          :draggable="canDragRows"
-          :aria-label="t('datatable.dragRow', 'Drag row')"
-          @click.stop
-          @dragstart="emit('row-drag-start', { row: data, event: $event })"
-          @dragend="emit('row-drag-end', { row: data, event: $event })"
-        />
-      </template>
-    </Column>
-
-    <Column
       v-if="$slots.actions"
       column-key="actions"
       :reorderable-column="false"
       header=""
-      style="min-width: 6.5rem; width: auto"
+      header-style="width: 6.5rem; min-width: 6.5rem; max-width: 6.5rem"
+      style="width: 6.5rem; min-width: 6.5rem; max-width: 6.5rem"
     >
       <template #body="{ data }">
         <slot name="actions" :row="data" />
@@ -452,7 +463,8 @@ function rowNumberLabel(index: number): number {
       column-key="record-actions"
       :reorderable-column="false"
       header=""
-      style="width: 3.5rem; min-width: 3.5rem"
+      header-style="width: 3.5rem; min-width: 3.5rem; max-width: 3.5rem"
+      style="width: 3.5rem; min-width: 3.5rem; max-width: 3.5rem"
     >
       <template #body="{ data }">
         <Button

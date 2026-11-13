@@ -106,7 +106,13 @@ export async function revokeAccessToken(token: string): Promise<void> {
   await query(`DELETE FROM public.app_revoked_access_tokens WHERE expires_at < now()`)
 }
 
-async function issueSession(user: AuthUserRow): Promise<AuthSessionPayload> {
+/** Issue CoreEngine access + refresh after local login or OIDC bridge. */
+export async function issueSession(user: {
+  id: string
+  backend_user_id: string | null
+  role_backend_id: string | null
+  must_change_password: boolean
+}): Promise<AuthSessionPayload> {
   const subject = user.backend_user_id || user.id
   // Admin flags are not embedded — fetchMe / assert* read them from app_users.
   const accessToken = signAccessToken({

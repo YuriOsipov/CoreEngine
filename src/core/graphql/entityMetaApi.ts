@@ -16,6 +16,8 @@ export interface EntityMetaDto {
   accountability: EntityAccountability
   /** Default sensitivity for new fields (0 none, 1 restricted, 2 confidential). */
   defaultFieldSensitivity: number
+  /** `owner` = non-admins only access rows they created; null = off. */
+  rowLevelSecurity: 'owner' | null
   fields: Array<{
     apiName: string
     label: string
@@ -35,6 +37,7 @@ export interface UpdateEntityMetaInput {
   internal?: boolean | null
   accountability?: EntityAccountability
   defaultFieldSensitivity?: number | null
+  rowLevelSecurity?: 'owner' | null
 }
 
 const ENTITY_META_QUERY = /* GraphQL */ `
@@ -50,6 +53,7 @@ const ENTITY_META_QUERY = /* GraphQL */ `
       internal
       accountability
       defaultFieldSensitivity
+      rowLevelSecurity
       fields {
         apiName
         label
@@ -74,9 +78,14 @@ const UPDATE_ENTITY_META = /* GraphQL */ `
       internal
       accountability
       defaultFieldSensitivity
+      rowLevelSecurity
     }
   }
 `
+
+function normalizeRowLevelSecurity(raw: unknown): 'owner' | null {
+  return raw === 'owner' ? 'owner' : null
+}
 
 function normalizeAccountability(raw: unknown): EntityAccountability {
   if (raw === null || raw === 'none' || raw === '') return null
@@ -113,6 +122,7 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
       internal?: boolean | null
       accountability?: string | null
       defaultFieldSensitivity?: number | null
+      rowLevelSecurity?: string | null
       fields: EntityMetaDto['fields']
     }
   }>(ENTITY_META_QUERY, { apiName })
@@ -128,6 +138,7 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
     internal: Boolean(row.internal),
     accountability: normalizeAccountability(row.accountability),
     defaultFieldSensitivity: Number(row.defaultFieldSensitivity ?? 0) || 0,
+    rowLevelSecurity: normalizeRowLevelSecurity(row.rowLevelSecurity),
     fields: row.fields ?? [],
   }
 }
@@ -151,6 +162,7 @@ export async function updateEntityMeta(
       internal?: boolean | null
       accountability?: string | null
       defaultFieldSensitivity?: number | null
+      rowLevelSecurity?: string | null
     }
   }>(UPDATE_ENTITY_META, { entity, input })
   const row = data.updateEntityMeta
@@ -165,5 +177,6 @@ export async function updateEntityMeta(
     internal: Boolean(row.internal),
     accountability: normalizeAccountability(row.accountability),
     defaultFieldSensitivity: Number(row.defaultFieldSensitivity ?? 0) || 0,
+    rowLevelSecurity: normalizeRowLevelSecurity(row.rowLevelSecurity),
   }
 }

@@ -57,10 +57,12 @@ function upsertEnvValue(filePath: string, key: string, value: string): void {
   writeFileSync(filePath, `${next.join('\n').replace(/\n+$/, '\n')}`, 'utf8')
 }
 
+// Keep CoreEngine AUTH_JWT_SECRET independent of Supabase JWT_SECRET (Storage/GoTrue).
+// Never fall back to process.env.JWT_SECRET — that belongs to the vendored Supabase stack.
 let current =
   readEnvValue(rootEnv, 'AUTH_JWT_SECRET') ||
   readEnvValue(supabaseEnv, 'AUTH_JWT_SECRET') ||
-  (process.env.AUTH_JWT_SECRET || process.env.JWT_SECRET || '').trim()
+  (process.env.AUTH_JWT_SECRET || '').trim()
 
 const needsGenerate = !current || isInsecureJwtSecret(current)
 const secret = needsGenerate ? randomBytes(32).toString('base64url') : current

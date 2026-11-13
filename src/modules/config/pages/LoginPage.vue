@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTranslation } from '@/core/translation'
 import {
   changePasswordWithBff,
+  fetchOidcStatus,
   loginWithBff,
   mustChangePasswordPending,
+  startOidcLogin,
 } from '@/core/auth/session'
 import { resolveAppHomeRoute } from '@/core/navigation/resolveAppHomeRoute'
 
@@ -20,9 +22,20 @@ const confirmPassword = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const info = ref<string | null>(null)
+const oidcEnabled = ref(false)
+const oidcDisplayName = ref('SSO')
 const forceChange = ref(
   mustChangePasswordPending() || route.query.changePassword === '1',
 )
+
+onMounted(async () => {
+  if (typeof route.query.sso_error === 'string' && route.query.sso_error.trim()) {
+    error.value = route.query.sso_error.trim()
+  }
+  const status = await fetchOidcStatus()
+  oidcEnabled.value = status.enabled
+  oidcDisplayName.value = status.displayName
+})
 
 watch(
   () => route.query.changePassword,
@@ -126,6 +139,15 @@ async function submit(): Promise<void> {
     return
   }
   await submitLogin()
+}
+
+function signInWithSso(): void {
+  error.value = null
+  const redirect =
+    typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect
+      : '/'
+  startOidcLogin(redirect)
 }
 </script>
 
@@ -232,6 +254,27 @@ async function submit(): Promise<void> {
           class="w-full"
         />
       </form>
+
+      <template v-if="oidcEnabled && !forceChange">
+        <div class="my-4 flex items-center gap-3 text-sm text-surface-500">
+          <span class="h-px flex-1 bg-surface-200" />
+          {{ t('auth.or', 'or') }}
+          <span class="h-px flex-1 bg-surface-200" />
+        </div>
+        <Button
+          type="button"
+          severity="secondary"
+          outlined
+          class="w-full"
+          :label="
+            t('auth.signInWithSso', 'Sign in with {provider}', {
+              provider: oidcDisplayName,
+            })
+          "
+          :disabled="loading"
+          @click="signInWithSso"
+        />
+      </template>
     </div>
   </div>
 </template>

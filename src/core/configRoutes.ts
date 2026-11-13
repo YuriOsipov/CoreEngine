@@ -9,6 +9,12 @@ const configRoutes: RouteRecordRaw[] = [
     meta: { public: true, title: 'Sign in' },
   },
   {
+    path: '/login/oidc/callback',
+    name: 'login-oidc-callback',
+    component: () => import('@/modules/config/pages/OidcCallbackPage.vue'),
+    meta: { public: true, title: 'SSO callback' },
+  },
+  {
     path: '/',
     name: 'home',
     component: () => import('@/modules/config/pages/MainPage.vue'),
@@ -99,6 +105,18 @@ const configRoutes: RouteRecordRaw[] = [
         path: 'dashboards',
         name: 'setup-dashboards',
         component: () => import('@/modules/config/pages/DashboardsSetupPage.vue'),
+      },
+      {
+        path: 'dashboards/new',
+        name: 'setup-dashboard-new',
+        component: () => import('@/modules/dashboard/pages/DashboardDesignerPage.vue'),
+        props: { embedded: true },
+      },
+      {
+        path: 'dashboards/:dashboardId',
+        name: 'setup-dashboard-edit',
+        component: () => import('@/modules/dashboard/pages/DashboardDesignerPage.vue'),
+        props: { embedded: true },
       },
       {
         path: 'projects',

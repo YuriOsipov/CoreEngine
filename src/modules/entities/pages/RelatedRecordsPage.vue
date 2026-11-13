@@ -222,8 +222,11 @@ const showToolbarActions = computed(
 
 const usesPageListDetail = computed(() => Boolean(pageListDetailPanel.value?.enabled))
 
+/** Keep one table mounted; collapse detail in place (avoid remount on toggle). */
+const isMasterDetailChrome = computed(() => detailPanelEnabled.value)
+
 const isMasterDetailLayout = computed(
-  () => detailPanelEnabled.value && !detailCollapsed.value,
+  () => isMasterDetailChrome.value && !detailCollapsed.value,
 )
 
 const selectedParentId = computed(() => {
@@ -318,6 +321,9 @@ function setDetailCollapsed(collapsed: boolean): void {
     selectedMasterRow.value = null
   }
   saveListDetailCollapsed(relatedCollectionName.value, collapsed)
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
 }
 
 const showDetailPanel = computed({
@@ -682,8 +688,12 @@ async function handleBatchSubmitted(): Promise<void> {
 
       <template v-else-if="relatedRuntime">
         <div
-          v-if="isMasterDetailLayout"
+          v-if="isMasterDetailChrome"
           class="object-list-master-detail"
+          :class="{
+            'object-list-master-detail--collapsed': detailCollapsed,
+            'object-list-master-detail--collapsed-natural': detailCollapsed,
+          }"
         >
           <Splitter
             layout="vertical"
@@ -694,12 +704,16 @@ async function handleBatchSubmitted(): Promise<void> {
             <SplitterPanel
               :size="masterPaneSize"
               :min-size="25"
-              class="object-list-master-detail__master"
+              :class="
+                detailCollapsed
+                  ? 'object-list-table-host'
+                  : 'object-list-master-detail__master'
+              "
             >
               <CrmDataTable
                 v-bind="crmDataTableProps"
                 v-model:selection="selectedMasterRow"
-                selection-mode="single"
+                :selection-mode="detailCollapsed ? undefined : 'single'"
                 :record-link-field="tableSettings?.recordLinkField ?? null"
                 :collection="relatedCollectionName"
                 primary-key="id"
@@ -759,6 +773,7 @@ async function handleBatchSubmitted(): Promise<void> {
               class="object-list-master-detail__detail"
             >
               <ObjectListDetailPanel
+                v-if="!detailCollapsed"
                 :collection="relatedCollectionName"
                 :related-fields="usesPageListDetail ? listDetailRelatedFields : undefined"
                 :detail-actions="usesPageListDetail ? listDetailActions : undefined"
@@ -816,22 +831,10 @@ async function handleBatchSubmitted(): Promise<void> {
               outlined
               @click="batchInsertVisible = true"
             />
-            <div
-              v-if="detailPanelEnabled"
-              class="flex items-center gap-2"
-            >
-              <ToggleSwitch
-                v-model="showDetailPanel"
-                input-id="related-list-show-detail"
-              />
-              <label for="related-list-show-detail" class="text-[0.85rem] whitespace-nowrap">
-                {{ t('objectList.showDetail', 'Show detail') }}
-              </label>
-            </div>
           </template>
         </CrmDataTable>
         <p
-          v-if="!isMasterDetailLayout && relatedRuntime.rows.length === 0"
+          v-if="!isMasterDetailChrome && relatedRuntime.rows.length === 0"
           class="text-muted-color text-[0.9rem] m-0"
         >
           {{ t('relatedRecords.noRecords', 'No related records found.') }}
@@ -919,6 +922,58 @@ async function handleBatchSubmitted(): Promise<void> {
 
 .object-list-master-detail__splitter :deep(.p-splitter-panel) {
   overflow: hidden;
+}
+
+.object-list-master-detail--collapsed :deep(.p-splitter-gutter) {
+  display: none !important;
+}
+
+.object-list-master-detail--collapsed :deep(.p-splitter-panel:last-child) {
+  display: none !important;
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  flex-basis: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.object-list-master-detail--collapsed :deep(.p-splitter-panel:first-child) {
+  flex-grow: 1 !important;
+  flex-shrink: 1 !important;
+  flex-basis: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+
+.object-list-master-detail--collapsed-natural {
+  flex: 0 1 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.object-list-master-detail--collapsed-natural .object-list-master-detail__splitter {
+  flex: 0 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.object-list-master-detail--collapsed-natural :deep(.p-splitter) {
+  height: auto !important;
+}
+
+.object-list-table-host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
 }
 
 .object-list-master-detail__master,

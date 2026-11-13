@@ -357,28 +357,35 @@ export function resolveAutoRecordLinkField(
 }
 
 /**
- * When the auto Name link column is sorted, map `name` (often auto-number) to
- * Display Template fields so ORDER BY matches the rendered label.
+ * Map Name / Primary key (Id) sorts onto Display Template fields so ORDER BY
+ * matches the rendered record label instead of auto-number `name` or raw UUID.
  */
 export function resolveNameLinkSortFields(
   sortField: string,
   displayTemplate: string | null | undefined,
+  primaryKey = 'id',
 ): string[] {
   const field = sortField.trim()
-  if (field !== 'name') return field ? [field] : []
+  const pk = primaryKey.trim() || 'id'
+  const expandsToTemplate = field === 'name' || field === pk
+  if (!expandsToTemplate) return field ? [field] : []
 
   const templateFields = displayTemplate
     ? extractTemplateFields(displayTemplate).filter(
         (token) =>
           Boolean(token) &&
           token !== 'id' &&
+          token !== pk &&
           token !== 'parent' &&
           !token.startsWith('parent.'),
       )
     : []
 
   if (templateFields.length === 0) return [field]
-  if (templateFields.every((token) => token === 'name')) return [field]
+  // Template is only `{{name}}`: Name sort already matches; Id sort uses name.
+  if (templateFields.every((token) => token === 'name')) {
+    return field === 'name' ? [field] : ['name']
+  }
   return templateFields
 }
 

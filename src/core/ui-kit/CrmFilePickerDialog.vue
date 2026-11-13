@@ -7,7 +7,7 @@ export default {
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { bridgeReadItemsPage } from '@/core/graphql/itemsBridge'
-import { fileAssetUrl } from '@/core/graphql/filesProxy'
+import { fileAssetUrl, readRecordFiles } from '@/core/graphql/filesProxy'
 import {
   FILES_ASSET_COLLECTION,
   FILES_ASSET_FIELDS,
@@ -33,10 +33,18 @@ const props = withDefaults(
     header?: string
     /** Allow selecting more than one file. */
     multiple?: boolean
+    /**
+     * When set, list files linked to this parent (record attachments) via
+     * parent ACL — does not require global `files` entity read.
+     */
+    parentCollection?: string | null
+    parentRecordId?: string | number | null
   }>(),
   {
     allowedMimeTypes: () => [],
     multiple: false,
+    parentCollection: null,
+    parentRecordId: null,
   },
 )
 
@@ -86,6 +94,31 @@ function mimeFilter(): Record<string, unknown> | null {
   })
 
   return clauses.length === 1 ? clauses[0]! : { _or: clauses }
+}
+
+function parentScope(): { collection: string; recordId: string } | null {
+  const collection = String(props.parentCollection || '').trim()
+  const recordId =
+    props.parentRecordId == null ? '' : String(props.parentRecordId).trim()
+  if (!collection || !recordId) return null
+  return { collection, recordId }
+}
+
+function matchesAllowedMime(type: string | undefined): boolean {
+  const allowed = props.allowedMimeTypes.filter(Boolean)
+  if (!allowed.length) return true
+  const mime = String(type || '')
+  return allowed.some((entry) => {
+    const normalized = entry === 'image' ? 'image/' : entry
+    if (normalized.endsWith('/')) return mime.startsWith(normalized)
+    return mime === normalized
+  })
+}
+
+function matchesSearch(row: PickedFileAsset, needle: string): boolean {
+  if (!needle) return true
+  const hay = `${row.title || ''} ${row.filename_download || ''}`.toLowerCase()
+  return hay.includes(needle)
 }
 
 function toAsset(row: Record<string, unknown>): PickedFileAsset | null {
@@ -141,6 +174,24 @@ async function loadFiles(): Promise<void> {
   error.value = null
 
   try {
+    const parent = parentScope()
+    const needle = search.value.trim().toLowerCase()
+
+    if (parent) {
+      // Short list: attachments already on this record (parent ACL).
+      const linked = await readRecordFiles(parent.collection, parent.recordId, [
+        ...FILES_ASSET_FIELDS,
+      ])
+      if (token !== loadToken.value) return
+      rows.value = linked
+        .map((row) => toAsset(row))
+        .filter((row): row is PickedFileAsset => Boolean(row))
+        .filter((row) => matchesAllowedMime(row.type))
+        .filter((row) => matchesSearch(row, needle))
+        .slice(0, 48)
+      return
+    }
+
     const filterParts: Record<string, unknown>[] = []
     const mime = mimeFilter()
     if (mime) filterParts.push(mime)

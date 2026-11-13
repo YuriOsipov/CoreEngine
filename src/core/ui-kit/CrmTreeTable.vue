@@ -25,6 +25,10 @@ import {
   scalarId,
 } from '@/modules/entities/utils/recordDisplay'
 import { nestRelationFilter } from '@/core/listFilterUtils'
+import {
+  TREE_UNASSIGNED_GROUP_KEY,
+  isTreeUnassignedGroupKey,
+} from '@/core/hierarchyTree'
 import { useTranslation } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
 
@@ -34,6 +38,8 @@ interface TreeNode {
   data: Record<string, unknown>
   children?: TreeNode[]
 }
+
+const VIRTUAL_UNASSIGNED_FLAG = '__virtualUnassigned'
 
 type AcceptedTreeNodeDropEvent = TreeNodeDropEvent & {
   accept?: () => void
@@ -60,7 +66,7 @@ const emit = defineEmits<{
       subtreeIds: Array<string | number>
     } | null,
   ]
-  'item-moved': [payload: { itemId: string | number; groupId: string | number }]
+  'item-moved': [payload: { itemId: string | number; groupId: string | number | null }]
   'update:selectedGroupId': [id: string | number | null]
 }>()
 
@@ -97,15 +103,44 @@ const selectedItems = computed<Record<string, unknown>[]>(() =>
   }, []),
 )
 
-const selectedGroup = computed(() =>
-  selectedGroupKey.value
-    ? groups.value.find(
-        (group) =>
-          String(recordId(group, props.settings?.group.primaryKey ?? 'id')) ===
-          selectedGroupKey.value,
-      ) ?? null
-    : null,
-)
+const selectedGroup = computed(() => {
+  if (!selectedGroupKey.value) return null
+  if (isTreeUnassignedGroupKey(selectedGroupKey.value)) {
+    return buildUnassignedGroupRecord()
+  }
+  return (
+    groups.value.find(
+      (group) =>
+        String(recordId(group, props.settings?.group.primaryKey ?? 'id')) ===
+        selectedGroupKey.value,
+    ) ?? null
+  )
+})
+
+function isVirtualUnassignedRecord(record: Record<string, unknown> | null | undefined): boolean {
+  return Boolean(record?.[VIRTUAL_UNASSIGNED_FLAG])
+}
+
+function buildUnassignedGroupRecord(): Record<string, unknown> {
+  const settings = props.settings
+  const label = t('treeTable.unassigned', 'Unassigned')
+  const primaryKey = settings?.group.primaryKey ?? 'id'
+  const labelField = settings?.group.labelField?.trim() || 'name'
+  return {
+    [primaryKey]: TREE_UNASSIGNED_GROUP_KEY,
+    [labelField]: label,
+    [VIRTUAL_UNASSIGNED_FLAG]: true,
+  }
+}
+
+function buildUnassignedTreeNode(): TreeNode {
+  return {
+    key: TREE_UNASSIGNED_GROUP_KEY,
+    label: t('treeTable.unassigned', 'Unassigned'),
+    data: buildUnassignedGroupRecord(),
+    children: [],
+  }
+}
 
 const selectedItemIds = computed(() => {
   const settings = props.settings
@@ -256,7 +291,8 @@ function buildTreeNodes(records: Record<string, unknown>[]): TreeNode[] {
 }
 
 function syncTreeNodesFromGroups(): void {
-  treeNodes.value = buildTreeNodes(groups.value)
+  // Static catch-all for items with a null/empty group FK (not a real group row).
+  treeNodes.value = [buildUnassignedTreeNode(), ...buildTreeNodes(groups.value)]
 }
 
 function filterTreeNodes(nodes: TreeNode[], query: string): TreeNode[] {
@@ -357,10 +393,22 @@ watch(
 
 function emitGroupSelection(): void {
   const group = selectedGroup.value
-  const id = group && props.settings
-    ? recordId(group, props.settings.group.primaryKey)
-    : null
-  if (id === null || !group) {
+  if (!group || !props.settings) {
+    emit('group-selected', null)
+    emit('update:selectedGroupId', null)
+    return
+  }
+  if (isVirtualUnassignedRecord(group) || isTreeUnassignedGroupKey(selectedGroupKey.value)) {
+    emit('group-selected', {
+      id: TREE_UNASSIGNED_GROUP_KEY,
+      record: group,
+      subtreeIds: [TREE_UNASSIGNED_GROUP_KEY],
+    })
+    emit('update:selectedGroupId', TREE_UNASSIGNED_GROUP_KEY)
+    return
+  }
+  const id = recordId(group, props.settings.group.primaryKey)
+  if (id === null) {
     emit('group-selected', null)
     emit('update:selectedGroupId', null)
     return
@@ -438,6 +486,11 @@ async function dropItemOnTree(event: DragEvent): Promise<void> {
   const groupKey = itemDropGroupKey(event)
   if (!groupKey) return
 
+  if (isTreeUnassignedGroupKey(groupKey)) {
+    await dropItemOnGroup(buildUnassignedGroupRecord(), event)
+    return
+  }
+
   const group = groups.value.find(
     (row) => String(recordId(row, props.settings!.group.primaryKey)) === groupKey,
   )
@@ -458,8 +511,13 @@ async function dropItemOnGroup(
   const item = resolveDraggedItem(event)
   if (!item) return
 
+  if (isVirtualUnassignedRecord(group)) {
+    await moveItemToGroup(item, null)
+    return
+  }
+
   const groupId = recordId(group, props.settings.group.primaryKey)
-  if (groupId === null) return
+  if (groupId === null || isTreeUnassignedGroupKey(groupId)) return
 
   await moveItemToGroup(item, groupId)
 }
@@ -476,13 +534,16 @@ function itemDropGroupKey(event: DragEvent): string | null {
 async function handleGroupNodeDrop(event: AcceptedTreeNodeDropEvent): Promise<void> {
   if (!event.accept || !props.settings) return
 
-  const groupId = recordId(
-    (event.dragNode.data ?? {}) as Record<string, unknown>,
-    props.settings.group.primaryKey,
-  )
-  if (groupId === null) return
+  const dragData = (event.dragNode.data ?? {}) as Record<string, unknown>
+  if (isVirtualUnassignedRecord(dragData) || isTreeUnassignedGroupKey(event.dragNode.key)) {
+    return
+  }
+
+  const groupId = recordId(dragData, props.settings.group.primaryKey)
+  if (groupId === null || isTreeUnassignedGroupKey(groupId)) return
 
   const parentId = resolveDropParentId(event)
+  if (isTreeUnassignedGroupKey(parentId)) return
   if (!isGroupMoveAllowed(groupId, parentId)) return
 
   // accept() must run sync while dragDropService is still alive
@@ -499,6 +560,7 @@ function isGroupMoveAllowed(
 ): boolean {
   const settings = props.settings
   if (!settings?.group.parentField || moving.value) return false
+  if (isTreeUnassignedGroupKey(groupId) || isTreeUnassignedGroupKey(parentId)) return false
   if (parentId !== null && String(groupId) === String(parentId)) return false
   if (parentId !== null && isGroupDescendant(parentId, groupId)) {
     error.value = t(
@@ -522,12 +584,14 @@ function resolveDropParentId(
 ): string | number | null {
   const settings = props.settings
   if (!settings || !event.dropNode) return null
+  if (isTreeUnassignedGroupKey(event.dropNode.key)) return null
 
   if (event.dropPosition === 0) {
-    return recordId(
+    const id = recordId(
       (event.dropNode.data ?? {}) as Record<string, unknown>,
       settings.group.primaryKey,
     )
+    return isTreeUnassignedGroupKey(id) ? null : id
   }
 
   const parentNode = findParentTreeNode(
@@ -535,9 +599,9 @@ function resolveDropParentId(
     String(event.dropNode.key),
   )
 
-  return parentNode
-    ? recordId(parentNode.data, settings.group.primaryKey)
-    : null
+  if (!parentNode || isTreeUnassignedGroupKey(parentNode.key)) return null
+  const id = recordId(parentNode.data, settings.group.primaryKey)
+  return isTreeUnassignedGroupKey(id) ? null : id
 }
 
 function findParentTreeNode(
@@ -600,11 +664,12 @@ async function moveGroup(
 
 async function moveItemToGroup(
   item: Record<string, unknown>,
-  groupId: string | number,
+  groupId: string | number | null,
 ): Promise<void> {
   const settings = props.settings
   const groupField = settings?.main.groupField?.trim() || ''
   if (!settings || !groupField || moving.value || groupField.includes('.')) return
+  const nextGroupId = isTreeUnassignedGroupKey(groupId) ? null : groupId
 
   const itemId = recordId(item, settings.main.primaryKey)
   if (itemId === null) return
@@ -614,7 +679,7 @@ async function moveItemToGroup(
   if (
     (Object.prototype.hasOwnProperty.call(item, groupField) ||
       getPathValue(item, groupField) !== undefined) &&
-    String(currentGroupId ?? '') === String(groupId)
+    String(currentGroupId ?? '') === String(nextGroupId ?? '')
   ) {
     clearDragState()
     return
@@ -626,7 +691,7 @@ async function moveItemToGroup(
     await updateObjectRecord(
       settings.main.collection,
       String(itemId),
-      { [groupField]: groupId },
+      { [groupField]: nextGroupId },
     )
 
     if (!props.groupsOnly) {
@@ -634,10 +699,9 @@ async function moveItemToGroup(
         (row) => String(recordId(row, settings.main.primaryKey)) !== String(itemId),
       )
     }
-    emit('item-moved', { itemId, groupId })
+    emit('item-moved', { itemId, groupId: nextGroupId })
     if (isSelfRefTree.value) {
-      await loadGroups()
-    }
+      await loadGroups()    }
   } catch (err) {
     error.value =
       err instanceof Error
@@ -759,19 +823,23 @@ async function loadGroups(): Promise<void> {
   }
 }
 
-/** Pick the first root group when nothing is selected (or selection is stale). */
+/** Pick the first real root group when nothing is selected (or selection is stale). */
 function ensureDefaultGroupSelection(): void {
   const pk = props.settings?.group.primaryKey ?? 'id'
   if (selectedGroupKey.value) {
+    if (isTreeUnassignedGroupKey(selectedGroupKey.value)) return
     const stillPresent = groups.value.some(
       (group) => String(recordId(group, pk)) === selectedGroupKey.value,
     )
     if (stillPresent) return
   }
 
-  const firstRoot = treeNodes.value[0]
-  if (!firstRoot) return
-  focusGroupKey(firstRoot.key)
+  const firstRealRoot = treeNodes.value.find(
+    (node) => !isTreeUnassignedGroupKey(node.key),
+  )
+  const fallback = firstRealRoot ?? treeNodes.value[0]
+  if (!fallback) return
+  focusGroupKey(fallback.key)
 }
 
 async function loadItems(): Promise<void> {
@@ -781,7 +849,10 @@ async function loadItems(): Promise<void> {
     return
   }
 
-  const groupId = recordId(selectedGroup.value, settings.group.primaryKey)
+  const unassigned = isVirtualUnassignedRecord(selectedGroup.value)
+  const groupId = unassigned
+    ? TREE_UNASSIGNED_GROUP_KEY
+    : recordId(selectedGroup.value, settings.group.primaryKey)
   if (groupId === null) return
 
   const tableSettings = treeItemTableSettings()
@@ -797,7 +868,8 @@ async function loadItems(): Promise<void> {
       settings: tableSettings,
       limit: -1,
       parentCollection: settings.group.collection,
-      parentId: groupId,
+      // Unassigned is virtual — do not pass a fake parent id into relation filters.
+      ...(unassigned ? {} : { parentId: groupId }),
       listFilter: buildItemFilter(settings.main.groupField, groupId, props.filter),
     })
     if (token === itemLoadToken) {
@@ -843,7 +915,10 @@ function openCreateGroupDialog(): void {
   if (props.disabled || !props.settings?.group.collection || !canCreateGroup.value) {
     return
   }
-  if (!props.settings.group.parentField?.trim()) {
+  if (
+    !props.settings.group.parentField?.trim() ||
+    isVirtualUnassignedRecord(selectedGroup.value)
+  ) {
     createGroupParentId.value = null
     createGroupParentRecord.value = null
   } else {
@@ -967,15 +1042,19 @@ async function handleItemRecordRestored(row: Record<string, unknown>): Promise<v
 
 function selectedGroupId(): string | number | null {
   if (!selectedGroup.value || !props.settings) return null
-  return recordId(selectedGroup.value, props.settings.group.primaryKey)
+  if (isVirtualUnassignedRecord(selectedGroup.value)) return null
+  const id = recordId(selectedGroup.value, props.settings.group.primaryKey)
+  return isTreeUnassignedGroupKey(id) ? null : id
 }
 
 function buildItemFilter(
   groupField: string,
-  groupId: string | number,
+  groupId: string | number | null,
   filter?: Record<string, unknown> | null,
 ): Record<string, unknown> {
-  const groupFilter = nestRelationFilter(groupField, { _eq: groupId })
+  const groupFilter = isTreeUnassignedGroupKey(groupId) || groupId == null
+    ? nestRelationFilter(groupField, { _null: true })
+    : nestRelationFilter(groupField, { _eq: groupId })
 
   return filter && Object.keys(filter).length > 0
     ? { _and: [groupFilter, filter] }
@@ -1119,7 +1198,12 @@ defineExpose({
             <template #default="{ node }">
               <span
                 class="rounded inline-flex py-0.5 px-1"
-                :class="{ 'cursor-move': canReparentGroups || canMoveItems }"
+                :class="{
+                  'cursor-move':
+                    (canReparentGroups || canMoveItems) &&
+                    !isTreeUnassignedGroupKey(node.key),
+                  'text-muted-color italic': isTreeUnassignedGroupKey(node.key),
+                }"
                 :data-tree-group-key="node.key"
                 @dragover="allowItemDrop"
                 @drop="dropItemOnGroup(node.data, $event)"
@@ -1204,7 +1288,12 @@ defineExpose({
                 <template #default="{ node }">
                   <span
                     class="rounded inline-flex py-0.5 px-1"
-                    :class="{ 'cursor-move': canReparentGroups || canMoveItems }"
+                    :class="{
+                      'cursor-move':
+                        (canReparentGroups || canMoveItems) &&
+                        !isTreeUnassignedGroupKey(node.key),
+                      'text-muted-color italic': isTreeUnassignedGroupKey(node.key),
+                    }"
                     :data-tree-group-key="node.key"
                     @dragover="allowItemDrop"
                     @drop="dropItemOnGroup(node.data, $event)"
@@ -1248,7 +1337,7 @@ defineExpose({
               :parent-name="settings.main.groupField"
               :parent-id="selectedGroupId() ?? undefined"
               :parent-collection="settings.group.collection"
-              :parent-record="selectedGroup ?? undefined"
+              :parent-record="isVirtualUnassignedRecord(selectedGroup) ? undefined : (selectedGroup ?? undefined)"
               :loading="loadingItems"
               :empty-message="t('treeTable.noItemsForGroup', 'No items for selected group.')"
               :show-new-button="!disabled"

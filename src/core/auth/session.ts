@@ -341,3 +341,54 @@ export async function logoutWithBff(): Promise<void> {
     clearAuthSession()
   }
 }
+
+export interface OidcStatus {
+  enabled: boolean
+  displayName: string
+}
+
+export async function fetchOidcStatus(): Promise<OidcStatus> {
+  try {
+    const response = await fetch(`${bffBaseUrl()}/auth/oidc/status`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      return { enabled: false, displayName: 'SSO' }
+    }
+    const payload = (await response.json().catch(() => null)) as {
+      enabled?: unknown
+      displayName?: unknown
+    } | null
+    return {
+      enabled: payload?.enabled === true,
+      displayName:
+        typeof payload?.displayName === 'string' && payload.displayName.trim()
+          ? payload.displayName.trim()
+          : 'SSO',
+    }
+  } catch {
+    return { enabled: false, displayName: 'SSO' }
+  }
+}
+
+/** Browser navigates to BFF → IdP; do not fetch() — full redirect required. */
+export function startOidcLogin(redirectPath = '/'): void {
+  const redirect =
+    redirectPath.startsWith('/') && !redirectPath.startsWith('//')
+      ? redirectPath
+      : '/'
+  const url = new URL(`${bffBaseUrl()}/auth/oidc/login`)
+  url.searchParams.set('redirect', redirect)
+  window.location.assign(url.toString())
+}
+
+export async function completeOidcTicket(
+  ticket: string,
+): Promise<AuthSession> {
+  const session = await authRequest<AuthSessionResponse>('/auth/oidc/session', {
+    ticket,
+  })
+  return writeAuthSession(session)
+}

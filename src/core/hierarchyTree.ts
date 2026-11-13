@@ -1,3 +1,10 @@
+/** Virtual Groups sidebar node for records with a null/empty group FK. */
+export const TREE_UNASSIGNED_GROUP_KEY = '__unassigned__'
+
+export function isTreeUnassignedGroupKey(key: unknown): boolean {
+  return key != null && String(key) === TREE_UNASSIGNED_GROUP_KEY
+}
+
 export interface HierarchyTreeNode {
   key: string
   label: string

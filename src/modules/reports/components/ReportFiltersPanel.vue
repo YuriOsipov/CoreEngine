@@ -5,12 +5,23 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import CrmAutoComplete from '@/core/ui-kit/CrmAutoComplete.vue'
-import ReportFieldSelector from './ReportFieldSelector.vue'
+import { toDate } from '@/core/dateFormatting'
+import {
+  filterConditionComponentProps,
+  isSelectFilterComponent,
+  resolveFilterValueComponent,
+} from '@/core/listFilterUtils'
 import { useTranslation } from '@/core/translation'
 import {
+  fetchFieldRuntimeMetadata,
+  fetchRelatedCollectionOptionById,
+} from '@/modules/entities/services/collectionSchema'
+import ReportFieldSelector from './ReportFieldSelector.vue'
+import {
   listReportFieldTreeNodes,
+  resolveReportFieldLeafContext,
   type ReportDefinition,
   type ReportFieldOption,
   type ReportFieldTreeNode,
@@ -23,6 +34,9 @@ const report = defineModel<ReportDefinition>({ required: true })
 const fields = ref<ReportFieldOption[]>([])
 const loadingFields = ref(false)
 const error = ref<string | null>(null)
+const runtimeFieldProps = reactive<Record<string, Record<string, unknown>>>({})
+const autoCompleteSelections = reactive<Record<string, SelectOption | null>>({})
+const autoCompleteTemplates = reactive<Record<string, string | undefined>>({})
 
 interface SelectOption {
   label: string
@@ -33,7 +47,8 @@ const logicOptions = [
   { label: t('reports.allConditions', 'All conditions (AND)'), value: 'and' },
   { label: t('reports.anyCondition', 'Any condition (OR)'), value: 'or' },
 ]
-const conditionOptions = [
+
+const baseConditionOptions = [
   { label: t('reports.equals', 'Equals'), value: '_eq' },
   { label: t('reports.notEquals', 'Not equals'), value: '_neq' },
   { label: t('reports.contains', 'Contains'), value: '_contains' },
@@ -45,12 +60,24 @@ const conditionOptions = [
   { label: t('reports.isNotEmpty', 'Is not empty'), value: '_nnull' },
 ]
 
+const dateToDateOption = computed(() => ({
+  label: t('reports.dateToDate', 'Date to date'),
+  value: '_between',
+}))
+
 watch(
   () => report.value.collection,
   (collection) => {
     void loadFields(collection)
   },
   { immediate: true },
+)
+
+watch(
+  () => report.value.conditions.map((item) => `${item.id}:${item.field}:${item.operator}`).join('|'),
+  () => {
+    void syncConditionEditors(report.value.conditions)
+  },
 )
 
 onMounted(() => {
@@ -68,9 +95,13 @@ async function loadFields(collection: string): Promise<void> {
     const nodes = await listReportFieldTreeNodes(collection)
     fields.value = []
     registerTreeFields(nodes)
+    await syncConditionEditors(report.value.conditions)
   } catch (err) {
     fields.value = []
-    error.value = err instanceof Error ? err.message : t('reports.failedLoadFields', 'Failed to load report fields.')
+    error.value =
+      err instanceof Error
+        ? err.message
+        : t('reports.failedLoadFields', 'Failed to load report fields.')
   } finally {
     loadingFields.value = false
   }
@@ -82,6 +113,7 @@ function mergeLoadedFields(loadedFields: ReportFieldOption[]): void {
     byField.set(field.field, field)
   }
   fields.value = Array.from(byField.values()).sort((a, b) => a.label.localeCompare(b.label))
+  void syncConditionEditors(report.value.conditions)
 }
 
 function registerTreeFields(nodes: ReportFieldTreeNode[]): void {
@@ -102,7 +134,7 @@ function addCondition(): void {
         id: `rpt_condition_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
         field: field.field,
         operator: '_eq',
-        value: '',
+        value: defaultValueForField(field),
       },
     ],
   })
@@ -123,16 +155,38 @@ function updateConditionField(
   condition: ReportFilterCondition,
   value: string | string[],
 ): void {
+  const fieldPath = Array.isArray(value) ? value[0] ?? '' : value
+  const field = fields.value.find((item) => item.field === fieldPath) ?? null
+  const nextOperator =
+    condition.operator === '_between' && !isDateField(field) ? '_eq' : condition.operator
   updateCondition(condition, {
-    field: Array.isArray(value) ? value[0] ?? '' : value,
-    value: '',
+    field: fieldPath,
+    operator: nextOperator,
+    value: defaultValueForField(field, nextOperator),
   })
+}
+
+function updateConditionOperator(
+  condition: ReportFilterCondition,
+  operator: string,
+): void {
+  const field = conditionField(condition)
+  let nextValue = condition.value
+  if (operator === '_null' || operator === '_nnull') {
+    nextValue = ''
+  } else if (operator === '_between') {
+    nextValue = Array.isArray(condition.value) ? condition.value : [null, null]
+  } else if (condition.operator === '_between') {
+    nextValue = defaultValueForField(field, operator)
+  }
+  updateCondition(condition, { operator, value: nextValue })
 }
 
 function removeCondition(condition: ReportFilterCondition): void {
   updateReport({
     conditions: report.value.conditions.filter((item) => item.id !== condition.id),
   })
+  delete autoCompleteSelections[condition.id]
 }
 
 function isNoValueOperator(condition: ReportFilterCondition): boolean {
@@ -143,23 +197,166 @@ function conditionField(condition: ReportFilterCondition): ReportFieldOption | n
   return fields.value.find((field) => field.field === condition.field) ?? null
 }
 
-function isM2OCondition(condition: ReportFilterCondition): boolean {
-  return Boolean(conditionField(condition)?.relatedCollection)
+function isDateField(field: ReportFieldOption | null): boolean {
+  if (!field) return false
+  if (field.component === 'DatePicker' || field.component === 'Calendar') return true
+  const type = field.type.toLowerCase()
+  return type === 'date' || type === 'datetime' || type === 'timestamp' || type === 'time'
 }
 
-function conditionAutoCompleteValue(
+function isM2OCondition(condition: ReportFilterCondition): boolean {
+  const field = conditionField(condition)
+  return Boolean(field?.relatedCollection) || field?.component === 'AutoComplete'
+}
+
+function isSelectCondition(condition: ReportFilterCondition): boolean {
+  const field = conditionField(condition)
+  if (!field) return false
+  const resolved = resolveFilterValueComponent(
+    field.component,
+    runtimeFieldProps[condition.field],
+  )
+  return isSelectFilterComponent(resolved)
+}
+
+function isDateCondition(condition: ReportFilterCondition): boolean {
+  return isDateField(conditionField(condition))
+}
+
+function isBetweenOperator(condition: ReportFilterCondition): boolean {
+  return condition.operator === '_between'
+}
+
+function conditionOptionsFor(condition: ReportFilterCondition) {
+  if (isDateField(conditionField(condition))) {
+    return [...baseConditionOptions, dateToDateOption.value]
+  }
+  return baseConditionOptions
+}
+
+function defaultValueForField(
+  field: ReportFieldOption | null,
+  operator = '_eq',
+): unknown {
+  if (operator === '_between') return [null, null]
+  if (!field) return ''
+  if (field.component === 'AutoComplete' || field.relatedCollection) return null
+  if (field.component === 'Select' || field.component === 'Dropdown') return null
+  if (field.component === 'DatePicker' || field.component === 'Calendar') return null
+  if (field.component === 'InputNumber') return null
+  if (field.component === 'Checkbox' || field.component === 'ToggleSwitch') return false
+  return ''
+}
+
+function selectPropsFor(condition: ReportFilterCondition): Record<string, unknown> {
+  return filterConditionComponentProps(
+    {
+      field: condition.field,
+      component: conditionField(condition)?.component ?? 'Select',
+    },
+    runtimeFieldProps,
+  )
+}
+
+function datePickerPropsFor(condition: ReportFilterCondition): Record<string, unknown> {
+  const runtime = runtimeFieldProps[condition.field] ?? {}
+  return {
+    ...runtime,
+    showIcon: true,
+    fluid: true,
+    dateFormat: (runtime.dateFormat as string | undefined) ?? 'yy-mm-dd',
+  }
+}
+
+function conditionDateValue(condition: ReportFilterCondition): Date | null {
+  return toDate(condition.value)
+}
+
+function updateConditionDate(
   condition: ReportFilterCondition,
-): SelectOption | null {
-  const value = condition.value
-  if (typeof value !== 'string' && typeof value !== 'number') return null
-  return { label: String(value), value }
+  value: Date | Date[] | null | undefined,
+): void {
+  if (Array.isArray(value)) {
+    updateCondition(condition, { value: [value[0] ?? null, value[1] ?? null] })
+    return
+  }
+  updateCondition(condition, { value: value ?? null })
+}
+
+function conditionBetweenValue(condition: ReportFilterCondition): Date[] | null {
+  if (!Array.isArray(condition.value)) return null
+  const from = toDate(condition.value[0])
+  const to = toDate(condition.value[1])
+  if (!from && !to) return null
+  if (from && to) return [from, to]
+  if (from) return [from]
+  return to ? [to] : null
 }
 
 function updateConditionAutoComplete(
   condition: ReportFilterCondition,
   value: SelectOption | null,
 ): void {
+  autoCompleteSelections[condition.id] = value
   updateCondition(condition, { value: value?.value ?? null })
+}
+
+async function syncConditionEditors(
+  conditions: ReportFilterCondition[],
+): Promise<void> {
+  for (const condition of conditions) {
+    await ensureRuntimeProps(condition)
+    if (isM2OCondition(condition)) {
+      await syncAutoCompleteSelection(condition)
+    }
+  }
+}
+
+async function ensureRuntimeProps(condition: ReportFilterCondition): Promise<void> {
+  const field = conditionField(condition)
+  if (!field || !report.value.collection) return
+  if (runtimeFieldProps[condition.field]) return
+
+  try {
+    const leaf = await resolveReportFieldLeafContext(
+      report.value.collection,
+      condition.field,
+    )
+    if (!leaf) {
+      runtimeFieldProps[condition.field] = {}
+      return
+    }
+    const metadata = await fetchFieldRuntimeMetadata(
+      leaf.collection,
+      leaf.field,
+      field.component,
+    )
+    runtimeFieldProps[condition.field] = metadata.props
+    autoCompleteTemplates[condition.field] = metadata.template
+  } catch {
+    runtimeFieldProps[condition.field] = {}
+  }
+}
+
+async function syncAutoCompleteSelection(
+  condition: ReportFilterCondition,
+): Promise<void> {
+  const field = conditionField(condition)
+  const related = field?.relatedCollection
+  const value = condition.value
+  if (
+    !related ||
+    (typeof value !== 'string' && typeof value !== 'number')
+  ) {
+    autoCompleteSelections[condition.id] = null
+    return
+  }
+  const option = await fetchRelatedCollectionOptionById(
+    related,
+    value,
+    autoCompleteTemplates[condition.field],
+  )
+  autoCompleteSelections[condition.id] = option
 }
 </script>
 
@@ -211,7 +408,7 @@ function updateConditionAutoComplete(
           :key="condition.id"
           class="grid gap-2 border border-surface-100 rounded-md p-2"
         >
-          <div class="grid gap-2 grid-cols-[minmax(0,1fr)_7.5rem_auto] items-center">
+          <div class="grid gap-2 grid-cols-[minmax(0,1fr)_8.5rem_auto] items-center">
             <ReportFieldSelector
               :model-value="condition.field"
               :collection="report.collection"
@@ -221,11 +418,11 @@ function updateConditionAutoComplete(
             />
             <Select
               :model-value="condition.operator"
-              :options="conditionOptions"
+              :options="conditionOptionsFor(condition)"
               option-label="label"
               option-value="value"
               class="w-full"
-              @update:model-value="updateCondition(condition, { operator: String($event) })"
+              @update:model-value="updateConditionOperator(condition, String($event))"
             />
             <Button
               icon="pi pi-trash"
@@ -235,6 +432,7 @@ function updateConditionAutoComplete(
               @click="removeCondition(condition)"
             />
           </div>
+
           <InputText
             v-if="isNoValueOperator(condition)"
             model-value=""
@@ -242,12 +440,41 @@ function updateConditionAutoComplete(
             class="w-full"
             :placeholder="t('reports.value', 'Value')"
           />
+          <DatePicker
+            v-else-if="isBetweenOperator(condition)"
+            :model-value="conditionBetweenValue(condition)"
+            selection-mode="range"
+            manual-input
+            class="w-full"
+            v-bind="datePickerPropsFor(condition)"
+            :placeholder="t('reports.dateToDatePlaceholder', 'Select date range')"
+            @update:model-value="updateConditionDate(condition, $event as Date[] | null)"
+          />
           <CrmAutoComplete
             v-else-if="isM2OCondition(condition)"
-            :model-value="conditionAutoCompleteValue(condition)"
+            :model-value="autoCompleteSelections[condition.id] ?? null"
             :collection="conditionField(condition)?.relatedCollection"
+            :template="autoCompleteTemplates[condition.field]"
+            :allow-create="false"
             :placeholder="t('reports.selectRelatedRecord', 'Select related record')"
             @update:model-value="updateConditionAutoComplete(condition, $event)"
+          />
+          <Select
+            v-else-if="isSelectCondition(condition)"
+            :model-value="condition.value"
+            class="w-full"
+            v-bind="selectPropsFor(condition)"
+            :placeholder="t('reports.value', 'Value')"
+            @update:model-value="updateCondition(condition, { value: $event })"
+          />
+          <DatePicker
+            v-else-if="isDateCondition(condition)"
+            :model-value="conditionDateValue(condition)"
+            manual-input
+            class="w-full"
+            v-bind="datePickerPropsFor(condition)"
+            :placeholder="t('reports.value', 'Value')"
+            @update:model-value="updateConditionDate(condition, $event as Date | null)"
           />
           <InputText
             v-else

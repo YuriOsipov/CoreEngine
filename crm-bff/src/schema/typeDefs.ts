@@ -208,6 +208,8 @@ export const typeDefs = /* GraphQL */ `
     accountability: String
     """Default sensitivity for new fields (0 none, 1 restricted, 2 confidential)."""
     defaultFieldSensitivity: Int!
+    """owner = non-admins only access rows they created (user_created); null = off."""
+    rowLevelSecurity: String
     """Platform / internal object — hidden from Object Manager pickers."""
     internal: Boolean!
     fields: [Field!]!
@@ -227,6 +229,8 @@ export const typeDefs = /* GraphQL */ `
     accountability: String
     """Default sensitivity for newly created fields (0–2)."""
     defaultFieldSensitivity: Int
+    """Pass \"owner\" to enable owner row security, or null to disable."""
+    rowLevelSecurity: String
   }
 
   """Create a new registry object (Object Manager)."""
@@ -269,6 +273,10 @@ export const typeDefs = /* GraphQL */ `
     icon: String
     note: String
     color: String
+    """Null = visible to all roles."""
+    roleId: ID
+    sourceSnapshot: JSON
+    lastRefreshedAt: String
   }
 
   input UpsertDashboardInput {
@@ -277,6 +285,9 @@ export const typeDefs = /* GraphQL */ `
     icon: String
     note: String
     color: String
+    roleId: ID
+    sourceSnapshot: JSON
+    lastRefreshedAt: String
   }
 
   """Directus-compatible panel row (public id = backend_panel_id)."""

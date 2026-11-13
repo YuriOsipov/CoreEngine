@@ -20,6 +20,7 @@ import {
   listUserCollections,
   type UserCollectionOption,
 } from '@/modules/entities/services/collectionSchema'
+import CrmRegistryIcon from '@/core/ui-kit/CrmRegistryIcon.vue'
 import SetupEntityCreateDialog from './SetupEntityCreateDialog.vue'
 import SetupEntityDeleteDialog from './SetupEntityDeleteDialog.vue'
 
@@ -294,11 +295,9 @@ watch(
               :to="{ name: 'setup-collection', params: { collection: data.value } }"
               class="setup-link setup-objects-label__link"
             >
-              <i
-                v-if="data.icon"
-                :class="data.icon"
-                class="setup-objects-label__icon"
-                aria-hidden="true"
+              <CrmRegistryIcon
+                :icon="data.icon"
+                icon-class="setup-objects-label__icon"
               />
               <span>{{ data.label }}</span>
             </RouterLink>
@@ -431,6 +430,13 @@ watch(
 
 .setup-objects-label__icon {
   font-size: 0.95rem;
+  line-height: 1;
+  width: 1em;
+  text-align: center;
+}
+
+.setup-objects-label__icon.material-icons {
+  font-size: 1.05rem;
 }
 
 .setup-objects-template {

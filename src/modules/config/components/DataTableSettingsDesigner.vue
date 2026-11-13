@@ -35,6 +35,7 @@ import {
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 import { listDataTableFields, normalizeTableSettings, DEFAULT_RELATED_ROW_LIMIT } from '@/modules/entities/services/tableSettings'
 import {
+  fetchCollectionDisplayTemplate,
   getCachedCollectionFields,
   getCachedRelations,
 } from '@/modules/entities/services/collectionSchema'
@@ -490,6 +491,8 @@ const listActions = computed<ListViewAction[]>({
 })
 
 const docTemplateOptions = ref<Array<{ label: string; value: string }>>([])
+/** Related-entity Display Template (authoritative label) for M2O column hints. */
+const relatedDisplayTemplates = ref<Record<string, string>>({})
 const actionDraftVisible = ref(false)
 const actionDraft = ref<ListViewAction | null>(null)
 const editingActionId = ref<string | null>(null)
@@ -988,10 +991,20 @@ async function loadFields(collection: string): Promise<void> {
       ] as const),
     )
     nestedFieldsByCollection.value = Object.fromEntries(nestedEntries)
+    const templateEntries = await Promise.all(
+      Array.from(new Set(relationCollections)).map(async (relatedCollection) => {
+        const template = await fetchCollectionDisplayTemplate(relatedCollection)
+        return [relatedCollection, template?.trim() || ''] as const
+      }),
+    )
+    relatedDisplayTemplates.value = Object.fromEntries(
+      templateEntries.filter(([, template]) => Boolean(template)),
+    )
   } catch (err) {
     fields.value = []
     schemaFields.value = []
     nestedFieldsByCollection.value = {}
+    relatedDisplayTemplates.value = {}
     error.value =
       err instanceof Error
         ? err.message
@@ -999,6 +1012,15 @@ async function loadFields(collection: string): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+function relatedColumnTemplatePlaceholder(column: DataTableColumnConfig): string {
+  const related = column.relatedCollection?.trim()
+  if (related) {
+    const fromEntity = relatedDisplayTemplates.value[related]?.trim()
+    if (fromEntity) return fromEntity
+  }
+  return t('tableSettings.displayTemplateExample', '{{name}}')
 }
 
 async function resolveFixedTargetParentField(): Promise<void> {
@@ -1534,7 +1556,13 @@ const batchInsertHint = computed(() =>
                 v-else-if="column.relatedCollection"
                 :model-value="column.template ?? ''"
                 class="w-full"
-                :placeholder="t('tableSettings.displayTemplateExample', '{{name}}')"
+                :placeholder="relatedColumnTemplatePlaceholder(column)"
+                :title="
+                  t(
+                    'tableSettings.displayTemplateFromEntity',
+                    'Leave empty to use the related object Display Template.',
+                  )
+                "
                 @update:model-value="
                   updateColumn(column.field, { template: String($event).trim() || undefined })
                 "

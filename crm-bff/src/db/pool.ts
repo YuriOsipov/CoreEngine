@@ -8,8 +8,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../..')
 
 loadEnv({ path: resolve(repoRoot, '.env') })
-// Customer DB settings in supabase/.env must win over defaults / root .env.
-loadEnv({ path: resolve(repoRoot, 'supabase/.env'), override: true })
+// Customer DB settings in supabase/.env must win over defaults / root .env on the host.
+// In Docker, compose `environment:` (POSTGRES_HOST=db, …) must not be clobbered by
+// a host-oriented supabase/.env (localhost:5434 / kernel).
+loadEnv({
+  path: resolve(repoRoot, 'supabase/.env'),
+  override: process.env.RUNNING_IN_DOCKER !== '1',
+})
 loadEnv({ path: resolve(__dirname, '../../.env') })
 
 const host =

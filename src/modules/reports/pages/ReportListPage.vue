@@ -9,14 +9,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
+import { loadAppRoles } from '@/core/settingRoleUtils'
 import { useTranslation } from '@/core/translation'
+import type { AppRoleOption } from '@/interfaces'
 import {
   deleteReport,
   deleteReportFolder,
+  isTabularReport,
   listReportFolders,
   listReports,
   saveReportFolder,
   type ReportFolder,
+  type ReportType,
   type ReportWithSetting,
 } from '../services/reportSettings'
 
@@ -27,12 +31,34 @@ const toast = useToast()
 
 const reports = ref<ReportWithSetting[]>([])
 const folders = ref<ReportFolder[]>([])
+const roles = ref<AppRoleOption[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
 const selectedFolderId = ref<string | 'all' | 'unfiled'>('all')
 const folderDialogVisible = ref(false)
 const folderName = ref('')
 const folderSaving = ref(false)
+const typeDialogVisible = ref(false)
+const pendingReportType = ref<ReportType>('tabular')
+
+const reportTypeOptions = computed(() => [
+  {
+    label: t('reports.typeTabular', 'Tabular'),
+    value: 'tabular' as ReportType,
+    detail: t(
+      'reports.typeTabularHint',
+      'Flat columns with filters — Salesforce-style tabular designer.',
+    ),
+  },
+  {
+    label: t('reports.typePivot', 'Pivot'),
+    value: 'pivot' as ReportType,
+    detail: t(
+      'reports.typePivotHint',
+      'Matrix report with row/column groups and aggregates.',
+    ),
+  },
+])
 
 const folderCounts = computed(() => {
   const counts = new Map<string, number>()
@@ -61,11 +87,15 @@ const filteredReports = computed(() => {
     }
     if (!q) return true
     const folderName = folderLabel(report.config.folderId)
+    const roleName = roleLabelFor(report.roleId)
+    const typeLabel = typeLabelFor(report)
     return (
       report.title.toLowerCase().includes(q) ||
       report.name.toLowerCase().includes(q) ||
       report.collection.toLowerCase().includes(q) ||
-      folderName.toLowerCase().includes(q)
+      folderName.toLowerCase().includes(q) ||
+      roleName.toLowerCase().includes(q) ||
+      typeLabel.toLowerCase().includes(q)
     )
   })
 })
@@ -77,12 +107,14 @@ onMounted(() => {
 async function loadAll(): Promise<void> {
   loading.value = true
   try {
-    const [reportRows, folderRows] = await Promise.all([
+    const [reportRows, folderRows, roleRows] = await Promise.all([
       listReports(),
       listReportFolders(),
+      loadAppRoles(),
     ])
     reports.value = reportRows
     folders.value = folderRows
+    roles.value = roleRows
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -100,8 +132,30 @@ function folderLabel(folderId: string | null | undefined): string {
   return folders.value.find((folder) => folder.id === folderId)?.name ?? folderId
 }
 
+function roleLabelFor(roleId: string | null | undefined): string {
+  if (roleId == null || roleId === '') {
+    return t('layoutRole.defaultRole', 'Default (all roles)')
+  }
+  return roles.value.find((role) => role.id === roleId)?.name ?? roleId
+}
+
+function typeLabelFor(report: ReportWithSetting): string {
+  return isTabularReport(report.config)
+    ? t('reports.typeTabular', 'Tabular')
+    : t('reports.typePivot', 'Pivot')
+}
+
 function openNewReport(): void {
-  void router.push({ name: 'setup-report-new' })
+  pendingReportType.value = 'tabular'
+  typeDialogVisible.value = true
+}
+
+function confirmNewReportType(): void {
+  typeDialogVisible.value = false
+  void router.push({
+    name: 'setup-report-new',
+    query: { type: pendingReportType.value },
+  })
 }
 
 function openReport(report: ReportWithSetting): void {
@@ -223,7 +277,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
           {{
             t(
               'setup.reports.subtitle',
-              'Configure pivot reports from registry collections. Link them from Navigation when ready.',
+              'Configure pivot and tabular reports from registry collections. Link them to roles and Navigation when ready.',
             )
           }}
         </p>
@@ -341,7 +395,17 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
               </button>
             </template>
           </Column>
+          <Column :header="t('reports.reportType', 'Type')">
+            <template #body="{ data }">
+              {{ typeLabelFor(data) }}
+            </template>
+          </Column>
           <Column field="collection" :header="t('reports.sourceCollection', 'Source collection')" />
+          <Column :header="t('layoutRole.role', 'Role')">
+            <template #body="{ data }">
+              {{ roleLabelFor(data.roleId) }}
+            </template>
+          </Column>
           <Column :header="t('reports.folder', 'Folder')">
             <template #body="{ data }">
               {{ folderLabel(data.config.folderId) }}
@@ -378,6 +442,44 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
         </DataTable>
       </section>
     </div>
+
+    <Dialog
+      v-model:visible="typeDialogVisible"
+      modal
+      :header="t('reports.chooseReportType', 'Choose report type')"
+      :style="{ width: 'min(480px, 94vw)' }"
+    >
+      <div class="grid gap-3">
+        <label
+          v-for="option in reportTypeOptions"
+          :key="option.value"
+          class="border border-surface-200 rounded-lg p-3 grid gap-1 cursor-pointer"
+          :class="pendingReportType === option.value ? 'border-primary bg-primary-50' : ''"
+        >
+          <div class="flex items-center gap-2">
+            <RadioButton
+              v-model="pendingReportType"
+              :input-id="`report-type-${option.value}`"
+              :value="option.value"
+            />
+            <span class="font-semibold">{{ option.label }}</span>
+          </div>
+          <p class="text-muted-color text-[0.85rem] m-0 pl-7">{{ option.detail }}</p>
+        </label>
+      </div>
+      <template #footer>
+        <Button
+          :label="t('common.cancel', 'Cancel')"
+          text
+          severity="secondary"
+          @click="typeDialogVisible = false"
+        />
+        <Button
+          :label="t('reports.continue', 'Continue')"
+          @click="confirmNewReportType"
+        />
+      </template>
+    </Dialog>
 
     <Dialog
       v-model:visible="folderDialogVisible"

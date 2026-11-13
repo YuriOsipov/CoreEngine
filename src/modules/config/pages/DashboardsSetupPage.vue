@@ -5,9 +5,9 @@ export default {
 </script>
 
 <script setup lang="ts">
-import DashboardDesignerPage from '@/modules/dashboard/pages/DashboardDesignerPage.vue'
+import DashboardListPage from '@/modules/dashboard/pages/DashboardListPage.vue'
 </script>
 
 <template>
-  <DashboardDesignerPage embedded />
+  <DashboardListPage />
 </template>

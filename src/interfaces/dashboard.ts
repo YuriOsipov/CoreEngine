@@ -17,12 +17,37 @@ export type DashboardAggregateFunction =
   | 'min'
   | 'max'
 
+/** Persisted aggregate series for one panel (viewer skips live I/O). */
+export interface DashboardPanelSnapshot {
+  kind: 'metric' | 'chart' | 'note' | 'unsupported'
+  source: 'collection' | 'report' | 'label'
+  labels?: string[]
+  values?: number[]
+  valueLabel?: string
+  metric?: { label: string; value: string; detail?: string }
+  chartType?: string
+  data?: Record<string, unknown>
+  options?: Record<string, unknown>
+  text?: string
+  reason?: string
+  collectedAt: string
+}
+
+export interface DashboardSourceSnapshot {
+  version: 1
+  panels: Record<string, DashboardPanelSnapshot>
+}
+
 export interface DashboardRecord {
   id: string
   name: string
   icon?: string | null
   note?: string | null
   color?: string | null
+  /** Null = visible to all roles. */
+  roleId?: string | null
+  sourceSnapshot?: DashboardSourceSnapshot | null
+  lastRefreshedAt?: string | null
 }
 
 export interface DashboardPanelRecord {
@@ -91,6 +116,9 @@ export interface UpsertDashboardInput {
   icon?: string | null
   note?: string | null
   color?: string | null
+  roleId?: string | null
+  sourceSnapshot?: DashboardSourceSnapshot | null
+  lastRefreshedAt?: string | null
 }
 
 export interface UpsertPanelInput {

@@ -85,12 +85,40 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     return base
   }
 
-  async function reload(inPlace = false): Promise<void> {
+  /**
+   * Take exclusive ownership of load flags. Clears loading / refreshing /
+   * loadingMore first so a superseded fetch (especially in-flight loadMore
+   * after a view switch) cannot leave the green spinner stuck.
+   */
+  function beginLoad(inPlace = false): number {
     const token = ++loadToken
+    loading.value = false
+    refreshing.value = false
+    loadingMore.value = false
     if (inPlace && runtime.value) {
       refreshing.value = true
     } else {
       loading.value = true
+    }
+    return token
+  }
+
+  function endLoad(token: number): void {
+    if (token !== loadToken) return
+    loading.value = false
+    refreshing.value = false
+  }
+
+  /** Clear stuck flags (e.g. after a raced token left the overlay on). */
+  function clearLoadFlags(): void {
+    loading.value = false
+    refreshing.value = false
+    loadingMore.value = false
+  }
+
+  async function reload(inPlace = false): Promise<void> {
+    const token = beginLoad(inPlace)
+    if (!(inPlace && runtime.value)) {
       runtime.value = null
     }
     error.value = null
@@ -111,15 +139,14 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
           ? err.message
           : (options.loadErrorMessage ?? 'Failed to load records.')
     } finally {
-      if (token === loadToken) {
-        loading.value = false
-        refreshing.value = false
-      }
+      endLoad(token)
     }
   }
 
   async function loadMore(payload?: DataTableLoadMorePayload): Promise<void> {
-    if (!runtime.value || loadingMore.value) return
+    // Never page while a view switch / refresh owns the table: the old runtime is
+    // still on screen and its offset would be appended to the new view's rows.
+    if (!runtime.value || loadingMore.value || loading.value || refreshing.value) return
     if (runtime.value.rows.length >= runtime.value.totalCount) return
 
     const token = loadToken
@@ -172,7 +199,7 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     })
   }
 
-  function handleSortChange(payload: DataTableSortChangePayload): void {
+  function applySortChange(payload: DataTableSortChangePayload): void {
     const order =
       payload.order === 1 || payload.order === -1 ? payload.order : null
     const uiField = payload.field?.trim() || null
@@ -180,6 +207,10 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     activeSortColumnField.value = uiField
     activeSort.value =
       sortKey && order ? { field: sortKey, order } : null
+  }
+
+  function handleSortChange(payload: DataTableSortChangePayload): void {
+    applySortChange(payload)
     void reload(true)
   }
 
@@ -231,10 +262,15 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
     reload,
     loadMore,
     handlePageSizeChange,
+    applySortChange,
     handleSortChange,
+    resolveFetchSettings,
     resetSort,
     syncSortFromSettings,
     updateRows,
+    beginLoad,
+    endLoad,
+    clearLoadFlags,
     isStaleToken,
     nextLoadToken,
     currentLoadToken,

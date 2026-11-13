@@ -8,15 +8,21 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import pg from 'pg'
-import { config as loadEnv } from 'dotenv'
+import { createRequire } from 'node:module'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
 const migrationsDir = resolve(repoRoot, 'supabase/migrations')
+const require = createRequire(resolve(repoRoot, 'crm-bff/package.json'))
+const pg = require('pg') as typeof import('pg')
+const { config: loadEnv } = require('dotenv') as typeof import('dotenv')
 
 loadEnv({ path: resolve(repoRoot, '.env') })
-loadEnv({ path: resolve(repoRoot, 'supabase/.env'), override: true })
+// In Docker, compose `environment:` must win over host-oriented supabase/.env (localhost:5434).
+loadEnv({
+  path: resolve(repoRoot, 'supabase/.env'),
+  override: process.env.RUNNING_IN_DOCKER !== '1',
+})
 
 function env(name: string, fallback = ''): string {
   return String(process.env[name] ?? fallback).trim()

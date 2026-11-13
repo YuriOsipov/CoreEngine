@@ -255,6 +255,7 @@ export async function postgresListUsers(options: {
     byRequested.set(String(row.id), project(row))
   }
   // Also index by raw lookup so stamps that used app_users.id still resolve.
+  // audit-ignore: SQL-DYNAMIC includeInactive toggles a fixed AND is_active = true fragment (boolean), never user input
   const extras = await query<Record<string, unknown>>(
     `SELECT id::text AS match_id,
             ${selectSql}
@@ -317,6 +318,7 @@ export async function postgresUpdateUserProfile(
   params.push(id)
   const idParam = `$${next}`
 
+  // audit-ignore: SQL-DYNAMIC idParam is a $n placeholder index only; id value is bound in params
   const updated = await query<{ id: string }>(
     `UPDATE public.app_users
      SET ${sets.join(', ')}

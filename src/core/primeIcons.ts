@@ -325,6 +325,13 @@ export function toPrimeIconClass(name: string): string {
   return `pi pi-${trimmed}`
 }
 
+/** True when value is a PrimeIcons class (`pi pi-book`) rather than a Material glyph name. */
+export function isPrimeIconClass(value: string | null | undefined): boolean {
+  const icon = (value ?? '').trim()
+  if (!icon) return false
+  return icon.startsWith('pi ') || icon.startsWith('pi-') || /(^|\s)pi-/.test(icon)
+}
+
 export function primeIconNameFromClass(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ''

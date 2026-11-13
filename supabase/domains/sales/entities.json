@@ -3,10 +3,78 @@
     {
       "apiName": "account",
       "label": "Account",
-      "icon": "business",
+      "icon": "pi pi-address-book",
       "group": "Sales",
-      "displayTemplate": "{{name}}",
+      "displayTemplate": "{{last_name}} {{fist_name}}",
       "fields": [
+        {
+          "apiName": "billing_address",
+          "label": "Billing Address",
+          "type": "JSON",
+          "interface": "address"
+        },
+        {
+          "apiName": "fist_name",
+          "label": "Fist name",
+          "type": "STRING",
+          "interface": "input",
+          "isIndexed": true
+        },
+        {
+          "apiName": "last_name",
+          "label": "Last name",
+          "type": "STRING",
+          "interface": "input",
+          "isIndexed": true
+        },
+        {
+          "apiName": "last_opportunity_date",
+          "label": "Last opportunity date",
+          "type": "DATETIME",
+          "interface": "datetime",
+          "displayOptions": {
+            "format": "short"
+          }
+        },
+        {
+          "apiName": "price_group",
+          "label": "Price group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "price_group",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "price_group"
+          }
+        },
+        {
+          "apiName": "type",
+          "label": "Type",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Customer",
+                "value": "customer"
+              },
+              {
+                "text": "Supplier",
+                "value": "supplier"
+              },
+              {
+                "text": "Prospect",
+                "value": "prospect"
+              },
+              {
+                "text": "Partner",
+                "value": "partner"
+              }
+            ],
+            "default": "prospect"
+          }
+        },
         {
           "apiName": "industry",
           "label": "Industry",
@@ -24,16 +92,76 @@
           "label": "Phone",
           "type": "STRING",
           "interface": "input"
+        },
+        {
+          "apiName": "shipping_address",
+          "label": "Shipping address",
+          "type": "JSON",
+          "interface": "address"
+        }
+      ]
+    },
+    {
+      "apiName": "campaign",
+      "label": "Campaign",
+      "icon": "pi pi-calendar-times",
+      "group": "Pricing",
+      "displayTemplate": "{{description}}",
+      "fields": [
+        {
+          "apiName": "date_start",
+          "label": "Date start",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "date_end",
+          "label": "Date end",
+          "type": "DATE",
+          "interface": "datetime"
+        },
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "textarea"
         }
       ]
     },
     {
       "apiName": "contact",
       "label": "Contact",
-      "icon": "person",
+      "icon": "pi pi-comments",
       "group": "Sales",
-      "displayTemplate": "{{name}}",
+      "displayTemplate": "{{last_name}} {{first_name}}",
       "fields": [
+        {
+          "apiName": "first_name",
+          "label": "First Name",
+          "type": "STRING",
+          "interface": "input",
+          "isIndexed": true
+        },
+        {
+          "apiName": "last_name",
+          "label": "Last Name",
+          "type": "STRING",
+          "interface": "input",
+          "required": true,
+          "isIndexed": true
+        },
+        {
+          "apiName": "note",
+          "label": "Note",
+          "type": "STRING",
+          "interface": "input-multiline"
+        },
+        {
+          "apiName": "position",
+          "label": "Position",
+          "type": "STRING",
+          "interface": "input"
+        },
         {
           "apiName": "email",
           "label": "Email",
@@ -61,12 +189,452 @@
       ]
     },
     {
+      "apiName": "item",
+      "label": "Item",
+      "icon": "pi pi-shopping-bag",
+      "displayTemplate": "{{description}}",
+      "fields": [
+        {
+          "apiName": "base_price",
+          "label": "Base price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "code",
+          "label": "Code",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "cost",
+          "label": "Cost",
+          "type": "FLOAT",
+          "interface": "currency",
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "group",
+          "label": "Group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item_group"
+          }
+        },
+        {
+          "apiName": "image",
+          "label": "image",
+          "type": "UUID",
+          "interface": "file-image",
+          "options": {
+            "files": {
+              "columns": [],
+              "display": "thumbnail",
+              "multiple": false,
+              "allowedMimeTypes": [
+                "image/"
+              ]
+            }
+          },
+          "relationKind": "M2O",
+          "relatedEntity": "files",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "files"
+          }
+        },
+        {
+          "apiName": "min_qty",
+          "label": "Min qty",
+          "type": "INTEGER",
+          "interface": "input"
+        },
+        {
+          "apiName": "type",
+          "label": "Type",
+          "type": "INTEGER",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Service",
+                "value": 1
+              },
+              {
+                "text": "Product",
+                "value": 2
+              },
+              {
+                "text": "Aggregate",
+                "value": 3
+              }
+            ],
+            "default": 2
+          }
+        },
+        {
+          "apiName": "upc",
+          "label": "UPC",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "variant_type",
+          "label": "Variant Type",
+          "type": "INTEGER",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Size",
+                "value": 1
+              },
+              {
+                "text": "Color",
+                "value": 2
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "item_group",
+      "label": "Item group",
+      "icon": "pi pi-list",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "parent_group",
+          "label": "Parent group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "item_group"
+          }
+        },
+        {
+          "apiName": "parent",
+          "label": "Parent group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item_group"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "item_price",
+      "label": "Item Price",
+      "icon": "pi pi-dollar",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "required": true,
+          "options": {
+            "useInSearch": true
+          },
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "item"
+          }
+        },
+        {
+          "apiName": "new_price",
+          "label": "New Price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "options": {
+            "scale": 2,
+            "precision": 18,
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "new_price_discount",
+          "label": "New price discount (%)",
+          "type": "FLOAT",
+          "interface": "calculated",
+          "readonly": true,
+          "options": {
+            "template": "{{ ROUND(MULTIPLY(DIVIDE(SUBTRACT( item.base_price,new_price), item.base_price), 100),0) }}",
+            "computeMode": "formula"
+          }
+        },
+        {
+          "apiName": "price",
+          "label": "Price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "required": true,
+          "options": {
+            "scale": 2,
+            "suffix": "USD",
+            "precision": 18,
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "price_difference",
+          "label": "Price difference",
+          "type": "FLOAT",
+          "interface": "calculated",
+          "readonly": true,
+          "options": {
+            "scale": 2,
+            "template": "{{ SUBTRACT(price,new_price) }}",
+            "precision": 18,
+            "computeMode": "formula",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "price_discount",
+          "label": "Price discount (%)",
+          "type": "FLOAT",
+          "interface": "calculated",
+          "readonly": true,
+          "options": {
+            "scale": 2,
+            "template": "{{ MULTIPLY(DIVIDE(SUBTRACT( item.base_price,price), item.base_price), 100) }}",
+            "precision": 18,
+            "computeMode": "formula",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "price_group",
+          "label": "Price group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "price_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "price_group"
+          }
+        },
+        {
+          "apiName": "promo_price",
+          "label": "Promo price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "readonly": true,
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "promotion",
+          "label": "Promotion",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "promotion",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "promotion"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "item_variant",
+      "label": "Item variant",
+      "icon": "pi pi-book",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "item"
+          }
+        },
+        {
+          "apiName": "variant",
+          "label": "Variant",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "variant",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "variant"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "message",
+      "label": "Message",
+      "icon": "pi pi-at",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "body",
+          "label": "Body",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "contact",
+          "label": "Contact",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "contact",
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "contact"
+          }
+        },
+        {
+          "apiName": "email",
+          "label": "Email",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "opportunity",
+          "label": "Opportunity",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "opportunity",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "opportunity"
+          }
+        },
+        {
+          "apiName": "phone",
+          "label": "Phone",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "result",
+          "label": "Result",
+          "type": "INTEGER",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Success",
+                "value": 1
+              },
+              {
+                "text": "Failed",
+                "value": 2
+              }
+            ]
+          }
+        },
+        {
+          "apiName": "type",
+          "label": "Type",
+          "type": "INTEGER",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Email",
+                "value": 1
+              },
+              {
+                "text": "WhatsApp",
+                "value": 2
+              },
+              {
+                "text": "Telegram",
+                "value": 3
+              }
+            ],
+            "default": 1
+          }
+        }
+      ]
+    },
+    {
       "apiName": "opportunity",
       "label": "Opportunity",
-      "icon": "trending_up",
+      "icon": "pi pi-briefcase",
       "group": "Sales",
       "displayTemplate": "{{name}}",
       "fields": [
+        {
+          "apiName": "terminal",
+          "label": "Terminal",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Cancel",
+                "value": "cancel"
+              },
+              {
+                "text": "Lost",
+                "value": "lost"
+              },
+              {
+                "text": "Won",
+                "value": "won"
+              }
+            ]
+          }
+        },
         {
           "apiName": "amount",
           "label": "Amount",
@@ -97,31 +665,13 @@
               {
                 "text": "Proposal",
                 "value": "proposal"
-              }
-            ],
-            "default": "prospecting"
-          }
-        },
-        {
-          "apiName": "outcome",
-          "label": "Outcome",
-          "type": "STRING",
-          "interface": "select-dropdown",
-          "options": {
-            "choices": [
+              },
               {
                 "text": "Won",
                 "value": "won"
-              },
-              {
-                "text": "Lost",
-                "value": "lost"
-              },
-              {
-                "text": "Cancelled",
-                "value": "cancelled"
               }
-            ]
+            ],
+            "default": "prospecting"
           }
         },
         {
@@ -129,6 +679,9 @@
           "label": "Account",
           "type": "UUID",
           "interface": "select-dropdown-m2o",
+          "options": {
+            "useInSearch": true
+          },
           "relationKind": "M2O",
           "relatedEntity": "account",
           "relationMeta": {
@@ -139,34 +692,285 @@
       ]
     },
     {
-      "apiName": "quote",
-      "label": "Quote",
-      "icon": "request_quote",
-      "group": "Sales",
+      "apiName": "opportunity_item",
+      "label": "Opportunity item",
+      "icon": "pi pi-list",
       "displayTemplate": "{{name}}",
       "fields": [
         {
-          "apiName": "total",
-          "label": "Total",
+          "apiName": "base_price",
+          "label": "Base price",
           "type": "FLOAT",
-          "interface": "input"
+          "interface": "currency",
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "defaultFromParent": "base_price",
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
         },
         {
-          "apiName": "valid_until",
-          "label": "Valid until",
-          "type": "DATE",
-          "interface": "datetime"
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "required": true,
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "item"
+          }
         },
         {
-          "apiName": "opportunity_id",
+          "apiName": "main_price",
+          "label": "Main price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "options": {
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "opportunity",
           "label": "Opportunity",
           "type": "UUID",
           "interface": "select-dropdown-m2o",
           "relationKind": "M2O",
           "relatedEntity": "opportunity",
           "relationMeta": {
-            "on_delete": "SET NULL",
+            "on_delete": "CASCADE",
             "one_collection": "opportunity"
+          }
+        },
+        {
+          "apiName": "price",
+          "label": "Price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "required": true,
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "promotion",
+          "label": "Promotion",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "promotion",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "promotion"
+          }
+        },
+        {
+          "apiName": "quantity",
+          "label": "Quantity",
+          "type": "FLOAT",
+          "interface": "input",
+          "required": true,
+          "options": {
+            "default": 1
+          }
+        },
+        {
+          "apiName": "total",
+          "label": "Total",
+          "type": "FLOAT",
+          "interface": "currency",
+          "readonly": true,
+          "options": {
+            "scale": 2,
+            "template": "{{ MULTIPLY(price, quantity) }}",
+            "precision": 18,
+            "computeMode": "formula",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "variant",
+          "label": "Variant",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "variant",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "variant"
+          }
+        }
+      ]
+    },
+    {
+      "apiName": "price_group",
+      "label": "Price group",
+      "icon": "pi pi-dollar",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "discount",
+          "label": "Discount",
+          "type": "INTEGER",
+          "interface": "input"
+        }
+      ]
+    },
+    {
+      "apiName": "promotion",
+      "label": "Promotion",
+      "icon": "pi pi-money-bill",
+      "group": "Pricing",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "price_group",
+          "label": "price group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "price_group",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "price_group"
+          }
+        },
+        {
+          "apiName": "campaign",
+          "label": "Campaign",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "required": true,
+          "relationKind": "M2O",
+          "relatedEntity": "campaign",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "campaign"
+          }
+        },
+        {
+          "apiName": "date_start",
+          "label": "Date start",
+          "type": "DATE",
+          "interface": "datetime",
+          "required": true,
+          "options": {
+            "defaultFromParent": "date_start"
+          },
+          "displayOptions": {
+            "format": "short"
+          }
+        },
+        {
+          "apiName": "date_end",
+          "label": "Date end",
+          "type": "DATE",
+          "interface": "datetime",
+          "required": true,
+          "options": {
+            "defaultFromParent": "date_end"
+          },
+          "displayOptions": {
+            "format": "short"
+          }
+        },
+        {
+          "apiName": "item_group",
+          "label": "Item group",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item_group",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item_group"
+          }
+        },
+        {
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "item"
+          }
+        },
+        {
+          "apiName": "description",
+          "label": "Description",
+          "type": "STRING",
+          "interface": "textarea"
+        },
+        {
+          "apiName": "promo_type",
+          "label": "Promo type",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "required": true,
+          "options": {
+            "choices": [
+              {
+                "text": "Fixed price",
+                "value": "fixed_price"
+              },
+              {
+                "text": "Discount %",
+                "value": "discount_percent"
+              }
+            ],
+            "default": "discount_percent"
+          }
+        },
+        {
+          "apiName": "fixed_price",
+          "label": "Fixed price",
+          "type": "FLOAT",
+          "interface": "input"
+        },
+        {
+          "apiName": "discount_percent",
+          "label": "Discount %",
+          "type": "FLOAT",
+          "interface": "input"
+        }
+      ]
+    },
+    {
+      "apiName": "variant",
+      "label": "Variant",
+      "icon": "pi pi-book",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "type",
+          "label": "Type",
+          "type": "INTEGER",
+          "interface": "select-dropdown",
+          "required": true,
+          "options": {
+            "choices": [
+              {
+                "text": "Color",
+                "value": 2
+              },
+              {
+                "text": "Size",
+                "value": 1
+              }
+            ],
+            "default": 1
           }
         }
       ]

@@ -11,6 +11,7 @@ export const USERS_ADMIN_ONLY_FIELDS = new Set([
   'backend_user_id',
   'auth_user_id',
   'password',
+  // audit-ignore: PASSWORD-HASH-OUTSIDE-AUTH deny-list only; strips hash from profile writes — auth modules own real hash I/O
   'password_hash',
   'must_change_password',
 ])

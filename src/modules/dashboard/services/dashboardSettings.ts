@@ -1,3 +1,4 @@
+import { currentUserRole } from '@/core/currentUser'
 import {
   readAggregateRecordsBridge,
   readDashboardsBridge,
@@ -5,7 +6,9 @@ import {
 } from '@/core/graphql/dashboardsApi'
 import type {
   DashboardPanelRecord,
+  DashboardPanelSnapshot,
   DashboardRecord,
+  DashboardSourceSnapshot,
 } from '@/interfaces'
 import {
   loadReportPanelSeries,
@@ -77,13 +80,50 @@ const CHART_COLORS = [
   '#7E57C2',
 ]
 
-export async function loadDashboardsWithPanels(): Promise<DashboardWithPanels[]> {
-  const [dashboardsRaw, panelsRaw] = await Promise.all([
-    loadDashboardRecords(),
+const DASHBOARD_LIST_FIELDS = [
+  'id',
+  'name',
+  'icon',
+  'note',
+  'color',
+  'roleId',
+  'sourceSnapshot',
+  'lastRefreshedAt',
+] as const
+
+/** Metadata only (no panel aggregate queries). */
+export async function loadDashboardRecords(
+  options: { forCurrentRole?: boolean } = {},
+): Promise<DashboardRecord[]> {
+  const rows = await readDashboardsBridge({
+    fields: [...DASHBOARD_LIST_FIELDS],
+    sort: ['name'],
+    limit: -1,
+  })
+  const dashboards = rows.map(normalizeDashboardRecord)
+  if (!options.forCurrentRole) return dashboards
+  const roleId = await currentUserRole()
+  return dashboards.filter((dashboard) => isDashboardVisibleToRole(dashboard, roleId))
+}
+
+export function isDashboardVisibleToRole(
+  dashboard: Pick<DashboardRecord, 'roleId'>,
+  roleId: string | null,
+): boolean {
+  if (dashboard.roleId == null || dashboard.roleId === '') return true
+  if (roleId == null || roleId === '') return false
+  return String(dashboard.roleId) === String(roleId)
+}
+
+export async function loadDashboardsWithPanels(
+  options: { forCurrentRole?: boolean; preferSnapshot?: boolean } = {},
+): Promise<DashboardWithPanels[]> {
+  const preferSnapshot = options.preferSnapshot !== false
+  const [dashboards, panelsRaw] = await Promise.all([
+    loadDashboardRecords({ forCurrentRole: options.forCurrentRole }),
     loadPanelRecords(),
   ])
 
-  const dashboards = dashboardsRaw as unknown as DashboardRecord[]
   const panels = panelsRaw as unknown as DashboardPanelRecord[]
 
   return Promise.all(
@@ -91,13 +131,14 @@ export async function loadDashboardsWithPanels(): Promise<DashboardWithPanels[]>
       const dashboardPanels = panels
         .filter((panel) => dashboardId(panel.dashboard) === dashboard.id)
         .sort(comparePanelPosition)
+      const snapshot = preferSnapshot ? normalizeSourceSnapshot(dashboard.sourceSnapshot) : null
 
       return {
         ...dashboard,
         panels: await Promise.all(
           dashboardPanels.map(async (panel) => ({
             ...panel,
-            render: await buildPanelRenderModel(panel),
+            render: await resolvePanelRender(panel, snapshot),
           })),
         ),
       }
@@ -105,12 +146,144 @@ export async function loadDashboardsWithPanels(): Promise<DashboardWithPanels[]>
   )
 }
 
-async function loadDashboardRecords(): Promise<Record<string, unknown>[]> {
-  return readDashboardsBridge({
-    fields: ['id', 'name', 'icon', 'note', 'color'],
-    sort: ['name'],
-    limit: -1,
-  })
+async function resolvePanelRender(
+  panel: DashboardPanelRecord,
+  snapshot: DashboardSourceSnapshot | null,
+): Promise<PanelRenderModel> {
+  const fromSnapshot = panelRenderFromSnapshot(panel.id, snapshot)
+  if (fromSnapshot) return fromSnapshot
+  return buildPanelRenderModel(panel)
+}
+
+export function panelRenderFromSnapshot(
+  panelId: string,
+  snapshot: DashboardSourceSnapshot | null | undefined,
+): PanelRenderModel | null {
+  const entry = snapshot?.panels?.[panelId]
+  if (!entry) return null
+  return snapshotEntryToRender(entry)
+}
+
+export function renderModelToSnapshotEntry(
+  render: PanelRenderModel,
+  source: DashboardPanelSnapshot['source'],
+): DashboardPanelSnapshot {
+  const collectedAt = new Date().toISOString()
+  if (render.kind === 'metric') {
+    return {
+      kind: 'metric',
+      source,
+      metric: {
+        label: render.label,
+        value: render.value,
+        detail: render.detail,
+      },
+      collectedAt,
+    }
+  }
+  if (render.kind === 'chart') {
+    const labels = Array.isArray(render.data.labels)
+      ? (render.data.labels as unknown[]).map(String)
+      : undefined
+    const datasets = Array.isArray(render.data.datasets)
+      ? (render.data.datasets as Array<Record<string, unknown>>)
+      : []
+    const firstData = datasets[0]?.data
+    const values = Array.isArray(firstData)
+      ? firstData.map((value) => Number(value) || 0)
+      : undefined
+    return {
+      kind: 'chart',
+      source,
+      chartType: render.chartType,
+      data: render.data,
+      options: render.options,
+      labels,
+      values,
+      collectedAt,
+    }
+  }
+  if (render.kind === 'note') {
+    return {
+      kind: 'note',
+      source,
+      text: render.text,
+      collectedAt,
+    }
+  }
+  return {
+    kind: 'unsupported',
+    source,
+    reason: render.reason,
+    options: render.options ?? undefined,
+    collectedAt,
+  }
+}
+
+function snapshotEntryToRender(entry: DashboardPanelSnapshot): PanelRenderModel {
+  if (entry.kind === 'metric' && entry.metric) {
+    return {
+      kind: 'metric',
+      label: entry.metric.label,
+      value: entry.metric.value,
+      detail: entry.metric.detail,
+    }
+  }
+  if (entry.kind === 'chart' && entry.data && entry.chartType) {
+    return {
+      kind: 'chart',
+      chartType: entry.chartType as ChartType,
+      data: entry.data,
+      options: entry.options ?? {},
+    }
+  }
+  if (entry.kind === 'note') {
+    return {
+      kind: 'note',
+      text: entry.text ?? '',
+    }
+  }
+  return {
+    kind: 'unsupported',
+    reason: entry.reason ?? 'Snapshot data is incomplete.',
+    options: entry.options ?? null,
+  }
+}
+
+export function panelSourceForSnapshot(
+  panel: DashboardPanelRecord,
+): DashboardPanelSnapshot['source'] {
+  const options = asRecord(panel.options)
+  if (isNotePanel(panel.type.toLowerCase())) return 'label'
+  return panelSourceType(options)
+}
+
+function normalizeDashboardRecord(row: Record<string, unknown>): DashboardRecord {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ''),
+    icon: (row.icon as string | null | undefined) ?? null,
+    note: (row.note as string | null | undefined) ?? null,
+    color: (row.color as string | null | undefined) ?? null,
+    roleId: (row.roleId as string | null | undefined) ?? null,
+    sourceSnapshot: normalizeSourceSnapshot(row.sourceSnapshot),
+    lastRefreshedAt:
+      row.lastRefreshedAt == null || row.lastRefreshedAt === ''
+        ? null
+        : String(row.lastRefreshedAt),
+  }
+}
+
+function normalizeSourceSnapshot(value: unknown): DashboardSourceSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (record.version !== 1 || !record.panels || typeof record.panels !== 'object') {
+    return null
+  }
+  return {
+    version: 1,
+    panels: record.panels as Record<string, DashboardPanelSnapshot>,
+  }
 }
 
 async function loadPanelRecords(): Promise<Record<string, unknown>[]> {

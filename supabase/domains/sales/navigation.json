@@ -1,0 +1,87 @@
+{
+  "apps": [
+    {
+      "settingId": "afc7da67-7f7f-4587-8c07-1c309fe314ac",
+      "name": "Sales rep",
+      "roleId": null,
+      "groupKey": "app",
+      "subGroup": "full",
+      "body": {
+        "id": "nav_568dfb3f181d",
+        "home": {
+          "kind": "dashboard",
+          "dashboardId": "395c9905-abd9-4578-86ed-79506b998f2b"
+        },
+        "name": "Sales rep",
+        "items": [
+          {
+            "id": "navitem_36581629a876",
+            "type": "folder",
+            "label": "Sales",
+            "children": [
+              {
+                "id": "navitem_126203d946bd",
+                "type": "link",
+                "label": "Account",
+                "target": {
+                  "kind": "object",
+                  "collection": "account"
+                }
+              },
+              {
+                "id": "navitem_9efdeccbff57",
+                "type": "link",
+                "label": "Contacts",
+                "target": {
+                  "kind": "object",
+                  "collection": "contact"
+                }
+              },
+              {
+                "id": "navitem_3272fb993f8b",
+                "type": "link",
+                "label": "Items",
+                "target": {
+                  "kind": "object",
+                  "collection": "item"
+                }
+              },
+              {
+                "id": "navitem_53e913f3bc94",
+                "type": "link",
+                "label": "Opportunities",
+                "target": {
+                  "kind": "object",
+                  "collection": "opportunity"
+                }
+              }
+            ],
+            "collapsed": false
+          },
+          {
+            "id": "navitem_d5d3d89ba758",
+            "type": "folder",
+            "label": "Reports",
+            "children": [
+              {
+                "id": "navitem_56ec503e536a",
+                "type": "link",
+                "label": "Sales",
+                "target": {
+                  "kind": "reports",
+                  "reportIds": [
+                    "34903204-6bb7-44f3-977c-5bf2c6fe4eb6"
+                  ]
+                }
+              }
+            ],
+            "collapsed": false
+          }
+        ],
+        "label": "Sales rep",
+        "version": 1,
+        "isDefault": true
+      }
+    }
+  ]
+}

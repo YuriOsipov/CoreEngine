@@ -7,12 +7,17 @@ export default {
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { useToast } from 'openvue/usetoast'
+import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
+import { formatDateValue } from '@/core/dateFormatting'
+import { getOrgDateTimeFormat } from '@/core/orgLocale'
 import {
   loadDashboardsWithPanels,
   type DashboardPanel,
   type DashboardWithPanels,
   type PanelRenderModel,
 } from '../services/dashboardSettings'
+import { refreshDashboardSnapshot } from '../services/dashboardSnapshot'
 import { useTranslation } from '@/core/translation'
 
 type ChartRender = Extract<PanelRenderModel, { kind: 'chart' }>
@@ -22,15 +27,25 @@ type UnsupportedRender = Extract<PanelRenderModel, { kind: 'unsupported' }>
 
 const dashboards = ref<DashboardWithPanels[]>([])
 const loading = ref(true)
+const refreshing = ref(false)
 const error = ref<string | null>(null)
 const { t } = useTranslation()
 const route = useRoute()
+const toast = useToast()
 
 const visibleDashboards = computed(() => {
   const id = typeof route.query.id === 'string' ? route.query.id : null
   if (!id) return dashboards.value
   const filtered = dashboards.value.filter((dashboard) => dashboard.id === id)
   return filtered.length > 0 ? filtered : dashboards.value
+})
+
+const activeDashboard = computed(() => visibleDashboards.value[0] ?? null)
+
+const lastRefreshedLabel = computed(() => {
+  const value = activeDashboard.value?.lastRefreshedAt
+  if (!value) return t('dashboard.neverRefreshed', 'Never')
+  return formatDateValue(value, getOrgDateTimeFormat() || 'yyyy-MM-dd HH:mm') || value
 })
 
 onMounted(() => {
@@ -42,7 +57,10 @@ async function loadDashboards(): Promise<void> {
   error.value = null
 
   try {
-    dashboards.value = await loadDashboardsWithPanels()
+    dashboards.value = await loadDashboardsWithPanels({
+      forCurrentRole: true,
+      preferSnapshot: true,
+    })
   } catch (err) {
     error.value =
       err instanceof Error
@@ -50,6 +68,39 @@ async function loadDashboards(): Promise<void> {
         : t('dashboard.failedLoad', 'Failed to load dashboards.')
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshVisibleDashboards(): Promise<void> {
+  const targets = visibleDashboards.value
+  if (targets.length === 0) {
+    await loadDashboards()
+    return
+  }
+  refreshing.value = true
+  try {
+    for (const dashboard of targets) {
+      await refreshDashboardSnapshot(dashboard.id)
+    }
+    await loadDashboards()
+    toast.add({
+      severity: 'success',
+      summary: t('common.saved', 'Saved'),
+      detail: t('dashboard.refreshSuccess', 'Dashboard data updated.'),
+      life: 3000,
+    })
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        err instanceof Error
+          ? err.message
+          : t('dashboard.refreshError', 'Failed to update dashboard data.'),
+      life: 4000,
+    })
+  } finally {
+    refreshing.value = false
   }
 }
 
@@ -103,6 +154,13 @@ function formattedPanelOptions(panel: DashboardPanel): string {
         </div>
 
         <div class="flex items-center gap-3 max-[900px]:flex-col max-[900px]:items-start">
+          <span v-if="activeDashboard" class="text-muted-color text-sm">
+            {{
+              t('dashboard.lastRefreshedLabel', 'Last refreshed: {value}', {
+                value: lastRefreshedLabel,
+              })
+            }}
+          </span>
           <RouterLink
             :to="{ name: 'dashboard-design', query: typeof route.query.id === 'string' ? { id: route.query.id } : {} }"
             class="nav-link"
@@ -110,12 +168,12 @@ function formattedPanelOptions(panel: DashboardPanel): string {
             {{ t('dashboard.design', 'Design') }}
           </RouterLink>
           <Button
-            :label="t('common.refresh', 'Refresh')"
+            :label="t('dashboard.updateData', 'Update data')"
+            icon="pi pi-refresh"
             size="small"
-            :loading="loading"
-            @click="loadDashboards"
+            :loading="loading || refreshing"
+            @click="refreshVisibleDashboards"
           />
-          <RouterLink to="/" class="nav-link">{{ t('common.allCollections', 'All collections') }}</RouterLink>
         </div>
       </div>
     </header>
@@ -134,14 +192,11 @@ function formattedPanelOptions(panel: DashboardPanel): string {
       {{ error }}
     </Message>
 
-    <Message
+    <CrmNotFoundState
       v-else-if="visibleDashboards.length === 0"
-      severity="warn"
-      :closable="false"
-      class="mt-4"
-    >
-      {{ t('dashboard.noDashboards', 'No dashboards are available for this role.') }}
-    </Message>
+      :title="t('app.notFoundTitle', 'Page not found')"
+      :detail="t('dashboard.noDashboards', 'No dashboards are available for this role.')"
+    />
 
     <section v-else class="grid gap-6">
       <article

@@ -107,6 +107,11 @@ import {
   redactRecordForMe,
   resolveFieldAccess,
 } from '../services/fieldSecurity.js'
+import {
+  assertOwnerAccessIfNeeded,
+  parseRowLevelSecurity,
+  readRowLevelSecurity,
+} from '../services/rowLevelSecurity.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { clearCrmStorageCache } from '../schema/crmStorage.js'
 import {
@@ -313,6 +318,7 @@ function mapEntityBase(row: Record<string, unknown>, language?: string | null) {
     hidden: Boolean(row.hidden),
     accountability: parseAccountability(backendConfig.accountability),
     defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
+    rowLevelSecurity: readRowLevelSecurity(backendConfig),
     internal: readInternal(backendConfig),
     __language: language ?? null,
     __apiName: String(row.api_name),
@@ -1103,6 +1109,9 @@ export const resolvers = {
           icon?: string | null
           note?: string | null
           color?: string | null
+          roleId?: string | null
+          sourceSnapshot?: Record<string, unknown> | null
+          lastRefreshedAt?: string | null
         }
       },
       ctx: GraphQlAuthContext,
@@ -1365,6 +1374,8 @@ export const resolvers = {
       const actorUserId = actorIdFromMe(me)
       let before: Record<string, unknown> | null = null
       try {
+        // Soft-deleted rows may be invisible to user findOne; load as system then
+        // enforce owner RLS explicitly (admins bypass inside assert).
         before = await findOneRecord(
           args.entity,
           String(args.id),
@@ -1373,6 +1384,21 @@ export const resolvers = {
         )
       } catch {
         before = null
+      }
+      if (before) {
+        await assertOwnerAccessIfNeeded(
+          args.entity,
+          { me },
+          before,
+          'update',
+        )
+      } else {
+        await assertOwnerAccessIfNeeded(
+          args.entity,
+          { me },
+          { user_created: null },
+          'update',
+        )
       }
       const restored = await restoreRecord(args.entity, String(args.id))
       try {
@@ -1548,6 +1574,7 @@ export const resolvers = {
           internal?: boolean | null
           accountability?: string | null
           defaultFieldSensitivity?: number | null
+          rowLevelSecurity?: string | null
         }
       },
       ctx: GraphQlAuthContext,
@@ -1566,6 +1593,10 @@ export const resolvers = {
         input.defaultFieldSensitivity === undefined
           ? undefined
           : clampSensitivity(input.defaultFieldSensitivity)
+      const rowLevelSecurity =
+        input.rowLevelSecurity === undefined
+          ? undefined
+          : parseRowLevelSecurity(input.rowLevelSecurity)
 
       await updateEntityMeta(entityApiName, {
         label: input.label,
@@ -1577,6 +1608,7 @@ export const resolvers = {
         internal: input.internal,
         accountability,
         defaultFieldSensitivity,
+        rowLevelSecurity,
       })
       clearCrmStorageCache()
 

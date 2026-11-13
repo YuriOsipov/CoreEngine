@@ -695,6 +695,8 @@ function clearCurrentFile(): void {
     v-model:visible="pickerVisible"
     :allowed-mime-types="allowedMimeTypes"
     :multiple="!singleMode"
+    :parent-collection="props.parentName"
+    :parent-record-id="props.parentId"
     @select="handleExistingSelected"
   />
 </template>

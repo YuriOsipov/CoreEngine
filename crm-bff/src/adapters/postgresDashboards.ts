@@ -15,12 +15,14 @@ export async function postgresListDashboards(options: {
     params.push(limit)
     limitSql = ` LIMIT $${params.length}`
   }
-  return query<Record<string, unknown>>(
-    `SELECT backend_dashboard_id AS id, name, icon, note, color
+  const rows = await query<Record<string, unknown>>(
+    `SELECT backend_dashboard_id AS id, name, icon, note, color,
+            role_id, source_snapshot, last_refreshed_at
      FROM public.app_dashboards
      ORDER BY ${orderSql}${limitSql}`,
     params,
   )
+  return rows.map(mapDashboardRow)
 }
 
 export type DashboardUpsertInput = {
@@ -29,6 +31,9 @@ export type DashboardUpsertInput = {
   icon?: string | null
   note?: string | null
   color?: string | null
+  roleId?: string | null
+  sourceSnapshot?: Record<string, unknown> | null
+  lastRefreshedAt?: string | null
 }
 
 export type PanelUpsertInput = {
@@ -52,27 +57,39 @@ export async function postgresUpsertDashboard(
   input: DashboardUpsertInput,
 ): Promise<Record<string, unknown>> {
   const backendId = (input.id && String(input.id).trim()) || randomUUID()
+  const sourceSnapshotJson =
+    input.sourceSnapshot === undefined
+      ? null
+      : JSON.stringify(input.sourceSnapshot ?? null)
   const rows = await query<Record<string, unknown>>(
     `INSERT INTO public.app_dashboards (
-       backend_dashboard_id, name, icon, note, color
-     ) VALUES ($1, $2, $3, $4, $5)
+       backend_dashboard_id, name, icon, note, color,
+       role_id, source_snapshot, last_refreshed_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
      ON CONFLICT (backend_dashboard_id) DO UPDATE SET
        name = EXCLUDED.name,
        icon = EXCLUDED.icon,
        note = EXCLUDED.note,
        color = EXCLUDED.color,
+       role_id = EXCLUDED.role_id,
+       source_snapshot = COALESCE(EXCLUDED.source_snapshot, public.app_dashboards.source_snapshot),
+       last_refreshed_at = COALESCE(EXCLUDED.last_refreshed_at, public.app_dashboards.last_refreshed_at),
        updated_at = now()
-     RETURNING backend_dashboard_id AS id, name, icon, note, color`,
+     RETURNING backend_dashboard_id AS id, name, icon, note, color,
+               role_id, source_snapshot, last_refreshed_at`,
     [
       backendId,
       input.name,
       input.icon ?? null,
       input.note ?? null,
       input.color ?? null,
+      input.roleId ?? null,
+      sourceSnapshotJson,
+      input.lastRefreshedAt ?? null,
     ],
   )
   if (!rows[0]) throw new Error('postgresUpsertDashboard: no row returned')
-  return rows[0]
+  return mapDashboardRow(rows[0])
 }
 
 /** Delete dashboard and cascade panels that reference its public id. */
@@ -191,6 +208,27 @@ const DASHBOARD_COLUMNS: Record<string, string> = {
   icon: 'icon',
   note: 'note',
   color: 'color',
+  roleId: 'role_id',
+  lastRefreshedAt: 'last_refreshed_at',
+}
+
+function mapDashboardRow(row: Record<string, unknown>): Record<string, unknown> {
+  const lastRefreshed = row.last_refreshed_at
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon ?? null,
+    note: row.note ?? null,
+    color: row.color ?? null,
+    roleId: row.role_id ?? null,
+    sourceSnapshot: row.source_snapshot ?? null,
+    lastRefreshedAt:
+      lastRefreshed instanceof Date
+        ? lastRefreshed.toISOString()
+        : lastRefreshed == null
+          ? null
+          : String(lastRefreshed),
+  }
 }
 const PANEL_COLUMNS: Record<string, string> = {
   id: 'backend_panel_id',

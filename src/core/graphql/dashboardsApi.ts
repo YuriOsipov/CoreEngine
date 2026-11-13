@@ -45,6 +45,9 @@ const UPSERT_DASHBOARD_MUTATION = /* GraphQL */ `
       icon
       note
       color
+      roleId
+      sourceSnapshot
+      lastRefreshedAt
     }
   }
 `

@@ -139,12 +139,6 @@ function isTabActive(path: string): boolean {
     <header class="app-header">
       <div class="app-header__row">
         <div>
-          <RouterLink
-            to="/"
-            class="nav-link"
-          >
-            {{ t('common.allCollections', 'All collections') }}
-          </RouterLink>
           <h1>{{ t('setup.title', 'Setup') }}</h1>
           <p>{{ t('setup.subtitle', 'Configure collections, layouts, and system settings.') }}</p>
         </div>

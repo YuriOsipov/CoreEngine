@@ -21,6 +21,18 @@ import {
   bffLogout,
   bffRefresh,
 } from './auth/localAuth.js'
+import {
+  buildOidcAuthorizeRedirect,
+  buildOidcLogoutRedirect,
+  completeOidcCallback,
+  oidcStatusPayload,
+  redeemOidcTicket,
+} from './auth/oidcAuth.js'
+import {
+  assertOidcConfigReady,
+  isOidcEnabled,
+  readOidcConfig,
+} from './auth/oidcConfig.js'
 import { assertProductionBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
 import { assertFieldSensitivitySchemaReady } from './services/fieldSecurity.js'
 import { assertProductionFlowAuthConfig } from './flows/flowAuth.js'
@@ -248,6 +260,98 @@ function clientKeyFromRequest(request: { ip?: string }): string {
 
 const LOGIN_ACCOUNT_MAX_FAILURES = 10
 const LOGIN_ACCOUNT_WINDOW_MS = 15 * 60_000
+
+app.get('/auth/oidc/status', async () => oidcStatusPayload())
+
+app.get('/auth/oidc/login', async (request, reply) => {
+  const limit = rateLimitConsume(
+    `oidc-login:${clientKeyFromRequest(request)}`,
+    30,
+    60_000,
+  )
+  if (!limit.ok) {
+    reply.header('retry-after', String(limit.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many SSO attempts' })
+  }
+  const query = request.query as { redirect?: unknown }
+  const redirectPath =
+    typeof query.redirect === 'string' ? query.redirect : '/'
+  const result = await buildOidcAuthorizeRedirect({ redirectPath })
+  if (!result.ok) {
+    return reply.status(result.status).send({ error: result.error })
+  }
+  return reply.redirect(result.url)
+})
+
+app.get('/auth/oidc/callback', async (request, reply) => {
+  const limit = rateLimitConsume(
+    `oidc-callback:${clientKeyFromRequest(request)}`,
+    30,
+    60_000,
+  )
+  if (!limit.ok) {
+    reply.header('retry-after', String(limit.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many SSO attempts' })
+  }
+  const query = request.query as {
+    code?: unknown
+    state?: unknown
+    error?: unknown
+    error_description?: unknown
+  }
+  const result = await completeOidcCallback({
+    code: typeof query.code === 'string' ? query.code : null,
+    state: typeof query.state === 'string' ? query.state : null,
+    error: typeof query.error === 'string' ? query.error : null,
+    errorDescription:
+      typeof query.error_description === 'string' ? query.error_description : null,
+  })
+  if (!result.ok) {
+    // Prefer JSON for API clients; browsers get a soft redirect to login with error.
+    const accept = String(request.headers.accept || '')
+    if (accept.includes('application/json')) {
+      return reply.status(result.status).send({ error: result.error })
+    }
+    const ui = new URL('/login', `${readOidcConfig().uiOrigin}/`)
+    ui.searchParams.set('sso_error', result.error)
+    return reply.redirect(ui.toString())
+  }
+  return reply.redirect(result.uiRedirect)
+})
+
+app.post('/auth/oidc/session', async (request, reply) => {
+  const limit = rateLimitConsume(
+    `oidc-session:${clientKeyFromRequest(request)}`,
+    30,
+    60_000,
+  )
+  if (!limit.ok) {
+    reply.header('retry-after', String(limit.retryAfterSec))
+    return reply.status(429).send({ error: 'Too many SSO attempts' })
+  }
+  const body = (request.body ?? {}) as { ticket?: unknown }
+  const ticket = typeof body.ticket === 'string' ? body.ticket.trim() : ''
+  const result = redeemOidcTicket(ticket)
+  if (!result.ok) {
+    return reply.status(result.status).send({ error: result.error })
+  }
+  return result.session
+})
+
+app.get('/auth/oidc/logout', async (request, reply) => {
+  const query = request.query as { redirect?: unknown }
+  const result = await buildOidcLogoutRedirect({
+    postLogoutRedirect:
+      typeof query.redirect === 'string' ? query.redirect : '/login',
+  })
+  if (!result.ok) {
+    return reply.status(result.status).send({ error: result.error })
+  }
+  if (!result.url) {
+    return { ok: true, idp_logout: false }
+  }
+  return reply.redirect(result.url)
+})
 
 app.post('/auth/login', async (request, reply) => {
   const limit = rateLimitConsume(
@@ -656,6 +760,7 @@ async function start() {
     authJwtSecret()
     assertCorsConfigSafe()
     assertProductionFlowAuthConfig()
+    assertOidcConfigReady()
     // Production: refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …).
     await assertProductionBootstrapPasswordsSafe()
     // Production: field-level security columns must exist (no silent FLS-off).
@@ -663,6 +768,9 @@ async function start() {
     await app.listen({ port, host: '0.0.0.0' })
     app.log.info(`GraphQL ready at http://localhost:${port}/graphql`)
     app.log.info(`Auth proxy at http://localhost:${port}/auth/login`)
+    if (isOidcEnabled()) {
+      app.log.info(`OIDC SSO at http://localhost:${port}/auth/oidc/login`)
+    }
     app.log.info(
       `Flow triggers at http://localhost:${port}/flows/trigger/:key (backend=${resolveFlowsBackend()})`,
     )

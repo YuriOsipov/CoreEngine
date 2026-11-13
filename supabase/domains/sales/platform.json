@@ -1,0 +1,45 @@
+{
+  "entities": [
+    {
+      "apiName": "users",
+      "label": "Users",
+      "fields": [
+        {
+          "apiName": "address",
+          "label": "Address",
+          "type": "JSON",
+          "interface": "address"
+        },
+        {
+          "apiName": "phone",
+          "label": "Phone",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "photo",
+          "label": "Photo",
+          "type": "UUID",
+          "interface": "file-image",
+          "options": {
+            "files": {
+              "columns": [],
+              "display": "thumbnail",
+              "multiple": false,
+              "allowedMimeTypes": [
+                "image/"
+              ]
+            }
+          },
+          "relationKind": "M2O",
+          "relatedEntity": "files",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "files"
+          }
+        }
+      ],
+      "displayTemplate": "{{last_name}}"
+    }
+  ]
+}

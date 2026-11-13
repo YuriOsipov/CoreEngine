@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Env / secrets (keep .env.example files)
+.env
+.env.*
+!.env.example
+!**/.env.example
+!.env.docker.example
+
+# Keys / certs
+keys/
+**/keys/
+*.pem
+*.key
+!*.key.example
+!*.pem.example
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+# Local Cursor agent rules / ignore (keep on disk; do not publish)
+.cursor/rules/
+.cursorrules
+.cursorignore
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

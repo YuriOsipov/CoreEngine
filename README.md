@@ -16,7 +16,7 @@ Build internal and vertical applications with custom objects, relationships, rol
 - A real data model they control (custom objects + relationships)
 - Different edit/view forms per role (Sales Rep vs Manager vs Pricing)
 - Domain starters they can version in git (Sales + Pricing, Clinic, Documents)
-- In-app document generation (DocEngine HTML/PDF in the browser) and price-list trees. The automation route `POST /api/v1/documents/generate` is a Phase 0 stub (HTTP 501) — it does not produce a file
+- In-app document generation (DocEngine HTML/PDF in the browser) and price-list trees. In the app, a user fills a template and downloads HTML or PDF. The separate automation route `POST /api/v1/documents/generate` is a Phase 0 contract only: it checks the request, then returns HTTP 501 (`DOCUMENTS_GENERATE_STUB`) until the server can populate the template and write the file for n8n
 - A GraphQL + REST API they can automate with n8n (records, query, flows). Document generate on that API is the same stub
 
 **It is not trying to be:**

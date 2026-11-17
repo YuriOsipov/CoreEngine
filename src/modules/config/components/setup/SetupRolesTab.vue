@@ -460,30 +460,48 @@ onMounted(() => {
     <Dialog
       v-model:visible="dialogVisible"
       modal
+      maximizable
       :header="
         editingId
           ? t('setup.roles.edit', 'Edit role')
           : t('setup.roles.new', 'New role')
       "
-      :style="{ width: 'min(96rem, 98vw)' }"
+      class="setup-roles-dialog"
+      :style="{ width: 'min(96rem, 98vw)', height: 'min(90vh, 56rem)' }"
+      :content-style="{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: '1 1 auto',
+        minHeight: 0,
+        overflow: 'hidden',
+      }"
       :dismissable-mask="true"
     >
-      <div class="flex flex-col gap-3">
-        <div class="flex flex-col gap-1">
-          <label>{{ t('setup.roles.columnName', 'Name') }}</label>
+      <div class="setup-roles-dialog__body flex flex-col gap-3">
+        <div class="setup-roles-dialog__identity">
+          <label
+            for="role-name"
+            class="setup-roles-dialog__label"
+          >
+            {{ t('setup.roles.columnName', 'Name') }}
+          </label>
           <InputText
+            id="role-name"
             v-model="form.name"
-            class="w-full"
+            class="setup-roles-dialog__name-input"
+            size="30"
             autocomplete="off"
+            maxlength="80"
           />
-        </div>
-        <div class="flex items-center gap-2">
           <Checkbox
             v-model="form.isAdmin"
             binary
             input-id="role-is-admin"
           />
-          <label for="role-is-admin">
+          <label
+            for="role-is-admin"
+            class="setup-roles-dialog__label"
+          >
             {{ t('setup.roles.isAdmin', 'Administrator') }}
           </label>
         </div>
@@ -502,7 +520,8 @@ onMounted(() => {
         </Message>
 
         <template v-else>
-          <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="setup-roles-dialog__permissions flex flex-col gap-2 min-h-0 flex-1">
+          <div class="flex flex-wrap items-center justify-between gap-2 shrink-0">
             <label class="font-semibold">
               {{ t('setup.roles.permissions', 'Permissions') }}
             </label>
@@ -540,10 +559,11 @@ onMounted(() => {
 
           <DataTable
             :value="filteredMatrix"
+            class="setup-roles-dialog__matrix"
             striped-rows
             size="small"
             scrollable
-            scroll-height="22rem"
+            scroll-height="flex"
             :empty-message="t('setup.roles.noEntities', 'No objects found.')"
           >
             <Column
@@ -806,6 +826,7 @@ onMounted(() => {
               </template>
             </Column>
           </DataTable>
+          </div>
         </template>
       </div>
 
@@ -828,6 +849,41 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.setup-roles-dialog__identity {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem 0.75rem;
+  max-width: 100%;
+}
+
+.setup-roles-dialog__label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.setup-roles-dialog__name-input,
+.setup-roles-dialog__name-input.p-inputtext {
+  width: 30ch;
+  max-width: min(30ch, 100%);
+  flex: 0 0 auto;
+}
+
+.setup-roles-dialog__body {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.setup-roles-dialog__permissions {
+  flex: 1 1 auto;
+}
+
+.setup-roles-dialog__matrix {
+  flex: 1 1 auto;
+  min-height: 18rem;
+}
+
 .setup-roles-col-toggle {
   display: inline-flex;
   flex-direction: column;
@@ -849,5 +905,34 @@ onMounted(() => {
 
 .setup-roles-col-toggle :deep(.p-checkbox) {
   pointer-events: none;
+}
+</style>
+
+<style>
+/* Maximize: fill viewport and let the permissions grid grow. */
+.setup-roles-dialog.p-dialog-maximized {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+}
+
+.setup-roles-dialog.p-dialog-maximized .p-dialog-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.setup-roles-dialog.p-dialog-maximized .setup-roles-dialog__body,
+.setup-roles-dialog.p-dialog-maximized .setup-roles-dialog__permissions {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.setup-roles-dialog.p-dialog-maximized .setup-roles-dialog__matrix {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 </style>

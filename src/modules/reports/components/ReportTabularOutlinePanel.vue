@@ -15,6 +15,9 @@ import {
   isReportSummaryAggregate,
   listReportFieldTreeNodes,
   normalizePivotSort,
+  normalizeSortRowsByTotal,
+  reportColumnWidthKey,
+  type ReportDateGrain,
   type ReportDefinition,
   type ReportFieldOption,
   type ReportFieldTreeNode,
@@ -23,6 +26,12 @@ import {
   type ReportTabularColumn,
   type ReportTabularGroup,
 } from '../services/reportSettings'
+import {
+  defaultDateGrainForField,
+  isReportDateFieldType,
+  normalizePivotDateGrain,
+} from '../services/reportDateGrain'
+import { REPORT_DEFAULT_COL_WIDTH } from '../services/reportVTableAdapter'
 
 const report = defineModel<ReportDefinition>({ required: true })
 
@@ -36,17 +45,27 @@ const addGroupRowField = ref<string | null>(null)
 const addGroupColumnField = ref<string | null>(null)
 const addColumnFieldValue = ref<string | null>(null)
 
-const sortOptions: Array<{ label: string; value: ReportSortDirection }> = [
-  { label: t('reports.sortAscShort', 'Asc'), value: 'asc' },
-  { label: t('reports.sortDescShort', 'Desc'), value: 'desc' },
-]
-
 const summaryOptions: Array<{ label: string; value: ReportSummaryAggregate }> = [
+  { label: t('reports.count', 'Count'), value: 'count' },
   { label: t('reports.sum', 'Sum'), value: 'sum' },
   { label: t('reports.average', 'Average'), value: 'avg' },
   { label: t('reports.max', 'Max'), value: 'max' },
   { label: t('reports.min', 'Min'), value: 'min' },
   { label: t('reports.median', 'Median'), value: 'median' },
+]
+
+const totalSortOptions: Array<{ label: string; value: ReportSortDirection | 'off' }> = [
+  { label: t('reports.sortTotalOff', 'Off'), value: 'off' },
+  { label: t('reports.sortAscShort', 'Asc'), value: 'asc' },
+  { label: t('reports.sortDescShort', 'Desc'), value: 'desc' },
+]
+
+const dateGrainOptions: Array<{ label: string; value: ReportDateGrain }> = [
+  { label: t('reports.dateGrainDay', 'Day'), value: 'day' },
+  { label: t('reports.dateGrainWeek', 'Week'), value: 'week' },
+  { label: t('reports.dateGrainMonth', 'Month'), value: 'month' },
+  { label: t('reports.dateGrainQuarter', 'Quarter'), value: 'quarter' },
+  { label: t('reports.dateGrainYear', 'Year'), value: 'year' },
 ]
 
 const dropGroup = {
@@ -122,7 +141,14 @@ function fieldOption(field: string): ReportFieldOption | undefined {
 }
 
 function fieldLabel(field: string): string {
-  return fieldOption(field)?.label ?? field
+  const option = fieldOption(field)
+  if (option?.nestedField) {
+    const leaf = field.split('.').filter(Boolean).pop() || field
+    return leaf.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+  if (option?.label && !option.label.includes('>')) return option.label
+  const leaf = field.split('.').filter(Boolean).pop() || field
+  return leaf.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function isNumericField(field: string): boolean {
@@ -141,11 +167,57 @@ function extractFieldName(item: unknown): string {
 function toGroup(item: unknown): ReportTabularGroup | null {
   const field = extractFieldName(item)
   if (!field) return null
-  const sortRaw = (item as ReportTabularGroup).sort
+  const existing = item as ReportTabularGroup
+  const sortRaw = existing.sort
+  const dateGrain =
+    normalizePivotDateGrain(existing.dateGrain) ?? dateGrainForField(field)
   return {
     field,
     sort: sortRaw === 'desc' ? 'desc' : 'asc',
+    dateGrain,
   }
+}
+
+function isDateGroupField(field: string): boolean {
+  const option = fieldOption(field)
+  return isReportDateFieldType(option?.type, option?.component)
+}
+
+function showsDateGrain(group: ReportTabularGroup): boolean {
+  return isDateGroupField(group.field) || Boolean(normalizePivotDateGrain(group.dateGrain))
+}
+
+function dateGrainForField(field: string): ReportDateGrain | null {
+  const option = fieldOption(field)
+  return defaultDateGrainForField(option?.type, option?.component)
+}
+
+function groupDateGrain(group: ReportTabularGroup): ReportDateGrain {
+  return normalizePivotDateGrain(group.dateGrain) ?? 'month'
+}
+
+function updateGroupDateGrain(
+  kind: 'groupRows' | 'groupColumns',
+  index: number,
+  grain: unknown,
+): void {
+  const next = [...report.value.tabular[kind]]
+  const current = next[index]
+  if (!current) return
+  next[index] = {
+    ...current,
+    dateGrain: normalizePivotDateGrain(grain),
+  }
+  updateTabular({ [kind]: next })
+}
+
+function updateSortRowsByTotal(value: unknown): void {
+  updateTabular({
+    sortRowsByTotal:
+      value === 'off' || value === null || value === undefined
+        ? null
+        : normalizeSortRowsByTotal(value),
+  })
 }
 
 function toColumn(item: unknown): ReportTabularColumn | null {
@@ -256,6 +328,19 @@ function pickAvailableField(preferred?: string): string {
   return fields.value.find((item) => !used.has(item.field))?.field ?? ''
 }
 
+function seedDefaultColumnWidth(displayField: string): void {
+  const key = reportColumnWidthKey('field', displayField)
+  const existing = report.value.columnWidths ?? {}
+  if (typeof existing[key] === 'number' && existing[key]! >= 40) return
+  report.value = {
+    ...report.value,
+    columnWidths: {
+      ...existing,
+      [key]: REPORT_DEFAULT_COL_WIDTH,
+    },
+  }
+}
+
 function addGroupRow(field?: string | null): void {
   const nextField = pickAvailableField(field || undefined)
   if (!nextField) return
@@ -266,6 +351,7 @@ function addGroupRow(field?: string | null): void {
       { field: nextField, sort: 'asc' },
     ],
   })
+  seedDefaultColumnWidth(`group:${nextField}`)
   addGroupRowField.value = null
 }
 
@@ -279,6 +365,7 @@ function addGroupColumn(field?: string | null): void {
       { field: nextField, sort: 'asc' },
     ],
   })
+  seedDefaultColumnWidth(nextField)
   addGroupColumnField.value = null
 }
 
@@ -292,6 +379,7 @@ function addColumnField(field?: string | null): void {
       { field: nextField, sort: null, summaries: [] },
     ],
   })
+  seedDefaultColumnWidth(nextField)
   addColumnFieldValue.value = null
 }
 
@@ -328,6 +416,34 @@ function updateGroupSort(
   })
 }
 
+function groupSortDirection(group: ReportTabularGroup): ReportSortDirection {
+  return normalizePivotSort(group.sort)
+}
+
+function groupSortIcon(group: ReportTabularGroup): string {
+  return groupSortDirection(group) === 'desc'
+    ? 'pi pi-sort-amount-down'
+    : 'pi pi-sort-amount-up'
+}
+
+function groupSortLabel(group: ReportTabularGroup): string {
+  return groupSortDirection(group) === 'desc'
+    ? t('reports.sortDescShort', 'Desc')
+    : t('reports.sortAscShort', 'Asc')
+}
+
+function toggleGroupSort(
+  kind: 'groupRows' | 'groupColumns',
+  index: number,
+  group: ReportTabularGroup,
+): void {
+  updateGroupSort(
+    kind,
+    index,
+    groupSortDirection(group) === 'desc' ? 'asc' : 'desc',
+  )
+}
+
 function removeGroup(kind: 'groupRows' | 'groupColumns', index: number): void {
   updateTabular({
     [kind]: report.value.tabular[kind].filter((_, itemIndex) => itemIndex !== index),
@@ -347,6 +463,28 @@ function replaceColumnField(index: number, value: string | string[]): void {
             summaries: isNumericField(field) ? item.summaries : [],
           }
         : item,
+    ),
+  })
+}
+
+function columnSortIcon(column: ReportTabularColumn): string {
+  if (column.sort === 'desc') return 'pi pi-sort-amount-down'
+  if (column.sort === 'asc') return 'pi pi-sort-amount-up'
+  return 'pi pi-sort-alt'
+}
+
+function columnSortLabel(column: ReportTabularColumn): string {
+  if (column.sort === 'desc') return t('reports.sortDescShort', 'Desc')
+  if (column.sort === 'asc') return t('reports.sortAscShort', 'Asc')
+  return t('reports.sortOff', 'Sort off')
+}
+
+function toggleColumnSort(index: number, column: ReportTabularColumn): void {
+  const next: ReportSortDirection | null =
+    column.sort === 'asc' ? 'desc' : column.sort === 'desc' ? null : 'asc'
+  updateTabular({
+    columns: report.value.tabular.columns.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, sort: next } : item,
     ),
   })
 }
@@ -454,37 +592,77 @@ function summaryBadge(column: ReportTabularColumn): string {
               <div
                 v-for="(group, index) in report.tabular.groupRows"
                 :key="`row_${group.field}_${index}`"
-                class="grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_5.5rem_auto]"
+                class="grid gap-1 text-[0.8rem]"
               >
-                <button
-                  type="button"
-                  class="rsd-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-base p-1"
-                  :aria-label="t('reports.reorderField', 'Drag to reorder')"
+                <div
+                  class="grid items-center gap-1.5"
+                  :class="showsDateGrain(group)
+                    ? 'grid-cols-[auto_minmax(0,1fr)_auto]'
+                    : 'grid-cols-[auto_minmax(0,1fr)_auto_auto]'"
                 >
-                  ⠿
-                </button>
-                <ReportFieldSelector
-                  :model-value="group.field"
-                  :collection="report.collection"
-                  :placeholder="t('reports.addGroup', 'Add group...')"
-                  @update:model-value="replaceGroupField('groupRows', index, $event)"
-                  @fields-loaded="mergeLoadedFields"
-                />
-                <Select
-                  :model-value="group.sort ?? 'asc'"
-                  :options="sortOptions"
-                  option-label="label"
-                  option-value="value"
-                  class="w-full"
-                  @update:model-value="updateGroupSort('groupRows', index, $event)"
-                />
-                <Button
-                  icon="pi pi-times"
-                  text
-                  severity="danger"
-                  :aria-label="t('common.remove', 'Remove')"
-                  @click="removeGroup('groupRows', index)"
-                />
+                  <button
+                    type="button"
+                    class="rsd-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-sm p-0.5"
+                    :aria-label="t('reports.reorderField', 'Drag to reorder')"
+                  >
+                    ⠿
+                  </button>
+                  <div class="min-w-0">
+                    <ReportFieldSelector
+                      :model-value="group.field"
+                      :collection="report.collection"
+                      size="small"
+                      :placeholder="t('reports.addGroup', 'Add group...')"
+                      @update:model-value="replaceGroupField('groupRows', index, $event)"
+                      @fields-loaded="mergeLoadedFields"
+                    />
+                  </div>
+                  <Button
+                    v-if="!showsDateGrain(group)"
+                    :icon="groupSortIcon(group)"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :aria-label="groupSortLabel(group)"
+                    :title="groupSortLabel(group)"
+                    @click="toggleGroupSort('groupRows', index, group)"
+                  />
+                  <Button
+                    icon="pi pi-times"
+                    text
+                    rounded
+                    size="small"
+                    severity="danger"
+                    :aria-label="t('common.remove', 'Remove')"
+                    @click="removeGroup('groupRows', index)"
+                  />
+                </div>
+                <div
+                  v-if="showsDateGrain(group)"
+                  class="grid items-center gap-1.5 pl-6 grid-cols-[minmax(7rem,1fr)_auto]"
+                >
+                  <Select
+                    :model-value="groupDateGrain(group)"
+                    :options="dateGrainOptions"
+                    option-label="label"
+                    option-value="value"
+                    size="small"
+                    class="w-full min-w-[7rem]"
+                    :aria-label="t('reports.dateFunction', 'Date function')"
+                    @update:model-value="updateGroupDateGrain('groupRows', index, $event)"
+                  />
+                  <Button
+                    :icon="groupSortIcon(group)"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :aria-label="groupSortLabel(group)"
+                    :title="groupSortLabel(group)"
+                    @click="toggleGroupSort('groupRows', index, group)"
+                  />
+                </div>
               </div>
             </VueDraggableNext>
           </div>
@@ -493,6 +671,7 @@ function summaryBadge(column: ReportTabularColumn): string {
             :options="availableFieldOptions"
             option-label="label"
             option-value="value"
+            size="small"
             filter
             show-clear
             fluid
@@ -538,37 +717,77 @@ function summaryBadge(column: ReportTabularColumn): string {
               <div
                 v-for="(group, index) in report.tabular.groupColumns"
                 :key="`col_${group.field}_${index}`"
-                class="grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_5.5rem_auto]"
+                class="grid gap-1 text-[0.8rem]"
               >
-                <button
-                  type="button"
-                  class="rsd-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-base p-1"
-                  :aria-label="t('reports.reorderField', 'Drag to reorder')"
+                <div
+                  class="grid items-center gap-1.5"
+                  :class="showsDateGrain(group)
+                    ? 'grid-cols-[auto_minmax(0,1fr)_auto]'
+                    : 'grid-cols-[auto_minmax(0,1fr)_auto_auto]'"
                 >
-                  ⠿
-                </button>
-                <ReportFieldSelector
-                  :model-value="group.field"
-                  :collection="report.collection"
-                  :placeholder="t('reports.addGroup', 'Add group...')"
-                  @update:model-value="replaceGroupField('groupColumns', index, $event)"
-                  @fields-loaded="mergeLoadedFields"
-                />
-                <Select
-                  :model-value="group.sort ?? 'asc'"
-                  :options="sortOptions"
-                  option-label="label"
-                  option-value="value"
-                  class="w-full"
-                  @update:model-value="updateGroupSort('groupColumns', index, $event)"
-                />
-                <Button
-                  icon="pi pi-times"
-                  text
-                  severity="danger"
-                  :aria-label="t('common.remove', 'Remove')"
-                  @click="removeGroup('groupColumns', index)"
-                />
+                  <button
+                    type="button"
+                    class="rsd-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-sm p-0.5"
+                    :aria-label="t('reports.reorderField', 'Drag to reorder')"
+                  >
+                    ⠿
+                  </button>
+                  <div class="min-w-0">
+                    <ReportFieldSelector
+                      :model-value="group.field"
+                      :collection="report.collection"
+                      size="small"
+                      :placeholder="t('reports.addGroup', 'Add group...')"
+                      @update:model-value="replaceGroupField('groupColumns', index, $event)"
+                      @fields-loaded="mergeLoadedFields"
+                    />
+                  </div>
+                  <Button
+                    v-if="!showsDateGrain(group)"
+                    :icon="groupSortIcon(group)"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :aria-label="groupSortLabel(group)"
+                    :title="groupSortLabel(group)"
+                    @click="toggleGroupSort('groupColumns', index, group)"
+                  />
+                  <Button
+                    icon="pi pi-times"
+                    text
+                    rounded
+                    size="small"
+                    severity="danger"
+                    :aria-label="t('common.remove', 'Remove')"
+                    @click="removeGroup('groupColumns', index)"
+                  />
+                </div>
+                <div
+                  v-if="showsDateGrain(group)"
+                  class="grid items-center gap-1.5 pl-6 grid-cols-[minmax(7rem,1fr)_auto]"
+                >
+                  <Select
+                    :model-value="groupDateGrain(group)"
+                    :options="dateGrainOptions"
+                    option-label="label"
+                    option-value="value"
+                    size="small"
+                    class="w-full min-w-[7rem]"
+                    :aria-label="t('reports.dateFunction', 'Date function')"
+                    @update:model-value="updateGroupDateGrain('groupColumns', index, $event)"
+                  />
+                  <Button
+                    :icon="groupSortIcon(group)"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :aria-label="groupSortLabel(group)"
+                    :title="groupSortLabel(group)"
+                    @click="toggleGroupSort('groupColumns', index, group)"
+                  />
+                </div>
               </div>
             </VueDraggableNext>
           </div>
@@ -577,6 +796,7 @@ function summaryBadge(column: ReportTabularColumn): string {
             :options="availableFieldOptions"
             option-label="label"
             option-value="value"
+            size="small"
             filter
             show-clear
             fluid
@@ -609,43 +829,62 @@ function summaryBadge(column: ReportTabularColumn): string {
             <div
               v-for="(column, index) in report.tabular.columns"
               :key="`${column.field}_${index}`"
-              class="grid gap-1"
+              class="grid gap-0.5 text-[0.8rem]"
             >
-              <div class="grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+              <div class="grid items-center gap-1.5 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]">
                 <button
                   type="button"
-                  class="rsd-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-base p-1"
+                  class="rsd-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-sm p-0.5"
                   :aria-label="t('reports.reorderField', 'Drag to reorder')"
                 >
                   ⠿
                 </button>
-                <div class="min-w-0 flex items-center gap-2">
+                <div class="min-w-0 flex items-center gap-1.5 w-full">
                   <i
                     v-if="isNumericField(column.field)"
-                    class="pi pi-hashtag text-[0.7rem] text-muted-color shrink-0"
+                    class="pi pi-hashtag text-[0.65rem] text-muted-color shrink-0"
                   />
-                  <ReportFieldSelector
-                    :model-value="column.field"
-                    :collection="report.collection"
-                    :placeholder="t('reports.addColumn', 'Add column...')"
-                    @update:model-value="replaceColumnField(index, $event)"
-                    @fields-loaded="mergeLoadedFields"
-                  />
+                  <div class="min-w-0 flex-1">
+                    <ReportFieldSelector
+                      :model-value="column.field"
+                      :collection="report.collection"
+                      size="small"
+                      :placeholder="t('reports.addColumn', 'Add column...')"
+                      @update:model-value="replaceColumnField(index, $event)"
+                      @fields-loaded="mergeLoadedFields"
+                    />
+                  </div>
                 </div>
                 <Button
-                  v-if="isNumericField(column.field)"
+                  :icon="columnSortIcon(column)"
+                  text
+                  rounded
+                  size="small"
+                  :severity="column.sort ? 'info' : 'secondary'"
+                  :aria-label="columnSortLabel(column)"
+                  :title="columnSortLabel(column)"
+                  @click="toggleColumnSort(index, column)"
+                />
+                <Button
                   icon="pi pi-calculator"
                   text
                   rounded
                   size="small"
+                  :class="isNumericField(column.field)
+                    ? ''
+                    : 'invisible pointer-events-none'"
                   :severity="summaryBadge(column) ? 'info' : 'secondary'"
                   :aria-label="t('reports.summarize', 'Summarize')"
                   :title="t('reports.summarize', 'Summarize')"
+                  :tabindex="isNumericField(column.field) ? undefined : -1"
+                  :aria-hidden="!isNumericField(column.field)"
                   @click="openSummarize(index)"
                 />
                 <Button
                   icon="pi pi-times"
                   text
+                  rounded
+                  size="small"
                   severity="danger"
                   :aria-label="t('common.remove', 'Remove')"
                   :title="fieldLabel(column.field)"
@@ -654,7 +893,7 @@ function summaryBadge(column: ReportTabularColumn): string {
               </div>
               <small
                 v-if="summaryBadge(column)"
-                class="text-muted-color pl-8"
+                class="text-muted-color text-[0.75rem] pl-7"
               >
                 {{ t('reports.summarize', 'Summarize') }}: {{ summaryBadge(column) }}
               </small>
@@ -666,6 +905,7 @@ function summaryBadge(column: ReportTabularColumn): string {
           :options="availableFieldOptions"
           option-label="label"
           option-value="value"
+          size="small"
           filter
           show-clear
           fluid
@@ -675,6 +915,21 @@ function summaryBadge(column: ReportTabularColumn): string {
       </section>
 
       <section class="grid gap-2 border-t border-surface-200 pt-3">
+        <div class="grid gap-1">
+          <label class="text-[0.85rem] m-0">
+            {{ t('reports.sortRowsByTotal', 'Sort rows by total') }}
+          </label>
+          <Select
+            :model-value="report.tabular.sortRowsByTotal ?? 'off'"
+            :options="totalSortOptions"
+            option-label="label"
+            option-value="value"
+            size="small"
+            class="w-full"
+            :aria-label="t('reports.sortRowsByTotal', 'Sort rows by total')"
+            @update:model-value="updateSortRowsByTotal($event)"
+          />
+        </div>
         <div class="flex items-center justify-between gap-2">
           <label class="text-[0.85rem] m-0">{{ t('reports.detailRows', 'Detail Rows') }}</label>
           <ToggleSwitch

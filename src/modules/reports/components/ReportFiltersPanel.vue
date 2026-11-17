@@ -6,6 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { VueDraggableNext } from 'vue-draggable-next'
 import CrmAutoComplete from '@/core/ui-kit/CrmAutoComplete.vue'
 import { toDate } from '@/core/dateFormatting'
 import {
@@ -19,6 +20,7 @@ import {
   fetchRelatedCollectionOptionById,
 } from '@/modules/entities/services/collectionSchema'
 import ReportFieldSelector from './ReportFieldSelector.vue'
+import { REPORT_FIELD_DND_GROUP } from '../services/reportFieldDnD'
 import {
   listReportFieldTreeNodes,
   resolveReportFieldLeafContext,
@@ -37,6 +39,13 @@ const error = ref<string | null>(null)
 const runtimeFieldProps = reactive<Record<string, Record<string, unknown>>>({})
 const autoCompleteSelections = reactive<Record<string, SelectOption | null>>({})
 const autoCompleteTemplates = reactive<Record<string, string | undefined>>({})
+/** Mix of conditions + palette field clones while dragging. */
+const dndConditions = ref<Array<ReportFilterCondition | ReportFieldOption>>([])
+const dropGroup = {
+  name: REPORT_FIELD_DND_GROUP,
+  pull: true,
+  put: true,
+}
 
 interface SelectOption {
   label: string
@@ -76,8 +85,10 @@ watch(
 watch(
   () => report.value.conditions.map((item) => `${item.id}:${item.field}:${item.operator}`).join('|'),
   () => {
+    dndConditions.value = [...report.value.conditions]
     void syncConditionEditors(report.value.conditions)
   },
+  { immediate: true },
 )
 
 onMounted(() => {
@@ -124,20 +135,64 @@ function updateReport(patch: Partial<ReportDefinition>): void {
   report.value = { ...report.value, ...patch }
 }
 
+function createConditionId(): string {
+  return `rpt_condition_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
+}
+
+function isFilterCondition(item: unknown): item is ReportFilterCondition {
+  return Boolean(
+    item &&
+      typeof item === 'object' &&
+      'id' in item &&
+      'operator' in item &&
+      'field' in item,
+  )
+}
+
+function extractDroppedField(item: unknown): ReportFieldOption | null {
+  if (!item || typeof item !== 'object') return null
+  if (isFilterCondition(item)) return null
+  const field = String((item as ReportFieldOption).field ?? '').trim()
+  if (!field) return null
+  const known = fields.value.find((entry) => entry.field === field)
+  if (known) return known
+  return item as ReportFieldOption
+}
+
+function createConditionFromField(field: ReportFieldOption): ReportFilterCondition {
+  return {
+    id: createConditionId(),
+    field: field.field,
+    operator: '_eq',
+    value: defaultValueForField(field),
+    visibleInRuntime: false,
+  }
+}
+
 function addCondition(): void {
   const field = fields.value[0]
   if (!field) return
   updateReport({
-    conditions: [
-      ...report.value.conditions,
-      {
-        id: `rpt_condition_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
-        field: field.field,
-        operator: '_eq',
-        value: defaultValueForField(field),
-      },
-    ],
+    conditions: [...report.value.conditions, createConditionFromField(field)],
   })
+}
+
+function syncDroppedConditions(): void {
+  const next: ReportFilterCondition[] = []
+  const loaded: ReportFieldOption[] = []
+  for (const item of dndConditions.value) {
+    if (isFilterCondition(item)) {
+      next.push(item)
+      continue
+    }
+    const field = extractDroppedField(item)
+    if (!field) continue
+    loaded.push(field)
+    next.push(createConditionFromField(field))
+  }
+  if (loaded.length > 0) mergeLoadedFields(loaded)
+  updateReport({ conditions: next })
+  dndConditions.value = [...next]
 }
 
 function updateCondition(
@@ -383,107 +438,164 @@ async function syncAutoCompleteSelection(
     </div>
 
     <template v-else>
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
+      <label class="text-surface-700 grid text-[0.8rem] font-semibold gap-[0.35rem]">
         {{ t('filter.logic', 'Logic') }}
         <Select
           :model-value="report.filterLogic"
           :options="logicOptions"
           option-label="label"
           option-value="value"
+          size="small"
           fluid
           @update:model-value="updateReport({ filterLogic: $event === 'or' ? 'or' : 'and' })"
         />
       </label>
 
-      <p
-        v-if="report.conditions.length === 0"
-        class="text-muted-color text-[0.85rem] m-0"
-      >
-        {{ t('reports.noFilters', 'No filter conditions.') }}
-      </p>
-
-      <div class="grid gap-[0.6rem]">
-        <div
-          v-for="condition in report.conditions"
-          :key="condition.id"
-          class="grid gap-2 border border-surface-100 rounded-md p-2"
+      <div class="relative min-h-[4.5rem] rounded-md border border-dashed border-surface-300 p-2 bg-surface-0">
+        <p
+          v-if="report.conditions.length === 0"
+          class="absolute inset-0 flex items-center justify-center px-3 text-muted-color text-[0.8rem] m-0 pointer-events-none text-center"
         >
-          <div class="grid gap-2 grid-cols-[minmax(0,1fr)_8.5rem_auto] items-center">
-            <ReportFieldSelector
-              :model-value="condition.field"
-              :collection="report.collection"
-              :placeholder="t('reports.selectField', 'Select field')"
-              @update:model-value="updateConditionField(condition, $event)"
-              @fields-loaded="mergeLoadedFields"
-            />
-            <Select
-              :model-value="condition.operator"
-              :options="conditionOptionsFor(condition)"
-              option-label="label"
-              option-value="value"
-              class="w-full"
-              @update:model-value="updateConditionOperator(condition, String($event))"
-            />
-            <Button
-              icon="pi pi-trash"
-              text
-              severity="danger"
-              :aria-label="t('common.remove', 'Remove')"
-              @click="removeCondition(condition)"
-            />
-          </div>
+          {{ t('reports.dropFilterHint', 'Drop fields here to add filters.') }}
+        </p>
 
-          <InputText
-            v-if="isNoValueOperator(condition)"
-            model-value=""
-            disabled
-            class="w-full"
-            :placeholder="t('reports.value', 'Value')"
-          />
-          <DatePicker
-            v-else-if="isBetweenOperator(condition)"
-            :model-value="conditionBetweenValue(condition)"
-            selection-mode="range"
-            manual-input
-            class="w-full"
-            v-bind="datePickerPropsFor(condition)"
-            :placeholder="t('reports.dateToDatePlaceholder', 'Select date range')"
-            @update:model-value="updateConditionDate(condition, $event as Date[] | null)"
-          />
-          <CrmAutoComplete
-            v-else-if="isM2OCondition(condition)"
-            :model-value="autoCompleteSelections[condition.id] ?? null"
-            :collection="conditionField(condition)?.relatedCollection"
-            :template="autoCompleteTemplates[condition.field]"
-            :allow-create="false"
-            :placeholder="t('reports.selectRelatedRecord', 'Select related record')"
-            @update:model-value="updateConditionAutoComplete(condition, $event)"
-          />
-          <Select
-            v-else-if="isSelectCondition(condition)"
-            :model-value="condition.value"
-            class="w-full"
-            v-bind="selectPropsFor(condition)"
-            :placeholder="t('reports.value', 'Value')"
-            @update:model-value="updateCondition(condition, { value: $event })"
-          />
-          <DatePicker
-            v-else-if="isDateCondition(condition)"
-            :model-value="conditionDateValue(condition)"
-            manual-input
-            class="w-full"
-            v-bind="datePickerPropsFor(condition)"
-            :placeholder="t('reports.value', 'Value')"
-            @update:model-value="updateConditionDate(condition, $event as Date | null)"
-          />
-          <InputText
-            v-else
-            :model-value="condition.value === null || condition.value === undefined ? '' : String(condition.value)"
-            class="w-full"
-            :placeholder="t('reports.value', 'Value')"
-            @update:model-value="updateCondition(condition, { value: String($event) })"
-          />
-        </div>
+        <VueDraggableNext
+          :list="dndConditions"
+          :group="dropGroup"
+          tag="div"
+          class="grid gap-[0.6rem] min-h-[3.5rem]"
+          handle=".rsd-filter-drag-handle"
+          ghost-class="opacity-[0.45]"
+          chosen-class="bg-surface-50"
+          @add="syncDroppedConditions"
+          @update="syncDroppedConditions"
+        >
+          <div
+            v-for="(item, index) in dndConditions"
+            :key="isFilterCondition(item) ? item.id : `drop_${index}_${item.field}`"
+            class="grid gap-1.5 border border-surface-100 rounded-md p-2 bg-surface-0 text-[0.8rem]"
+          >
+            <template v-if="isFilterCondition(item)">
+              <div class="grid gap-1.5 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto] items-center">
+                <button
+                  type="button"
+                  class="rsd-filter-drag-handle inline-flex items-center justify-center bg-transparent border-0 text-muted-color cursor-grab text-sm p-0.5"
+                  :aria-label="t('reports.reorderField', 'Drag to reorder')"
+                >
+                  ⠿
+                </button>
+                <ReportFieldSelector
+                  :model-value="item.field"
+                  :collection="report.collection"
+                  size="small"
+                  :placeholder="t('reports.selectField', 'Select field')"
+                  @update:model-value="updateConditionField(item, $event)"
+                  @fields-loaded="mergeLoadedFields"
+                />
+                <Select
+                  :model-value="item.operator"
+                  :options="conditionOptionsFor(item)"
+                  option-label="label"
+                  option-value="value"
+                  size="small"
+                  class="w-full"
+                  @update:model-value="updateConditionOperator(item, String($event))"
+                />
+                <Button
+                  icon="pi pi-trash"
+                  text
+                  rounded
+                  size="small"
+                  severity="danger"
+                  :aria-label="t('common.remove', 'Remove')"
+                  @click="removeCondition(item)"
+                />
+              </div>
+
+              <InputText
+                v-if="isNoValueOperator(item)"
+                model-value=""
+                disabled
+                size="small"
+                class="w-full"
+                :placeholder="t('reports.value', 'Value')"
+              />
+              <DatePicker
+                v-else-if="isBetweenOperator(item)"
+                :model-value="conditionBetweenValue(item)"
+                selection-mode="range"
+                manual-input
+                size="small"
+                class="w-full"
+                v-bind="datePickerPropsFor(item)"
+                :placeholder="t('reports.dateToDatePlaceholder', 'Select date range')"
+                @update:model-value="updateConditionDate(item, $event as Date[] | null)"
+              />
+              <CrmAutoComplete
+                v-else-if="isM2OCondition(item)"
+                :model-value="autoCompleteSelections[item.id] ?? null"
+                :collection="conditionField(item)?.relatedCollection"
+                :template="autoCompleteTemplates[item.field]"
+                :allow-create="false"
+                :placeholder="t('reports.selectRelatedRecord', 'Select related record')"
+                @update:model-value="updateConditionAutoComplete(item, $event)"
+              />
+              <Select
+                v-else-if="isSelectCondition(item)"
+                :model-value="item.value"
+                size="small"
+                class="w-full"
+                v-bind="selectPropsFor(item)"
+                :placeholder="t('reports.value', 'Value')"
+                @update:model-value="updateCondition(item, { value: $event })"
+              />
+              <DatePicker
+                v-else-if="isDateCondition(item)"
+                :model-value="conditionDateValue(item)"
+                manual-input
+                size="small"
+                class="w-full"
+                v-bind="datePickerPropsFor(item)"
+                :placeholder="t('reports.value', 'Value')"
+                @update:model-value="updateConditionDate(item, $event as Date | null)"
+              />
+              <InputText
+                v-else
+                :model-value="item.value === null || item.value === undefined ? '' : String(item.value)"
+                size="small"
+                class="w-full"
+                :placeholder="t('reports.value', 'Value')"
+                @update:model-value="updateCondition(item, { value: String($event) })"
+              />
+
+              <label class="inline-flex items-center gap-2 text-[0.8rem] text-surface-700">
+                <Checkbox
+                  :model-value="Boolean(item.visibleInRuntime)"
+                  binary
+                  :input-id="`rpt-filter-runtime-${item.id}`"
+                  @update:model-value="updateCondition(item, { visibleInRuntime: Boolean($event) })"
+                />
+                <span>{{ t('reports.visibleInRuntime', 'Visible in runtime') }}</span>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-surface-300 text-[0.65rem] text-muted-color bg-transparent cursor-help"
+                  v-tooltip.bottom="
+                    t(
+                      'reports.visibleInRuntimeHint',
+                      'When enabled, end users can change this filter value when running the report without editing Setup.',
+                    )
+                  "
+                  :aria-label="t('common.moreInfo', 'More information')"
+                >
+                  i
+                </button>
+              </label>
+            </template>
+            <p v-else class="text-muted-color text-[0.8rem] m-0 px-1">
+              {{ item.label || item.field }}
+            </p>
+          </div>
+        </VueDraggableNext>
       </div>
     </template>
   </section>

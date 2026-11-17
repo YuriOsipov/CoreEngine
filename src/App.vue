@@ -108,7 +108,10 @@ onErrorCaptured((error) => {
           {{ runtimeError }}
         </Message>
 
-        <div class="app-root__content flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div
+          class="app-root__content flex min-h-0 flex-1 flex-col"
+          :class="route.name === 'reports' ? 'overflow-hidden' : 'overflow-y-auto'"
+        >
           <RouterView v-slot="{ Component }">
             <component
               :is="Component"

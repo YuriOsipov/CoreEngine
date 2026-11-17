@@ -48,13 +48,45 @@ function moveItem(item: NavItem, delta: -1 | 1): void {
 function addLink(folder: NavFolder): void {
   const link = createNavLink()
   folder.children.push(link)
-  emit('edit', link)
+  // Defer so Sortable finishes its pointer cycle before the dialog opens.
+  queueMicrotask(() => emit('edit', link))
 }
 
 function addFolder(folder: NavFolder): void {
   const child = createNavFolder()
   folder.children.push(child)
-  emit('edit', child)
+  queueMicrotask(() => emit('edit', child))
+}
+
+/** Prefer pointerdown — Sortable forceFallback can swallow click. */
+function onEdit(event: Event, item: NavItem): void {
+  event.preventDefault()
+  event.stopPropagation()
+  emit('edit', item)
+}
+
+function onMove(event: Event, item: NavItem, delta: -1 | 1): void {
+  event.preventDefault()
+  event.stopPropagation()
+  moveItem(item, delta)
+}
+
+function onRemove(event: Event, item: NavItem): void {
+  event.preventDefault()
+  event.stopPropagation()
+  removeItem(item)
+}
+
+function onAddLink(event: Event, folder: NavFolder): void {
+  event.preventDefault()
+  event.stopPropagation()
+  addLink(folder)
+}
+
+function onAddFolder(event: Event, folder: NavFolder): void {
+  event.preventDefault()
+  event.stopPropagation()
+  addFolder(folder)
 }
 </script>
 
@@ -81,44 +113,55 @@ function addFolder(folder: NavFolder): void {
           :aria-label="t('navigation.dragToReorder', 'Drag to reorder')"
         />
         <i :class="element.type === 'folder' ? 'pi pi-folder' : 'pi pi-link'" />
-        <span class="nav-node__label">
+        <button
+          type="button"
+          class="nav-node__label"
+          :title="t('common.edit', 'Edit')"
+          @pointerdown.stop.prevent="onEdit($event, element)"
+        >
           {{ element.label || t('navigation.untitledItem', 'Untitled') }}
-        </span>
-        <Button
-          icon="pi pi-arrow-up"
-          text
-          rounded
-          size="small"
-          :disabled="index === 0"
-          :aria-label="t('navigation.moveUp', 'Move up')"
-          @click="moveItem(element, -1)"
-        />
-        <Button
-          icon="pi pi-arrow-down"
-          text
-          rounded
-          size="small"
-          :disabled="index >= items.length - 1"
-          :aria-label="t('navigation.moveDown', 'Move down')"
-          @click="moveItem(element, 1)"
-        />
-        <Button
-          icon="pi pi-pencil"
-          text
-          rounded
-          size="small"
-          :aria-label="t('common.edit', 'Edit')"
-          @click="emit('edit', element)"
-        />
-        <Button
-          icon="pi pi-trash"
-          text
-          rounded
-          severity="danger"
-          size="small"
-          :aria-label="t('common.delete', 'Delete')"
-          @click="removeItem(element)"
-        />
+        </button>
+        <div
+          class="nav-node__actions"
+          @pointerdown.stop
+          @mousedown.stop
+          @click.stop
+        >
+          <button
+            type="button"
+            class="nav-node__action"
+            :disabled="index === 0"
+            :aria-label="t('navigation.moveUp', 'Move up')"
+            @pointerdown.stop.prevent="onMove($event, element, -1)"
+          >
+            <i class="pi pi-arrow-up" />
+          </button>
+          <button
+            type="button"
+            class="nav-node__action"
+            :disabled="index >= items.length - 1"
+            :aria-label="t('navigation.moveDown', 'Move down')"
+            @pointerdown.stop.prevent="onMove($event, element, 1)"
+          >
+            <i class="pi pi-arrow-down" />
+          </button>
+          <button
+            type="button"
+            class="nav-node__action"
+            :aria-label="t('common.edit', 'Edit')"
+            @pointerdown.stop.prevent="onEdit($event, element)"
+          >
+            <i class="pi pi-pencil" />
+          </button>
+          <button
+            type="button"
+            class="nav-node__action nav-node__action--danger"
+            :aria-label="t('common.delete', 'Delete')"
+            @pointerdown.stop.prevent="onRemove($event, element)"
+          >
+            <i class="pi pi-trash" />
+          </button>
+        </div>
       </div>
 
       <div
@@ -131,22 +174,29 @@ function addFolder(folder: NavFolder): void {
           @edit="emit('edit', $event)"
         />
 
-        <div class="nav-node__add">
-          <Button
-            icon="pi pi-plus"
-            :label="t('navigation.addLink', 'Add link')"
-            text
-            size="small"
-            @click="addLink(element)"
-          />
-          <Button
+        <div
+          class="nav-node__add"
+          @pointerdown.stop
+          @mousedown.stop
+          @click.stop
+        >
+          <button
+            type="button"
+            class="nav-node__add-btn"
+            @pointerdown.stop.prevent="onAddLink($event, element)"
+          >
+            <i class="pi pi-plus" />
+            {{ t('navigation.addLink', 'Add link') }}
+          </button>
+          <button
             v-if="canNestFolder"
-            icon="pi pi-folder-plus"
-            :label="t('navigation.addFolder', 'Add folder')"
-            text
-            size="small"
-            @click="addFolder(element)"
-          />
+            type="button"
+            class="nav-node__add-btn"
+            @pointerdown.stop.prevent="onAddFolder($event, element)"
+          >
+            <i class="pi pi-folder-plus" />
+            {{ t('navigation.addFolder', 'Add folder') }}
+          </button>
         </div>
       </div>
     </div>
@@ -175,9 +225,11 @@ function addFolder(folder: NavFolder): void {
   border: 1px solid var(--p-surface-200, #e5e7eb);
   border-radius: 6px;
   background: var(--p-surface-0, #fff);
+  min-width: 0;
 }
 
 .nav-node__handle {
+  flex: 0 0 auto;
   cursor: grab;
   color: var(--p-text-muted-color, #9ca3af);
   touch-action: none;
@@ -193,6 +245,54 @@ function addFolder(folder: NavFolder): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-node__label:hover {
+  color: var(--p-primary-color, #10b981);
+}
+
+.nav-node__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.1rem;
+  margin-left: auto;
+}
+
+.nav-node__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--p-text-muted-color, #6b7280);
+  cursor: pointer;
+}
+
+.nav-node__action:hover:not(:disabled) {
+  background: var(--p-surface-100, #f3f4f6);
+  color: var(--p-text-color, #1f2937);
+}
+
+.nav-node__action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.nav-node__action--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--p-red-500, #ef4444) 12%, transparent);
+  color: var(--p-red-500, #ef4444);
 }
 
 .nav-node__children {
@@ -206,7 +306,25 @@ function addFolder(folder: NavFolder): void {
 
 .nav-node__add {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.nav-node__add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--p-primary-color, #10b981);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.25rem;
+}
+
+.nav-node__add-btn:hover {
+  text-decoration: underline;
 }
 
 :deep(.nav-node--ghost) {

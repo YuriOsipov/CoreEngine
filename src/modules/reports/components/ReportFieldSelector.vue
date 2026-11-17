@@ -35,10 +35,12 @@ const props = withDefaults(defineProps<{
   multiple?: boolean
   includeAny?: boolean
   placeholder?: string
+  size?: 'small' | 'large' | undefined
 }>(), {
   multiple: false,
   includeAny: false,
   placeholder: 'Select field',
+  size: undefined,
 })
 
 const emit = defineEmits<{
@@ -249,11 +251,13 @@ function anyNode(): FieldTreeNode {
 
 <template>
   <TreeSelect
+    class="w-full min-w-0"
     :model-value="treeValue"
     :options="nodes"
     :selection-mode="multiple ? 'checkbox' : 'single'"
     :placeholder="placeholder"
     :loading="loading"
+    :size="size"
     display="chip"
     filter
     fluid

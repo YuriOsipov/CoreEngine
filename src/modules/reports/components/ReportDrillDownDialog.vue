@@ -112,7 +112,11 @@ function fieldLabel(field: string): string {
   if (field === DRILL_DOWN_RECORD_COLUMN) {
     return t('reports.record', 'Record')
   }
-  return props.fieldLabels?.[field] ?? field
+  if (props.fieldLabels?.[field]) return props.fieldLabels[field]
+  const leaf = field.includes('.') ? field.split('.').filter(Boolean).pop() || field : field
+  return leaf
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
 function isNumericColumn(field: string): boolean {

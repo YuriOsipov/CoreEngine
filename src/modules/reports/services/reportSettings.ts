@@ -51,9 +51,10 @@ const FOLDER_SUB_GROUP = 'folder'
 const FOLDER_ENTITY_API_NAME = '_report_folder'
 
 export type ReportAggregate = 'count' | 'sum' | 'avg' | 'min' | 'max'
-export type ReportSummaryAggregate = 'sum' | 'avg' | 'min' | 'max' | 'median'
+export type ReportSummaryAggregate = 'count' | 'sum' | 'avg' | 'min' | 'max' | 'median'
 export type ReportSortDirection = 'asc' | 'desc'
-export type ReportType = 'pivot' | 'tabular'
+/** Reports are tabular-only; legacy `pivot` normalizes to tabular on load. */
+export type ReportType = 'tabular'
 export type { ReportDateGrain }
 
 export interface ReportFilterCondition {
@@ -61,6 +62,11 @@ export interface ReportFilterCondition {
   field: string
   operator: string
   value: unknown
+  /**
+   * When true, end users can change the value on the runtime report page
+   * without editing the saved report definition.
+   */
+  visibleInRuntime?: boolean
 }
 
 export interface ReportPivotValue {
@@ -89,12 +95,14 @@ export interface ReportPivotSettings {
 export interface ReportTabularGroup {
   field: string
   sort?: ReportSortDirection
+  /** When set, date/datetime values are bucketed (Day / Week / Month / Quarter / Year). */
+  dateGrain?: ReportDateGrain | null
 }
 
 export interface ReportTabularColumn {
   field: string
   sort?: ReportSortDirection | null
-  /** Numeric column summaries (SF-style Summarize). */
+  /** Column summaries (SF-style Summarize), including count. */
   summaries?: ReportSummaryAggregate[]
 }
 
@@ -105,6 +113,11 @@ export interface ReportTabularSettings {
   showDetailRows?: boolean
   showSubtotals?: boolean
   showGrandTotal?: boolean
+  /**
+   * When set, order matrix rows by the row Total (first value aggregate)
+   * instead of by row field labels.
+   */
+  sortRowsByTotal?: ReportSortDirection | null
 }
 
 export interface ReportPivotPathSegment {
@@ -124,26 +137,36 @@ export interface ReportDefinition {
   name: string
   title: string
   collection: string
-  /** pivot = matrix aggregates; tabular = flat column list (SF-style tabular). */
+  /** Always tabular (legacy pivot reports migrate on normalize). */
   type: ReportType
   filterLogic: FilterLogic
   conditions: ReportFilterCondition[]
   pivot: ReportPivotSettings
   tabular: ReportTabularSettings
   limit?: number
-  /** Flat folder id from report folder settings; null = unfiled. */
+  /** Folder id from report folder settings; null = unfiled. */
   folderId?: string | null
+  /**
+   * Persisted column widths (px), keyed by stable field identity
+   * (`row:path`, `col:path`, `value:aggregate:path`, or tabular `field:path`).
+   */
+  columnWidths?: Record<string, number>
 }
+
+export const REPORT_FOLDER_MAX_DEPTH = 5
 
 export interface ReportFolder {
   settingId: string
   id: string
   name: string
+  /** Null/omit = root folder. */
+  parentId?: string | null
 }
 
 interface ReportFolderBody {
   id: string
   name: string
+  parentId?: string | null
 }
 
 export interface ReportSettingRecord {
@@ -254,18 +277,18 @@ export function isReportVisibleToRole(
   return String(report.roleId) === String(roleId)
 }
 
-export function isPivotReport(report: Pick<ReportDefinition, 'type'>): boolean {
-  return normalizeReportType(report.type) === 'pivot'
+/** @deprecated Pivot type removed — always false after normalize. */
+export function isPivotReport(_report?: Pick<ReportDefinition, 'type'>): boolean {
+  return false
 }
 
-export function isTabularReport(report: Pick<ReportDefinition, 'type'>): boolean {
-  return normalizeReportType(report.type) === 'tabular'
+export function isTabularReport(_report?: Pick<ReportDefinition, 'type'>): boolean {
+  return true
 }
 
 export function reportCanRun(report: ReportDefinition | null | undefined): boolean {
   if (!report?.collection) return false
-  if (isTabularReport(report)) return report.tabular.columns.length > 0
-  return report.pivot.values.length > 0
+  return report.tabular.columns.length > 0
 }
 
 export async function getReportBySettingId(
@@ -285,30 +308,44 @@ export async function listReportFolders(): Promise<ReportFolder[]> {
     subGroup: FOLDER_SUB_GROUP,
   })
 
-  return records
-    .map((record) => {
-      const body = parseFolderBody(
-        record.body as ReportFolderBody | string | null | undefined,
-      )
-      const id = String(body.id || record.id)
-      const name = String(body.name || record.name || id).trim() || id
-      return {
-        settingId: String(record.id),
-        id,
-        name,
-      }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const folders = records.map((record) => {
+    const body = parseFolderBody(
+      record.body as ReportFolderBody | string | null | undefined,
+    )
+    const id = String(body.id || record.id)
+    const name = String(body.name || record.name || id).trim() || id
+    const parentRaw = body.parentId
+    const parentId =
+      parentRaw === null || parentRaw === undefined || parentRaw === ''
+        ? null
+        : String(parentRaw)
+    return {
+      settingId: String(record.id),
+      id,
+      name,
+      parentId: parentId === id ? null : parentId,
+    }
+  })
+
+  return sanitizeReportFolderParents(folders).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )
 }
 
 export async function saveReportFolder(
-  folder: { id?: string; name: string },
+  folder: { id?: string; name: string; parentId?: string | null },
   settingId?: string | null,
 ): Promise<ReportFolder> {
   const name = folder.name.trim()
   if (!name) throw new Error('Folder name is required')
   const id = String(folder.id || `folder_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`)
-  const body: ReportFolderBody = { id, name }
+  const folders = await listReportFolders()
+  const parentId = normalizeFolderParentId(folder.parentId, id, folders)
+  const body: ReportFolderBody = {
+    id,
+    name,
+    parentId,
+  }
   const savedId = await writeSettingUpsert({
     settingId: settingId ? String(settingId) : null,
     entityApiName: FOLDER_ENTITY_API_NAME,
@@ -317,7 +354,7 @@ export async function saveReportFolder(
     name: normalizeReportName(name) || id,
     body: body as unknown as Record<string, unknown>,
   })
-  return { settingId: String(savedId), id, name }
+  return { settingId: String(savedId), id, name, parentId }
 }
 
 export async function deleteReportFolder(settingId: string): Promise<void> {
@@ -340,7 +377,120 @@ export async function deleteReportFolder(settingId: string): Promise<void> {
       report.roleId,
     )
   }
+
+  // Reparent children to the deleted folder's parent so the tree stays intact.
+  const children = folders.filter((item) => item.parentId === folder.id)
+  for (const child of children) {
+    await saveReportFolder(
+      {
+        id: child.id,
+        name: child.name,
+        parentId: folder.parentId ?? null,
+      },
+      child.settingId,
+    )
+  }
+
   await writeSettingDelete(settingId)
+}
+
+/** Folder ids under `folderId` including itself. */
+export function collectReportFolderDescendantIds(
+  folders: ReportFolder[],
+  folderId: string,
+): Set<string> {
+  const ids = new Set<string>([folderId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const folder of folders) {
+      if (!folder.parentId || ids.has(folder.id) || !ids.has(folder.parentId)) continue
+      ids.add(folder.id)
+      changed = true
+    }
+  }
+  return ids
+}
+
+/** Breadcrumb path label, e.g. "Sales / West". */
+export function reportFolderPathLabel(
+  folders: ReportFolder[],
+  folderId: string | null | undefined,
+  fallback = '',
+): string {
+  if (!folderId) return fallback
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  const parts: string[] = []
+  let current: ReportFolder | undefined = byId.get(folderId)
+  const seen = new Set<string>()
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    parts.unshift(current.name)
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return parts.join(' / ') || fallback || folderId
+}
+
+/** Depth of a folder (root = 1). */
+export function reportFolderDepth(
+  folders: ReportFolder[],
+  folderId: string | null | undefined,
+): number {
+  if (!folderId) return 0
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  let depth = 0
+  let current: ReportFolder | undefined = byId.get(folderId)
+  const seen = new Set<string>()
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    depth += 1
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return depth
+}
+
+function normalizeFolderParentId(
+  parentId: string | null | undefined,
+  folderId: string,
+  folders: ReportFolder[],
+): string | null {
+  if (parentId === null || parentId === undefined || parentId === '') return null
+  const parent = String(parentId)
+  if (parent === folderId) {
+    throw new Error('A folder cannot be its own parent.')
+  }
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  if (!byId.has(parent)) {
+    throw new Error('Parent folder was not found.')
+  }
+
+  // Reject cycles: parent chain must not include this folder.
+  let cursor: ReportFolder | undefined = byId.get(parent)
+  const seen = new Set<string>([folderId])
+  while (cursor) {
+    if (seen.has(cursor.id)) {
+      throw new Error('Folder parent would create a cycle.')
+    }
+    seen.add(cursor.id)
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
+  }
+
+  const parentDepth = reportFolderDepth(folders, parent)
+  if (parentDepth >= REPORT_FOLDER_MAX_DEPTH) {
+    throw new Error(`Folders can be nested up to ${REPORT_FOLDER_MAX_DEPTH} levels.`)
+  }
+
+  return parent
+}
+
+function sanitizeReportFolderParents(folders: ReportFolder[]): ReportFolder[] {
+  const ids = new Set(folders.map((folder) => folder.id))
+  return folders.map((folder) => {
+    if (!folder.parentId || !ids.has(folder.parentId) || folder.parentId === folder.id) {
+      return { ...folder, parentId: null }
+    }
+    return folder
+  })
 }
 
 function parseFolderBody(body: ReportFolderBody | string | null | undefined): Partial<ReportFolderBody> {
@@ -463,6 +613,57 @@ export async function executeReport(
   return renderReportRows(rows, request.m2o)
 }
 
+/** Conditions the end user may change on the runtime report page. */
+export function listRuntimeVisibleFilters(
+  report: ReportDefinition | null | undefined,
+): ReportFilterCondition[] {
+  if (!report) return []
+  return normalizeReportDefinition(report).conditions.filter(
+    (condition) => condition.visibleInRuntime,
+  )
+}
+
+/**
+ * Merge runtime prompt values into a report copy for execution.
+ * Cleared visible filters are omitted (treated as “any”).
+ * Hidden filters keep their saved values.
+ */
+export function applyRuntimeFilterValues(
+  report: ReportDefinition,
+  valuesByConditionId: Record<string, unknown>,
+): ReportDefinition {
+  const normalized = normalizeReportDefinition(report)
+  return {
+    ...normalized,
+    conditions: normalized.conditions
+      .map((condition) => {
+        if (!condition.visibleInRuntime) return condition
+        if (!(condition.id in valuesByConditionId)) return condition
+        return {
+          ...condition,
+          value: valuesByConditionId[condition.id],
+        }
+      })
+      .filter((condition) => {
+        if (!condition.visibleInRuntime) return true
+        if (condition.operator === '_null' || condition.operator === '_nnull') {
+          return true
+        }
+        return !isEmptyRuntimeFilterValue(condition.value)
+      }),
+  }
+}
+
+function isEmptyRuntimeFilterValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value === 'string' && value.trim() === '') return true
+  if (typeof value === 'number' && Number.isNaN(value)) return true
+  if (Array.isArray(value)) {
+    return value.every((entry) => isEmptyRuntimeFilterValue(entry))
+  }
+  return false
+}
+
 function tabularSortSpec(report: ReportDefinition): string[] | null {
   if (!isTabularReport(report)) return null
   const specs = report.tabular.columns
@@ -476,9 +677,10 @@ export async function resolveReportDateGrains(
   report: ReportDefinition,
 ): Promise<ReportDefinition> {
   const config = normalizeReportDefinition(report)
-  const unresolved = [...config.pivot.rows, ...config.pivot.columns].filter(
-    (dimension) => dimension.field && !normalizePivotDateGrain(dimension.dateGrain),
-  )
+  const unresolved = [
+    ...config.tabular.groupRows,
+    ...config.tabular.groupColumns,
+  ].filter((dimension) => dimension.field && !normalizePivotDateGrain(dimension.dateGrain))
   if (unresolved.length === 0 || !config.collection) return config
 
   const relations = await getCachedRelations()
@@ -495,63 +697,51 @@ export async function resolveReportDateGrains(
   )
   if (grainByField.size === 0) return config
 
-  const patch = (dimensions: ReportPivotDimension[]): ReportPivotDimension[] =>
-    dimensions.map((dimension) => {
-      if (normalizePivotDateGrain(dimension.dateGrain)) return dimension
-      const dateGrain = grainByField.get(dimension.field)
-      return dateGrain ? { ...dimension, dateGrain } : dimension
+  const patchGroups = (groups: ReportTabularGroup[]): ReportTabularGroup[] =>
+    groups.map((group) => {
+      if (normalizePivotDateGrain(group.dateGrain)) return group
+      const dateGrain = grainByField.get(group.field)
+      return dateGrain ? { ...group, dateGrain } : group
     })
+
+  const tabular = {
+    ...config.tabular,
+    groupRows: patchGroups(config.tabular.groupRows),
+    groupColumns: patchGroups(config.tabular.groupColumns),
+  }
+  const pivot = reportAsPivotSettings(tabular) ?? {
+    rows: [],
+    columns: [],
+    values: [],
+    sortRowsByTotal: tabular.sortRowsByTotal ?? null,
+  }
 
   return {
     ...config,
-    pivot: {
-      ...config.pivot,
-      rows: patch(config.pivot.rows),
-      columns: patch(config.pivot.columns),
-    },
+    tabular,
+    pivot,
   }
 }
 
 export async function defaultReportDefinition(
   collection = '',
-  type: ReportType = 'pivot',
+  _type: ReportType | string = 'tabular',
 ): Promise<ReportDefinition> {
   const fields = collection ? await listFilterableFields(collection).catch(() => []) : []
   const firstField = fields[0]?.field ?? 'id'
-  const reportType = normalizeReportType(type)
-
-  if (reportType === 'tabular') {
-    return normalizeReportDefinition({
-      id: `report_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
-      name: '',
-      title: '',
-      collection,
-      type: 'tabular',
-      filterLogic: 'and',
-      conditions: [],
-      pivot: { rows: [], columns: [], values: [] },
-      tabular: emptyTabularSettings(
-        firstField ? [{ field: firstField, sort: 'asc' }] : [],
-      ),
-      limit: -1,
-      folderId: null,
-    })
-  }
 
   return normalizeReportDefinition({
     id: `report_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
     name: '',
     title: '',
     collection,
-    type: 'pivot',
+    type: 'tabular',
     filterLogic: 'and',
     conditions: [],
-    pivot: {
-      rows: firstField ? [{ field: firstField, sort: 'asc' }] : [],
-      columns: [],
-      values: [{ field: firstField, aggregate: 'count' }],
-    },
-    tabular: emptyTabularSettings(),
+    pivot: { rows: [], columns: [], values: [] },
+    tabular: emptyTabularSettings(
+      firstField ? [{ field: firstField, sort: 'asc' }] : [],
+    ),
     limit: -1,
     folderId: null,
   })
@@ -568,11 +758,12 @@ export function emptyTabularSettings(
     showDetailRows: false,
     showSubtotals: true,
     showGrandTotal: true,
+    sortRowsByTotal: null,
   }
 }
 
-export function normalizeReportType(value: unknown): ReportType {
-  return value === 'tabular' ? 'tabular' : 'pivot'
+export function normalizeReportType(_value?: unknown): ReportType {
+  return 'tabular'
 }
 
 export function normalizeSummaryAggregates(value: unknown): ReportSummaryAggregate[] {
@@ -591,7 +782,7 @@ export function normalizeTabularGroups(value: unknown): ReportTabularGroup[] {
   const groups: ReportTabularGroup[] = []
   for (const item of value) {
     if (typeof item === 'string' && item.trim()) {
-      groups.push({ field: item.trim(), sort: 'asc' })
+      groups.push({ field: item.trim(), sort: 'asc', dateGrain: null })
       continue
     }
     if (!item || typeof item !== 'object') continue
@@ -600,6 +791,7 @@ export function normalizeTabularGroups(value: unknown): ReportTabularGroup[] {
     groups.push({
       field,
       sort: normalizePivotSort((item as ReportTabularGroup).sort),
+      dateGrain: normalizePivotDateGrain((item as ReportTabularGroup).dateGrain),
     })
   }
   return groups
@@ -636,11 +828,41 @@ export function normalizeTabularSettings(
     showDetailRows: value?.showDetailRows === true,
     showSubtotals: value?.showSubtotals !== false,
     showGrandTotal: value?.showGrandTotal !== false,
+    sortRowsByTotal: normalizeSortRowsByTotal(value?.sortRowsByTotal),
   }
 }
 
 export function isReportSummaryAggregate(value: unknown): value is ReportSummaryAggregate {
-  return ['sum', 'avg', 'min', 'max', 'median'].includes(String(value))
+  return ['count', 'sum', 'avg', 'min', 'max', 'median'].includes(String(value))
+}
+
+function summaryToPivotAggregate(
+  summary: ReportSummaryAggregate,
+): ReportAggregate | null {
+  if (summary === 'median') return null
+  if (summary === 'count') return 'count'
+  if (summary === 'sum' || summary === 'avg' || summary === 'min' || summary === 'max') {
+    return summary
+  }
+  return null
+}
+
+function tabularSummaryValues(tabular: ReportTabularSettings): ReportPivotValue[] {
+  const values: ReportPivotValue[] = []
+  for (const column of tabular.columns) {
+    const summaries = column.summaries?.length
+      ? column.summaries
+      : (['sum'] as ReportSummaryAggregate[])
+    for (const summary of summaries) {
+      const aggregate = summaryToPivotAggregate(summary)
+      if (!aggregate) continue
+      values.push({ field: column.field, aggregate })
+    }
+  }
+  if (values.length === 0 && tabular.columns[0]) {
+    values.push({ field: tabular.columns[0].field, aggregate: 'count' })
+  }
+  return values
 }
 
 /** When group columns are set, tabular preview can reuse the pivot matrix renderer. */
@@ -648,30 +870,91 @@ export function tabularAsPivotSettings(
   tabular: ReportTabularSettings,
 ): ReportPivotSettings | null {
   if (tabular.groupColumns.length === 0) return null
-  const values: ReportPivotValue[] = []
-  for (const column of tabular.columns) {
-    const summaries = column.summaries?.length
-      ? column.summaries
-      : (['sum'] as ReportSummaryAggregate[])
-    for (const summary of summaries) {
-      if (summary === 'median') continue
-      values.push({ field: column.field, aggregate: summary })
-    }
-  }
-  if (values.length === 0) {
-    values.push({ field: tabular.columns[0]?.field || 'id', aggregate: 'count' })
-  }
+  const values = tabularSummaryValues(tabular)
+  if (values.length === 0) return null
   return {
     rows: tabular.groupRows.map((group) => ({
       field: group.field,
       sort: group.sort ?? 'asc',
+      dateGrain: group.dateGrain ?? null,
     })),
     columns: tabular.groupColumns.map((group) => ({
       field: group.field,
       sort: group.sort ?? 'asc',
+      dateGrain: group.dateGrain ?? null,
     })),
     values,
-    sortRowsByTotal: null,
+    sortRowsByTotal: tabular.sortRowsByTotal ?? null,
+  }
+}
+
+/**
+ * Pivot settings for matrix OR row-grouped summary (dashboards / export).
+ * Returns null when there is nothing to aggregate.
+ */
+export function reportAsPivotSettings(
+  tabular: ReportTabularSettings,
+): ReportPivotSettings | null {
+  const matrix = tabularAsPivotSettings(tabular)
+  if (matrix) return matrix
+  const values = tabularSummaryValues(tabular)
+  if (values.length === 0) return null
+  if (tabular.groupRows.length === 0 && tabular.showDetailRows === true) return null
+  return {
+    rows: tabular.groupRows.map((group) => ({
+      field: group.field,
+      sort: group.sort ?? 'asc',
+      dateGrain: group.dateGrain ?? null,
+    })),
+    columns: [],
+    values,
+    sortRowsByTotal: tabular.sortRowsByTotal ?? null,
+  }
+}
+
+/** Convert legacy pivot config into tabular when tabular outline is empty. */
+export function migratePivotIntoTabular(
+  pivot: ReportPivotSettings,
+  tabular: ReportTabularSettings,
+): ReportTabularSettings {
+  const hasTabularStructure =
+    tabular.columns.length > 0 ||
+    tabular.groupRows.length > 0 ||
+    tabular.groupColumns.length > 0
+  if (hasTabularStructure) {
+    if (tabular.sortRowsByTotal == null && pivot.sortRowsByTotal) {
+      return { ...tabular, sortRowsByTotal: pivot.sortRowsByTotal }
+    }
+    return tabular
+  }
+  if (pivot.values.length === 0 && pivot.rows.length === 0 && pivot.columns.length === 0) {
+    return tabular
+  }
+
+  return {
+    columns: pivot.values.map((value) => ({
+      field: value.field === '*' ? 'id' : value.field,
+      sort: null as ReportSortDirection | null,
+      summaries: [
+        value.aggregate === 'count'
+          ? ('count' as ReportSummaryAggregate)
+          : (value.aggregate as ReportSummaryAggregate),
+      ],
+    })),
+    groupRows: pivot.rows.map((dimension) => ({
+      field: dimension.field,
+      sort: dimension.sort ?? 'asc',
+      dateGrain: dimension.dateGrain ?? null,
+    })),
+    groupColumns: pivot.columns.map((dimension) => ({
+      field: dimension.field,
+      sort: dimension.sort ?? 'asc',
+      dateGrain: dimension.dateGrain ?? null,
+    })),
+    showDetailRows: false,
+    showSubtotals: false,
+    showGrandTotal: true,
+    sortRowsByTotal: pivot.sortRowsByTotal ?? null,
   }
 }
 
@@ -683,7 +966,6 @@ export function normalizeReportDefinition(
   const titleCandidate = String(report?.title || fallback.title || '')
   const name = normalizeReportName(report?.name || fallback.name || titleCandidate)
   const title = titleCandidate || name || 'Untitled report'
-  const type = normalizeReportType(report?.type ?? fallback.type)
   const conditions = Array.isArray(report?.conditions)
     ? report.conditions
         .filter((condition) => condition?.field && condition?.operator)
@@ -692,18 +974,37 @@ export function normalizeReportDefinition(
           field: condition.field,
           operator: condition.operator,
           value: condition.value,
+          visibleInRuntime: Boolean(condition.visibleInRuntime),
         }))
     : []
-  const pivot = (report?.pivot ?? {}) as Partial<ReportPivotSettings>
-  const values = Array.isArray(pivot.values)
-    ? pivot.values
+  const pivotRaw = (report?.pivot ?? fallback.pivot ?? {}) as Partial<ReportPivotSettings>
+  const pivotValues = Array.isArray(pivotRaw.values)
+    ? pivotRaw.values
         .filter((value) => value?.field && isReportAggregate(value.aggregate))
         .map((value) => ({
           field: value.field,
           aggregate: value.aggregate,
         }))
     : []
-  const tabular = (report?.tabular ?? fallback.tabular ?? {}) as Partial<ReportTabularSettings>
+  const legacyPivot: ReportPivotSettings = {
+    rows: normalizePivotDimensions(pivotRaw.rows),
+    columns: normalizePivotDimensions(pivotRaw.columns),
+    values: pivotValues,
+    sortRowsByTotal: normalizeSortRowsByTotal(pivotRaw.sortRowsByTotal),
+  }
+  const tabular = migratePivotIntoTabular(
+    legacyPivot,
+    normalizeTabularSettings(
+      (report?.tabular ?? fallback.tabular ?? {}) as Partial<ReportTabularSettings>,
+    ),
+  )
+  // Keep pivot mirror in sync for leftover consumers.
+  const pivot = reportAsPivotSettings(tabular) ?? {
+    rows: [],
+    columns: [],
+    values: [],
+    sortRowsByTotal: tabular.sortRowsByTotal ?? null,
+  }
 
   const folderIdRaw = report?.folderId ?? fallback.folderId
   const folderId =
@@ -716,19 +1017,60 @@ export function normalizeReportDefinition(
     name,
     title,
     collection,
-    type,
+    type: 'tabular',
     filterLogic: report?.filterLogic === 'or' ? 'or' : 'and',
     conditions,
-    pivot: {
-      rows: normalizePivotDimensions(pivot.rows),
-      columns: normalizePivotDimensions(pivot.columns),
-      values,
-      sortRowsByTotal: normalizeSortRowsByTotal(pivot.sortRowsByTotal),
-    },
-    tabular: normalizeTabularSettings(tabular),
+    pivot,
+    tabular,
     limit: normalizeLimit(report?.limit),
     folderId,
+    columnWidths: normalizeColumnWidths(report?.columnWidths ?? fallback.columnWidths),
   }
+}
+
+/** Last path segment for report headers (`opportunity.account_id.type` → `type`). */
+export function reportFieldLeafName(field: string): string {
+  const parts = String(field || '')
+    .split('.')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return parts[parts.length - 1] || String(field || '')
+}
+
+/** Humanized leaf label for report column/row headers. */
+export function reportFieldDisplayLabel(field: string): string {
+  const leaf = reportFieldLeafName(field)
+  if (!leaf || leaf === '*') return leaf || field
+  return leaf
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim()
+}
+
+export function reportColumnWidthKey(
+  kind: 'row' | 'col' | 'value' | 'field',
+  field: string,
+  aggregate?: string,
+): string {
+  if (kind === 'value') {
+    return `value:${aggregate || 'sum'}:${field}`
+  }
+  if (kind === 'field') return `field:${field}`
+  return `${kind}:${field}`
+}
+
+function normalizeColumnWidths(
+  value: unknown,
+): Record<string, number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const next: Record<string, number> = {}
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const width = typeof raw === 'number' ? raw : Number(raw)
+    if (!key.trim() || !Number.isFinite(width) || width < 40) continue
+    next[key] = Math.round(width)
+  }
+  return Object.keys(next).length > 0 ? next : undefined
 }
 
 export function pivotDimensionFields(
@@ -920,22 +1262,13 @@ async function reportM2OMetadata(
   const displayFields = new Map<string, string>()
   const templates = new Map<string, string>()
   const choiceLabels = new Map<string, Map<string, string>>()
+  const relatedFieldsByCollection = new Map<string, FieldDefinition[]>()
 
   for (const fieldName of fieldNames) {
     const resolved = await resolveM2OFieldPath(collection, fieldName, relations)
     if (resolved) {
       collections.set(fieldName, resolved.relatedCollection)
-      const template =
-        typeof resolved.field?.meta?.options?.template === 'string' &&
-        resolved.field.meta.options.template.trim()
-          ? resolved.field.meta.options.template
-          : undefined
-      const templateFields = template ? extractTemplateFields(template) : []
-      if (shouldUseTemplateForRelatedLabel(template, templateFields) && template) {
-        templates.set(fieldName, template)
-      } else {
-        displayFields.set(fieldName, relatedRecordDisplayField(resolved.relatedFields))
-      }
+      relatedFieldsByCollection.set(resolved.relatedCollection, resolved.relatedFields)
       continue
     }
 
@@ -943,6 +1276,31 @@ async function reportM2OMetadata(
     if (choiceLabelMap.size > 0) {
       choiceLabels.set(fieldName, choiceLabelMap)
     }
+  }
+
+  // Authoritative label source: related entity Display Template (Setup → Entity parameters).
+  const templatesByCollection = new Map<string, string>()
+  await Promise.all(
+    [...new Set(collections.values())].map(async (relatedCollection) => {
+      const template = await fetchCollectionDisplayTemplate(relatedCollection).catch(() => undefined)
+      if (!template?.trim()) return
+      const templateFields = extractTemplateFields(template)
+      if (shouldUseTemplateForRelatedLabel(template, templateFields)) {
+        templatesByCollection.set(relatedCollection, template)
+      }
+    }),
+  )
+
+  for (const [fieldName, relatedCollection] of collections) {
+    const template = templatesByCollection.get(relatedCollection)
+    if (template) {
+      templates.set(fieldName, template)
+      continue
+    }
+    const relatedFields =
+      relatedFieldsByCollection.get(relatedCollection) ??
+      ((await getCachedCollectionFields(relatedCollection).catch(() => [])) as FieldDefinition[])
+    displayFields.set(fieldName, relatedRecordDisplayField(relatedFields))
   }
 
   return { collections, displayFields, templates, choiceLabels }
@@ -962,10 +1320,14 @@ function renderReportRows(
         : null
       const id = record?.id ?? value
       const template = m2o.templates.get(field)
-      const label =
-        record && template
-          ? renderTemplateLabel(template, record)
-          : relatedRecordFallbackLabel(record ?? value, id)
+      const templateFields = template ? extractTemplateFields(template) : []
+      let label = ''
+      if (record && template && shouldUseTemplateForRelatedLabel(template, templateFields)) {
+        label = renderTemplateLabel(template, record).trim()
+      }
+      if (!label || label === String(id ?? '')) {
+        label = relatedRecordFallbackLabel(record ?? value, id)
+      }
 
       setPathValue(rendered, field, {
         ...(record ?? {}),
@@ -1165,6 +1527,13 @@ function normalizeConditionValue(condition: ReportFilterCondition): unknown {
 
 function normalizeScalarFilterValue(value: unknown): unknown {
   if (value === null || value === undefined || value === '') return value ?? null
+  // Select may emit `{ label, value }` when optionValue is missing — use the scalar.
+  if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+    const record = value as Record<string, unknown>
+    if ('value' in record && !('from' in record) && !('start' in record)) {
+      return normalizeScalarFilterValue(record.value)
+    }
+  }
   const date = toDate(value)
   if (date) return formatLocalDate(date)
   return value

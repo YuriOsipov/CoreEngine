@@ -1,5 +1,11 @@
-import { getPathValue } from '@/modules/entities/utils/recordDisplay'
+import type { FieldDefinition } from '@/interfaces'
+import {
+  getPathValue,
+  type NumberDisplayOptions,
+} from '@/modules/entities/utils/recordDisplay'
+import { isNumericFieldDefinition } from '@/core/fieldHelpers'
 import { formatReportAggregateValue, formatReportCellDisplay } from './reportCellDisplay'
+import { dimensionDisplayValue } from './reportVTableAdapter'
 import type {
   ReportDefinition,
   ReportSummaryAggregate,
@@ -15,6 +21,14 @@ export interface TabularDisplayColumn {
   header: string
   isGroup?: boolean
   hasSummary?: boolean
+  /** Right-align numeric / currency measure columns. */
+  numeric?: boolean
+}
+
+/** Navigate target for an M2O cell (SF-style record link). */
+export interface TabularCellLink {
+  collection: string
+  id: string | number
 }
 
 export interface TabularDisplayRow {
@@ -24,13 +38,35 @@ export interface TabularDisplayRow {
   label?: string
   source?: Record<string, unknown>
   cells: Record<string, string>
+  /** Field → related-record route when the cell value is an M2O object. */
+  cellLinks?: Record<string, TabularCellLink>
 }
 
 export function formatTabularCell(
   row: Record<string, unknown>,
   field: string,
+  fieldDefinition?: FieldDefinition | null,
 ): string {
-  return formatReportCellDisplay(getPathValue(row, field), null, '')
+  return formatReportCellDisplay(getPathValue(row, field), fieldDefinition ?? null, '')
+}
+
+export function m2oCellLink(value: unknown): TabularCellLink | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.__crmValueType !== 'm2o') return null
+  const id = record.id
+  const collection = record.relatedCollection
+  if (id == null || id === '') return null
+  if (typeof collection !== 'string' || !collection.trim()) return null
+  return { collection: collection.trim(), id: id as string | number }
+}
+
+function m2oLinkFromRow(
+  row: Record<string, unknown> | undefined,
+  field: string,
+): TabularCellLink | null {
+  if (!row) return null
+  return m2oCellLink(getPathValue(row, field))
 }
 
 export function computeSummary(
@@ -38,6 +74,7 @@ export function computeSummary(
   field: string,
   aggregate: ReportSummaryAggregate,
 ): number | null {
+  if (aggregate === 'count') return rows.length
   const numbers = rows
     .map((row) => numericValue(getPathValue(row, field)))
     .filter((value): value is number => value !== null)
@@ -61,6 +98,7 @@ export function computeSummary(
 export function buildTabularDisplayColumns(
   report: Pick<ReportDefinition, 'tabular'>,
   fieldLabels: Record<string, string> = {},
+  fieldDefinitions: Map<string, FieldDefinition> = new Map(),
 ): TabularDisplayColumn[] {
   const tabular = report.tabular
   const columns: TabularDisplayColumn[] = []
@@ -76,6 +114,7 @@ export function buildTabularDisplayColumns(
   for (const column of tabular.columns) {
     const base = fieldLabels[column.field] || column.field
     const summaries = column.summaries ?? []
+    const definition = fieldDefinitions.get(column.field)
     columns.push({
       field: column.field,
       header:
@@ -85,6 +124,9 @@ export function buildTabularDisplayColumns(
             ? `${base} (${summaries.map(summaryHeader).join(', ')})`
             : base,
       hasSummary: summaries.length > 0,
+      numeric:
+        summaries.length > 0 ||
+        isNumericFieldDefinition(definition),
     })
   }
 
@@ -95,15 +137,21 @@ export function buildTabularDisplayRows(
   report: Pick<ReportDefinition, 'tabular'>,
   rows: Record<string, unknown>[],
   fieldLabels: Record<string, string> = {},
+  fieldDefinitions: Map<string, FieldDefinition> = new Map(),
+  numberDisplayByField: Record<string, NumberDisplayOptions> = {},
 ): TabularDisplayRow[] {
   const tabular = report.tabular
   const ordered = orderRows(rows, tabular.groupRows, tabular.columns)
+  const formatCtx: TabularFormatContext = {
+    fieldDefinitions,
+    numberDisplayByField,
+  }
   if (tabular.groupRows.length === 0) {
-    return ordered.map((row, index) => detailRow(row, index, tabular))
+    return ordered.map((row, index) => detailRow(row, index, tabular, {}, 0, formatCtx))
   }
 
   const display: TabularDisplayRow[] = []
-  appendGroupedRows(display, ordered, tabular, fieldLabels, 0, {})
+  appendGroupedRows(display, ordered, tabular, fieldLabels, 0, {}, formatCtx)
 
   if (tabular.showGrandTotal !== false && hasAnySummary(tabular.columns)) {
     display.push(
@@ -114,10 +162,17 @@ export function buildTabularDisplayRows(
         ordered,
         {},
         'Grand Total',
+        0,
+        formatCtx,
       ),
     )
   }
   return display
+}
+
+interface TabularFormatContext {
+  fieldDefinitions: Map<string, FieldDefinition>
+  numberDisplayByField: Record<string, NumberDisplayOptions>
 }
 
 function appendGroupedRows(
@@ -127,19 +182,25 @@ function appendGroupedRows(
   fieldLabels: Record<string, string>,
   level: number,
   pathValues: Record<string, string>,
+  formatCtx: TabularFormatContext,
+  pathLinks: Record<string, TabularCellLink> = {},
 ): void {
   const group = tabular.groupRows[level]
   if (!group) return
 
-  const buckets = groupRowsBy(rows, group.field, group.sort ?? 'asc')
+  const buckets = groupRowsBy(rows, group.field, group.sort ?? 'asc', group.dateGrain)
   const isLeaf = level >= tabular.groupRows.length - 1
 
   for (const [value, bucket] of buckets) {
     const labelValue = value || '(empty)'
+    const groupCellKey = `group:${group.field}`
     const nextPath = {
       ...pathValues,
-      [`group:${group.field}`]: labelValue,
+      [groupCellKey]: labelValue,
     }
+    const groupLink = m2oLinkFromRow(bucket[0], group.field)
+    const nextLinks: Record<string, TabularCellLink> = { ...pathLinks }
+    if (groupLink) nextLinks[groupCellKey] = groupLink
     const pathKey = Object.entries(nextPath)
       .map(([field, label]) => `${field}=${label}`)
       .join('|')
@@ -154,9 +215,20 @@ function appendGroupedRows(
           nextPath,
           undefined,
           level,
+          formatCtx,
+          nextLinks,
         ),
       )
-      appendGroupedRows(display, bucket, tabular, fieldLabels, level + 1, nextPath)
+      appendGroupedRows(
+        display,
+        bucket,
+        tabular,
+        fieldLabels,
+        level + 1,
+        nextPath,
+        formatCtx,
+        nextLinks,
+      )
       continue
     }
 
@@ -171,6 +243,8 @@ function appendGroupedRows(
           nextPath,
           undefined,
           level,
+          formatCtx,
+          nextLinks,
         ),
       )
     } else {
@@ -182,12 +256,23 @@ function appendGroupedRows(
           ...nextPath,
           ...blankMeasureCells(tabular.columns),
         },
+        cellLinks: { ...nextLinks },
       })
     }
 
     if (tabular.showDetailRows !== false) {
       bucket.forEach((row, index) => {
-        display.push(detailRow(row, `${pathKey}_${index}`, tabular, nextPath, level + 1))
+        display.push(
+          detailRow(
+            row,
+            `${pathKey}_${index}`,
+            tabular,
+            nextPath,
+            level + 1,
+            formatCtx,
+            nextLinks,
+          ),
+        )
       })
     }
 
@@ -206,6 +291,8 @@ function appendGroupedRows(
           nextPath,
           `Subtotal · ${labelValue}`,
           level,
+          formatCtx,
+          nextLinks,
         ),
       )
     }
@@ -218,16 +305,34 @@ function detailRow(
   tabular: ReportTabularSettings,
   pathValues: Record<string, string> = {},
   level = 0,
+  formatCtx: TabularFormatContext = {
+    fieldDefinitions: new Map(),
+    numberDisplayByField: {},
+  },
+  pathLinks: Record<string, TabularCellLink> = {},
 ): TabularDisplayRow {
   const cells: Record<string, string> = { ...pathValues }
+  const cellLinks: Record<string, TabularCellLink> = { ...pathLinks }
   for (const column of tabular.columns) {
-    cells[column.field] = formatTabularCell(row, column.field)
+    const definition = formatCtx.fieldDefinitions.get(column.field)
+    const numberDisplay = formatCtx.numberDisplayByField[column.field]
+    const raw = getPathValue(row, column.field)
+    if (numberDisplay && isNumericFieldDefinition(definition)) {
+      cells[column.field] =
+        formatReportAggregateValue(raw, 'sum', numberDisplay) ||
+        formatTabularCell(row, column.field, definition)
+    } else {
+      cells[column.field] = formatTabularCell(row, column.field, definition)
+      const link = m2oCellLink(raw)
+      if (link) cellLinks[column.field] = link
+    }
   }
   // Indent nested details under group labels.
   for (const group of tabular.groupRows) {
     const groupKey = `group:${group.field}`
     if (level > 0 && cells[groupKey]) {
       cells[groupKey] = ''
+      delete cellLinks[groupKey]
     }
   }
   return {
@@ -236,6 +341,7 @@ function detailRow(
     level,
     source: row,
     cells,
+    cellLinks,
   }
 }
 
@@ -247,8 +353,15 @@ function aggregateRow(
   pathValues: Record<string, string>,
   overrideLabel?: string,
   level = 0,
+  formatCtx: TabularFormatContext = {
+    fieldDefinitions: new Map(),
+    numberDisplayByField: {},
+  },
+  pathLinks: Record<string, TabularCellLink> = {},
 ): TabularDisplayRow {
   const cells: Record<string, string> = { ...pathValues }
+  const cellLinks: Record<string, TabularCellLink> =
+    kind === 'group' ? { ...pathLinks } : {}
 
   if (kind === 'grandtotal') {
     const firstGroup = tabular.groupRows[0]
@@ -271,6 +384,7 @@ function aggregateRow(
       cells[column.field] = ''
       continue
     }
+    const numberDisplay = formatCtx.numberDisplayByField[column.field]
     cells[column.field] = summaries
       .map((aggregate) => {
         const value = computeSummary(rows, column.field, aggregate)
@@ -278,6 +392,7 @@ function aggregateRow(
         const formatted = formatReportAggregateValue(
           value,
           aggregate === 'median' ? 'avg' : aggregate,
+          numberDisplay,
         )
         return summaries.length > 1
           ? `${aggregateLabel(aggregate)} ${formatted}`
@@ -293,6 +408,7 @@ function aggregateRow(
     level,
     label: overrideLabel,
     cells,
+    cellLinks,
   }
 }
 
@@ -309,6 +425,7 @@ function hasAnySummary(columns: ReportTabularColumn[]): boolean {
 }
 
 function summaryHeader(aggregate: ReportSummaryAggregate): string {
+  if (aggregate === 'count') return 'Count of'
   if (aggregate === 'avg') return 'Avg of'
   if (aggregate === 'median') return 'Median of'
   if (aggregate === 'sum') return 'Sum of'
@@ -327,10 +444,14 @@ function groupRowsBy(
   rows: Record<string, unknown>[],
   field: string,
   sort: 'asc' | 'desc',
+  dateGrain?: ReportTabularGroup['dateGrain'],
 ): Array<[string, Record<string, unknown>[]]> {
   const map = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
-    const label = formatTabularCell(row, field) || '(empty)'
+    const label =
+      dimensionDisplayValue(getPathValue(row, field), '(empty)', dateGrain) ||
+      formatTabularCell(row, field) ||
+      '(empty)'
     const bucket = map.get(label) ?? []
     bucket.push(row)
     map.set(label, bucket)
@@ -341,7 +462,7 @@ function groupRowsBy(
   })
 }
 
-function orderRows(
+export function orderRows(
   rows: Record<string, unknown>[],
   groupRows: ReportTabularGroup[],
   columns: ReportTabularColumn[],

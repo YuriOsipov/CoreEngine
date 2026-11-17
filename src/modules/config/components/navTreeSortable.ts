@@ -12,12 +12,13 @@
 export function createNavTreeSortableAttrs() {
   return {
     group: { name: 'nav' },
+    // Drag only from the grip — label/actions use pointerdown to edit.
     handle: '.nav-node__handle',
-    filter: '.nav-node__children',
+    filter: '.nav-node__children, .nav-node__actions, .nav-node__label, .nav-node__add, button',
     preventOnFilter: false,
     forceFallback: true,
     fallbackOnBody: true,
-    fallbackTolerance: 3,
+    fallbackTolerance: 8,
     dragoverBubble: true,
     swapThreshold: 0.65,
     emptyInsertThreshold: 12,

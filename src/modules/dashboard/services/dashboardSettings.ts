@@ -370,7 +370,7 @@ async function buildReportPanelRender(
     if (!series) {
       return {
         kind: 'unsupported',
-        reason: 'Report not found or has no pivot values.',
+        reason: 'Report not found or has no aggregate values.',
         options,
       }
     }

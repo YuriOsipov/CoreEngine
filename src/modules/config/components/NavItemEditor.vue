@@ -24,6 +24,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:visible': [value: boolean]
+  save: [item: NavItem]
 }>()
 
 const { t } = useTranslation()
@@ -34,8 +35,14 @@ const reports = ref<NavPickerOption[]>([])
 const views = ref<NavPickerOption[]>([])
 const viewsLoading = ref(false)
 const optionsLoaded = ref(false)
+const draft = ref<NavItem | null>(null)
 
-const isLink = computed(() => props.item?.type === 'link')
+const isLink = computed(() => draft.value?.type === 'link')
+
+const dialogVisible = computed({
+  get: () => props.visible,
+  set: (value: boolean) => emit('update:visible', value),
+})
 
 const targetKindOptions = computed<Array<{ label: string; value: NavTargetKind }>>(() => [
   { label: t('navigation.targetHome', 'Home'), value: 'home' },
@@ -46,13 +53,9 @@ const targetKindOptions = computed<Array<{ label: string; value: NavTargetKind }
   { label: t('navigation.targetUrl', 'URL'), value: 'url' },
 ])
 
-const targetKind = computed<NavTargetKind>({
-  get: () => (props.item?.type === 'link' ? props.item.target.kind : 'home'),
-  set: (kind) => {
-    if (props.item?.type !== 'link') return
-    props.item.target = defaultTargetForKind(kind)
-  },
-})
+function cloneItem(item: NavItem): NavItem {
+  return JSON.parse(JSON.stringify(item)) as NavItem
+}
 
 function defaultTargetForKind(kind: NavTargetKind): NavTarget {
   switch (kind) {
@@ -72,75 +75,97 @@ function defaultTargetForKind(kind: NavTargetKind): NavTarget {
   }
 }
 
+const targetKind = computed<NavTargetKind>({
+  get: () => (draft.value?.type === 'link' ? draft.value.target.kind : 'home'),
+  set: (kind) => {
+    if (draft.value?.type !== 'link') return
+    draft.value.target = defaultTargetForKind(kind)
+  },
+})
+
 const objectCollection = computed<string>({
   get: () =>
-    props.item?.type === 'link' && props.item.target.kind === 'object'
-      ? props.item.target.collection
+    draft.value?.type === 'link' && draft.value.target.kind === 'object'
+      ? draft.value.target.collection
       : '',
   set: (value) => {
-    if (props.item?.type === 'link' && props.item.target.kind === 'object') {
-      props.item.target.collection = value
+    if (draft.value?.type === 'link' && draft.value.target.kind === 'object') {
+      draft.value.target.collection = value
     }
   },
 })
 
 const objectViewId = computed<string>({
   get: () =>
-    props.item?.type === 'link' && props.item.target.kind === 'object'
-      ? props.item.target.viewId ?? ''
+    draft.value?.type === 'link' && draft.value.target.kind === 'object'
+      ? draft.value.target.viewId ?? ''
       : '',
   set: (value) => {
-    if (props.item?.type === 'link' && props.item.target.kind === 'object') {
-      props.item.target.viewId = value || undefined
+    if (draft.value?.type === 'link' && draft.value.target.kind === 'object') {
+      draft.value.target.viewId = value || undefined
     }
   },
 })
 
 const dashboardId = computed<string>({
   get: () =>
-    props.item?.type === 'link' && props.item.target.kind === 'dashboard'
-      ? props.item.target.dashboardId
+    draft.value?.type === 'link' && draft.value.target.kind === 'dashboard'
+      ? draft.value.target.dashboardId
       : '',
   set: (value) => {
-    if (props.item?.type === 'link' && props.item.target.kind === 'dashboard') {
-      props.item.target.dashboardId = value
+    if (draft.value?.type === 'link' && draft.value.target.kind === 'dashboard') {
+      draft.value.target.dashboardId = value
     }
   },
 })
 
 const reportIds = computed<string[]>({
   get: () =>
-    props.item?.type === 'link' && props.item.target.kind === 'reports'
-      ? props.item.target.reportIds
+    draft.value?.type === 'link' && draft.value.target.kind === 'reports'
+      ? [...draft.value.target.reportIds]
       : [],
   set: (value) => {
-    if (props.item?.type === 'link' && props.item.target.kind === 'reports') {
-      props.item.target.reportIds = value
+    if (draft.value?.type === 'link' && draft.value.target.kind === 'reports') {
+      draft.value.target.reportIds = value
     }
   },
 })
 
 const urlHref = computed<string>({
   get: () =>
-    props.item?.type === 'link' && props.item.target.kind === 'url'
-      ? props.item.target.href
+    draft.value?.type === 'link' && draft.value.target.kind === 'url'
+      ? draft.value.target.href
       : '',
   set: (value) => {
-    if (props.item?.type === 'link' && props.item.target.kind === 'url') {
-      props.item.target.href = value
+    if (draft.value?.type === 'link' && draft.value.target.kind === 'url') {
+      draft.value.target.href = value
     }
   },
 })
 
 const urlExternal = computed<boolean>({
   get: () =>
-    props.item?.type === 'link' && props.item.target.kind === 'url'
-      ? props.item.target.external === true
+    draft.value?.type === 'link' && draft.value.target.kind === 'url'
+      ? draft.value.target.external === true
       : false,
   set: (value) => {
-    if (props.item?.type === 'link' && props.item.target.kind === 'url') {
-      props.item.target.external = value
+    if (draft.value?.type === 'link' && draft.value.target.kind === 'url') {
+      draft.value.target.external = value
     }
+  },
+})
+
+const draftLabel = computed({
+  get: () => draft.value?.label ?? '',
+  set: (value: string) => {
+    if (draft.value) draft.value.label = value
+  },
+})
+
+const draftIcon = computed({
+  get: () => draft.value?.icon ?? '',
+  set: (value: string) => {
+    if (draft.value) draft.value.icon = value || undefined
   },
 })
 
@@ -169,15 +194,26 @@ async function loadViews(collection: string): Promise<void> {
 }
 
 watch(
-  () => props.visible,
-  (visible) => {
-    if (visible) void ensureOptions()
+  () => [props.visible, props.item] as const,
+  ([visible, item]) => {
+    if (!visible || !item) {
+      if (!visible) draft.value = null
+      return
+    }
+    draft.value = cloneItem(item)
+    void ensureOptions()
+    if (item.type === 'link' && item.target.kind === 'object') {
+      void loadViews(item.target.collection)
+    } else {
+      views.value = []
+    }
   },
 )
 
-watch(objectCollection, (collection) => {
-  if (props.item?.type === 'link' && props.item.target.kind === 'object') {
-    props.item.target.viewId = undefined
+watch(objectCollection, (collection, previous) => {
+  if (previous === undefined || collection === previous) return
+  if (draft.value?.type === 'link' && draft.value.target.kind === 'object') {
+    draft.value.target.viewId = undefined
   }
   void loadViews(collection)
 })
@@ -185,31 +221,40 @@ watch(objectCollection, (collection) => {
 function close(): void {
   emit('update:visible', false)
 }
+
+function save(): void {
+  if (!draft.value) {
+    close()
+    return
+  }
+  emit('save', cloneItem(draft.value))
+  close()
+}
 </script>
 
 <template>
   <Dialog
-    :visible="visible"
+    v-model:visible="dialogVisible"
     modal
+    append-to="body"
     :header="isLink
       ? t('navigation.editLink', 'Edit link')
       : t('navigation.editFolder', 'Edit folder')"
     :style="{ width: '32rem' }"
-    @update:visible="emit('update:visible', $event)"
   >
-    <div v-if="item" class="flex flex-col gap-4">
+    <div v-if="draft" class="flex flex-col gap-4">
       <div class="flex flex-col gap-1">
         <label class="text-surface-700 text-[0.8rem] font-semibold">
           {{ t('navigation.itemLabel', 'Label') }}
         </label>
-        <InputText v-model="item.label" fluid />
+        <InputText v-model="draftLabel" fluid />
       </div>
 
       <div class="flex flex-col gap-1">
         <label class="text-surface-700 text-[0.8rem] font-semibold">
           {{ t('navigation.itemIcon', 'Icon') }}
         </label>
-        <CrmIconPicker v-model="item.icon" />
+        <CrmIconPicker v-model="draftIcon" />
       </div>
 
       <template v-if="isLink">
@@ -318,8 +363,14 @@ function close(): void {
 
     <template #footer>
       <Button
-        :label="t('common.ok', 'OK')"
+        :label="t('common.cancel', 'Cancel')"
+        severity="secondary"
+        text
         @click="close"
+      />
+      <Button
+        :label="t('common.ok', 'OK')"
+        @click="save"
       />
     </template>
   </Dialog>

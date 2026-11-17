@@ -179,8 +179,9 @@ function isComparisonFilterValue(value: unknown): boolean {
 }
 
 /**
- * Compile a Directus-style filter, including one-hop nested M2O paths such as
- * `{ item: { item_group: { _eq: id } } }` or dotted keys `item.item_group`.
+ * Compile a Directus-style filter, including nested M2O paths such as
+ * `{ opportunity: { account_id: { type: { _eq: "prospect" } } } }`
+ * or dotted keys `opportunity.account_id.type`.
  */
 async function compileFilter(
   collection: string,
@@ -285,6 +286,8 @@ async function compileM2ORelationFilter(
   fieldApiName: string,
   nestedFilter: Record<string, unknown>,
   startIndex: number,
+  parentAlias: string | null = null,
+  depth = 0,
 ): Promise<SqlFragment | null> {
   const m2oRels = await loadM2ORelations(collection)
   const m2o = m2oRels.find(
@@ -293,9 +296,12 @@ async function compileM2ORelationFilter(
   if (!m2o) return null
 
   const relatedRelation = await resolveRecordRelation(m2o.relatedEntityApiName)
-  const fkExpr = parentFkExpr(parentRelation, m2o.fieldApiName)
+  const alias = `r${depth}`
+  const fkExpr = parentAlias
+    ? aliasedParentFkExpr(parentRelation, parentAlias, m2o.fieldApiName)
+    : parentFkExpr(parentRelation, m2o.fieldApiName)
   const entityFilter = relatedRelation.needsEntityFilter
-    ? ` AND r.entity_api_name = ${quoteLiteral(m2o.relatedEntityApiName)}`
+    ? ` AND ${alias}.entity_api_name = ${quoteLiteral(m2o.relatedEntityApiName)}`
     : ''
 
   const inner = await compileAliasedFilter(
@@ -303,25 +309,38 @@ async function compileM2ORelationFilter(
     relatedRelation,
     nestedFilter,
     startIndex,
-    'r',
+    alias,
+    depth,
   )
   if (!inner) return null
 
   return {
     sql:
-      `EXISTS (SELECT 1 FROM ${relatedRelation.relationSql} r ` +
-      `WHERE r.record_id::text = (${fkExpr})::text${entityFilter} AND (${inner.sql}))`,
+      `EXISTS (SELECT 1 FROM ${relatedRelation.relationSql} ${alias} ` +
+      `WHERE ${alias}.record_id::text = (${fkExpr})::text${entityFilter} AND (${inner.sql}))`,
     params: inner.params,
   }
 }
 
+/** FK scalar on an aliased related row (promoted column preferred). */
+function aliasedParentFkExpr(
+  relation: CrmRecordRelation,
+  alias: string,
+  fieldApiName: string,
+): string {
+  const promoted = findPromotedField(relation, fieldApiName)
+  if (promoted) return `${alias}.${quoteIdent(promoted.apiName)}`
+  return `${alias}.data->>${quoteLiteral(fieldApiName)}`
+}
+
 /** Filter clauses scoped to a related-table alias (for EXISTS subqueries). */
 async function compileAliasedFilter(
-  _collection: string,
+  collection: string,
   relation: CrmRecordRelation,
   filter: unknown,
   startIndex: number,
   alias: string,
+  depth = 0,
 ): Promise<SqlFragment | null> {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return null
   const entries = Object.entries(filter as Record<string, unknown>)
@@ -343,11 +362,12 @@ async function compileAliasedFilter(
       const childSql: string[] = []
       for (const child of value) {
         const frag = await compileAliasedFilter(
-          _collection,
+          collection,
           relation,
           child,
           index,
           alias,
+          depth,
         )
         if (!frag) continue
         childSql.push(`(${frag.sql})`)
@@ -361,8 +381,6 @@ async function compileAliasedFilter(
       continue
     }
 
-    // One-hop tree filters only need scalar compares on the related row
-    // (e.g. item_group._eq). Deeper relation nesting is handled at the root.
     if (key === 'id') {
       consume(compileComparison(`${alias}.record_id`, value, index, false))
       continue
@@ -380,8 +398,47 @@ async function compileAliasedFilter(
       continue
     }
 
-    const fieldName = key.includes('.') ? (key.split('.')[0] ?? key) : key
-    const promoted = findPromotedField(relation, fieldName)
+    // Dotted multi-hop on the related row: account_id.type → nested EXISTS.
+    if (key.includes('.')) {
+      const [root, ...rest] = key.split('.').map((part) => part.trim()).filter(Boolean)
+      if (root && rest.length) {
+        consume(
+          await compileM2ORelationFilter(
+            collection,
+            relation,
+            root,
+            { [rest.join('.')]: value },
+            index,
+            alias,
+            depth + 1,
+          ),
+        )
+      }
+      continue
+    }
+
+    // Nested object that is not a comparison op → deeper M2O hop.
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      !isComparisonFilterValue(value)
+    ) {
+      consume(
+        await compileM2ORelationFilter(
+          collection,
+          relation,
+          key,
+          value as Record<string, unknown>,
+          index,
+          alias,
+          depth + 1,
+        ),
+      )
+      continue
+    }
+
+    const promoted = findPromotedField(relation, key)
     if (promoted) {
       consume(
         compileComparison(
@@ -396,7 +453,7 @@ async function compileAliasedFilter(
 
     consume(
       compileComparison(
-        `${alias}.data->>${quoteLiteral(fieldName)}`,
+        `${alias}.data->>${quoteLiteral(key)}`,
         value,
         index,
         false,

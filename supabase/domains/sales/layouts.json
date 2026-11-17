@@ -4648,27 +4648,32 @@
         "id": "report_a24c5aa17c39",
         "name": "sales",
         "limit": -1,
-        "pivot": {
-          "rows": [
+        "type": "tabular",
+        "tabular": {
+          "columns": [
+            {
+              "field": "price",
+              "sort": null,
+              "summaries": ["sum"]
+            }
+          ],
+          "groupRows": [
             {
               "sort": "asc",
               "field": "opportunity.close_date",
               "dateGrain": "month"
             }
           ],
-          "values": [
-            {
-              "field": "price",
-              "aggregate": "sum"
-            }
-          ],
-          "columns": [
+          "groupColumns": [
             {
               "sort": "asc",
               "field": "item.group",
               "dateGrain": null
             }
           ],
+          "showDetailRows": false,
+          "showSubtotals": false,
+          "showGrandTotal": true,
           "sortRowsByTotal": null
         },
         "title": "Sales",

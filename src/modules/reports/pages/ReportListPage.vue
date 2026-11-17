@@ -9,18 +9,21 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
+import { buildHierarchyTreeNodes, type HierarchyTreeNode } from '@/core/hierarchyTree'
 import { loadAppRoles } from '@/core/settingRoleUtils'
 import { useTranslation } from '@/core/translation'
 import type { AppRoleOption } from '@/interfaces'
 import {
+  collectReportFolderDescendantIds,
   deleteReport,
   deleteReportFolder,
-  isTabularReport,
   listReportFolders,
   listReports,
+  reportFolderDepth,
+  reportFolderPathLabel,
+  REPORT_FOLDER_MAX_DEPTH,
   saveReportFolder,
   type ReportFolder,
-  type ReportType,
   type ReportWithSetting,
 } from '../services/reportSettings'
 
@@ -37,31 +40,69 @@ const searchQuery = ref('')
 const selectedFolderId = ref<string | 'all' | 'unfiled'>('all')
 const folderDialogVisible = ref(false)
 const folderName = ref('')
+const folderParentId = ref<string | null>(null)
 const folderSaving = ref(false)
-const typeDialogVisible = ref(false)
-const pendingReportType = ref<ReportType>('tabular')
+const expandedFolderIds = ref<Set<string>>(new Set())
 
-const reportTypeOptions = computed(() => [
-  {
-    label: t('reports.typeTabular', 'Tabular'),
-    value: 'tabular' as ReportType,
-    detail: t(
-      'reports.typeTabularHint',
-      'Flat columns with filters — Salesforce-style tabular designer.',
-    ),
-  },
-  {
-    label: t('reports.typePivot', 'Pivot'),
-    value: 'pivot' as ReportType,
-    detail: t(
-      'reports.typePivotHint',
-      'Matrix report with row/column groups and aggregates.',
-    ),
-  },
-])
+interface FolderTreeRow {
+  folder: ReportFolder
+  depth: number
+  hasChildren: boolean
+}
+
+const folderTree = computed(() =>
+  buildHierarchyTreeNodes(
+    folders.value.map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      parentId: folder.parentId ?? null,
+      settingId: folder.settingId,
+    })),
+    {
+      primaryKey: 'id',
+      labelField: 'name',
+      parentField: 'parentId',
+    },
+  ),
+)
+
+const folderTreeRows = computed(() => {
+  const rows: FolderTreeRow[] = []
+  const walk = (nodes: HierarchyTreeNode[], depth: number) => {
+    for (const node of nodes) {
+      const folder = folders.value.find((item) => item.id === node.key)
+      if (!folder) continue
+      const children = node.children ?? []
+      rows.push({
+        folder,
+        depth,
+        hasChildren: children.length > 0,
+      })
+      if (children.length > 0 && expandedFolderIds.value.has(folder.id)) {
+        walk(children, depth + 1)
+      }
+    }
+  }
+  walk(folderTree.value, 0)
+  return rows
+})
+
+const folderParentOptions = computed(() => {
+  const options: Array<{ label: string; value: string | null }> = [
+    { label: t('reports.rootFolder', 'Root (no parent)'), value: null },
+  ]
+  for (const folder of folders.value) {
+    if (reportFolderDepth(folders.value, folder.id) >= REPORT_FOLDER_MAX_DEPTH) continue
+    options.push({
+      label: reportFolderPathLabel(folders.value, folder.id, folder.name),
+      value: folder.id,
+    })
+  }
+  return options
+})
 
 const folderCounts = computed(() => {
-  const counts = new Map<string, number>()
+  const direct = new Map<string, number>()
   let unfiled = 0
   for (const report of reports.value) {
     const folderId = report.config.folderId
@@ -69,33 +110,43 @@ const folderCounts = computed(() => {
       unfiled += 1
       continue
     }
-    counts.set(folderId, (counts.get(folderId) ?? 0) + 1)
+    direct.set(folderId, (direct.get(folderId) ?? 0) + 1)
   }
-  return { counts, unfiled, all: reports.value.length }
+
+  const withDescendants = new Map<string, number>()
+  for (const folder of folders.value) {
+    const ids = collectReportFolderDescendantIds(folders.value, folder.id)
+    let total = 0
+    for (const id of ids) total += direct.get(id) ?? 0
+    withDescendants.set(folder.id, total)
+  }
+
+  return { direct, withDescendants, unfiled, all: reports.value.length }
 })
 
 const filteredReports = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
+  const selected = selectedFolderId.value
+  const selectedDescendants =
+    selected !== 'all' && selected !== 'unfiled'
+      ? collectReportFolderDescendantIds(folders.value, selected)
+      : null
+
   return reports.value.filter((report) => {
-    if (selectedFolderId.value === 'unfiled' && report.config.folderId) return false
-    if (
-      selectedFolderId.value !== 'all' &&
-      selectedFolderId.value !== 'unfiled' &&
-      report.config.folderId !== selectedFolderId.value
-    ) {
-      return false
+    if (selected === 'unfiled' && report.config.folderId) return false
+    if (selectedDescendants) {
+      const folderId = report.config.folderId
+      if (!folderId || !selectedDescendants.has(folderId)) return false
     }
     if (!q) return true
     const folderName = folderLabel(report.config.folderId)
     const roleName = roleLabelFor(report.roleId)
-    const typeLabel = typeLabelFor(report)
     return (
       report.title.toLowerCase().includes(q) ||
       report.name.toLowerCase().includes(q) ||
       report.collection.toLowerCase().includes(q) ||
       folderName.toLowerCase().includes(q) ||
-      roleName.toLowerCase().includes(q) ||
-      typeLabel.toLowerCase().includes(q)
+      roleName.toLowerCase().includes(q)
     )
   })
 })
@@ -115,6 +166,11 @@ async function loadAll(): Promise<void> {
     reports.value = reportRows
     folders.value = folderRows
     roles.value = roleRows
+    // Keep only expansions for folders that still exist (folders stay collapsed by default).
+    const validIds = new Set(folderRows.map((folder) => folder.id))
+    expandedFolderIds.value = new Set(
+      [...expandedFolderIds.value].filter((id) => validIds.has(id)),
+    )
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -129,7 +185,7 @@ async function loadAll(): Promise<void> {
 
 function folderLabel(folderId: string | null | undefined): string {
   if (!folderId) return t('reports.unfiled', 'Unfiled')
-  return folders.value.find((folder) => folder.id === folderId)?.name ?? folderId
+  return reportFolderPathLabel(folders.value, folderId) || folderId
 }
 
 function roleLabelFor(roleId: string | null | undefined): string {
@@ -139,23 +195,15 @@ function roleLabelFor(roleId: string | null | undefined): string {
   return roles.value.find((role) => role.id === roleId)?.name ?? roleId
 }
 
-function typeLabelFor(report: ReportWithSetting): string {
-  return isTabularReport(report.config)
-    ? t('reports.typeTabular', 'Tabular')
-    : t('reports.typePivot', 'Pivot')
+function toggleFolderExpanded(folderId: string): void {
+  const next = new Set(expandedFolderIds.value)
+  if (next.has(folderId)) next.delete(folderId)
+  else next.add(folderId)
+  expandedFolderIds.value = next
 }
 
 function openNewReport(): void {
-  pendingReportType.value = 'tabular'
-  typeDialogVisible.value = true
-}
-
-function confirmNewReportType(): void {
-  typeDialogVisible.value = false
-  void router.push({
-    name: 'setup-report-new',
-    query: { type: pendingReportType.value },
-  })
+  void router.push({ name: 'setup-report-new' })
 }
 
 function openReport(report: ReportWithSetting): void {
@@ -167,6 +215,17 @@ function openReport(report: ReportWithSetting): void {
 
 function openNewFolderDialog(): void {
   folderName.value = ''
+  const selected = selectedFolderId.value
+  if (
+    typeof selected === 'string' &&
+    selected !== 'all' &&
+    selected !== 'unfiled' &&
+    reportFolderDepth(folders.value, selected) < REPORT_FOLDER_MAX_DEPTH
+  ) {
+    folderParentId.value = selected
+  } else {
+    folderParentId.value = null
+  }
   folderDialogVisible.value = true
 }
 
@@ -175,8 +234,16 @@ async function saveFolder(): Promise<void> {
   if (!name) return
   folderSaving.value = true
   try {
-    await saveReportFolder({ name })
+    const saved = await saveReportFolder({
+      name,
+      parentId: folderParentId.value,
+    })
     folderDialogVisible.value = false
+    if (saved.parentId) {
+      const next = new Set(expandedFolderIds.value)
+      next.add(saved.parentId)
+      expandedFolderIds.value = next
+    }
     await loadAll()
     toast.add({
       severity: 'success',
@@ -199,8 +266,8 @@ async function saveFolder(): Promise<void> {
 function confirmDeleteFolder(folder: ReportFolder): void {
   confirm.require({
     message: t(
-      'reports.deleteFolderConfirm',
-      'Delete folder "{name}"? Reports in it will become unfiled.',
+      'reports.deleteFolderConfirmNested',
+      'Delete folder "{name}"? Reports in it will become unfiled. Subfolders move up one level.',
       { name: folder.name },
     ),
     header: t('reports.deleteFolder', 'Delete folder'),
@@ -300,7 +367,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
       </div>
     </div>
 
-    <div class="grid gap-4 grid-cols-[minmax(200px,240px)_minmax(0,1fr)] max-[900px]:grid-cols-1">
+    <div class="grid gap-4 grid-cols-[minmax(200px,260px)_minmax(0,1fr)] max-[900px]:grid-cols-1">
       <aside class="bg-surface-0 border border-surface-200 rounded-lg p-3 grid gap-2 content-start">
         <button
           type="button"
@@ -328,19 +395,35 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
           {{ t('reports.noFolders', 'No folders yet.') }}
         </p>
         <div
-          v-for="folder in folders"
-          :key="folder.settingId"
+          v-for="row in folderTreeRows"
+          :key="row.folder.settingId"
           class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1"
+          :style="{ paddingLeft: `${row.depth * 0.75}rem` }"
         >
-          <button
-            type="button"
-            class="text-left border-0 rounded-md px-3 py-2 cursor-pointer truncate"
-            :class="selectedFolderId === folder.id ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-surface-700'"
-            @click="selectedFolderId = folder.id"
-          >
-            {{ folder.name }}
-            <span class="text-muted-color ml-1">({{ folderCounts.counts.get(folder.id) ?? 0 }})</span>
-          </button>
+          <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-0.5 min-w-0">
+            <Button
+              v-if="row.hasChildren"
+              :icon="expandedFolderIds.has(row.folder.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+              text
+              rounded
+              size="small"
+              class="w-7 h-7"
+              :aria-label="t('reports.toggleFolder', 'Expand or collapse folder')"
+              @click="toggleFolderExpanded(row.folder.id)"
+            />
+            <span v-else class="w-7" />
+            <button
+              type="button"
+              class="text-left border-0 rounded-md px-2 py-2 cursor-pointer truncate"
+              :class="selectedFolderId === row.folder.id ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-surface-700'"
+              @click="selectedFolderId = row.folder.id"
+            >
+              {{ row.folder.name }}
+              <span class="text-muted-color ml-1">
+                ({{ folderCounts.withDescendants.get(row.folder.id) ?? 0 }})
+              </span>
+            </button>
+          </div>
           <Button
             icon="pi pi-trash"
             text
@@ -348,7 +431,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
             severity="danger"
             size="small"
             :aria-label="t('reports.deleteFolder', 'Delete folder')"
-            @click="confirmDeleteFolder(folder)"
+            @click="confirmDeleteFolder(row.folder)"
           />
         </div>
       </aside>
@@ -395,11 +478,6 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
               </button>
             </template>
           </Column>
-          <Column :header="t('reports.reportType', 'Type')">
-            <template #body="{ data }">
-              {{ typeLabelFor(data) }}
-            </template>
-          </Column>
           <Column field="collection" :header="t('reports.sourceCollection', 'Source collection')" />
           <Column :header="t('layoutRole.role', 'Role')">
             <template #body="{ data }">
@@ -444,58 +522,34 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
     </div>
 
     <Dialog
-      v-model:visible="typeDialogVisible"
-      modal
-      :header="t('reports.chooseReportType', 'Choose report type')"
-      :style="{ width: 'min(480px, 94vw)' }"
-    >
-      <div class="grid gap-3">
-        <label
-          v-for="option in reportTypeOptions"
-          :key="option.value"
-          class="border border-surface-200 rounded-lg p-3 grid gap-1 cursor-pointer"
-          :class="pendingReportType === option.value ? 'border-primary bg-primary-50' : ''"
-        >
-          <div class="flex items-center gap-2">
-            <RadioButton
-              v-model="pendingReportType"
-              :input-id="`report-type-${option.value}`"
-              :value="option.value"
-            />
-            <span class="font-semibold">{{ option.label }}</span>
-          </div>
-          <p class="text-muted-color text-[0.85rem] m-0 pl-7">{{ option.detail }}</p>
-        </label>
-      </div>
-      <template #footer>
-        <Button
-          :label="t('common.cancel', 'Cancel')"
-          text
-          severity="secondary"
-          @click="typeDialogVisible = false"
-        />
-        <Button
-          :label="t('reports.continue', 'Continue')"
-          @click="confirmNewReportType"
-        />
-      </template>
-    </Dialog>
-
-    <Dialog
       v-model:visible="folderDialogVisible"
       modal
       :header="t('reports.newFolder', 'New folder')"
       :style="{ width: 'min(420px, 94vw)' }"
     >
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
-        {{ t('reports.folderName', 'Folder name') }}
-        <InputText
-          v-model="folderName"
-          fluid
-          :placeholder="t('reports.folderNamePlaceholder', 'Sales')"
-          @keyup.enter="saveFolder"
-        />
-      </label>
+      <div class="grid gap-3">
+        <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
+          {{ t('reports.folderName', 'Folder name') }}
+          <InputText
+            v-model="folderName"
+            fluid
+            :placeholder="t('reports.folderNamePlaceholder', 'Sales')"
+            @keyup.enter="saveFolder"
+          />
+        </label>
+        <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
+          {{ t('reports.parentFolder', 'Parent folder') }}
+          <Select
+            v-model="folderParentId"
+            :options="folderParentOptions"
+            option-label="label"
+            option-value="value"
+            fluid
+            show-clear
+            :placeholder="t('reports.rootFolder', 'Root (no parent)')"
+          />
+        </label>
+      </div>
       <template #footer>
         <Button
           :label="t('common.cancel', 'Cancel')"

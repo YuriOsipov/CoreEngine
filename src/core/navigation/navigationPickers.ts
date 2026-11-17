@@ -27,11 +27,10 @@ export async function listNavDashboards(): Promise<NavPickerOption[]> {
     }))
 }
 
+/** Setup picker: all reports (role visibility is applied at runtime in the menu). */
 export async function listNavReports(): Promise<NavPickerOption[]> {
-  const { listReportsForCurrentRole } = await import(
-    '@/modules/reports/services/reportSettings'
-  )
-  const reports = await listReportsForCurrentRole()
+  const { listReports } = await import('@/modules/reports/services/reportSettings')
+  const reports = await listReports()
   return reports.map((report) => ({
     label: report.title || report.name,
     value: String(report.settingId),

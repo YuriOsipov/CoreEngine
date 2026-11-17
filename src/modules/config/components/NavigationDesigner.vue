@@ -5,7 +5,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
@@ -24,6 +24,7 @@ import {
   loadNavigationApps,
   saveNavigationApp,
 } from '@/core/navigation/navigationService'
+import { useNavigationMenu } from '@/core/navigation/useNavigationMenu'
 import NavTreeNode from './NavTreeNode.vue'
 import NavItemEditor from './NavItemEditor.vue'
 import { createNavFolder, createNavLink } from './navigationItemFactory'
@@ -31,6 +32,7 @@ import { createNavFolder, createNavLink } from './navigationItemFactory'
 const { t } = useTranslation()
 const confirm = useConfirm()
 const toast = useToast()
+const { reload: reloadLiveMenu } = useNavigationMenu()
 
 const app = ref<NavigationApp>(createDefaultNavigationApp())
 const apps = ref<SavedNavigationApp[]>([])
@@ -124,43 +126,72 @@ function startNewApp(): void {
   isDefault.value = false
 }
 
-function openEditor(item: NavItem): void {
+async function openEditor(item: NavItem): Promise<void> {
   editingHome.value = false
   editingItem.value = item
+  await nextTick()
   editorVisible.value = true
 }
 
 function addTopLink(): void {
   const link = createNavLink()
   app.value.items.push(link)
-  openEditor(link)
+  void openEditor(link)
 }
 
 function addTopFolder(): void {
   const folder = createNavFolder()
   app.value.items.push(folder)
-  openEditor(folder)
+  void openEditor(folder)
 }
 
-function openHomeEditor(): void {
+async function openHomeEditor(): Promise<void> {
   homeProxy.value = {
     id: '__home__',
     type: 'link',
     label: t('navigation.home', 'Home'),
-    target: app.value.home,
+    target: structuredClone(app.value.home),
   }
   editingHome.value = true
   editingItem.value = homeProxy.value
+  await nextTick()
   editorVisible.value = true
 }
 
 function handleEditorVisibility(visible: boolean): void {
   editorVisible.value = visible
-  if (!visible && editingHome.value && homeProxy.value) {
-    app.value.home = homeProxy.value.target
+  if (!visible) {
     editingHome.value = false
     homeProxy.value = null
+    editingItem.value = null
   }
+}
+
+function applyEditorSave(updated: NavItem): void {
+  if (editingHome.value) {
+    if (updated.type === 'link') {
+      app.value.home = updated.target
+    }
+    editingHome.value = false
+    homeProxy.value = null
+    editingItem.value = null
+    return
+  }
+
+  const current = editingItem.value
+  if (!current || current.id !== updated.id) {
+    editingItem.value = null
+    return
+  }
+
+  current.label = updated.label
+  current.icon = updated.icon
+  if (current.type === 'link' && updated.type === 'link') {
+    current.target = updated.target
+  } else if (current.type === 'folder' && updated.type === 'folder') {
+    current.collapsed = updated.collapsed
+  }
+  editingItem.value = null
 }
 
 async function save(): Promise<void> {
@@ -178,6 +209,7 @@ async function save(): Promise<void> {
     selectedRecordId.value = saved.id
     await reloadList()
     await selectApp(saved.id)
+    await reloadLiveMenu()
     toast.add({
       severity: 'success',
       summary: t('common.saved', 'Saved'),
@@ -215,6 +247,7 @@ async function remove(): Promise<void> {
     await deleteNavigationApp(selectedRecordId.value)
     selectedRecordId.value = null
     await reloadList()
+    await reloadLiveMenu()
     toast.add({
       severity: 'success',
       summary: t('common.saved', 'Saved'),
@@ -368,6 +401,7 @@ async function remove(): Promise<void> {
       :visible="editorVisible"
       :item="editingItem"
       @update:visible="handleEditorVisibility"
+      @save="applyEditorSave"
     />
   </div>
 </template>

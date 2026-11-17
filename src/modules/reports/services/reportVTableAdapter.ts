@@ -12,7 +12,11 @@ import type {
   ReportPivotValue,
   ReportSortDirection,
 } from './reportSettings'
-import { normalizePivotSort } from './reportSettings'
+import {
+  normalizePivotSort,
+  reportColumnWidthKey,
+  reportFieldDisplayLabel,
+} from './reportSettings'
 import { formatReportDateGrain } from './reportDateGrain'
 import { formatReportAggregateValue } from './reportCellDisplay'
 import { orderedRowLabelsByTotal } from './reportRowTotalSort'
@@ -40,9 +44,18 @@ interface VTableFieldBinding {
   sourceField: string
   vtableField: string
   title: string
+  /** Stable key for persisted columnWidths. */
+  widthKey: string
   sort?: ReportSortDirection
   dateGrain?: ReportDateGrain | null
 }
+
+/** Default body/indicator column width (px) — short by design. */
+export const REPORT_DEFAULT_COL_WIDTH = 112
+/** Default row-header column width (px). */
+export const REPORT_DEFAULT_ROW_HEADER_WIDTH = 128
+/** Allow users to shrink columns down to this width when resizing. */
+export const REPORT_MIN_COL_WIDTH = 48
 
 export interface ReportVTableLabels {
   allRecords: string
@@ -73,6 +86,7 @@ export function buildReportVTableOptions(
   pivot: ReportPivotSettings,
   labels: ReportVTableLabels = DEFAULT_REPORT_VTABLE_LABELS,
   valueDisplayByField: Record<string, NumberDisplayOptions | null | undefined> = {},
+  columnWidths: Record<string, number> = {},
 ): PivotTableConstructorOptions {
   const rowBindings = (pivot.rows ?? []).map((dimension, index) =>
     dimensionBinding(dimension, 'row', index),
@@ -90,6 +104,7 @@ export function buildReportVTableOptions(
         sourceField: ALL_ROWS_FIELD,
         vtableField: ALL_ROWS_FIELD,
         title: labels.records,
+        widthKey: reportColumnWidthKey('row', ALL_ROWS_FIELD),
         sort: 'asc' as ReportSortDirection,
       }]
 
@@ -151,10 +166,22 @@ export function buildReportVTableOptions(
 
   return {
     records: flattenedRecords,
-    rows: effectiveRows.map(toRowDimension),
-    columns: columnBindings.map(toColumnDimension),
+    rows: effectiveRows.map((binding) =>
+      toRowDimension(binding, resolveWidth(columnWidths, binding.widthKey, REPORT_DEFAULT_ROW_HEADER_WIDTH)),
+    ),
+    columns: columnBindings.map((binding) =>
+      toColumnDimension(
+        binding,
+        resolveWidth(columnWidths, binding.widthKey, REPORT_DEFAULT_COL_WIDTH),
+      ),
+    ),
     indicators: valueBindings.map((binding, index) =>
-      toIndicator(values[index], binding, valueDisplayByField[values[index].field]),
+      toIndicator(
+        values[index],
+        binding,
+        valueDisplayByField[values[index].field],
+        resolveWidth(columnWidths, binding.widthKey, REPORT_DEFAULT_COL_WIDTH),
+      ),
     ),
     indicatorsAsCol: true,
     hideIndicatorName: valueBindings.length === 1,
@@ -173,6 +200,10 @@ export function buildReportVTableOptions(
     columnHierarchyType: 'grid',
     widthMode: 'standard',
     heightMode: 'standard',
+    defaultColWidth: REPORT_DEFAULT_COL_WIDTH,
+    columnResizeMode: 'header',
+    // Resize only the dragged column — not indicator groups / siblings.
+    columnResizeType: 'column',
     columnHeaderTitle: columnBindings.length > 0
       ? {
           title: titleList(columnBindings),
@@ -421,10 +452,12 @@ function dimensionBinding(
   const dateGrain = typeof dimension === 'string'
     ? null
     : (dimension.dateGrain ?? null)
+  const widthKind = kind === 'row' ? 'row' : 'col'
   return {
     sourceField: field,
     vtableField: `${kind}_${index}_${safeFieldKey(field)}`,
-    title: field,
+    title: reportFieldDisplayLabel(field),
+    widthKey: reportColumnWidthKey(widthKind, field),
     sort,
     dateGrain,
   }
@@ -435,16 +468,30 @@ function valueBinding(
   index: number,
   labels = DEFAULT_REPORT_VTABLE_LABELS,
 ): VTableFieldBinding {
+  const leaf = value.field === '*' ? '' : reportFieldDisplayLabel(value.field)
   return {
     sourceField: value.field,
     vtableField: `value_${index}_${safeFieldKey(value.field)}_${value.aggregate}`,
     title: value.aggregate === 'count'
-      ? `${labels.count} ${value.field === '*' ? '' : value.field}`.trim()
-      : `${aggregateTitle(value.aggregate, labels)} ${value.field}`,
+      ? `${labels.count} ${leaf}`.trim()
+      : `${aggregateTitle(value.aggregate, labels)} ${leaf}`.trim(),
+    widthKey: reportColumnWidthKey('value', value.field, value.aggregate),
   }
 }
 
-function toRowDimension(binding: VTableFieldBinding): IDimension {
+function resolveWidth(
+  widths: Record<string, number>,
+  widthKey: string,
+  fallback: number,
+): number {
+  const stored = widths[widthKey]
+  if (typeof stored === 'number' && Number.isFinite(stored) && stored >= 40) {
+    return Math.round(stored)
+  }
+  return fallback
+}
+
+function toRowDimension(binding: VTableFieldBinding, width: number): IDimension {
   return {
     dimensionKey: binding.vtableField,
     title: binding.title,
@@ -452,15 +499,18 @@ function toRowDimension(binding: VTableFieldBinding): IDimension {
     headerStyle: {
       textStick: true,
     },
-    width: 'auto',
+    width,
+    minWidth: REPORT_MIN_COL_WIDTH,
   }
 }
 
-function toColumnDimension(binding: VTableFieldBinding): IDimension {
+function toColumnDimension(binding: VTableFieldBinding, width: number): IDimension {
   return {
     dimensionKey: binding.vtableField,
     title: binding.title,
     sort: true,
+    width,
+    minWidth: REPORT_MIN_COL_WIDTH,
   }
 }
 
@@ -468,18 +518,50 @@ function toIndicator(
   value: ReportPivotValue,
   binding: VTableFieldBinding,
   numberDisplay?: NumberDisplayOptions | null,
+  width: number = REPORT_DEFAULT_COL_WIDTH,
 ): IIndicator {
   return {
     indicatorKey: binding.vtableField,
     title: binding.title,
     cellType: 'text',
+    width,
+    minWidth: REPORT_MIN_COL_WIDTH,
     style: {
       textAlign: 'right',
+      textBaseline: 'middle',
       cursor: 'pointer',
+    },
+    headerStyle: {
+      textAlign: 'right',
+      textBaseline: 'middle',
     },
     format: (cellValue: unknown) =>
       formatReportAggregateValue(cellValue, value.aggregate, numberDisplay),
   } as IIndicator
+}
+
+/** Map VTable dimension/indicator keys back to persisted width keys. */
+export function buildVTableWidthKeyMap(
+  pivot: ReportPivotSettings,
+): Map<string, string> {
+  const map = new Map<string, string>()
+  const rows = (pivot.rows ?? []).map((dimension, index) =>
+    dimensionBinding(dimension, 'row', index),
+  )
+  const columns = (pivot.columns ?? []).map((dimension, index) =>
+    dimensionBinding(dimension, 'column', index),
+  )
+  const values = normalizedValues(pivot.values)
+  const valueBindings = values.map((value, index) =>
+    valueBinding(value, index),
+  )
+  for (const binding of [...rows, ...columns, ...valueBindings]) {
+    map.set(binding.vtableField, binding.widthKey)
+  }
+  if (rows.length === 0) {
+    map.set(ALL_ROWS_FIELD, reportColumnWidthKey('row', ALL_ROWS_FIELD))
+  }
+  return map
 }
 
 function aggregateType(aggregate: ReportAggregate): TYPES.AggregationType {

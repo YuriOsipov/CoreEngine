@@ -162,7 +162,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
           <span>{{ t('navigation.menu', 'Menu') }}</span>
         </div>
         <PanelMenu v-model:expandedKeys="expandedKeys" :model="primaryItems" multiple class="app-sidebar__menu">
-          <template #item="{ item }">
+          <template #item="{ item, hasSubmenu, active }">
             <div
               class="app-sidebar__item"
               :class="{ 'app-sidebar__item--active': isItemActive(item) }"
@@ -170,6 +170,11 @@ defineExpose({ reload, toggleCollapsed, collapsed })
             >
               <i v-if="item.icon" :class="item.icon" class="app-sidebar__item-icon" />
               <span class="app-sidebar__item-label">{{ item.label }}</span>
+              <i
+                v-if="hasSubmenu"
+                class="app-sidebar__item-chevron"
+                :class="active ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+              />
             </div>
           </template>
         </PanelMenu>
@@ -180,7 +185,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
           <span>{{ t('navigation.workspace', 'Workspace') }}</span>
         </div>
         <PanelMenu v-model:expandedKeys="expandedKeys" :model="workspaceItems" multiple class="app-sidebar__menu">
-          <template #item="{ item }">
+          <template #item="{ item, hasSubmenu, active }">
             <div
               class="app-sidebar__item"
               :class="{ 'app-sidebar__item--active': isItemActive(item) }"
@@ -188,6 +193,11 @@ defineExpose({ reload, toggleCollapsed, collapsed })
             >
               <i v-if="item.icon" :class="item.icon" class="app-sidebar__item-icon" />
               <span class="app-sidebar__item-label">{{ item.label }}</span>
+              <i
+                v-if="hasSubmenu"
+                class="app-sidebar__item-chevron"
+                :class="active ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+              />
             </div>
           </template>
         </PanelMenu>
@@ -366,6 +376,13 @@ defineExpose({ reload, toggleCollapsed, collapsed })
   min-width: 0;
   word-break: break-word;
   line-height: 1.35;
+}
+
+.app-sidebar__item-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color, #9ca3af);
 }
 
 .app-sidebar__item-action {

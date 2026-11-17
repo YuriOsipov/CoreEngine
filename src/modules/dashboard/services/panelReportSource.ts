@@ -2,7 +2,7 @@ import { getPathValue } from '@/modules/entities/utils/recordDisplay'
 import {
   executeReport,
   getReportBySettingId,
-  isPivotReport,
+  reportAsPivotSettings,
   resolveReportDateGrains,
   type ReportPivotDimension,
   type ReportPivotValue,
@@ -25,16 +25,18 @@ export async function loadReportPanelSeries(
   if (!report) return null
 
   const config = await resolveReportDateGrains(report.config)
-  // Chart/metric panels require pivot aggregates; tabular reports are skipped.
-  if (!isPivotReport(config) || !config.collection || config.pivot.values.length === 0) {
+  const pivot = reportAsPivotSettings(config.tabular) ?? (
+    config.pivot.values.length > 0 ? config.pivot : null
+  )
+  if (!config.collection || !pivot || pivot.values.length === 0) {
     return null
   }
 
   const rows = await executeReport(config)
-  const value = config.pivot.values[0]
+  const value = pivot.values[0]!
   const category =
-    config.pivot.rows[0] ??
-    config.pivot.columns[0] ??
+    pivot.rows[0] ??
+    pivot.columns[0] ??
     null
 
   const valueLabel = formatValueLabel(value)
@@ -61,7 +63,7 @@ export async function loadReportPanelSeries(
     value: aggregateRows(groupRows, value),
   }))
 
-  const sortRowsByTotal = config.pivot.sortRowsByTotal
+  const sortRowsByTotal = pivot.sortRowsByTotal ?? config.tabular.sortRowsByTotal
   const ordered = sortSeriesEntries(
     entries,
     sortRowsByTotal === 'asc' || sortRowsByTotal === 'desc'
@@ -78,6 +80,51 @@ export async function loadReportPanelSeries(
   }
 }
 
+function categoryLabel(
+  row: Record<string, unknown>,
+  category: ReportPivotDimension,
+): string {
+  return dimensionDisplayValue(
+    getPathValue(row, category.field),
+    '(empty)',
+    category.dateGrain,
+  )
+}
+
+function aggregateRows(
+  rows: Record<string, unknown>[],
+  value: ReportPivotValue,
+): number {
+  if (value.aggregate === 'count') return rows.length
+  const numbers = rows
+    .map((row) => {
+      const raw = getPathValue(row, value.field)
+      if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+      if (typeof raw === 'string' && raw.trim()) {
+        const numeric = Number(raw)
+        return Number.isFinite(numeric) ? numeric : null
+      }
+      return null
+    })
+    .filter((entry): entry is number => entry !== null)
+  if (numbers.length === 0) return 0
+  if (value.aggregate === 'avg') {
+    return numbers.reduce((sum, entry) => sum + entry, 0) / numbers.length
+  }
+  if (value.aggregate === 'min') return Math.min(...numbers)
+  if (value.aggregate === 'max') return Math.max(...numbers)
+  return numbers.reduce((sum, entry) => sum + entry, 0)
+}
+
+function formatValueLabel(value: ReportPivotValue): string {
+  const leaf = value.field === '*' ? '' : value.field
+  if (value.aggregate === 'count') return `Count ${leaf}`.trim()
+  if (value.aggregate === 'avg') return `Avg of ${leaf}`.trim()
+  if (value.aggregate === 'min') return `Min of ${leaf}`.trim()
+  if (value.aggregate === 'max') return `Max of ${leaf}`.trim()
+  return `Sum of ${leaf}`.trim()
+}
+
 function sortSeriesEntries(
   entries: Array<{ label: string; value: number }>,
   sortByTotal: ReportSortDirection | null,
@@ -85,59 +132,10 @@ function sortSeriesEntries(
 ): Array<{ label: string; value: number }> {
   return [...entries].sort((a, b) => {
     if (sortByTotal) {
-      const byValue = a.value - b.value
-      if (byValue !== 0) return sortByTotal === 'desc' ? -byValue : byValue
+      const cmp = a.value - b.value
+      return sortByTotal === 'desc' ? -cmp : cmp
     }
-    const byLabel = a.label.localeCompare(b.label)
-    return labelSort === 'desc' ? -byLabel : byLabel
+    const cmp = a.label.localeCompare(b.label, undefined, { numeric: true })
+    return labelSort === 'desc' ? -cmp : cmp
   })
-}
-
-function categoryLabel(
-  row: Record<string, unknown>,
-  dimension: ReportPivotDimension,
-): string {
-  return dimensionDisplayValue(
-    getPathValue(row, dimension.field),
-    '(empty)',
-    dimension.dateGrain,
-  )
-}
-
-function formatValueLabel(value: ReportPivotValue): string {
-  if (value.aggregate === 'count' && (value.field === '*' || !value.field)) {
-    return 'count'
-  }
-  return `${value.aggregate} ${value.field}`
-}
-
-function aggregateRows(
-  rows: Record<string, unknown>[],
-  pivotValue: ReportPivotValue,
-): number {
-  if (pivotValue.aggregate === 'count') return rows.length
-
-  const numbers = rows
-    .map((row) => numericValue(getPathValue(row, pivotValue.field)))
-    .filter((item): item is number => item !== null)
-
-  if (numbers.length === 0) return 0
-  if (pivotValue.aggregate === 'sum') {
-    return numbers.reduce((sum, item) => sum + item, 0)
-  }
-  if (pivotValue.aggregate === 'avg') {
-    return numbers.reduce((sum, item) => sum + item, 0) / numbers.length
-  }
-  if (pivotValue.aggregate === 'min') return Math.min(...numbers)
-  if (pivotValue.aggregate === 'max') return Math.max(...numbers)
-  return numbers.length
-}
-
-function numericValue(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
-  if (typeof value === 'string' && value.trim()) {
-    const numeric = Number(value)
-    return Number.isFinite(numeric) ? numeric : null
-  }
-  return null
 }

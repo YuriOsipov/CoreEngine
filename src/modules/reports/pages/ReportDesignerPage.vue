@@ -8,7 +8,6 @@ export default {
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
-import CrmVTablePivot from '@/core/ui-kit/CrmVTablePivot.vue'
 import {
   buildRoleSelectOptions,
   loadAppRoles,
@@ -21,7 +20,6 @@ import { listUserCollections } from '@/modules/entities/services/collectionSchem
 import ReportDrillDownDialog from '../components/ReportDrillDownDialog.vue'
 import ReportFieldsPanel from '../components/ReportFieldsPanel.vue'
 import ReportFiltersPanel from '../components/ReportFiltersPanel.vue'
-import ReportOutlinePanel from '../components/ReportOutlinePanel.vue'
 import ReportTabularOutlinePanel from '../components/ReportTabularOutlinePanel.vue'
 import ReportTabularTable from '../components/ReportTabularTable.vue'
 import type { ReportFieldOption } from '../services/reportSettings'
@@ -29,21 +27,20 @@ import {
   defaultReportDefinition,
   executeReport,
   getReportBySettingId,
-  isPivotReport,
-  isTabularReport,
   listReportFolders,
   listReports,
   normalizeReportDefinition,
   normalizeReportName,
-  normalizeReportType,
-  pivotDimensionFields,
+  reportAsPivotSettings,
   reportCanRun,
+  reportFieldDisplayLabel,
+  reportFolderPathLabel,
   resolveReportDateGrains,
   saveReport,
+  tabularAsPivotSettings,
   type ReportDefinition,
   type ReportFolder,
   type ReportPivotDrillDown,
-  type ReportType,
 } from '../services/reportSettings'
 
 const { t } = useTranslation()
@@ -63,7 +60,7 @@ const loading = ref(false)
 const saving = ref(false)
 const running = ref(false)
 const activeTab = ref<'outline' | 'filters'>('outline')
-const fieldsCollapsed = ref(false)
+const fieldsCollapsed = ref(true)
 const tabularOutlineRef = ref<{
   mergeLoadedFields: (fields: ReportFieldOption[]) => void
 } | null>(null)
@@ -85,27 +82,51 @@ const drillDownTitle = computed(() =>
   t('reports.drillDownTitle', 'Drill down · {title}', { title: pageTitle.value }),
 )
 const drillDownFieldLabels = computed<Record<string, string>>(() => {
-  if (!draft.value || !isPivotReport(draft.value)) return {}
+  if (!draft.value) return {}
   const labels: Record<string, string> = {}
-  for (const field of [
-    ...pivotDimensionFields(draft.value.pivot.rows),
-    ...pivotDimensionFields(draft.value.pivot.columns),
-    ...draft.value.pivot.values.map((value) => value.field),
-  ]) {
-    labels[field] = field
+  const pivot =
+    tabularAsPivotSettings(draft.value.tabular) ??
+    reportAsPivotSettings(draft.value.tabular)
+  const fields = pivot
+    ? [
+        ...pivot.rows.map((dimension) => dimension.field),
+        ...pivot.columns.map((dimension) => dimension.field),
+        ...pivot.values.map((value) => value.field),
+      ]
+    : [
+        ...draft.value.tabular.groupRows.map((group) => group.field),
+        ...draft.value.tabular.groupColumns.map((group) => group.field),
+        ...draft.value.tabular.columns.map((column) => column.field),
+      ]
+  for (const field of fields) {
+    if (field) labels[field] = reportFieldDisplayLabel(field)
   }
   return labels
 })
+const drillDownPivot = computed(
+  () =>
+    (draft.value &&
+      (tabularAsPivotSettings(draft.value.tabular) ??
+        reportAsPivotSettings(draft.value.tabular))) ||
+    null,
+)
 const tabOptions = computed(() => [
   { label: t('reports.outline', 'Outline'), value: 'outline' },
   { label: t('reports.filters', 'Filters'), value: 'filters' },
 ])
 const folderOptions = computed(() => [
   { label: t('reports.unfiled', 'Unfiled'), value: null as string | null },
-  ...folders.value.map((folder) => ({
-    label: folder.name,
-    value: folder.id as string | null,
-  })),
+  ...folders.value
+    .slice()
+    .sort((a, b) =>
+      reportFolderPathLabel(folders.value, a.id, a.name).localeCompare(
+        reportFolderPathLabel(folders.value, b.id, b.name),
+      ),
+    )
+    .map((folder) => ({
+      label: reportFolderPathLabel(folders.value, folder.id, folder.name),
+      value: folder.id as string | null,
+    })),
 ])
 const roleSelectOptions = computed(() =>
   buildRoleSelectOptions(
@@ -113,22 +134,9 @@ const roleSelectOptions = computed(() =>
     t('layoutRole.defaultRole', 'Default (all roles)'),
   ),
 )
-const reportTypeOptions = computed(() => [
-  {
-    label: t('reports.typePivot', 'Pivot'),
-    value: 'pivot' as ReportType,
-  },
-  {
-    label: t('reports.typeTabular', 'Tabular'),
-    value: 'tabular' as ReportType,
-  },
-])
 const previewTitle = computed(() => {
   if (!draft.value) return t('reports.preview', 'Preview')
-  if (isTabularReport(draft.value)) {
-    return draft.value.title || t('reports.tabularReport', 'Tabular report')
-  }
-  return draft.value.title || t('reports.pivotTable', 'Pivot table')
+  return draft.value.title || t('reports.tabularReport', 'Tabular report')
 })
 
 watch(
@@ -175,18 +183,16 @@ function updateTitle(value: string): void {
 
 function updateCollection(collection: string): void {
   if (!draft.value) return
-  const type = draft.value.type
   void (async () => {
-    const next = await defaultReportDefinition(collection, type)
+    const next = await defaultReportDefinition(collection, 'tabular')
     draft.value = {
       ...next,
       id: draft.value?.id ?? next.id,
       title: draft.value?.title ?? '',
       name: draft.value?.name ?? '',
       folderId: draft.value?.folderId ?? null,
-      limit: draft.value?.limit ?? -1,
       collection,
-      type,
+      type: 'tabular',
     }
     rows.value = []
   })()
@@ -200,41 +206,8 @@ function updateFolderId(folderId: unknown): void {
   }
 }
 
-function updateLimit(limit: unknown): void {
-  if (!draft.value) return
-  draft.value = {
-    ...draft.value,
-    limit: Number(limit ?? -1),
-  }
-}
-
 function updateRoleId(value: unknown): void {
   draftRoleId.value = selectValueToRoleId(value)
-}
-
-async function updateReportType(value: unknown): Promise<void> {
-  if (!draft.value) return
-  const type = normalizeReportType(value)
-  if (type === draft.value.type) return
-  const collection = draft.value.collection
-  const next = await defaultReportDefinition(collection, type)
-  draft.value = {
-    ...next,
-    id: draft.value.id,
-    title: draft.value.title,
-    name: draft.value.name,
-    folderId: draft.value.folderId ?? null,
-    limit: draft.value.limit ?? -1,
-    collection,
-    type,
-    conditions: [],
-  }
-  rows.value = []
-}
-
-function initialTypeFromRoute(): ReportType {
-  const queryType = typeof route.query.type === 'string' ? route.query.type : ''
-  return normalizeReportType(queryType)
 }
 
 async function loadDesigner(): Promise<void> {
@@ -245,7 +218,7 @@ async function loadDesigner(): Promise<void> {
     if (isNew.value) {
       draftSettingId.value = null
       draftRoleId.value = null
-      draft.value = await defaultReportDefinition('', initialTypeFromRoute())
+      draft.value = await defaultReportDefinition('', 'tabular')
       return
     }
     const settingId = String(route.params.settingId ?? '')
@@ -366,6 +339,14 @@ function openDrillDown(payload: ReportPivotDrillDown): void {
   drillDownVisible.value = true
 }
 
+function onColumnWidths(widths: Record<string, number>): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    columnWidths: widths,
+  }
+}
+
 function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
   tabularOutlineRef.value?.mergeLoadedFields(fields)
 }
@@ -415,7 +396,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
 
     <div
       v-if="draft"
-      class="bg-surface-0 border border-surface-200 rounded-lg grid gap-3 grid-cols-[repeat(6,minmax(0,1fr))] items-end px-4 py-3 max-[1400px]:grid-cols-3 max-[900px]:grid-cols-2 max-[640px]:grid-cols-1"
+      class="bg-surface-0 border border-surface-200 rounded-lg grid gap-3 grid-cols-[repeat(4,minmax(0,1fr))] items-end px-4 py-3 max-[1400px]:grid-cols-2 max-[640px]:grid-cols-1"
     >
       <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('reports.reportTitle', 'Report title') }}
@@ -424,17 +405,6 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
           :placeholder="t('reports.reportTitlePlaceholder', 'Visits by Provider')"
           fluid
           @update:model-value="updateTitle(String($event))"
-        />
-      </label>
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
-        {{ t('reports.reportType', 'Report type') }}
-        <Select
-          :model-value="draft.type"
-          :options="reportTypeOptions"
-          option-label="label"
-          option-value="value"
-          fluid
-          @update:model-value="updateReportType($event)"
         />
       </label>
       <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
@@ -474,14 +444,6 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
           @update:model-value="updateFolderId($event)"
         />
       </label>
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
-        {{ t('reports.limit', 'Limit') }}
-        <InputNumber
-          :model-value="draft.limit ?? -1"
-          fluid
-          @update:model-value="updateLimit($event)"
-        />
-      </label>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -490,7 +452,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
     </div>
 
     <div
-      v-else-if="draft && isTabularReport(draft)"
+      v-else-if="draft"
       class="flex items-start gap-3 max-[1100px]:flex-col"
     >
       <ReportFieldsPanel
@@ -534,59 +496,18 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
           :report="draft"
           :rows="rows"
           :empty-message="t('reports.runEmptyTabularMessage', 'Run the report to show tabular data.')"
-        />
-      </section>
-    </div>
-
-    <div
-      v-else-if="draft"
-      class="grid items-start gap-4 grid-cols-[minmax(320px,400px)_minmax(0,1fr)] max-[1100px]:grid-cols-1"
-    >
-      <aside class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-3 grid gap-3 overflow-x-hidden">
-        <SelectButton
-          v-model="activeTab"
-          :options="tabOptions"
-          option-label="label"
-          option-value="value"
-          :allow-empty="false"
-          class="w-full justify-stretch"
-        />
-        <ReportOutlinePanel
-          v-show="activeTab === 'outline'"
-          v-model="draft"
-        />
-        <ReportFiltersPanel
-          v-show="activeTab === 'filters'"
-          v-model="draft"
-        />
-      </aside>
-
-      <section class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-4 grid gap-3 max-h-[calc(100vh-10rem)] overflow-auto">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="m-0">{{ previewTitle }}</h3>
-          <small v-if="draft.name" class="text-muted-color">{{ draft.name }}</small>
-        </div>
-        <div v-if="running" class="page-loading">
-          <ProgressSpinner stroke-width="4" />
-          <span>{{ t('reports.runningReport', 'Running report...') }}</span>
-        </div>
-        <CrmVTablePivot
-          v-else
-          :rows="rows"
-          :pivot="draft.pivot"
-          :collection="draft.collection"
-          :empty-message="t('reports.runEmptyMessage', 'Run the report to show pivot data.')"
+          @update:column-widths="onColumnWidths"
           @drill-down="openDrillDown"
         />
       </section>
     </div>
 
     <ReportDrillDownDialog
-      v-if="draft && isPivotReport(draft)"
+      v-if="draft && drillDownPivot"
       v-model:visible="drillDownVisible"
       :title="drillDownTitle"
       :collection="draft.collection"
-      :pivot="draft.pivot"
+      :pivot="drillDownPivot"
       :rows="rows"
       :drill-down="drillDown"
       :field-labels="drillDownFieldLabels"

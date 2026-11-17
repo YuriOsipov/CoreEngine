@@ -163,7 +163,7 @@ function toggleCollapsed(): void {
       </IconField>
 
       <p class="text-muted-color text-[0.75rem] m-0">
-        {{ t('reports.dragFieldsHint', 'Drag fields into Groups or Columns.') }}
+        {{ t('reports.dragFieldsHint', 'Drag fields into Outline or Filters.') }}
       </p>
 
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
@@ -195,7 +195,7 @@ function toggleCollapsed(): void {
             v-for="field in paletteList"
             :key="field.field"
             class="text-left border-0 rounded-md px-2 py-1.5 cursor-grab active:cursor-grabbing bg-transparent text-surface-700 hover:bg-surface-50 text-[0.85rem] flex items-center gap-2 select-none"
-            :title="t('reports.dragField', 'Drag to Outline')"
+            :title="t('reports.dragField', 'Drag to Outline or Filters')"
           >
             <i
               v-if="isNumeric(field)"

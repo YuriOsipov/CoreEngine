@@ -16,6 +16,7 @@ Build internal and vertical applications with custom objects, relationships, rol
 - A real data model they control (custom objects + relationships)
 - Different edit/view forms per role (Sales Rep vs Manager vs Pricing)
 - Domain starters they can version in git (Sales + Pricing, Clinic, Documents)
+- **Resource scheduling** (people / rooms / equipment calendars) and **Projects** (stages, board, Gantt, templates)
 - In-app document generation (DocEngine HTML/PDF in the browser) and price-list trees — fill a template and download HTML or PDF
 - Automation document generate for n8n: populate values, persist `doc_value`, render/upload PDF or HTML (`outputFileId` + `downloadUrl`)
 - A GraphQL + REST API they can automate with n8n (records, query, flows, document generate)
@@ -39,6 +40,8 @@ Build internal and vertical applications with custom objects, relationships, rol
 | AI / MCP assistants | Not in current scope; REST/GraphQL API available | Built-in MCP server + AI Employees plugins | In-product AI agents | Retool AI | Agentforce (Einstein brand still on some predictive features) |
 | CRM pipeline + email/calendar | Starter pack | Build / plugins | Strong | Build it | Excellent |
 | Campaign → promo pricing engine | Built-in | Build it | Custom objects | Build it | Custom / AppExchange |
+| Resource scheduler (calendars) | Built-in block + Setup schedule slots | Plugins / build | Limited | Build it | Service Cloud / custom |
+| Projects (stages / board / Gantt) | Built-in PM workspace + templates | Plugins / build | Limited | Build it | Custom / AppExchange |
 | Document generation (PDF/HTML) | UI DocEngine + server generate (persist `doc_value` + PDF/HTML file) | Plugins / build | Limited | Build it | Good (packages) |
 | Visual multi-step / **durable** workflows | Via **n8n** (not in-process durable queue) | Built-in (approvals, jobs) | Built-in + AI agents | Built-in | Flow + Apex |
 | Config as code (packs in git) | Yes (domain packs + Setup) | Partial / app source | Yes (twenty-sdk, TypeScript apps in git) | App source | Metadata / DX |
@@ -61,6 +64,8 @@ How CoreEngine maps to common platform checklist items today:
 | **Authentication** | Partial — local email/password via BFF JWT (`/auth/login`, refresh); disable with `AUTH_LOCAL_LOGIN_ENABLED=false`. Optional **OIDC SSO** via external IdP covers the **SMB / mid-market SSO ask**; MFA is IdP-only. **No SAML or SCIM** yet. SSO refresh re-checks IdP userinfo (when IdP tokens were stored at login) so IdP disable ends the CE session at next refresh; deactivate in Setup for immediate revoke. Roles stay in CoreEngine — IdP groups are not synced. See [`docs/oidc-sso.md`](docs/oidc-sso.md). |
 | **Version control** | Partial — schemas, layouts, roles, and templates ship as **domain packs** (JSON under `supabase/domains/`) with `platform:export-pack` / `apply-pack`; versioned in **git**. No in-app config revision UI. |
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
+| **Resource scheduler** | Yes — place a **Scheduler** block on a layout; bind resource + event collections (optional resource tree, filters, availability windows). Day/week calendars, drag to create/move, create/edit dialogs. Setup → **Schedule** expands provider work-time templates into dated slots (`generate_slots`). Clinic pack uses practitioners / visits / appointments. |
+| **Projects** | Yes — `pm_project` workspace with **List / Board / Gantt**, stages, services on stages, dependencies, lifecycle, progress, base price / PM cost. Apply a **project template** to create a dated stage plan. |
 | **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, in-process **scheduled jobs** (`TASK_SCHEDULER_ENABLED`, default on). Failed flow/task runs are listed in Setup; optional admin email (needs SMTP). Retries and durable multi-step graphs live in **n8n**. |
 | **Reliable operations** | **Partial** — n8n templates for common flows + failed-execution alert ([`docs/n8n/README.md`](docs/n8n/README.md)). Setup → Flows / Tasks → **Failed runs**; optional admin email (Setup → General → Failed-run alerts, or `FAILED_RUN_NOTIFY_EMAIL`). Backup/restore + upgrade smoke: [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/upgrading.md`](docs/upgrading.md) (`npm run registry:smoke-upgrade`, `npm run registry:smoke-backup-restore`). Still no durable in-process queue, retry, or leader election — run the scheduler on one BFF. |
 | **Validation & business rules** | Partial — field required / unique / unique groups exist. Record automations (conditions + notify / set fields / break) are commonly used for validation rules today. No dedicated validation-rules designer or field-level error blocking yet. |
@@ -88,6 +93,22 @@ How CoreEngine maps to common platform checklist items today:
 - **Dashboards** — Setup designer + runtime metric/chart/label panels.
 - **Navigation apps** — role-scoped folders, entity lists, dashboards, reports, and home routes.
 - **Record / form / list / tree** pages driven by `layout_settings` (no hard-coded detail forms).
+
+### Resource scheduler
+- Drop a **Scheduler** palette block on a Block Layout (same family as Attachments / DocEngine). Role-scoped scheduler layouts map:
+  - **Resources** — one or more collections (people, rooms, equipment), optional hierarchy tree + filters
+  - **Events** — appointment / visit collection with start/end and resource FK fields
+- Runtime calendar (day / week / resource timeline): create and drag events, open create/edit dialogs, optional delete, status colors, compact related details.
+- Optional **availability** guard against generated intake / block slots (`crm_schedule`) so bookings stay inside work windows.
+- Optional **template expansion** — recurrence-style rules on records expand into virtual events for the visible range.
+- **Setup → Schedule** — manage provider work-time templates and **Generate slots** for a period (also runnable as the `generate_slots` background job). Clinic pack seeds `patient`, `practitioner`, `visit`, and `appointment` as a starter.
+
+### Projects
+- Built-in project management on platform collections (`pm_project`, `pm_stage`, `pm_stage_item`, plus template collections).
+- Project workspace: **List**, **Board**, and **Gantt** views; lifecycle (planned / active / on hold / done / cancelled); progress; base price and PM cost.
+- Stages with status, dates, dependencies, milestones, and linked **services** (catalog items) that can block completion until delivered.
+- **Project templates** — define a reusable stage plan (offsets, durations, default services) and apply it to create a project with a scheduled stage timeline.
+- Entry URL `/projects` opens the standard object list for `pm_project`; open a record for the workspace.
 
 ### Automation & workflows
 - **Record automations** on create/update/delete: conditions (AND/OR, require-changed), set fields, notify, break, trigger a flow key.

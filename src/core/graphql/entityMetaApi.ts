@@ -18,12 +18,15 @@ export interface EntityMetaDto {
   defaultFieldSensitivity: number
   /** `owner` = non-admins only access rows they created; null = off. */
   rowLevelSecurity: 'owner' | null
+  /** M2O field for parent-owner inheritance on create; null = creator owns the row. */
+  inheritOwnerFrom: string | null
   fields: Array<{
     apiName: string
     label: string
     type: string
     hidden: boolean
     isSystem: boolean
+    relationKind?: string | null
   }>
 }
 
@@ -38,6 +41,7 @@ export interface UpdateEntityMetaInput {
   accountability?: EntityAccountability
   defaultFieldSensitivity?: number | null
   rowLevelSecurity?: 'owner' | null
+  inheritOwnerFrom?: string | null
 }
 
 const ENTITY_META_QUERY = /* GraphQL */ `
@@ -54,12 +58,14 @@ const ENTITY_META_QUERY = /* GraphQL */ `
       accountability
       defaultFieldSensitivity
       rowLevelSecurity
+      inheritOwnerFrom
       fields {
         apiName
         label
         type
         hidden
         isSystem
+        relationKind
       }
     }
   }
@@ -79,6 +85,7 @@ const UPDATE_ENTITY_META = /* GraphQL */ `
       accountability
       defaultFieldSensitivity
       rowLevelSecurity
+      inheritOwnerFrom
     }
   }
 `
@@ -123,6 +130,7 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
       accountability?: string | null
       defaultFieldSensitivity?: number | null
       rowLevelSecurity?: string | null
+      inheritOwnerFrom?: string | null
       fields: EntityMetaDto['fields']
     }
   }>(ENTITY_META_QUERY, { apiName })
@@ -139,6 +147,10 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
     accountability: normalizeAccountability(row.accountability),
     defaultFieldSensitivity: Number(row.defaultFieldSensitivity ?? 0) || 0,
     rowLevelSecurity: normalizeRowLevelSecurity(row.rowLevelSecurity),
+    inheritOwnerFrom:
+      typeof row.inheritOwnerFrom === 'string' && row.inheritOwnerFrom.trim()
+        ? row.inheritOwnerFrom.trim()
+        : null,
     fields: row.fields ?? [],
   }
 }
@@ -163,6 +175,7 @@ export async function updateEntityMeta(
       accountability?: string | null
       defaultFieldSensitivity?: number | null
       rowLevelSecurity?: string | null
+      inheritOwnerFrom?: string | null
     }
   }>(UPDATE_ENTITY_META, { entity, input })
   const row = data.updateEntityMeta
@@ -178,5 +191,9 @@ export async function updateEntityMeta(
     accountability: normalizeAccountability(row.accountability),
     defaultFieldSensitivity: Number(row.defaultFieldSensitivity ?? 0) || 0,
     rowLevelSecurity: normalizeRowLevelSecurity(row.rowLevelSecurity),
+    inheritOwnerFrom:
+      typeof row.inheritOwnerFrom === 'string' && row.inheritOwnerFrom.trim()
+        ? row.inheritOwnerFrom.trim()
+        : null,
   }
 }

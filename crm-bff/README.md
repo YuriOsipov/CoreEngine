@@ -15,7 +15,7 @@ npm run dev
 
 - GraphQL: http://localhost:4000/graphql
 - Health: http://localhost:4000/health
-- Auth: `POST /auth/login|refresh|logout` (`AUTH_BACKEND=local`); optional OIDC SSO `GET /auth/oidc/login|callback`, `POST /auth/oidc/session` (`OIDC_ENABLED`)
+- Auth: `POST /auth/login|refresh|logout` (`AUTH_BACKEND=local`); optional OIDC SSO `GET /auth/oidc/login|callback`, `POST /auth/oidc/session`, `POST /auth/oidc/logout` (`OIDC_ENABLED`)
 - REST records (Bearer JWT; n8n-friendly):
   - `GET|POST /api/v1/query` — SOQL subset (`q=SELECT … FROM …`; `*`, `*, relation.path`, WHERE/ORDER/LIMIT)
   - `GET /api/v1/:collection` — list (`?filter={...}&fields=&sort=&limit=&offset=&search=`; `includeDeleted=true` needs **export**; limit > 500 or unlimited needs **export**, hard cap 10_000)
@@ -23,7 +23,7 @@ npm run dev
   - `POST /api/v1/:collection` — create; `?upsert=true` (+ optional `&by=<uniqueField>`) for upsert (requires **create and update**; auth validated before existence lookup)
   - `PUT|PATCH /api/v1/:collection/:id` — update (PK or `uniqueField:value`)
   - `DELETE /api/v1/:collection/:id` — soft-delete; `?hard=true` hard-delete
-- REST documents: `POST /api/v1/documents/generate` — **Phase 0 stub** (HTTP 501, `code: DOCUMENTS_GENERATE_STUB`); contract only — see docs/generate-document-api.md. Interactive DocEngine in the Vue UI works; server generate for n8n is not implemented yet.
+- REST documents: `POST /api/v1/documents/generate` — populate + persist `doc_value` + PDF/HTML render/upload (`outputFileId` / `downloadUrl`; owner RLS on the source record). See docs/generate-document-api.md.
 - Sales pack examples: [supabase/domains/sales/README.md](../supabase/domains/sales/README.md)
 - Files: `POST /files`, `PATCH /files/:id`, `GET /assets/:id` → Supabase Storage + `public.files`
 - Flows: `POST /flows/trigger/:key` → local `app_flow_triggers` (`http` | `update_record`; Setup → Flows)

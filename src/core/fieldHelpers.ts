@@ -1,9 +1,15 @@
 import type { LayoutFieldMetadata, EntityLayoutSchema, LayoutGroup } from '@/interfaces'
 import { isHtmlEditorComponent } from '@/core/htmlContent'
 import {
+  getCustomBlock,
+  isRegisteredCustomBlock,
+} from '@/core/customBlocks/registry'
+import {
   extractRelationFieldId,
   formatDisplayValue,
 } from '@/modules/entities/utils/recordDisplay'
+
+export { isRegisteredCustomBlock }
 
 /** Inline labels are on by default; only an explicit `false` opts out. */
 export function isGroupInlineLabels(group: Pick<LayoutGroup, 'inlineLabels'>): boolean {
@@ -135,6 +141,8 @@ export function isHtmlEditorField(field: LayoutFieldMetadata): boolean {
 
 /** Full-width complex fields always keep stacked labels (ignore group.inlineLabels). */
 export function isFullWidthLayoutField(field: LayoutFieldMetadata): boolean {
+  const extension = getCustomBlock(field.component)
+  if (extension) return extension.fullWidth !== false
   return (
     isDataTableField(field) ||
     isM2ABuilderField(field) ||
@@ -176,7 +184,8 @@ export function isRelationPickerField(field: LayoutFieldMetadata): boolean {
       !isJsonCodeField(field) &&
       !isSensitivityMatrixField(field) &&
       !isActivityLogField(field) &&
-      !isDocEngineField(field),
+      !isDocEngineField(field) &&
+      !isRegisteredCustomBlock(field),
   )
 }
 

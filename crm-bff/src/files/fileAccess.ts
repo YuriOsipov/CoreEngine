@@ -5,7 +5,12 @@ import type { MeUser } from '../adapters/usersAdapter.js'
 import { findFile } from '../adapters/filesAdapter.js'
 import { listFileParentLinks } from '../adapters/postgresFiles.js'
 import { findOneRecord } from '../adapters/records/facade.js'
+import { resolveRecordsStore } from '../adapters/records/registry.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
+import {
+  ROW_OWNER_FIELD,
+  assertOwnerAccessIfNeeded,
+} from '../services/rowLevelSecurity.js'
 
 function uploadedById(row: Record<string, unknown>): string | null {
   const raw = row.uploaded_by
@@ -138,9 +143,7 @@ export async function assertFileWritable(
 
   for (const parent of parents) {
     try {
-      await assertMeEntityPermission(me, parent.collection, 'update', {
-        recordId: parent.recordId,
-      })
+      await assertParentRecordWritable(me, parent.collection, parent.recordId)
       return row
     } catch {
       // try next parent
@@ -149,7 +152,7 @@ export async function assertFileWritable(
   throw new Error('Permission denied: update on files')
 }
 
-/** Upload/link to a parent requires update on that collection (and record for users). */
+/** Upload/link to a parent requires update + owner Modify-all / ownership on that record. */
 export async function assertFileParentWritable(
   me: MeUser,
   parentCollection: string | null | undefined,
@@ -157,7 +160,31 @@ export async function assertFileParentWritable(
 ): Promise<void> {
   const collection = String(parentCollection || '').trim()
   if (!collection) return
+  await assertParentRecordWritable(me, collection, parentRecordId)
+}
+
+async function assertParentRecordWritable(
+  me: MeUser,
+  collection: string,
+  recordId: string | null | undefined,
+): Promise<void> {
   await assertMeEntityPermission(me, collection, 'update', {
-    recordId: parentRecordId,
+    recordId,
   })
+  const id = String(recordId || '').trim()
+  if (!id) return
+  if (me.adminAccess || me.roleAdminAccess) return
+  const store = await resolveRecordsStore(collection)
+  let record: Record<string, unknown> | null = null
+  try {
+    record = await store.findOne(collection, id, ['id', ROW_OWNER_FIELD])
+  } catch {
+    record = null
+  }
+  await assertOwnerAccessIfNeeded(
+    collection,
+    { me },
+    record ?? { [ROW_OWNER_FIELD]: null },
+    'update',
+  )
 }

@@ -24,6 +24,8 @@ const error = ref<string | null>(null)
 const info = ref<string | null>(null)
 const oidcEnabled = ref(false)
 const oidcDisplayName = ref('SSO')
+const localLoginEnabled = ref(true)
+const statusLoaded = ref(false)
 const forceChange = ref(
   mustChangePasswordPending() || route.query.changePassword === '1',
 )
@@ -49,6 +51,11 @@ onMounted(async () => {
   const status = await fetchOidcStatus()
   oidcEnabled.value = status.enabled
   oidcDisplayName.value = status.displayName
+  localLoginEnabled.value = status.localLoginEnabled
+  statusLoaded.value = true
+  if (!status.localLoginEnabled && forceChange.value) {
+    forceChange.value = false
+  }
 })
 
 watch(
@@ -66,14 +73,27 @@ const title = computed(() =>
     : t('auth.signInTitle', 'Sign in'),
 )
 
-const hint = computed(() =>
-  forceChange.value
-    ? t(
-        'auth.changePasswordHint',
-        'Your account requires a new password before you can continue.',
-      )
-    : t('auth.signInHint', 'Sign in with your CoreEngine account.'),
-)
+const hint = computed(() => {
+  if (forceChange.value && localLoginEnabled.value) {
+    return t(
+      'auth.changePasswordHint',
+      'Your account requires a new password before you can continue.',
+    )
+  }
+  if (!localLoginEnabled.value && oidcEnabled.value) {
+    return t(
+      'auth.ssoOnlyHint',
+      'Password login is disabled. Sign in with your organization SSO.',
+    )
+  }
+  if (!localLoginEnabled.value && !oidcEnabled.value) {
+    return t(
+      'auth.noLoginMethods',
+      'No sign-in methods are enabled. Contact an administrator.',
+    )
+  }
+  return t('auth.signInHint', 'Sign in with your CoreEngine account.')
+})
 
 async function goHomeAfterLogin(): Promise<void> {
   const redirect =
@@ -196,7 +216,11 @@ function signInWithSso(): void {
         {{ info }}
       </Message>
 
-      <form class="flex flex-col gap-4" @submit.prevent="submit">
+      <form
+        v-if="localLoginEnabled"
+        class="flex flex-col gap-4"
+        @submit.prevent="submit"
+      >
         <div class="flex flex-col gap-2">
           <label for="login-email">{{ t('auth.email', 'Email') }}</label>
           <InputText
@@ -270,7 +294,10 @@ function signInWithSso(): void {
       </form>
 
       <template v-if="oidcEnabled && !forceChange">
-        <div class="my-4 flex items-center gap-3 text-sm text-surface-500">
+        <div
+          v-if="localLoginEnabled"
+          class="my-4 flex items-center gap-3 text-sm text-surface-500"
+        >
           <span class="h-px flex-1 bg-surface-200" />
           {{ t('auth.or', 'or') }}
           <span class="h-px flex-1 bg-surface-200" />
@@ -280,12 +307,13 @@ function signInWithSso(): void {
           severity="secondary"
           outlined
           class="w-full"
+          :class="{ 'mt-2': !localLoginEnabled }"
           :label="
             t('auth.signInWithSso', 'Sign in with {provider}', {
               provider: oidcDisplayName,
             })
           "
-          :disabled="loading"
+          :disabled="loading || !statusLoaded"
           @click="signInWithSso"
         />
       </template>

@@ -37,7 +37,7 @@ Content-Type: application/json
 }
 ```
 
-**Phase 0 stub today** — HTTP 501 with `code: DOCUMENTS_GENERATE_STUB` until populate/PDF is implemented. Do not rely on this endpoint in production automations yet. GraphQL `generateDocument` is the same stub contract.
+Populate, persist, and PDF/HTML upload are implemented. Real PDF/HTML needs the sibling DocEngine checkout. Contract: [`generate-document-api.md`](./generate-document-api.md). Importable workflow: [`n8n/generate-opportunity-document.workflow.json`](./n8n/generate-opportunity-document.workflow.json).
 
 ### REST records (n8n-friendly)
 
@@ -175,9 +175,11 @@ npm run registry:smoke-n8n-http-bridge
 
 Form Builder action **Send to n8n** is attached to the `visit` entity layout by default (`--entity=` / `--key=` override).
 
-## Importable n8n workflow
+## Importable n8n workflows
 
-Import [`docs/n8n/crm-bff-flow.workflow.json`](./n8n/crm-bff-flow.workflow.json) into n8n, then set env:
+Catalog (patch, document generate, external-id upsert, failed-execution alert): [`n8n/README.md`](./n8n/README.md).
+
+The original write-back sample is [`n8n/crm-bff-flow.workflow.json`](./n8n/crm-bff-flow.workflow.json). Import it, then set env:
 
 - `BFF_URL` — e.g. `http://host.docker.internal:4000`
 - `N8N_WEBHOOK_SECRET` — same as BFF `.env`
@@ -219,5 +221,5 @@ Headers on every GraphQL call:
 ## Later (not in this milestone)
 
 - `skipRecordAutomations` on flow-driven `update_record` writes to prevent loops
-- Durable outbox / retries for failed `trigger_flow` dispatches
+- Retries / durable outbox for failed `trigger_flow` dispatches (failures are stored in `app_flow_dispatches` and listed under Setup → Flows → Failed runs; they are not replayed)
 - Optional local step pipeline inside BFF when n8n is overkill

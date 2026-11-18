@@ -1,0 +1,107 @@
+{
+  "name": "CoreEngine — patch record after webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-record-patch",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-record-patch",
+      "name": "CRM Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "crm-record-patch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-crm-flow-secret'] || $json.headers['X-CRM-Flow-Secret']}}",
+              "value2": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        }
+      },
+      "id": "if-secret-patch",
+      "name": "Secret OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{$env.CRM_N8N_EMAIL}}\",\n  \"password\": \"{{$env.CRM_N8N_PASSWORD}}\"\n}",
+        "options": {}
+      },
+      "id": "bff-login-patch",
+      "name": "BFF Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, -80]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/{{ $('CRM Webhook').item.json.body.collection || $('CRM Webhook').item.json.collection }}/{{ $('CRM Webhook').item.json.body.recordId || $('CRM Webhook').item.json.recordId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ [$env.CRM_PATCH_FIELD || 'note']: $env.CRM_PATCH_VALUE || 'updated-by-n8n' }) }}",
+        "options": {}
+      },
+      "id": "bff-patch",
+      "name": "REST patch record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, -80]
+    }
+  ],
+  "connections": {
+    "CRM Webhook": {
+      "main": [[{ "node": "Secret OK?", "type": "main", "index": 0 }]]
+    },
+    "Secret OK?": {
+      "main": [
+        [{ "node": "BFF Login", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "BFF Login": {
+      "main": [[{ "node": "REST patch record", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "Common write-back. Env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD, optional CRM_PATCH_FIELD (default note) and CRM_PATCH_VALUE. Production webhook URL → Setup → Flows http handler. Change the patched field to one that exists on the object. After import, set Settings → Error workflow to Failed execution alert."
+  },
+  "pinData": {},
+  "versionId": "1"
+}

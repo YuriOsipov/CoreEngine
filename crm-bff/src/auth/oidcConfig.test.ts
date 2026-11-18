@@ -19,6 +19,7 @@ const OIDC_KEYS = [
   'OIDC_DEFAULT_ROLE_BACKEND_ID',
   'OIDC_ALLOWED_EMAIL_DOMAINS',
   'OIDC_AUDIENCE',
+  'OIDC_CHECK_ON_REFRESH',
   'CORS_ORIGIN',
 ] as const
 
@@ -81,9 +82,45 @@ describe('oidcConfig', () => {
     expect(cfg.enabled).toBe(true)
     expect(cfg.issuer).toBe('http://localhost:8081/realms/coreengine')
     expect(cfg.displayName).toBe('Keycloak')
+    expect(cfg.scopes.split(/\s+/)).toContain('offline_access')
     expect(() => assertOidcConfigReady()).not.toThrow()
     expect(oidcDiscoveryUrl(cfg.issuer)).toBe(
       'http://localhost:8081/realms/coreengine/.well-known/openid-configuration',
     )
+  })
+
+  it('defaults offline_access when check-on-refresh is on and OIDC_SCOPES unset', () => {
+    clearOidcEnv()
+    process.env.OIDC_ENABLED = 'true'
+    process.env.OIDC_ISSUER = 'http://localhost:8081/realms/coreengine'
+    process.env.OIDC_CLIENT_ID = 'coreengine'
+    process.env.OIDC_CLIENT_SECRET = 'secret'
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:4000/auth/oidc/callback'
+    process.env.OIDC_UI_ORIGIN = 'http://localhost:5173'
+    expect(readOidcConfig().scopes).toBe('openid profile email offline_access')
+  })
+
+  it('honors explicit OIDC_SCOPES without forcing offline_access', () => {
+    clearOidcEnv()
+    process.env.OIDC_ENABLED = 'true'
+    process.env.OIDC_ISSUER = 'http://localhost:8081/realms/coreengine'
+    process.env.OIDC_CLIENT_ID = 'coreengine'
+    process.env.OIDC_CLIENT_SECRET = 'secret'
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:4000/auth/oidc/callback'
+    process.env.OIDC_UI_ORIGIN = 'http://localhost:5173'
+    process.env.OIDC_SCOPES = 'openid profile email'
+    expect(readOidcConfig().scopes).toBe('openid profile email')
+  })
+
+  it('omits offline_access from defaults when check-on-refresh is off', () => {
+    clearOidcEnv()
+    process.env.OIDC_ENABLED = 'true'
+    process.env.OIDC_CHECK_ON_REFRESH = 'false'
+    process.env.OIDC_ISSUER = 'http://localhost:8081/realms/coreengine'
+    process.env.OIDC_CLIENT_ID = 'coreengine'
+    process.env.OIDC_CLIENT_SECRET = 'secret'
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:4000/auth/oidc/callback'
+    process.env.OIDC_UI_ORIGIN = 'http://localhost:5173'
+    expect(readOidcConfig().scopes).toBe('openid profile email')
   })
 })

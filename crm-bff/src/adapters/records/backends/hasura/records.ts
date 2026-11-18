@@ -17,6 +17,7 @@ import { filterM2OSearchLabelFields } from '../../m2oSearchAccess.js'
 import type { MeUser } from '../../../usersAdapter.js'
 import type { RecordsListParams, RecordsListResult } from '../../types.js'
 import { aggregateSelectFields, groupAggregateRows } from '../../groupAggregate.js'
+import { relatedOwnerFilterIfNeeded } from '../../../../services/rowLevelSecurity.js'
 
 const LIST_SEARCH_FIELD_CAP = 16
 const M2O_SEARCH_ID_CAP = 500
@@ -497,11 +498,15 @@ async function buildM2OSearchOrClauses(
       )
       if (!labelFields?.length) continue
 
-      const where = {
+      const labelWhere = {
         _or: labelFields.map((name) => ({
           [name]: { _ilike: `%${q}%` },
         })),
       }
+      const ownerFilter = await relatedOwnerFilterIfNeeded(relatedEntity, me)
+      const where = ownerFilter
+        ? { _and: [labelWhere, ownerFilter] }
+        : labelWhere
       const idField = relatedConfig.idField
       const queryText = /* GraphQL */ `
         query HasuraM2OSearchIds {

@@ -99,7 +99,10 @@
           "type": "JSON",
           "interface": "address"
         }
-      ]
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner"
+      }
     },
     {
       "apiName": "campaign",
@@ -186,7 +189,10 @@
             "one_collection": "account"
           }
         }
-      ]
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner"
+      }
     },
     {
       "apiName": "item",
@@ -604,7 +610,10 @@
             "default": 1
           }
         }
-      ]
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner"
+      }
     },
     {
       "apiName": "opportunity",
@@ -689,7 +698,10 @@
             "one_collection": "account"
           }
         }
-      ]
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner"
+      }
     },
     {
       "apiName": "opportunity_item",
@@ -809,7 +821,11 @@
             "one_collection": "variant"
           }
         }
-      ]
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner",
+        "inheritOwnerFrom": "opportunity"
+      }
     },
     {
       "apiName": "price_group",

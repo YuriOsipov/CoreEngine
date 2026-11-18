@@ -1,0 +1,55 @@
+{
+  "name": "CoreEngine — failed execution alert",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Failed-run alert\nSet n8n env ALERT_WEBHOOK_URL (Slack incoming webhook or any JSON POST).\nOn each CoreEngine workflow: Settings → Error workflow → select this workflow.\nn8n's own Executions list (filter Error) remains the full history.",
+        "height": 180,
+        "width": 320
+      },
+      "id": "note-failed-alert",
+      "name": "Setup note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-20, -220]
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.ALERT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: 'CoreEngine n8n workflow failed: ' + ($json.workflow && $json.workflow.name), workflow: $json.workflow && $json.workflow.name, executionId: $json.execution && $json.execution.id, executionUrl: $json.execution && $json.execution.url, error: $json.execution && $json.execution.error && $json.execution.error.message }) }}",
+        "options": {}
+      },
+      "id": "alert-post",
+      "name": "Post alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{ "node": "Post alert", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "n8n only fires an error workflow when the failing workflow points at it. Activate this workflow after ALERT_WEBHOOK_URL is set. CoreEngine Setup → Flows / Tasks lists in-process failures, not n8n execution errors."
+  },
+  "pinData": {},
+  "versionId": "1"
+}

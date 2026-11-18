@@ -77,7 +77,7 @@ export async function registerDocumentsRestApi(
         error instanceof DocumentsGenerateStubError ||
         /not implemented yet/i.test(message)
       ) {
-        // Phase 0: contract is live; implementation pending.
+        // Missing DocEngine sibling / stub path returns 501.
         return reply.status(501).send({
           error: message,
           code: DOCUMENTS_GENERATE_STUB_CODE,

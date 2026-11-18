@@ -2,7 +2,9 @@ import { query } from '../db/pool.js'
 import { clampSensitivity } from '../services/fieldSecurity.js'
 import {
   clearRowLevelSecurityCache,
+  parseInheritOwnerFrom,
   parseRowLevelSecurity,
+  readInheritOwnerFrom,
   readRowLevelSecurity,
   type RowLevelSecurityMode,
 } from '../services/rowLevelSecurity.js'
@@ -31,6 +33,11 @@ export interface EntityMetaInput {
    * Uses `user_created` as owner; admins bypass.
    */
   rowLevelSecurity?: RowLevelSecurityMode | undefined
+  /**
+   * M2O field whose parent `user_created` is stamped on create
+   * (null clears). Omit to leave unchanged.
+   */
+  inheritOwnerFrom?: string | null | undefined
 }
 
 export interface EntityMetaRow {
@@ -48,6 +55,8 @@ export interface EntityMetaRow {
   defaultFieldSensitivity: number
   /** `owner` = non-admins only see / mutate their `user_created` rows. */
   rowLevelSecurity: RowLevelSecurityMode
+  /** Parent M2O field for ownership inheritance on create, or null. */
+  inheritOwnerFrom: string | null
   backendConfig: Record<string, unknown>
 }
 
@@ -111,6 +120,7 @@ export async function loadEntityMeta(entityApiName: string): Promise<EntityMetaR
     accountability: parseAccountability(backendConfig.accountability),
     defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
     rowLevelSecurity: readRowLevelSecurity(backendConfig),
+    inheritOwnerFrom: readInheritOwnerFrom(backendConfig),
     backendConfig,
   }
 }
@@ -167,6 +177,9 @@ export async function updateEntityMeta(
     // Persist explicit null as JSON null so packs/UI can turn owner mode off.
     configPatch.rowLevelSecurity = parseRowLevelSecurity(input.rowLevelSecurity)
   }
+  if (input.inheritOwnerFrom !== undefined) {
+    configPatch.inheritOwnerFrom = parseInheritOwnerFrom(input.inheritOwnerFrom)
+  }
   if (input.internal !== undefined && input.internal !== null) {
     configPatch.internal = Boolean(input.internal)
   }
@@ -198,7 +211,10 @@ export async function updateEntityMeta(
     ],
   )
 
-  if (input.rowLevelSecurity !== undefined) {
+  if (
+    input.rowLevelSecurity !== undefined ||
+    input.inheritOwnerFrom !== undefined
+  ) {
     clearRowLevelSecurityCache()
   }
 

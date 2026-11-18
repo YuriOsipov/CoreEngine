@@ -22,6 +22,8 @@ export interface GraphQlScheduledTask {
 export interface GraphQlScheduledTaskRun {
   id: string
   taskId: string
+  taskKey?: string | null
+  taskName?: string | null
   status: string
   trigger: string
   payload: Record<string, unknown>
@@ -98,6 +100,22 @@ const LIST_TASKS = /* GraphQL */ `
   }
 `
 
+const LIST_FAILED_RUNS = /* GraphQL */ `
+  query FailedScheduledTaskRuns($limit: Int) {
+    failedScheduledTaskRuns(limit: $limit) {
+      id
+      taskId
+      taskKey
+      taskName
+      status
+      trigger
+      error
+      startedAt
+      finishedAt
+    }
+  }
+`
+
 const LIST_RUNS = /* GraphQL */ `
   query ScheduledTaskRuns($taskId: ID!, $limit: Int) {
     scheduledTaskRuns(taskId: $taskId, limit: $limit) {
@@ -151,6 +169,16 @@ const GENERATE_SLOTS = /* GraphQL */ `
 export async function fetchScheduledTasks(): Promise<GraphQlScheduledTask[]> {
   const data = await graphqlRequest<{ scheduledTasks: GraphQlScheduledTask[] }>(LIST_TASKS)
   return data.scheduledTasks ?? []
+}
+
+export async function fetchFailedScheduledTaskRuns(
+  limit = 50,
+): Promise<GraphQlScheduledTaskRun[]> {
+  const data = await graphqlRequest<{ failedScheduledTaskRuns: GraphQlScheduledTaskRun[] }>(
+    LIST_FAILED_RUNS,
+    { limit },
+  )
+  return data.failedScheduledTaskRuns ?? []
 }
 
 export async function fetchScheduledTaskRuns(

@@ -50,7 +50,9 @@ export const ADMIN_QUERIES = new Set([
   'permissionEntities',
   'scheduledTasks',
   'scheduledTaskRuns',
+  'failedScheduledTaskRuns',
   'flowTriggers',
+  'failedFlowDispatches',
 ])
 
 export const ADMIN_MUTATIONS = new Set([

@@ -14,6 +14,8 @@ import {
 } from './core/translation'
 import { getOrgLanguage, loadCompanyProfile } from './core/orgLocale'
 import '@/core/docengine/registerDocEngineFields'
+/** Vertical / customer Block Layout slots — keep SFCs out of core (see docs/custom-blocks.md). */
+import '@/extensions/register'
 import './style.css'
 import '@fontsource/inter/400.css'
 import '@fontsource/inter/500.css'

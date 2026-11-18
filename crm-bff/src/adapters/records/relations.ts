@@ -262,10 +262,10 @@ async function loadEntityRelations(
     }
   }
 
-  // System audit FKs are seeded as UUID fields without relation rows. Always
-  // expand them as M2O → users so Created By / Last Modified By resolve to names.
+  // System audit / owner FKs are seeded as UUID fields without relation rows.
+  // Always expand them as M2O → users so labels resolve to Display Template names.
   const m2oFields = new Set(m2o.map((rel) => rel.fieldApiName))
-  for (const fieldApiName of ['user_created', 'user_updated'] as const) {
+  for (const fieldApiName of ['user_created', 'user_updated', 'owner_id'] as const) {
     if (m2oFields.has(fieldApiName)) continue
     const fieldRows = await query<{ id: string }>(
       `SELECT f.id::text AS id

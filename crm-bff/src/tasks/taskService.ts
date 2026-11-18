@@ -7,6 +7,7 @@ import {
   parseScheduleSpec,
   type ScheduleSpec,
 } from './scheduleSpec.js'
+import { scheduleFailedRunNotify } from '../ops/failedRunNotify.js'
 import { executeJobType, isJobType, type JobType } from './jobTypes.js'
 
 export type TaskRunStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED'
@@ -34,6 +35,8 @@ export interface ScheduledTaskRow {
 export interface ScheduledTaskRunRow {
   id: string
   taskId: string
+  taskKey: string | null
+  taskName: string | null
   status: TaskRunStatus
   trigger: TaskRunTrigger
   payload: Record<string, unknown>
@@ -93,6 +96,8 @@ function mapRun(row: Record<string, unknown>): ScheduledTaskRunRow {
   return {
     id: String(row.id),
     taskId: String(row.task_id),
+    taskKey: row.task_key == null ? null : String(row.task_key),
+    taskName: row.task_name == null ? null : String(row.task_name),
     status: String(row.status) as TaskRunStatus,
     trigger: String(row.trigger) as TaskRunTrigger,
     payload: asObject(row.payload),
@@ -133,6 +138,21 @@ export async function getScheduledTask(id: string): Promise<ScheduledTaskRow | n
     [id],
   )
   return rows[0] ? mapTask(rows[0]) : null
+}
+
+export async function listFailedScheduledTaskRuns(
+  limit = 50,
+): Promise<ScheduledTaskRunRow[]> {
+  const rows = await query(
+    `SELECT r.*, t.key AS task_key, t.name AS task_name
+     FROM public.app_task_runs r
+     JOIN public.app_scheduled_tasks t ON t.id = r.task_id
+     WHERE r.status = 'FAILED'
+     ORDER BY r.started_at DESC
+     LIMIT $1`,
+    [Math.min(Math.max(limit, 1), 100)],
+  )
+  return rows.map(mapRun)
 }
 
 export async function listScheduledTaskRuns(
@@ -357,6 +377,12 @@ export async function runScheduledTask(
        WHERE id = $1::uuid`,
       [task.id, finishedAt, next, message],
     )
+    scheduleFailedRunNotify({
+      kind: 'task',
+      key: task.key,
+      error: message,
+      detail: `name=${task.name}; jobType=${task.jobType}; trigger=${trigger}`,
+    })
     return mapRun(updated[0]!)
   }
 }

@@ -269,6 +269,52 @@ export async function seedFullPermissionsForRole(roleId: string): Promise<void> 
   )
 }
 
+/**
+ * After full_pack seed, set View all / Modify all on selected entities
+ * (domain packs: Sales Manager sees every rep’s owned rows).
+ */
+export async function setRoleOwnerBypassOnEntities(
+  roleId: string,
+  options: {
+    canViewAllOn?: string[] | null
+    canModifyAllOn?: string[] | null
+  },
+): Promise<void> {
+  const appRoleId = await resolveAppRoleId(roleId)
+  if (!appRoleId) return
+
+  const modifyAll = [
+    ...new Set(
+      (options.canModifyAllOn ?? [])
+        .map((name) => String(name || '').trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ]
+  const viewAll = [
+    ...new Set([
+      ...modifyAll,
+      ...(options.canViewAllOn ?? [])
+        .map((name) => String(name || '').trim().toLowerCase())
+        .filter(Boolean),
+    ]),
+  ]
+  if (!viewAll.length && !modifyAll.length) return
+
+  for (const entityApiName of viewAll) {
+    const canModifyAll = modifyAll.includes(entityApiName)
+    await query(
+      `UPDATE public.role_permissions
+       SET can_view_all = true,
+           can_modify_all = $3,
+           updated_at = now()
+       WHERE role_id = $1::uuid
+         AND entity_api_name = $2`,
+      [appRoleId, entityApiName, canModifyAll],
+    )
+  }
+  clearRoleOwnerBypassCache()
+}
+
 export async function isRoleAdmin(roleRef: string | null | undefined): Promise<boolean> {
   const raw = String(roleRef || '').trim()
   if (!raw) return false

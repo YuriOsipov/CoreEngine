@@ -1,0 +1,107 @@
+{
+  "name": "CoreEngine — upsert by external id",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-upsert-external",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-upsert",
+      "name": "Inbound Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "crm-upsert-external"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-crm-inbound-secret'] || $json.headers['X-CRM-Inbound-Secret']}}",
+              "value2": "={{$env.N8N_INBOUND_SECRET}}"
+            }
+          ]
+        }
+      },
+      "id": "if-inbound-secret",
+      "name": "Secret OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{$env.CRM_N8N_EMAIL}}\",\n  \"password\": \"{{$env.CRM_N8N_PASSWORD}}\"\n}",
+        "options": {}
+      },
+      "id": "bff-login-upsert",
+      "name": "BFF Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, -80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/api/v1/{{$env.CRM_UPSERT_COLLECTION || 'account'}}?upsert=true&by={{$env.CRM_UPSERT_BY || 'external_id'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ external_id: $('Inbound Webhook').item.json.body.external_id || $('Inbound Webhook').item.json.external_id, name: $('Inbound Webhook').item.json.body.name || $('Inbound Webhook').item.json.name, phone: $('Inbound Webhook').item.json.body.phone || $('Inbound Webhook').item.json.phone }) }}",
+        "options": {}
+      },
+      "id": "bff-upsert",
+      "name": "Upsert record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, -80]
+    }
+  ],
+  "connections": {
+    "Inbound Webhook": {
+      "main": [[{ "node": "Secret OK?", "type": "main", "index": 0 }]]
+    },
+    "Secret OK?": {
+      "main": [
+        [{ "node": "BFF Login", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "BFF Login": {
+      "main": [[{ "node": "Upsert record", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "Inbound sync from another system. Caller sends X-CRM-Inbound-Secret matching N8N_INBOUND_SECRET and JSON { external_id, name, phone }. Env: BFF_URL, CRM_N8N_EMAIL, CRM_N8N_PASSWORD, N8N_INBOUND_SECRET, optional CRM_UPSERT_COLLECTION (default account) and CRM_UPSERT_BY (default external_id). The by-field must be unique in Setup. Do not point a Postgres node at crm_schema."
+  },
+  "pinData": {},
+  "versionId": "1"
+}

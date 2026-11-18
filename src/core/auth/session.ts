@@ -356,7 +356,7 @@ function hadOidcBrowserSession(): boolean {
 }
 
 /**
- * Revoke BFF session. When the browser signed in via OIDC, also navigates to
+ * Revoke BFF session. When the browser signed in via OIDC, also POSTs to
  * `/auth/oidc/logout` so the IdP session ends (`id_token_hint` cookie).
  * Callers must not navigate away when `idpLogout` is true.
  */
@@ -377,9 +377,13 @@ export async function logoutWithBff(): Promise<{ idpLogout: boolean }> {
   if (endIdp) {
     const status = await fetchOidcStatus()
     if (status.enabled) {
-      const url = new URL(`${bffBaseUrl()}/auth/oidc/logout`)
-      url.searchParams.set('redirect', '/login')
-      window.location.assign(url.toString())
+      // POST (not GET) so a simple img/link cannot trigger IdP cookie clear.
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = `${bffBaseUrl()}/auth/oidc/logout?redirect=${encodeURIComponent('/login')}`
+      form.style.display = 'none'
+      document.body.appendChild(form)
+      form.submit()
       return { idpLogout: true }
     }
   }
@@ -389,6 +393,8 @@ export async function logoutWithBff(): Promise<{ idpLogout: boolean }> {
 export interface OidcStatus {
   enabled: boolean
   displayName: string
+  /** False when AUTH_LOCAL_LOGIN_ENABLED=false (SSO-only). Defaults true. */
+  localLoginEnabled: boolean
 }
 
 export async function fetchOidcStatus(): Promise<OidcStatus> {
@@ -399,11 +405,12 @@ export async function fetchOidcStatus(): Promise<OidcStatus> {
       credentials: 'include',
     })
     if (!response.ok) {
-      return { enabled: false, displayName: 'SSO' }
+      return { enabled: false, displayName: 'SSO', localLoginEnabled: true }
     }
     const payload = (await response.json().catch(() => null)) as {
       enabled?: unknown
       displayName?: unknown
+      localLoginEnabled?: unknown
     } | null
     return {
       enabled: payload?.enabled === true,
@@ -411,9 +418,10 @@ export async function fetchOidcStatus(): Promise<OidcStatus> {
         typeof payload?.displayName === 'string' && payload.displayName.trim()
           ? payload.displayName.trim()
           : 'SSO',
+      localLoginEnabled: payload?.localLoginEnabled !== false,
     }
   } catch {
-    return { enabled: false, displayName: 'SSO' }
+    return { enabled: false, displayName: 'SSO', localLoginEnabled: true }
   }
 }
 

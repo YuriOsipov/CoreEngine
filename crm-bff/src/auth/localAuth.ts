@@ -9,6 +9,8 @@ import {
   verifyAgainstDummyHash,
   verifyPassword,
 } from './passwords.js'
+import { oidcCheckOnRefreshEnabled } from './oidcSessionCheck.js'
+import { openOidcToken, sealOidcToken } from './oidcTokenCrypto.js'
 
 export interface AuthSessionPayload {
   access_token: string
@@ -106,13 +108,21 @@ export async function revokeAccessToken(token: string): Promise<void> {
   await query(`DELETE FROM public.app_revoked_access_tokens WHERE expires_at < now()`)
 }
 
+export type IssueSessionOidcTokens = {
+  accessToken?: string | null
+  refreshToken?: string | null
+}
+
 /** Issue CoreEngine access + refresh after local login or OIDC bridge. */
-export async function issueSession(user: {
-  id: string
-  backend_user_id: string | null
-  role_backend_id: string | null
-  must_change_password: boolean
-}): Promise<AuthSessionPayload> {
+export async function issueSession(
+  user: {
+    id: string
+    backend_user_id: string | null
+    role_backend_id: string | null
+    must_change_password: boolean
+  },
+  options?: { oidc?: IssueSessionOidcTokens | null },
+): Promise<AuthSessionPayload> {
   const subject = user.backend_user_id || user.id
   // Admin flags are not embedded — fetchMe / assert* read them from app_users.
   const accessToken = signAccessToken({
@@ -121,13 +131,38 @@ export async function issueSession(user: {
   })
   const refreshToken = randomBytes(32).toString('base64url')
   const tokenHash = hashRefreshToken(refreshToken)
+  // Only persist IdP tokens when refresh-time userinfo checks are enabled.
+  // Seal at rest so a DB/backup leak does not expose live IdP refresh tokens.
+  let oidcAccess: string | null = null
+  let oidcRefresh: string | null = null
+  if (oidcCheckOnRefreshEnabled()) {
+    oidcAccess = sealOidcToken(options?.oidc?.accessToken)
+    oidcRefresh = sealOidcToken(options?.oidc?.refreshToken)
+  }
   // Pass id from Node so INSERT does not invoke extensions.gen_random_uuid()
   // (pgcrypto.dll is blocked by WDAC on some Windows hosts).
-  await query(
-    `INSERT INTO public.app_refresh_tokens (id, user_id, token_hash, expires_at)
-     VALUES ($1::uuid, $2::uuid, $3, now() + ($4::int * interval '1 second'))`,
-    [randomUUID(), user.id, tokenHash, REFRESH_TTL_SEC],
-  )
+  try {
+    await query(
+      `INSERT INTO public.app_refresh_tokens (
+         id, user_id, token_hash, expires_at, oidc_access_token, oidc_refresh_token
+       ) VALUES (
+         $1::uuid, $2::uuid, $3, now() + ($4::int * interval '1 second'), $5, $6
+       )`,
+      [randomUUID(), user.id, tokenHash, REFRESH_TTL_SEC, oidcAccess, oidcRefresh],
+    )
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code !== '42703') throw error
+    if (oidcCheckOnRefreshEnabled() && (options?.oidc?.accessToken || options?.oidc?.refreshToken)) {
+      throw new Error(
+        'OIDC refresh-check tokens require migration 202611170001_oidc_refresh_and_cache_epochs.sql (oidc_* columns). Run npm run registry:migrate:node',
+      )
+    }
+    await query(
+      `INSERT INTO public.app_refresh_tokens (id, user_id, token_hash, expires_at)
+       VALUES ($1::uuid, $2::uuid, $3, now() + ($4::int * interval '1 second'))`,
+      [randomUUID(), user.id, tokenHash, REFRESH_TTL_SEC],
+    )
+  }
   return {
     access_token: accessToken,
     refresh_token: refreshToken,
@@ -183,102 +218,383 @@ export async function bffLogin(input: {
 
 /** Concurrent tab / retry of the same refresh within this window is not treated as theft. */
 export const REFRESH_REUSE_GRACE_MS = 10_000
+/** Sealed IdP tokens on consumed rows are only needed for the grace window. */
+export const CONSUMED_OIDC_TOKEN_RETENTION_SEC = 60
 
 async function pruneConsumedRefreshTokens(): Promise<void> {
   try {
+    // Drop IdP seals soon after grace — reuse detection still needs the row hash.
+    await query(
+      `UPDATE public.app_refresh_token_consumed
+       SET oidc_access_token = NULL,
+           oidc_refresh_token = NULL
+       WHERE consumed_at < now() - ($1::int * interval '1 second')
+         AND (oidc_access_token IS NOT NULL OR oidc_refresh_token IS NOT NULL)`,
+      [CONSUMED_OIDC_TOKEN_RETENTION_SEC],
+    )
     await query(
       `DELETE FROM public.app_refresh_token_consumed
        WHERE consumed_at < now() - ($1::int * interval '1 second')`,
       [REFRESH_TTL_SEC],
     )
   } catch (error) {
-    if ((error as { code?: string } | null)?.code !== '42P01') throw error
+    const code = (error as { code?: string } | null)?.code
+    if (code !== '42P01' && code !== '42703') throw error
   }
 }
 
 async function findConsumedRefresh(tokenHash: string): Promise<{
   user_id: string
   consumed_at: string
+  oidcAccessToken: string | null
+  oidcRefreshToken: string | null
 } | null> {
   try {
-    const rows = await query<{ user_id: string; consumed_at: string }>(
-      `SELECT user_id::text AS user_id, consumed_at::text AS consumed_at
+    const rows = await query<{
+      user_id: string
+      consumed_at: string
+      oidc_access_token: string | null
+      oidc_refresh_token: string | null
+    }>(
+      `SELECT user_id::text AS user_id,
+              consumed_at::text AS consumed_at,
+              oidc_access_token,
+              oidc_refresh_token
        FROM public.app_refresh_token_consumed
        WHERE token_hash = $1
        LIMIT 1`,
       [tokenHash],
     )
-    return rows[0] ?? null
+    const row = rows[0]
+    if (!row) return null
+    return {
+      user_id: row.user_id,
+      consumed_at: row.consumed_at,
+      oidcAccessToken: openOidcToken(row.oidc_access_token),
+      oidcRefreshToken: openOidcToken(row.oidc_refresh_token),
+    }
   } catch (error) {
-    if ((error as { code?: string } | null)?.code === '42P01') return null
+    const code = (error as { code?: string } | null)?.code
+    if (code === '42P01') return null
+    // Pre-migration: consumed table without oidc_* columns.
+    if (code === '42703') {
+      const rows = await query<{ user_id: string; consumed_at: string }>(
+        `SELECT user_id::text AS user_id, consumed_at::text AS consumed_at
+         FROM public.app_refresh_token_consumed
+         WHERE token_hash = $1
+         LIMIT 1`,
+        [tokenHash],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        user_id: row.user_id,
+        consumed_at: row.consumed_at,
+        oidcAccessToken: null,
+        oidcRefreshToken: null,
+      }
+    }
     throw error
   }
 }
 
-async function consumeRefreshTokenAtomic(
+type ConsumedRefreshRow = {
+  userId: string
+  oidcAccessToken: string | null
+  oidcRefreshToken: string | null
+}
+
+async function peekRefreshToken(
   tokenHash: string,
-): Promise<string | null> {
+): Promise<ConsumedRefreshRow | null> {
   try {
-    // Single statement: DELETE + INSERT so a crash cannot drop reuse detection.
-    const rows = await query<{ user_id: string }>(
-      `WITH deleted AS (
-         DELETE FROM public.app_refresh_tokens
-         WHERE token_hash = $1 AND expires_at > now()
-         RETURNING user_id
-       )
-       INSERT INTO public.app_refresh_token_consumed (token_hash, user_id)
-       SELECT $1, user_id FROM deleted
-       RETURNING user_id::text AS user_id`,
-      [tokenHash],
-    )
-    void pruneConsumedRefreshTokens()
-    return rows[0]?.user_id ?? null
-  } catch (error) {
-    // Pre-migration DBs lack the consumed table — fall back to DELETE-only rotation.
-    if ((error as { code?: string } | null)?.code !== '42P01') throw error
-    const rows = await query<{ user_id: string }>(
-      `DELETE FROM public.app_refresh_tokens
+    const rows = await query<{
+      user_id: string
+      oidc_access_token: string | null
+      oidc_refresh_token: string | null
+    }>(
+      `SELECT user_id::text AS user_id,
+              oidc_access_token,
+              oidc_refresh_token
+       FROM public.app_refresh_tokens
        WHERE token_hash = $1 AND expires_at > now()
-       RETURNING user_id::text AS user_id`,
+       LIMIT 1`,
       [tokenHash],
     )
-    return rows[0]?.user_id ?? null
+    const row = rows[0]
+    if (!row) return null
+    return {
+      userId: row.user_id,
+      oidcAccessToken: openOidcToken(row.oidc_access_token),
+      oidcRefreshToken: openOidcToken(row.oidc_refresh_token),
+    }
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code
+    if (code === '42703') {
+      if (oidcCheckOnRefreshEnabled()) {
+        throw new Error(
+          'OIDC refresh-check requires migration 202611170001_oidc_refresh_and_cache_epochs.sql (app_refresh_tokens.oidc_*). Run npm run registry:migrate:node',
+        )
+      }
+      const rows = await query<{ user_id: string }>(
+        `SELECT user_id::text AS user_id
+         FROM public.app_refresh_tokens
+         WHERE token_hash = $1 AND expires_at > now()
+         LIMIT 1`,
+        [tokenHash],
+      )
+      const userId = rows[0]?.user_id
+      return userId
+        ? { userId, oidcAccessToken: null, oidcRefreshToken: null }
+        : null
+    }
+    throw error
   }
 }
 
-export async function bffRefresh(input: {
-  refreshToken: string
-}): Promise<
-  { ok: true; session: AuthSessionPayload } | { ok: false; status: number; error: string }
-> {
-  const tokenHash = hashRefreshToken(input.refreshToken)
-
-  const consumed = await findConsumedRefresh(tokenHash)
-  if (consumed) {
-    const consumedAtMs = Date.parse(consumed.consumed_at)
-    const ageMs = Number.isFinite(consumedAtMs)
-      ? Date.now() - consumedAtMs
-      : Number.POSITIVE_INFINITY
-    if (ageMs <= REFRESH_REUSE_GRACE_MS) {
-      // Benign client retry / second tab — issue another session, do not global-revoke.
-      const user = await loadUserById(consumed.user_id)
-      if (!user || !user.is_active) {
-        return { ok: false, status: 401, error: 'Refresh failed' }
-      }
-      return { ok: true, session: await issueSession(user) }
+/**
+ * @param sealedOidc optional already-sealed IdP tokens to store on the consumed
+ *   row (use rotated tokens from a successful IdP check).
+ */
+async function consumeRefreshTokenAtomic(
+  tokenHash: string,
+  sealedOidc?: { access: string | null; refresh: string | null },
+): Promise<ConsumedRefreshRow | null> {
+  const sealedAccess = sealedOidc?.access ?? null
+  const sealedRefresh = sealedOidc?.refresh ?? null
+  try {
+    // Single statement: DELETE + INSERT so a crash cannot drop reuse detection.
+    // COALESCE overrides copy rotated IdP tokens onto the consumed row.
+    const rows = await query<{
+      user_id: string
+      oidc_access_token: string | null
+      oidc_refresh_token: string | null
+    }>(
+      `WITH deleted AS (
+         DELETE FROM public.app_refresh_tokens
+         WHERE token_hash = $1 AND expires_at > now()
+         RETURNING user_id, oidc_access_token, oidc_refresh_token
+       ),
+       inserted AS (
+         INSERT INTO public.app_refresh_token_consumed (
+           token_hash, user_id, oidc_access_token, oidc_refresh_token
+         )
+         SELECT $1,
+                user_id,
+                COALESCE($2, oidc_access_token),
+                COALESCE($3, oidc_refresh_token)
+         FROM deleted
+         RETURNING user_id
+       )
+       SELECT d.user_id::text AS user_id,
+              COALESCE($2, d.oidc_access_token) AS oidc_access_token,
+              COALESCE($3, d.oidc_refresh_token) AS oidc_refresh_token
+       FROM deleted d`,
+      [tokenHash, sealedAccess, sealedRefresh],
+    )
+    void pruneConsumedRefreshTokens().catch((error) => {
+      console.error('[auth] pruneConsumedRefreshTokens failed', error)
+    })
+    const row = rows[0]
+    if (!row) return null
+    return {
+      userId: row.user_id,
+      oidcAccessToken: openOidcToken(row.oidc_access_token),
+      oidcRefreshToken: openOidcToken(row.oidc_refresh_token),
     }
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code
+    // Pre-migration: no consumed table and/or no oidc_* columns.
+    if (code !== '42P01' && code !== '42703') throw error
+    if (oidcCheckOnRefreshEnabled() && sealedOidc) {
+      throw new Error(
+        'OIDC refresh-check grace tokens require migration 202611170003_refresh_consumed_oidc_tokens.sql (app_refresh_token_consumed.oidc_*). Run npm run registry:migrate:node',
+      )
+    }
+    try {
+      const rows = await query<{
+        user_id: string
+        oidc_access_token?: string | null
+        oidc_refresh_token?: string | null
+      }>(
+        `DELETE FROM public.app_refresh_tokens
+         WHERE token_hash = $1 AND expires_at > now()
+         RETURNING user_id::text AS user_id,
+                   NULL::text AS oidc_access_token,
+                   NULL::text AS oidc_refresh_token`,
+        [tokenHash],
+      )
+      const row = rows[0]
+      if (!row) return null
+      return {
+        userId: row.user_id,
+        oidcAccessToken: openOidcToken(row.oidc_access_token ?? null),
+        oidcRefreshToken: openOidcToken(row.oidc_refresh_token ?? null),
+      }
+    } catch (fallbackError) {
+      if ((fallbackError as { code?: string } | null)?.code === '42703') {
+        const rows = await query<{ user_id: string }>(
+          `DELETE FROM public.app_refresh_tokens
+           WHERE token_hash = $1 AND expires_at > now()
+           RETURNING user_id::text AS user_id`,
+          [tokenHash],
+        )
+        const userId = rows[0]?.user_id
+        return userId
+          ? { userId, oidcAccessToken: null, oidcRefreshToken: null }
+          : null
+      }
+      throw fallbackError
+    }
+  }
+}
+
+async function deactivateUser(userId: string): Promise<void> {
+  await query(
+    `UPDATE public.app_users SET is_active = false, updated_at = now()
+     WHERE id = $1::uuid`,
+    [userId],
+  )
+}
+
+/**
+ * Grace / concurrent-loser path for an already-consumed CE refresh token.
+ * @returns null when the hash is not in the consumed table yet.
+ */
+async function refreshFromConsumedGrace(
+  tokenHash: string,
+): Promise<
+  | { ok: true; session: AuthSessionPayload }
+  | { ok: false; status: number; error: string }
+  | null
+> {
+  const consumed = await findConsumedRefresh(tokenHash)
+  if (!consumed) return null
+  const consumedAtMs = Date.parse(consumed.consumed_at)
+  const ageMs = Number.isFinite(consumedAtMs)
+    ? Date.now() - consumedAtMs
+    : Number.POSITIVE_INFINITY
+  if (ageMs > REFRESH_REUSE_GRACE_MS) {
     // Reuse outside the grace window → revoke every session for that user.
     await revokeAllRefreshTokensForUser(consumed.user_id)
     return { ok: false, status: 401, error: 'Refresh failed' }
   }
-
-  const userId = await consumeRefreshTokenAtomic(tokenHash)
-  if (!userId) return { ok: false, status: 401, error: 'Refresh failed' }
-  const user = await loadUserById(userId)
+  // Benign client retry / second tab after a *successful* first refresh.
+  // Do not call the IdP again — that would replay a possibly already-rotated
+  // IdP refresh token. Tokens on the consumed row were sealed after the first
+  // successful IdP check (or are null for local-login sessions).
+  const user = await loadUserById(consumed.user_id)
   if (!user || !user.is_active) {
     return { ok: false, status: 401, error: 'Refresh failed' }
   }
-  return { ok: true, session: await issueSession(user) }
+  return {
+    ok: true,
+    session: await issueSession(user, {
+      oidc: {
+        accessToken: consumed.oidcAccessToken,
+        refreshToken: consumed.oidcRefreshToken,
+      },
+    }),
+  }
+}
+
+type BffRefreshResult =
+  | { ok: true; session: AuthSessionPayload }
+  | { ok: false; status: number; error: string }
+
+/**
+ * In-process single-flight for the same CE refresh token. Prevents two tabs from
+ * both presenting the same IdP refresh token (Keycloak revoke-on-reuse).
+ * Multi-instance still relies on grace re-check after a failed IdP call.
+ */
+const refreshInflight = new Map<string, Promise<BffRefreshResult>>()
+
+export async function bffRefresh(input: {
+  refreshToken: string
+}): Promise<BffRefreshResult> {
+  const tokenHash = hashRefreshToken(input.refreshToken)
+  const existing = refreshInflight.get(tokenHash)
+  if (existing) return existing
+
+  const pending = bffRefreshExclusive(tokenHash).finally(() => {
+    if (refreshInflight.get(tokenHash) === pending) {
+      refreshInflight.delete(tokenHash)
+    }
+  })
+  refreshInflight.set(tokenHash, pending)
+  return pending
+}
+
+async function bffRefreshExclusive(tokenHash: string): Promise<BffRefreshResult> {
+  const { assertOidcSessionStillValid, oidcDeactivateOnRejectEnabled } =
+    await import('./oidcSessionCheck.js')
+
+  const alreadyConsumed = await refreshFromConsumedGrace(tokenHash)
+  if (alreadyConsumed) return alreadyConsumed
+
+  // Peek first so IdP outage does not consume the CE refresh token.
+  const peeked = await peekRefreshToken(tokenHash)
+  if (!peeked) return { ok: false, status: 401, error: 'Refresh failed' }
+  const user = await loadUserById(peeked.userId)
+  if (!user || !user.is_active) {
+    return { ok: false, status: 401, error: 'Refresh failed' }
+  }
+
+  let oidcCheck: Awaited<ReturnType<typeof assertOidcSessionStillValid>>
+  try {
+    oidcCheck = await assertOidcSessionStillValid({
+      oidcAccessToken: peeked.oidcAccessToken,
+      oidcRefreshToken: peeked.oidcRefreshToken,
+    })
+  } catch (error) {
+    // Leave the CE refresh row intact so the client can retry.
+    console.error('[auth] IdP session check failed during refresh', error)
+    return {
+      ok: false,
+      status: 503,
+      error: 'SSO temporarily unavailable',
+    }
+  }
+  if (!oidcCheck.ok) {
+    // Another instance may have already rotated + consumed — prefer grace over
+    // global revoke (IdP reject is often refresh-token reuse, not a real logout).
+    const racedAfterReject = await refreshFromConsumedGrace(tokenHash)
+    if (racedAfterReject) return racedAfterReject
+    await revokeAllRefreshTokensForUser(user.id)
+    if (oidcDeactivateOnRejectEnabled()) {
+      await deactivateUser(user.id)
+    }
+    return { ok: false, status: 401, error: 'Refresh failed' }
+  }
+
+  const nextAccess = oidcCheck.accessToken ?? peeked.oidcAccessToken
+  const nextRefresh = oidcCheck.refreshToken ?? peeked.oidcRefreshToken
+  // Seal rotated IdP tokens onto the consumed row for grace re-issue (no IdP replay).
+  const sealedForConsumed =
+    oidcCheckOnRefreshEnabled()
+      ? {
+          access: sealOidcToken(nextAccess),
+          refresh: sealOidcToken(nextRefresh),
+        }
+      : undefined
+
+  const consumedLive = await consumeRefreshTokenAtomic(tokenHash, sealedForConsumed)
+  if (!consumedLive) {
+    // Concurrent tab won the atomic delete — land in the grace path if still in window.
+    const raced = await refreshFromConsumedGrace(tokenHash)
+    if (raced) return raced
+    return { ok: false, status: 401, error: 'Refresh failed' }
+  }
+
+  return {
+    ok: true,
+    session: await issueSession(user, {
+      oidc: {
+        accessToken: nextAccess,
+        refreshToken: nextRefresh,
+      },
+    }),
+  }
 }
 
 export async function bffLogout(input: {

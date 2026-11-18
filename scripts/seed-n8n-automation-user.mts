@@ -1,9 +1,15 @@
 /**
- * Ensure a dedicated n8n automation app_users row (admin role) + password.
+ * Ensure a dedicated n8n automation app_users row + password.
+ *
+ * Default role: non-admin **Integration** with full object CRUD grants
+ * (not admin / FLS bypass). Use --admin only when you intentionally need
+ * Setup/registry access from n8n.
  *
  * Usage (repo root):
  *   npm run registry:seed-n8n-automation-user
  *   npm run registry:seed-n8n-automation-user -- --email=n8n@system.local --generate
+ *   npm run registry:seed-n8n-automation-user -- --admin
+ *   npm run registry:seed-n8n-automation-user -- --role=Integration
  *   npm run registry:seed-n8n-automation-user -- --dry-run
  *
  * n8n should: POST /auth/login → Bearer access_token on GraphQL mutations,
@@ -12,9 +18,11 @@
 import { randomBytes } from 'node:crypto'
 import { pool, query } from '../crm-bff/src/db/pool.ts'
 import { hashPassword } from '../crm-bff/src/auth/passwords.ts'
+import { resolveN8nAutomationRole } from '../crm-bff/src/auth/n8nAutomationRole.ts'
 
 const dryRun = process.argv.includes('--dry-run')
 const generate = process.argv.includes('--generate')
+const wantAdmin = process.argv.includes('--admin')
 
 function argValue(prefix: string): string | null {
   const hit = process.argv.find((a) => a.startsWith(`${prefix}=`))
@@ -23,6 +31,7 @@ function argValue(prefix: string): string | null {
 
 const email = (argValue('--email') || 'n8n@system.local').toLowerCase()
 const passwordArg = argValue('--password')
+const roleNameArg = argValue('--role')
 
 function generatePassword(bytes = 18): string {
   return randomBytes(bytes).toString('base64url')
@@ -38,16 +47,15 @@ if (!dryRun && password.length < 8) {
   process.exit(1)
 }
 
-const adminRoles = await query<{ id: string; name: string | null }>(
-  `SELECT id::text AS id, name
-   FROM public.app_roles
-   WHERE is_admin = true
-   ORDER BY updated_at DESC NULLS LAST
-   LIMIT 1`,
-)
-const adminRole = adminRoles[0]
-if (!adminRole) {
-  console.error('No app_roles with is_admin=true — create an admin role first')
+let role
+try {
+  role = await resolveN8nAutomationRole({
+    wantAdmin,
+    roleName: roleNameArg,
+    dryRun,
+  })
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
   await pool.end()
   process.exit(1)
 }
@@ -70,7 +78,7 @@ if (!userId) {
          email, first_name, last_name, role_id, backend_user_id, is_active
        ) VALUES ($1, 'n8n', 'Automation', $2::uuid, NULL, true)
        RETURNING id::text AS id`,
-      [email, adminRole.id],
+      [email, role.id],
     )
     userId = inserted[0]?.id ?? null
     if (userId) {
@@ -86,7 +94,7 @@ if (!userId) {
     `UPDATE public.app_users
      SET role_id = $2::uuid, is_active = true, updated_at = now()
      WHERE id = $1::uuid`,
-    [userId, adminRole.id],
+    [userId, role.id],
   )
 }
 
@@ -109,12 +117,15 @@ console.log(
       created,
       email,
       userId,
-      roleId: adminRole.id,
-      roleName: adminRole.name,
+      roleId: role.id,
+      roleName: role.name,
+      roleIsAdmin: role.isAdmin,
       ...(dryRun ? {} : { password }),
       note: dryRun
         ? 'No changes'
-        : 'Store password for n8n credentials; send X-CRM-Automation: n8n on GraphQL calls',
+        : role.isAdmin
+          ? 'Admin automation user — FLS/owner RLS bypass. Prefer default Integration role unless Setup access is required.'
+          : 'Non-admin Integration user with object CRUD. Send X-CRM-Automation: n8n on GraphQL calls. Owner RLS stamps owner_id (and audit user_created) to this account.',
     },
     null,
     2,

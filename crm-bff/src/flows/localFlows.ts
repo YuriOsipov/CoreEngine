@@ -9,6 +9,7 @@ import { query } from '../db/pool.js'
 import { assertFieldsEditable, redactRecordForMe } from '../services/fieldSecurity.js'
 import { assertMeEntityPermission, resolveAppRoleId } from '../services/rolePermissions.js'
 import { outboundHttpFlowHeaders } from './flowAuth.js'
+import { flowDispatchContext, recordFlowDispatchFailure } from './flowDispatchLog.js'
 import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
 import { assertOutboundUrlShape, guardedFlowFetch } from './outboundHttp.js'
 
@@ -297,6 +298,30 @@ export async function runLocalFlow(
   key: string,
   payload: unknown,
   invoker: FlowInvoker = { kind: 'system' },
+): Promise<LocalFlowResult> {
+  const startedAt = new Date()
+  try {
+    return await executeLocalFlow(key, payload, invoker)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const context = flowDispatchContext(payload)
+    await recordFlowDispatchFailure({
+      flowKey: key.trim() || '(missing)',
+      source: context.source,
+      collection: context.collection,
+      recordId: context.recordId,
+      error: message,
+      startedAt,
+      finishedAt: new Date(),
+    })
+    throw error
+  }
+}
+
+async function executeLocalFlow(
+  key: string,
+  payload: unknown,
+  invoker: FlowInvoker,
 ): Promise<LocalFlowResult> {
   const trimmed = key.trim()
   if (!trimmed) {

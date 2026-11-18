@@ -13,6 +13,10 @@ import { filterM2OSearchLabelFields } from '../../m2oSearchAccess.js'
 import { loadM2ORelations } from '../../relations.js'
 import type { MeUser } from '../../../usersAdapter.js'
 import type { RecordsListParams, RecordsListResult } from '../../types.js'
+import {
+  ROW_OWNER_FIELD,
+  relatedOwnerSqlIfNeeded,
+} from '../../../../services/rowLevelSecurity.js'
 
 interface BusinessRecordRow {
   record_id: string
@@ -739,14 +743,26 @@ async function m2oSearchExistsSql(
   )
   if (!ilikeParts.length) return null
 
+  const ownerPromoted = findPromotedField(relatedRelation, ROW_OWNER_FIELD)
+  const ownerColumnExpr = ownerPromoted
+    ? `r.${quoteIdent(ownerPromoted.apiName)}`
+    : `r.data->>${quoteLiteral(ROW_OWNER_FIELD)}`
+  const ownerFrag = await relatedOwnerSqlIfNeeded(
+    relatedEntityApiName,
+    me,
+    ownerColumnExpr,
+    patternIndex + 1,
+  )
+  const ownerAnd = ownerFrag ? ` AND ${ownerFrag.sql}` : ''
+
   return {
     sql: `EXISTS (
       SELECT 1
       FROM ${relatedRelation.relationSql} r
       WHERE r.record_id::text = (${fkExpr})::text${entityFilter}
-        AND (${ilikeParts.join(' OR ')})
+        AND (${ilikeParts.join(' OR ')})${ownerAnd}
     )`,
-    params: [],
+    params: ownerFrag?.params ?? [],
   }
 }
 
@@ -790,8 +806,8 @@ async function compileListSearch(
     const existsFrag = await m2oSearchExistsSql(relation, field, index, me)
     if (!existsFrag) continue
     parts.push(existsFrag.sql)
-    params.push(pattern)
-    index += 1
+    params.push(pattern, ...existsFrag.params)
+    index += 1 + existsFrag.params.length
   }
 
   if (!parts.length) return null

@@ -1,5 +1,7 @@
+import type { RecordAccess } from '../adapters/records/types.js'
 import { resolveRecordsStore } from '../adapters/records/registry.js'
 import { fkIdFromValue } from '../adapters/records/relations.js'
+import { applyOwnerFilterIfNeeded } from '../services/rowLevelSecurity.js'
 import { applyFormulasOnWrite } from './applyFormulas.js'
 import {
   isLiveRollup,
@@ -88,21 +90,27 @@ function readAggregateNumber(
 
 /**
  * Batch-compute one live rollup for many parents via groupBy on the parent FK.
+ * When `access` is a user caller, child aggregates respect owner RLS.
  */
 async function aggregateRollupByParents(
   rollup: RollupConfig,
   parentIds: string[],
+  access?: RecordAccess,
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>()
   if (!parentIds.length) return out
 
   const op = rollup.op.toLowerCase()
   const valueField = rollup.op === 'COUNT' ? '*' : rollup.valueField || '*'
+  const filter = mergeRollupFilter(rollup, parentIds)
+  const securedFilter = access
+    ? await applyOwnerFilterIfNeeded(rollup.childEntity, access, filter)
+    : filter
   const store = await resolveRecordsStore(rollup.childEntity)
   const rows = await store.aggregate(rollup.childEntity, {
     aggregate: { [op]: valueField },
     groupBy: [rollup.parentField],
-    filter: mergeRollupFilter(rollup, parentIds),
+    filter: securedFilter,
     limit: -1,
   })
 
@@ -194,11 +202,13 @@ export async function recomputeRollupsForChildChange(
 /**
  * Attach live rollup values onto parent records (list/detail read path).
  * Uses one grouped aggregate per rollup field for the parent id set.
+ * Pass caller `access` so child owner RLS applies on live numbers.
  */
 export async function attachLiveRollupsOnRead(
   parentEntityApiName: string,
   records: Record<string, unknown>[],
   fields?: string[] | null,
+  access?: RecordAccess,
 ): Promise<Record<string, unknown>[]> {
   if (!records.length) return records
 
@@ -218,7 +228,7 @@ export async function attachLiveRollupsOnRead(
   for (const field of liveFields) {
     valueByField.set(
       field.apiName,
-      await aggregateRollupByParents(field.rollup, parentIds),
+      await aggregateRollupByParents(field.rollup, parentIds, access),
     )
   }
 

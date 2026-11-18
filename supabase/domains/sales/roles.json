@@ -1,6 +1,11 @@
 {
   "roles": [
     {
+      "name": "Integration",
+      "isAdmin": false,
+      "permissions": "full_pack"
+    },
+    {
       "name": "Pricing Manager",
       "isAdmin": false,
       "permissions": "full_pack"
@@ -8,7 +13,21 @@
     {
       "name": "Sales Manager",
       "isAdmin": false,
-      "permissions": "full_pack"
+      "permissions": "full_pack",
+      "canViewAllOn": [
+        "account",
+        "contact",
+        "opportunity",
+        "message",
+        "opportunity_item"
+      ],
+      "canModifyAllOn": [
+        "account",
+        "contact",
+        "opportunity",
+        "message",
+        "opportunity_item"
+      ]
     },
     {
       "name": "Sales Rep",

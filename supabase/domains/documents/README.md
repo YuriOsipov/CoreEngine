@@ -111,7 +111,7 @@ GraphQL equivalent: `mutation { generateDocument(input: …) { … } }`
 | `outputFormat` | no | `pdf` (default) \| `html` |
 | `documentStatus` | no | `completed` (default) \| `draft` |
 | `persist` | no | Default `true` — create/update `doc_value` |
-| `renderOutput` | no | Default `true` — upload file as `output_file` (Phase 2) |
+| `renderOutput` | no | Default `true` — render PDF/HTML and upload as `output_file` |
 | `valuesOverride` | no | Merge/override mapped values |
 | `upsertMode` | no | `always_create` (default) \| `update_latest_draft` |
 
@@ -119,8 +119,8 @@ GraphQL equivalent: `mutation { generateDocument(input: …) { … } }`
 
 | Phase | Status | Delivers |
 |-------|--------|----------|
-| 0 | Done (stub) | Contract + GraphQL/REST stub — HTTP 501 / `DOCUMENTS_GENERATE_STUB` until Phase 1 |
-| 1 | Planned | Populate field mapping + persist `doc_value` |
+| 0 | Done | Contract + GraphQL/REST registered |
+| 1 | Done | Populate field mapping + persist `doc_value` (owner RLS on source record) |
 | 2 | Planned | PDF/HTML render + `output_file` upload + `downloadUrl` |
 | 3 | Optional | Attach to parent files field; email stays in n8n |
 

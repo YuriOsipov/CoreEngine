@@ -8,6 +8,11 @@ vi.mock('./rolePermissions.js', () => ({
   resolveRoleOwnerBypass: (...args: unknown[]) => resolveRoleOwnerBypass(...args),
 }))
 
+vi.mock('./cacheEpoch.js', () => ({
+  readCacheEpoch: async () => 1,
+  bumpCacheEpoch: async () => 1,
+}))
+
 import {
   applyOwnerFilterIfNeeded,
   assertOwnerAccessIfNeeded,
@@ -16,7 +21,9 @@ import {
   clearRowLevelSecurityCache,
   mergeOwnerFilter,
   ownerEqFilter,
+  parseInheritOwnerFrom,
   parseRowLevelSecurity,
+  readInheritOwnerFrom,
   readRecordOwnerId,
   readRowLevelSecurity,
   ROW_OWNER_FIELD,
@@ -54,6 +61,17 @@ describe('rowLevelSecurity parse', () => {
     expect(readRowLevelSecurity({ rowLevelSecurity: 'owner' })).toBe('owner')
     expect(readRowLevelSecurity({})).toBeNull()
   })
+
+  it('parses inheritOwnerFrom as a safe field api_name', () => {
+    expect(parseInheritOwnerFrom('opportunity')).toBe('opportunity')
+    expect(parseInheritOwnerFrom('Opportunity')).toBe('opportunity')
+    expect(parseInheritOwnerFrom('bad-field')).toBeNull()
+    expect(parseInheritOwnerFrom('')).toBeNull()
+    expect(readInheritOwnerFrom({ inheritOwnerFrom: 'opportunity' })).toBe(
+      'opportunity',
+    )
+    expect(readInheritOwnerFrom({})).toBeNull()
+  })
 })
 
 describe('mergeOwnerFilter', () => {
@@ -73,21 +91,21 @@ describe('assertRecordOwner', () => {
   it('allows the owner and admins', () => {
     expect(() =>
       assertRecordOwner(me({ id: 'u1' }), 'opportunity', {
-        user_created: 'u1',
+        owner_id: 'u1',
       }),
     ).not.toThrow()
     expect(() =>
       assertRecordOwner(
         me({ id: 'u2', adminAccess: true }),
         'opportunity',
-        { user_created: 'u1' },
+        { owner_id: 'u1' },
       ),
     ).not.toThrow()
     expect(() =>
       assertRecordOwner(
         me({ id: 'u2', roleAdminAccess: true }),
         'opportunity',
-        { user_created: 'u1' },
+        { owner_id: 'u1' },
       ),
     ).not.toThrow()
   })
@@ -95,16 +113,17 @@ describe('assertRecordOwner', () => {
   it('denies other users and null owner', () => {
     expect(() =>
       assertRecordOwner(me({ id: 'u2' }), 'opportunity', {
-        user_created: 'u1',
+        owner_id: 'u1',
       }),
     ).toThrow('Permission denied: read on opportunity')
     expect(() =>
-      assertRecordOwner(me({ id: 'u1' }), 'opportunity', { user_created: null }, 'update'),
+      assertRecordOwner(me({ id: 'u1' }), 'opportunity', { owner_id: null }, 'update'),
     ).toThrow('Permission denied: update on opportunity')
   })
 
   it('reads owner from nested { id } shapes', () => {
-    expect(readRecordOwnerId({ user_created: { id: 'u1' } })).toBe('u1')
+    expect(readRecordOwnerId({ owner_id: { id: 'u1' } })).toBe('u1')
+    expect(readRecordOwnerId({ user_created: 'legacy-u' })).toBe('legacy-u')
     expect(() =>
       assertRecordOwner(me({ id: 'u1' }), 'opportunity', {
         user_created: { id: 'u1' },
@@ -154,7 +173,7 @@ describe('View all / Modify all bypass', () => {
       assertOwnerAccessIfNeeded(
         'opportunity',
         { me: me({ id: 'u1' }) },
-        { user_created: 'u2' },
+        { owner_id: 'u2' },
         'update',
       ),
     ).resolves.toBeUndefined()
@@ -166,7 +185,7 @@ describe('View all / Modify all bypass', () => {
       assertOwnerAccessIfNeeded(
         'opportunity',
         { me: me({ id: 'u1' }) },
-        { user_created: 'u2' },
+        { owner_id: 'u2' },
         'update',
       ),
     ).rejects.toThrow('Permission denied: update on opportunity')

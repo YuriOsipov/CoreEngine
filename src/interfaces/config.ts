@@ -186,8 +186,11 @@ export interface LayoutFieldMetadata {
   field: string
   /** Human-readable label shown in the form. */
   label: string
-  /** PrimeVue component resolved via <component :is="field.component" />. */
-  component: PrimeVueComponentType
+  /**
+   * OpenVue / built-in block component, or an extension id from
+   * `registerCustomBlock` (see docs/custom-blocks.md).
+   */
+  component: PrimeVueComponentType | string
   /** Grid column span (1–12) when using a responsive layout grid. */
   span?: number
   /** Display/input format for Date and DateTime fields. */

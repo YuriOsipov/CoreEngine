@@ -78,11 +78,13 @@ import {
   isM2MMultiSelectField,
   isRelationPickerField,
   isRepeaterField,
+  isRegisteredCustomBlock,
   isSchedulerField,
   isTreeTableField,
   sectionLabel,
   treeTableValue,
 } from '@/core/fieldHelpers'
+import { resolveCustomBlockRender } from '@/core/customBlocks/registry'
 import { buildComponentProps } from '@/core/buildComponentProps'
 import { isEditableFormLayoutField } from '@/core/layoutFieldRules'
 import {
@@ -674,6 +676,18 @@ defineExpose({ validateRequired })
                 <CrmScheduler
                   v-else-if="isSchedulerField(field)"
                   :settings="field.scheduler"
+                />
+                <component
+                  :is="resolveCustomBlockRender(field)"
+                  v-else-if="isRegisteredCustomBlock(field)"
+                  :field="field"
+                  :collection="schema.entity"
+                  :record-id="recordId ?? parentId ?? ''"
+                  :model-value="formState"
+                  :readonly="
+                    Boolean(readonly) || readonlyFieldNames.has(field.field)
+                  "
+                  :active="true"
                 />
                 <AttachedDataTableField
                   v-else-if="isFilesField(field)"

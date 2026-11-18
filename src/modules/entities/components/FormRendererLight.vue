@@ -40,6 +40,7 @@ import {
   isRepeaterField,
   isActivityLogField,
   isDocEngineField,
+  isRegisteredCustomBlock,
   isSchedulerField,
   isSingleFileField,
   isTreeTableField,
@@ -47,6 +48,7 @@ import {
   treeTableSummary,
   sectionLabel,
 } from '@/core/fieldHelpers'
+import { resolveCustomBlockRender } from '@/core/customBlocks/registry'
 import { formatAddressMultiline } from '@/core/addressField'
 import {
   formatJsonCodeSummary,
@@ -347,6 +349,18 @@ watch(
                   :field="field"
                   :collection="schema.entity"
                   :record-id="parentId ?? ''"
+                  :active="!groupCollapsed[group.id]"
+                />
+              </template>
+
+              <template v-else-if="isRegisteredCustomBlock(field)">
+                <component
+                  :is="resolveCustomBlockRender(field)"
+                  :field="field"
+                  :collection="schema.entity"
+                  :record-id="parentId ?? ''"
+                  :model-value="modelValue"
+                  :readonly="true"
                   :active="!groupCollapsed[group.id]"
                 />
               </template>

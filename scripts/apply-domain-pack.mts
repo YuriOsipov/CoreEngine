@@ -18,7 +18,10 @@ import {
   createRegistryField,
   updateRegistryField,
 } from '../crm-bff/src/schema/fieldRegistry.ts'
-import { seedFullPermissionsForRole } from '../crm-bff/src/services/rolePermissions.ts'
+import {
+  seedFullPermissionsForRole,
+  setRoleOwnerBypassOnEntities,
+} from '../crm-bff/src/services/rolePermissions.ts'
 import {
   postgresUpsertDashboard,
   postgresUpsertPanel,
@@ -99,6 +102,13 @@ interface PackEntity {
   displayTemplate?: string
   hidden?: boolean
   singleton?: boolean
+  /** Merged into entities.backend_config (e.g. rowLevelSecurity: "owner"). */
+  backendConfig?: {
+    rowLevelSecurity?: 'owner' | null
+    defaultFieldSensitivity?: number
+    /** M2O field for parent-owner inheritance on create. */
+    inheritOwnerFrom?: string | null
+  }
   fields?: PackField[]
 }
 
@@ -106,6 +116,10 @@ interface PackRole {
   name: string
   isAdmin?: boolean
   permissions?: 'full_pack' | 'none'
+  /** After full_pack seed, set can_view_all on these entity api_names. */
+  canViewAllOn?: string[]
+  /** After full_pack seed, set can_modify_all (implies view all) on these api_names. */
+  canModifyAllOn?: string[]
 }
 
 interface PackLayout {
@@ -341,6 +355,19 @@ for (const entity of entitiesDoc.entities ?? []) {
   const apiName = entity.apiName.trim().toLowerCase()
   packEntityNames.push(apiName)
 
+  const rowLevelSecurity =
+    entity.backendConfig && 'rowLevelSecurity' in entity.backendConfig
+      ? entity.backendConfig.rowLevelSecurity
+      : undefined
+  const defaultFieldSensitivity =
+    entity.backendConfig && 'defaultFieldSensitivity' in entity.backendConfig
+      ? entity.backendConfig.defaultFieldSensitivity
+      : undefined
+  const inheritOwnerFrom =
+    entity.backendConfig && 'inheritOwnerFrom' in entity.backendConfig
+      ? entity.backendConfig.inheritOwnerFrom
+      : undefined
+
   if (await entityExists(apiName)) {
     console.log(`  entity exists: ${apiName} (sync meta)`)
     await updateEntityMeta(apiName, {
@@ -349,6 +376,11 @@ for (const entity of entitiesDoc.entities ?? []) {
       displayTemplate: entity.displayTemplate ?? null,
       hidden: Boolean(entity.hidden),
       singleton: Boolean(entity.singleton),
+      ...(rowLevelSecurity !== undefined ? { rowLevelSecurity } : {}),
+      ...(defaultFieldSensitivity !== undefined
+        ? { defaultFieldSensitivity }
+        : {}),
+      ...(inheritOwnerFrom !== undefined ? { inheritOwnerFrom } : {}),
     })
   } else {
     console.log(`  create entity: ${apiName}`)
@@ -364,6 +396,19 @@ for (const entity of entitiesDoc.entities ?? []) {
       },
       { applyDdl: true },
     )
+    if (
+      rowLevelSecurity !== undefined ||
+      defaultFieldSensitivity !== undefined ||
+      inheritOwnerFrom !== undefined
+    ) {
+      await updateEntityMeta(apiName, {
+        ...(rowLevelSecurity !== undefined ? { rowLevelSecurity } : {}),
+        ...(defaultFieldSensitivity !== undefined
+          ? { defaultFieldSensitivity }
+          : {}),
+        ...(inheritOwnerFrom !== undefined ? { inheritOwnerFrom } : {}),
+      })
+    }
   }
 
   for (const field of entity.fields ?? []) {
@@ -453,6 +498,16 @@ for (const role of rolesDoc.roles ?? []) {
   console.log(`  role: ${role.name} (${roleId})`)
   if (role.permissions === 'full_pack' || role.permissions == null) {
     await seedFullPermissionsForRole(roleId)
+  }
+  if (role.canViewAllOn?.length || role.canModifyAllOn?.length) {
+    await setRoleOwnerBypassOnEntities(roleId, {
+      canViewAllOn: role.canViewAllOn,
+      canModifyAllOn: role.canModifyAllOn,
+    })
+    console.log(
+      `    owner bypass: viewAll=${(role.canViewAllOn ?? []).join(',') || '-'} ` +
+        `modifyAll=${(role.canModifyAllOn ?? []).join(',') || '-'}`,
+    )
   }
 }
 

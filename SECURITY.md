@@ -4,7 +4,7 @@ CoreEngine is a public MIT repository. We appreciate responsible disclosure of s
 
 ## Supported versions
 
-Security fixes are applied on the default branch (`main`). There is no long-term support channel yet; upgrade by pulling / redeploying `main` (or a release tag when published).
+Security fixes are applied on the default branch (`main`). There is no long-term support channel yet; upgrade by following [`docs/upgrading.md`](docs/upgrading.md) (pull → kernel migrate → rebuild/restart). Support expectations: [`SUPPORT.md`](SUPPORT.md).
 
 ## Reporting a vulnerability
 
@@ -27,7 +27,7 @@ We will acknowledge receipt when we can, triage severity, and coordinate a fix b
 ## Out of scope (for triage expectations)
 
 - Issues that require already having database / Hasura / Directus admin credentials, or a compromised `AUTH_JWT_SECRET`
-- Missing **full row-level sharing** (share rules / groups / hierarchy — see README). Opt-in **owner** RLS (`user_created`) is implemented; reporting “sharing rules” as complete when only owner mode exists is a docs bug
+- Missing **full row-level sharing** (share rules / groups / hierarchy — see README). Opt-in **owner** RLS (`owner_id`) is implemented; reporting “sharing rules” as complete when only owner mode exists is a docs bug
 - Denial-of-service from unbounded legitimate authenticated queries without a concrete auth/authorization flaw
 - Vulnerabilities only in third-party services you wire yourself (n8n, Hasura, Directus) when those endpoints are exposed contrary to the deployment checklist
 

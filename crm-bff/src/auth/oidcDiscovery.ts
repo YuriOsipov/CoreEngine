@@ -63,7 +63,7 @@ export async function fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
     typeof json.end_session_endpoint === 'string'
       ? json.end_session_endpoint
       : undefined
-  const userinfo_endpoint =
+  let userinfo_endpoint =
     typeof json.userinfo_endpoint === 'string' ? json.userinfo_endpoint : undefined
   if (!issuer || !authorization_endpoint || !token_endpoint || !jwks_uri) {
     throw new Error('OIDC discovery document missing required endpoints')
@@ -88,13 +88,20 @@ export async function fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
         cfg.issuer,
       )
     }
-    // Server-side token + JWKS use the internal host.
+    // Server-side token + JWKS + userinfo use the internal host.
     token_endpoint = rewriteInternalUrl(
       token_endpoint,
       cfg.issuer,
       cfg.internalIssuer,
     )
     jwks_uri = rewriteInternalUrl(jwks_uri, cfg.issuer, cfg.internalIssuer)
+    if (userinfo_endpoint) {
+      userinfo_endpoint = rewriteInternalUrl(
+        userinfo_endpoint,
+        cfg.issuer,
+        cfg.internalIssuer,
+      )
+    }
   }
   const doc: OidcDiscoveryDocument = {
     issuer: cfg.issuer,

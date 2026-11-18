@@ -13,6 +13,7 @@ import { featureFlags } from '@/core/graphql/featureFlags'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
 import {
   deleteScheduledTask,
+  fetchFailedScheduledTaskRuns,
   fetchScheduledTaskRuns,
   fetchScheduledTasks,
   runScheduledTask,
@@ -45,6 +46,9 @@ const saving = ref(false)
 const runningId = ref<string | null>(null)
 const isAdmin = ref(false)
 const tasks = ref<GraphQlScheduledTask[]>([])
+const failedRuns = ref<GraphQlScheduledTaskRun[]>([])
+const failedVisible = ref(false)
+const failedLoading = ref(false)
 const searchQuery = ref('')
 const dialogVisible = ref(false)
 const historyVisible = ref(false)
@@ -95,6 +99,15 @@ const jobTypeOptions = computed(() =>
     value: entry.id,
   })),
 )
+
+const failedRunsLabel = computed(() => {
+  const count = failedRuns.value.length
+  if (!count) return t('setup.tasks.failedRuns', 'Failed runs')
+  if (count >= 50) {
+    return t('setup.tasks.failedRunsCount', 'Failed runs ({count})', { count: '50+' })
+  }
+  return t('setup.tasks.failedRunsCount', 'Failed runs ({count})', { count })
+})
 
 const filteredTasks = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -263,6 +276,12 @@ async function load(): Promise<void> {
       return
     }
     tasks.value = await fetchScheduledTasks()
+    try {
+      failedRuns.value = await fetchFailedScheduledTaskRuns(50)
+    } catch (err) {
+      failedRuns.value = []
+      showError(err, t('setup.tasks.failedRunsError', 'Failed to load failed task runs'))
+    }
   } catch (err) {
     showError(err, t('setup.tasks.loadError', 'Failed to load tasks'))
   } finally {
@@ -398,6 +417,19 @@ async function remove(task: GraphQlScheduledTask): Promise<void> {
   }
 }
 
+async function openFailedRuns(): Promise<void> {
+  failedVisible.value = true
+  failedLoading.value = true
+  try {
+    failedRuns.value = await fetchFailedScheduledTaskRuns(50)
+  } catch (err) {
+    failedRuns.value = []
+    showError(err, t('setup.tasks.failedRunsError', 'Failed to load failed task runs'))
+  } finally {
+    failedLoading.value = false
+  }
+}
+
 async function openHistory(task: GraphQlScheduledTask): Promise<void> {
   historyTask.value = task
   historyVisible.value = true
@@ -458,6 +490,14 @@ onMounted(() => {
             :placeholder="t('setup.quickFind', 'Quick Find')"
           />
         </IconField>
+        <Button
+          :label="failedRunsLabel"
+          icon="pi pi-exclamation-triangle"
+          severity="secondary"
+          outlined
+          :disabled="!isAdmin || !graphqlEnabled"
+          @click="openFailedRuns"
+        />
         <Button
           :label="t('setup.tasks.new', 'New task')"
           icon="pi pi-plus"
@@ -894,6 +934,60 @@ onMounted(() => {
         />
       </template>
     </Dialog>
+    <Dialog
+      v-model:visible="failedVisible"
+      modal
+      :header="t('setup.tasks.failedRunsTitle', 'Failed task runs')"
+      :style="{ width: 'min(840px, 95vw)' }"
+    >
+      <div
+        v-if="failedLoading"
+        class="page-loading"
+      >
+        <ProgressSpinner stroke-width="4" />
+      </div>
+      <DataTable
+        v-else
+        :value="failedRuns"
+        striped-rows
+        data-key="id"
+        :empty-message="t('setup.tasks.failedRunsEmpty', 'No failed task runs.')"
+      >
+        <Column
+          field="startedAt"
+          :header="t('setup.tasks.columnStarted', 'Started')"
+          style="width: 11rem"
+        >
+          <template #body="{ data }">
+            {{ formatWhen(data.startedAt) }}
+          </template>
+        </Column>
+        <Column
+          :header="t('setup.tasks.columnTask', 'Task')"
+        >
+          <template #body="{ data }">
+            <div class="flex flex-col gap-1">
+              <span class="font-medium">{{ data.taskName || '—' }}</span>
+              <span class="text-muted-color text-[0.8rem]">{{ data.taskKey }}</span>
+            </div>
+          </template>
+        </Column>
+        <Column
+          field="trigger"
+          :header="t('setup.tasks.columnTrigger', 'Trigger')"
+          style="width: 7rem"
+        />
+        <Column
+          field="error"
+          :header="t('setup.tasks.columnResult', 'Result')"
+        >
+          <template #body="{ data }">
+            <span class="text-[0.8rem] break-all">{{ data.error || '—' }}</span>
+          </template>
+        </Column>
+      </DataTable>
+    </Dialog>
+
     <Dialog
       v-model:visible="historyVisible"
       modal

@@ -21,7 +21,19 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: crm-bff/package-lock.json
-      - run: npm ci
+      # @docengine/* is normally file:../../docEngine (sibling). Point at in-repo CI stubs
+      # so BFF installs work without a DocEngine checkout.
+      - name: Point DocEngine deps at CI stubs
+        run: |
+          node -e "
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          p.dependencies['@docengine/editor'] = 'file:../ci/stubs/docengine-editor';
+          p.dependencies['@docengine/engine'] = 'file:../ci/stubs/docengine-engine';
+          p.dependencies['@docengine/pdf-renderer'] = 'file:../ci/stubs/docengine-pdf-renderer';
+          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+      - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
 

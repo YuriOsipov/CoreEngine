@@ -23,12 +23,14 @@ import {
   findOneRecord,
   hardDeleteRecord,
   softDeleteRecord,
+  restoreRecord,
   updateRecord,
   SYSTEM_RECORD_ACCESS,
 } from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import { writeAuditEntry } from '../audit/auditService.js'
 import { hardDeleteAfterAudit } from '../audit/hardDeleteAfterAudit.js'
+import { auditAfterMutation } from '../audit/auditAfterMutation.js'
 import {
   PASSWORD_CHANGE_REQUIRED,
   requireAuthenticatedUser,
@@ -525,18 +527,28 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
             fields,
             { actorUserId, access: { me } },
           )
-          try {
-            await writeAuditEntry({
-              entityApiName: collection,
-              recordId,
-              action: 'UPDATE',
-              before,
-              after: updated,
-              userId: actorUserId,
-            })
-          } catch (error) {
-            request.log.warn({ err: error }, '[audit] REST upsert update failed')
-          }
+          await auditAfterMutation({
+            audit: async () => {
+              await writeAuditEntry({
+                entityApiName: collection,
+                recordId,
+                action: 'UPDATE',
+                before,
+                after: updated,
+                userId: actorUserId,
+              })
+            },
+            compensate: before
+              ? async () => {
+                  const rollback = { ...before }
+                  delete rollback.id
+                  await updateRecord(collection, recordId, rollback, null, {
+                    actorUserId,
+                    access: SYSTEM_RECORD_ACCESS,
+                  })
+                }
+              : undefined,
+          })
           return reply.send(await redactRecordForMe(me, collection, updated))
         }
         const created = await createRecord(collection, data, fields, {
@@ -544,17 +556,23 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
           access: { me },
         })
         const createdId = String(created.id ?? recordId)
-        try {
-          await writeAuditEntry({
-            entityApiName: collection,
-            recordId: createdId,
-            action: 'CREATE',
-            after: created,
-            userId: actorUserId,
-          })
-        } catch (error) {
-          request.log.warn({ err: error }, '[audit] REST upsert create failed')
-        }
+        await auditAfterMutation({
+          audit: async () => {
+            await writeAuditEntry({
+              entityApiName: collection,
+              recordId: createdId,
+              action: 'CREATE',
+              after: created,
+              userId: actorUserId,
+            })
+          },
+          compensate: async () => {
+            await softDeleteRecord(collection, createdId, undefined, {
+              actorUserId,
+              access: SYSTEM_RECORD_ACCESS,
+            })
+          },
+        })
         return reply.status(201).send(await redactRecordForMe(me, collection, created))
       }
 
@@ -566,17 +584,23 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       })
       const createdId = String(created.id ?? '')
       if (createdId) {
-        try {
-          await writeAuditEntry({
-            entityApiName: collection,
-            recordId: createdId,
-            action: 'CREATE',
-            after: created,
-            userId: actorUserId,
-          })
-        } catch (error) {
-          request.log.warn({ err: error }, '[audit] REST create failed')
-        }
+        await auditAfterMutation({
+          audit: async () => {
+            await writeAuditEntry({
+              entityApiName: collection,
+              recordId: createdId,
+              action: 'CREATE',
+              after: created,
+              userId: actorUserId,
+            })
+          },
+          compensate: async () => {
+            await softDeleteRecord(collection, createdId, undefined, {
+              actorUserId,
+              access: SYSTEM_RECORD_ACCESS,
+            })
+          },
+        })
       }
       return reply.status(201).send(await redactRecordForMe(me, collection, created))
     } catch (error) {
@@ -617,18 +641,28 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         actorUserId,
         access: { me },
       })
-      try {
-        await writeAuditEntry({
-          entityApiName: collection,
-          recordId: id,
-          action: 'UPDATE',
-          before,
-          after: updated,
-          userId: actorUserId,
-        })
-      } catch (error) {
-        request.log.warn({ err: error }, '[audit] REST update failed')
-      }
+      await auditAfterMutation({
+        audit: async () => {
+          await writeAuditEntry({
+            entityApiName: collection,
+            recordId: id,
+            action: 'UPDATE',
+            before,
+            after: updated,
+            userId: actorUserId,
+          })
+        },
+        compensate: before
+          ? async () => {
+              const rollback = { ...before }
+              delete rollback.id
+              await updateRecord(collection, id, rollback, null, {
+                actorUserId,
+                access: SYSTEM_RECORD_ACCESS,
+              })
+            }
+          : undefined,
+      })
       return reply.send(await redactRecordForMe(me, collection, updated))
     } catch (error) {
       return sendRecordError(reply, request, error, 'Record update failed')
@@ -690,18 +724,21 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
         actorUserId,
         access: { me },
       })
-      try {
-        await writeAuditEntry({
-          entityApiName: collection,
-          recordId: id,
-          action: 'SOFT_DELETE',
-          before,
-          after: deleted,
-          userId: actorUserId,
-        })
-      } catch (error) {
-        request.log.warn({ err: error }, '[audit] REST soft delete failed')
-      }
+      await auditAfterMutation({
+        audit: async () => {
+          await writeAuditEntry({
+            entityApiName: collection,
+            recordId: id,
+            action: 'SOFT_DELETE',
+            before,
+            after: deleted,
+            userId: actorUserId,
+          })
+        },
+        compensate: async () => {
+          await restoreRecord(collection, id)
+        },
+      })
       return reply.send(await redactRecordForMe(me, collection, deleted))
     } catch (error) {
       return sendRecordError(reply, request, error, 'Record delete failed')

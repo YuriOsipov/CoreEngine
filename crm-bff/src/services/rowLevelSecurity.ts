@@ -3,16 +3,19 @@ import type { MeUser } from '../adapters/usersAdapter.js'
 import type { RecordAccess } from '../adapters/records/types.js'
 import { isSystemRecordAccess } from '../adapters/records/types.js'
 import { resolveRoleOwnerBypass } from './rolePermissions.js'
+import { bumpCacheEpoch, readCacheEpoch } from './cacheEpoch.js'
 
 /**
  * Owner-based row-level security (MVP).
  *
  * Opt-in per entity via `backend_config.rowLevelSecurity = "owner"`.
  * Non-admin users may only list/read/update/delete rows where
- * `user_created` equals `me.id`. That id is `app_users.backend_user_id`
+ * `owner_id` equals `me.id`. That id is `app_users.backend_user_id`
  * (see `postgresFetchMe` / `actorIdFromMe`) — the same value stamped into
- * `user_created` on create. It is **not** the app_users UUID PK.
- * Legacy rows with null `user_created` are invisible to non-admins (by design).
+ * `owner_id` on create (and into `user_created` as the audit actor).
+ * It is **not** the app_users UUID PK.
+ * Legacy rows with null `owner_id` fall back to `user_created` for reads;
+ * after migration backfill, filters use `owner_id` only.
  * Admins, `SYSTEM_RECORD_ACCESS`, and role **View All** / **Modify All** bypass
  * (read vs write). No share table / hierarchy yet.
  *
@@ -27,25 +30,44 @@ import { resolveRoleOwnerBypass } from './rolePermissions.js'
 
 export type RowLevelSecurityMode = 'owner' | null
 
-/** Audit Created By — stamped on create; used as owner for MVP. */
-export const ROW_OWNER_FIELD = 'user_created'
+export type EntityOwnerSecurityConfig = {
+  mode: RowLevelSecurityMode
+  /**
+   * M2O field on this entity whose related row's `owner_id` is copied
+   * onto new children's `owner_id` (Salesforce-style master-detail ownership).
+   * `user_created` stays the creating actor.
+   */
+  inheritOwnerFrom: string | null
+}
 
-const CACHE_TTL_MS = 30_000
+/** Row owner (sharing). Distinct from audit `user_created`. */
+export const ROW_OWNER_FIELD = 'owner_id'
+
+const CACHE_TTL_MS = 5_000
 
 let modeCache: {
-  byEntity: Map<string, RowLevelSecurityMode>
+  byEntity: Map<string, EntityOwnerSecurityConfig>
   expiresAt: number
+  epoch: number
 } | null = null
-let modeLoad: Promise<Map<string, RowLevelSecurityMode>> | null = null
+let modeLoad: Promise<Map<string, EntityOwnerSecurityConfig>> | null = null
 
 export function clearRowLevelSecurityCache(): void {
   modeCache = null
   modeLoad = null
+  void bumpCacheEpoch('row_level_security')
 }
 
 export function parseRowLevelSecurity(raw: unknown): RowLevelSecurityMode {
   if (raw === 'owner') return 'owner'
   return null
+}
+
+export function parseInheritOwnerFrom(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim().toLowerCase()
+  if (!trimmed || !/^[a-z][a-z0-9_]*$/.test(trimmed)) return null
+  return trimmed
 }
 
 export function readRowLevelSecurity(
@@ -54,20 +76,27 @@ export function readRowLevelSecurity(
   return parseRowLevelSecurity(config.rowLevelSecurity)
 }
 
+export function readInheritOwnerFrom(
+  config: Record<string, unknown>,
+): string | null {
+  return parseInheritOwnerFrom(config.inheritOwnerFrom)
+}
+
 function entityKey(entity: string): string {
   return String(entity || '')
     .trim()
     .toLowerCase()
 }
 
-async function loadModes(): Promise<Map<string, RowLevelSecurityMode>> {
-  if (modeCache && modeCache.expiresAt > Date.now()) {
+async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig>> {
+  const epoch = await readCacheEpoch('row_level_security')
+  if (modeCache && modeCache.expiresAt > Date.now() && modeCache.epoch === epoch) {
     return modeCache.byEntity
   }
   if (modeLoad) return modeLoad
 
   modeLoad = (async () => {
-    const byEntity = new Map<string, RowLevelSecurityMode>()
+    const byEntity = new Map<string, EntityOwnerSecurityConfig>()
     try {
       const rows = await query<{
         api_name: string
@@ -84,12 +113,19 @@ async function loadModes(): Promise<Map<string, RowLevelSecurityMode>> {
           !Array.isArray(row.backend_config)
             ? (row.backend_config as Record<string, unknown>)
             : {}
-        byEntity.set(entityKey(row.api_name), readRowLevelSecurity(config))
+        byEntity.set(entityKey(row.api_name), {
+          mode: readRowLevelSecurity(config),
+          inheritOwnerFrom: readInheritOwnerFrom(config),
+        })
       }
     } catch (error) {
       console.warn('[rowLevelSecurity] failed to load entity modes', error)
     }
-    modeCache = { byEntity, expiresAt: Date.now() + CACHE_TTL_MS }
+    modeCache = {
+      byEntity,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      epoch: await readCacheEpoch('row_level_security'),
+    }
     modeLoad = null
     return byEntity
   })()
@@ -97,11 +133,29 @@ async function loadModes(): Promise<Map<string, RowLevelSecurityMode>> {
   return modeLoad
 }
 
+export async function resolveEntityOwnerSecurity(
+  entityApiName: string,
+): Promise<EntityOwnerSecurityConfig> {
+  const configs = await loadOwnerConfigs()
+  return (
+    configs.get(entityKey(entityApiName)) ?? {
+      mode: null,
+      inheritOwnerFrom: null,
+    }
+  )
+}
+
 export async function resolveEntityRowLevelSecurity(
   entityApiName: string,
 ): Promise<RowLevelSecurityMode> {
-  const modes = await loadModes()
-  return modes.get(entityKey(entityApiName)) ?? null
+  return (await resolveEntityOwnerSecurity(entityApiName)).mode
+}
+
+/** Parent M2O field used to inherit `owner_id` on create, or null. */
+export async function resolveInheritOwnerFrom(
+  entityApiName: string,
+): Promise<string | null> {
+  return (await resolveEntityOwnerSecurity(entityApiName)).inheritOwnerFrom
 }
 
 export function isAdminMe(me: MeUser | null | undefined): boolean {
@@ -150,12 +204,16 @@ function scalarOwnerId(value: unknown): string | null {
 }
 
 export function readRecordOwnerId(record: Record<string, unknown>): string | null {
-  return scalarOwnerId(record[ROW_OWNER_FIELD])
+  return (
+    scalarOwnerId(record[ROW_OWNER_FIELD]) ??
+    // Pre-migration / un-backfilled rows used user_created as owner.
+    scalarOwnerId(record.user_created)
+  )
 }
 
 /**
  * Throw when a non-admin user does not own the row.
- * Missing / null `user_created` → denied (legacy rows need backfill or admin).
+ * Missing / null `owner_id` (and no legacy `user_created`) → denied.
  */
 export function assertRecordOwner(
   me: MeUser,
@@ -254,7 +312,7 @@ export async function relatedOwnerFilterIfNeeded(
 }
 
 /**
- * SQL AND-fragment for a related-table alias (`r.user_created = $n`).
+ * SQL AND-fragment for a related-table alias (`r.owner_id = $n`).
  * `ownerColumnExpr` must already be a safe identifier/expression (not user input).
  */
 export async function relatedOwnerSqlIfNeeded(

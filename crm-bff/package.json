@@ -13,6 +13,9 @@
     "registry:import-layouts": "node --env-file=.env --env-file=supabase/.env ./scripts/import-layout-settings.mjs"
   },
   "dependencies": {
+    "@docengine/editor": "file:../../docEngine/packages/editor",
+    "@docengine/engine": "file:../../docEngine/packages/engine",
+    "@docengine/pdf-renderer": "file:../../docEngine/packages/pdf-renderer",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.2.0",
     "@fastify/multipart": "^10.1.1",

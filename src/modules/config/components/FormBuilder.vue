@@ -60,7 +60,9 @@ import {
   isFilesField,
   isImageField,
   isM2ABuilderField,
+  isRegisteredCustomBlock,
 } from '@/core/fieldHelpers'
+import { getCustomBlock, listCustomBlocks } from '@/core/customBlocks/registry'
 import {
   DEFAULT_DOC_ENGINE_SETTINGS,
   normalizeDocEngineSettings,
@@ -178,6 +180,16 @@ const customPaletteItems = computed<PaletteItem[]>(() => [
     ),
     paletteKind: 'field',
   },
+  // Vertical / customer blocks from registerCustomBlock (sibling package).
+  ...listCustomBlocks().map((block) => ({
+    id: `${block.component}-${collectionName.value}`,
+    label: block.label,
+    component: block.component,
+    fieldKey: block.fieldKey,
+    fieldType: 'custom' as const,
+    description: block.description,
+    paletteKind: 'field' as const,
+  })),
 ])
 const paletteLoading = ref(false)
 const paletteError = ref<string | null>(null)
@@ -1916,7 +1928,7 @@ function clonePaletteItem(item: PaletteItem): LayoutFieldMetadata {
         ? 6
         : ['DataTable', 'CrmTreeTable', 'CrmScheduler', 'CrmActivityLog', 'CrmDocEngine', 'Files', 'M2ABuilder'].includes(
               item.component,
-            )
+            ) || isRegisteredCustomBlock(item.component)
           ? 12
           : 6,
     relatedCollection: item.relatedCollection,
@@ -1994,6 +2006,8 @@ function paletteIcon(item: Pick<PaletteItem, 'component' | 'multiple' | 'allowed
   ) {
     return 'pi-image'
   }
+  const extensionIcon = getCustomBlock(item.component)?.icon
+  if (extensionIcon) return extensionIcon
   const icons: Record<string, string> = {
     InputText: 'pi-file',
     InputNumber: 'pi-hashtag',
@@ -2738,6 +2752,19 @@ function hintTooltip(value: string) {
                 </div>
                 <div v-else-if="isDocEngineField(element)" class="canvas-datatable">
                   <span>{{ t('formBuilder.docEngine', 'DocEngine') }}</span>
+                </div>
+                <div
+                  v-else-if="isRegisteredCustomBlock(element)"
+                  class="canvas-datatable"
+                >
+                  <i
+                    v-if="getCustomBlock(element.component)?.icon"
+                    :class="['pi', getCustomBlock(element.component)?.icon]"
+                    aria-hidden="true"
+                  />
+                  <span>{{
+                    getCustomBlock(element.component)?.label || element.label
+                  }}</span>
                 </div>
                 <div
                   v-else-if="isImageField(element)"

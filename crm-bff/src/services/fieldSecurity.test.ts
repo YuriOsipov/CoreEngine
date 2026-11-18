@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const query = vi.fn()
 const loadM2ORelations = vi.fn()
 const loadO2MRelations = vi.fn()
+const readCacheEpoch = vi.fn(async (_name: string) => 1)
+const bumpCacheEpoch = vi.fn(async (_name: string) => 1)
 
 vi.mock('../db/pool.js', () => ({
   query: (...args: unknown[]) => query(...args),
@@ -12,6 +14,11 @@ vi.mock('../db/pool.js', () => ({
 vi.mock('../adapters/records/relations.js', () => ({
   loadM2ORelations: (...args: unknown[]) => loadM2ORelations(...args),
   loadO2MRelations: (...args: unknown[]) => loadO2MRelations(...args),
+}))
+
+vi.mock('./cacheEpoch.js', () => ({
+  readCacheEpoch: (name: string) => readCacheEpoch(name),
+  bumpCacheEpoch: (name: string) => bumpCacheEpoch(name),
 }))
 
 import type { MeUser } from '../adapters/usersAdapter.js'
@@ -72,6 +79,10 @@ describe('fieldSecurity', () => {
     loadO2MRelations.mockReset()
     loadM2ORelations.mockResolvedValue([])
     loadO2MRelations.mockResolvedValue([])
+    readCacheEpoch.mockReset()
+    bumpCacheEpoch.mockReset()
+    readCacheEpoch.mockResolvedValue(1)
+    bumpCacheEpoch.mockResolvedValue(1)
     clearFieldSecurityCache()
   })
 
@@ -187,6 +198,17 @@ describe('fieldSecurity', () => {
     await resolveFieldAccess(user(), 'employee')
     expect(query).toHaveBeenCalledTimes(2)
     clearFieldSecurityCache()
+    expect(bumpCacheEpoch).toHaveBeenCalledWith('field_security')
+    await resolveFieldAccess(user(), 'employee')
+    expect(query).toHaveBeenCalledTimes(4)
+  })
+
+  it('reloads when the shared cache epoch advances', async () => {
+    mockRegistry([])
+    readCacheEpoch.mockResolvedValue(1)
+    await resolveFieldAccess(user(), 'employee')
+    expect(query).toHaveBeenCalledTimes(2)
+    readCacheEpoch.mockResolvedValue(2)
     await resolveFieldAccess(user(), 'employee')
     expect(query).toHaveBeenCalledTimes(4)
   })

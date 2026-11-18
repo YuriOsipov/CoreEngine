@@ -44,6 +44,36 @@ export interface OidcConfig {
   audience: string | null
 }
 
+/**
+ * Resolve authorize scopes.
+ * - Explicit `OIDC_SCOPES` is honored as-is (no forced offline_access).
+ * - When unset and refresh-time IdP check is on, default includes offline_access
+ *   so Auth0/Entra return an IdP refresh token.
+ * - When check is off, default is openid profile email only.
+ */
+export function resolveOidcScopes(input: {
+  scopesEnv: string | undefined
+  checkOnRefresh: boolean
+}): string {
+  const explicit = input.scopesEnv
+  if (explicit != null) {
+    const trimmed = explicit.trim()
+    return trimmed || 'openid profile email'
+  }
+  if (input.checkOnRefresh) {
+    return 'openid profile email offline_access'
+  }
+  return 'openid profile email'
+}
+
+function oidcCheckOnRefreshEnv(): boolean {
+  const raw = String(process.env.OIDC_CHECK_ON_REFRESH ?? 'true')
+    .trim()
+    .toLowerCase()
+  if (!raw) return true
+  return !(raw === '0' || raw === 'false' || raw === 'no' || raw === 'off')
+}
+
 /** Parse `OIDC_ALLOWED_EMAIL_DOMAINS` (comma-separated, optional leading `@`). */
 export function parseOidcAllowedEmailDomains(raw: string | undefined): string[] {
   if (!raw?.trim()) return []
@@ -88,7 +118,10 @@ export function readOidcConfig(): OidcConfig {
   const uiOrigin = trimSlash(
     (process.env.OIDC_UI_ORIGIN || process.env.CORS_ORIGIN?.split(',')[0] || 'http://localhost:5173').trim(),
   )
-  const scopes = (process.env.OIDC_SCOPES || 'openid profile email').trim()
+  const scopes = resolveOidcScopes({
+    scopesEnv: process.env.OIDC_SCOPES,
+    checkOnRefresh: enabled && oidcCheckOnRefreshEnv(),
+  })
   const displayName = (process.env.OIDC_DISPLAY_NAME || 'SSO').trim() || 'SSO'
   const jitProvision = envFlag('OIDC_JIT_PROVISION')
   const defaultRoleBackendId =

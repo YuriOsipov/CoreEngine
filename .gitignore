@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Customer / vertical Block Layout registration (copy from register.local.example.ts)
+src/extensions/register.local.ts
+
 # Env / secrets (keep .env.example files)
 .env
 .env.*

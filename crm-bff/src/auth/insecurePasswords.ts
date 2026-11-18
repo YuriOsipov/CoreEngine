@@ -1,7 +1,6 @@
 /**
- * Well-known / docs example passwords. Production BFF refuses to start when any
- * bootstrap account still verifies against these. Local provision may set them
- * temporarily with must_change_password=true.
+ * Well-known / docs example passwords. BFF refuses to start when any bootstrap
+ * account still verifies against these (unless ALLOW_INSECURE_BOOTSTRAP=true).
  */
 export const KNOWN_INSECURE_PASSWORDS = [
   'admin12345',

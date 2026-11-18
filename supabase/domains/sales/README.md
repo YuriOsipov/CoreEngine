@@ -31,7 +31,17 @@ See also: [`../pricing/README.md`](../pricing/README.md).
 
 ### Roles
 
-**Sales Manager**, **Sales Rep** (`full_pack` CRUD on pack entities). Administrator remains kernel.
+**Sales Manager**, **Sales Rep**, **Pricing Manager** (`full_pack` CRUD on pack entities). Administrator remains kernel.
+
+**Owner row security** is on for `account`, `contact`, `opportunity`, `message`, and `opportunity_item` (`backendConfig.rowLevelSecurity: "owner"`). Catalog / pricing entities stay shared (RLS off).
+
+| Role | Owner RLS effect |
+|------|------------------|
+| Sales Rep | Sees / edits only rows they created on those CRM objects |
+| Sales Manager | **View all** + **Modify all** on those objects (sees every rep’s book) |
+| Pricing Manager | Unaffected on catalog (RLS off); full_pack elsewhere |
+
+**n8n / imports:** login may use any active user. With RLS on, that user’s `user_created` owns new rows — use an admin automation user, a shared queue user with View all, or accept that Integration-owned leads stay private to that account until a manager views them.
 
 ### Seed data
 

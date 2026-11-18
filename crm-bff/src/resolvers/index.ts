@@ -14,6 +14,7 @@ import { assertFileReadable, assertFilesReadable } from '../files/fileAccess.js'
 import { rateLimitConsume } from '../auth/rateLimit.js'
 import { writeAuditEntry, listRecordActivities, listRecordRevisions } from '../audit/auditService.js'
 import { hardDeleteAfterAudit } from '../audit/hardDeleteAfterAudit.js'
+import { auditAfterMutation } from '../audit/auditAfterMutation.js'
 import {
   detectSchemaDrift,
   listEntitySyncStates,
@@ -109,7 +110,9 @@ import {
 } from '../services/fieldSecurity.js'
 import {
   assertOwnerAccessIfNeeded,
+  parseInheritOwnerFrom,
   parseRowLevelSecurity,
+  readInheritOwnerFrom,
   readRowLevelSecurity,
 } from '../services/rowLevelSecurity.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
@@ -133,11 +136,13 @@ import {
 import { bulkUpdateFilteredFromAction } from '../actions/bulkUpdateFiltered.js'
 import {
   deleteScheduledTask,
+  listFailedScheduledTaskRuns,
   listScheduledTaskRuns,
   listScheduledTasks,
   runScheduledTask,
   upsertScheduledTask,
 } from '../tasks/taskService.js'
+import { listFailedFlowDispatches } from '../flows/flowDispatchLog.js'
 import {
   deleteFlowTrigger,
   listFlowTriggers,
@@ -221,15 +226,18 @@ function mapField(row: Record<string, unknown>, language?: string | null) {
     sensitivity: clampSensitivity(row.sensitivity),
     restricted: false,
     writeRestricted: false,
+    relationKind: row.relation_kind ? String(row.relation_kind) : null,
   }
 }
 
 async function loadFields(entityId: string, language?: string | null) {
   const rows = await query(
-    `SELECT *
-     FROM public.fields
-     WHERE entity_id = $1
-     ORDER BY sort ASC, api_name ASC`,
+    `SELECT f.*,
+            r.kind AS relation_kind
+     FROM public.fields f
+     LEFT JOIN public.relations r ON r.field_id = f.id
+     WHERE f.entity_id = $1
+     ORDER BY f.sort ASC, f.api_name ASC`,
     [entityId],
   )
   return rows.map((row) => mapField(row, language))
@@ -319,6 +327,7 @@ function mapEntityBase(row: Record<string, unknown>, language?: string | null) {
     accountability: parseAccountability(backendConfig.accountability),
     defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
     rowLevelSecurity: readRowLevelSecurity(backendConfig),
+    inheritOwnerFrom: readInheritOwnerFrom(backendConfig),
     internal: readInternal(backendConfig),
     __language: language ?? null,
     __apiName: String(row.api_name),
@@ -1060,6 +1069,15 @@ export const resolvers = {
       return listScheduledTaskRuns(String(args.taskId), args.limit ?? 20)
     },
 
+    failedScheduledTaskRuns: async (
+      _: unknown,
+      args: { limit?: number | null },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return listFailedScheduledTaskRuns(args.limit ?? 50)
+    },
+
     flowTriggers: async (
       _: unknown,
       __: unknown,
@@ -1067,6 +1085,15 @@ export const resolvers = {
     ) => {
       await requireAdminAccess(ctx)
       return listFlowTriggers()
+    },
+
+    failedFlowDispatches: async (
+      _: unknown,
+      args: { limit?: number | null },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return listFailedFlowDispatches(args.limit ?? 50)
     },
 
     itemGroupPriceTree: async (
@@ -1234,17 +1261,23 @@ export const resolvers = {
       )
       const recordId = String(created.id ?? '')
       if (recordId) {
-        try {
-          await writeEntityAudit({
-            entityApiName: args.entity,
-            recordId,
-            action: 'CREATE',
-            after: created,
-            userId: actorUserId,
-          })
-        } catch (error) {
-          console.warn('[audit] createRecord failed', error)
-        }
+        await auditAfterMutation({
+          audit: async () => {
+            await writeEntityAudit({
+              entityApiName: args.entity,
+              recordId,
+              action: 'CREATE',
+              after: created,
+              userId: actorUserId,
+            })
+          },
+          compensate: async () => {
+            await softDeleteRecord(args.entity, recordId, undefined, {
+              actorUserId,
+              access: SYSTEM_RECORD_ACCESS,
+            })
+          },
+        })
       }
       return redactRecordForMe(me, args.entity, created)
     },
@@ -1281,18 +1314,31 @@ export const resolvers = {
         args.fields ?? null,
         { actorUserId, access: { me } },
       )
-      try {
-        await writeEntityAudit({
-          entityApiName: args.entity,
-          recordId: String(args.id),
-          action: 'UPDATE',
-          before,
-          after: updated,
-          userId: actorUserId,
-        })
-      } catch (error) {
-        console.warn('[audit] updateRecord failed', error)
-      }
+      await auditAfterMutation({
+        audit: async () => {
+          await writeEntityAudit({
+            entityApiName: args.entity,
+            recordId: String(args.id),
+            action: 'UPDATE',
+            before,
+            after: updated,
+            userId: actorUserId,
+          })
+        },
+        compensate: before
+          ? async () => {
+              const rollback = { ...before }
+              delete rollback.id
+              await updateRecord(
+                args.entity,
+                String(args.id),
+                rollback,
+                null,
+                { actorUserId, access: SYSTEM_RECORD_ACCESS },
+              )
+            }
+          : undefined,
+      })
       return redactRecordForMe(me, args.entity, updated)
     },
 
@@ -1318,18 +1364,21 @@ export const resolvers = {
         actorUserId,
         access: { me },
       })
-      try {
-        await writeEntityAudit({
-          entityApiName: args.entity,
-          recordId: String(args.id),
-          action: 'SOFT_DELETE',
-          before,
-          after: deleted,
-          userId: actorUserId,
-        })
-      } catch (error) {
-        console.warn('[audit] softDeleteRecord failed', error)
-      }
+      await auditAfterMutation({
+        audit: async () => {
+          await writeEntityAudit({
+            entityApiName: args.entity,
+            recordId: String(args.id),
+            action: 'SOFT_DELETE',
+            before,
+            after: deleted,
+            userId: actorUserId,
+          })
+        },
+        compensate: async () => {
+          await restoreRecord(args.entity, String(args.id))
+        },
+      })
       return redactRecordForMe(me, args.entity, deleted)
     },
 
@@ -1406,18 +1455,24 @@ export const resolvers = {
         )
       }
       const restored = await restoreRecord(args.entity, String(args.id))
-      try {
-        await writeEntityAudit({
-          entityApiName: args.entity,
-          recordId: String(args.id),
-          action: 'RESTORE',
-          before,
-          after: restored,
-          userId: actorUserId,
-        })
-      } catch (error) {
-        console.warn('[audit] restoreRecord failed', error)
-      }
+      await auditAfterMutation({
+        audit: async () => {
+          await writeEntityAudit({
+            entityApiName: args.entity,
+            recordId: String(args.id),
+            action: 'RESTORE',
+            before,
+            after: restored,
+            userId: actorUserId,
+          })
+        },
+        compensate: async () => {
+          await softDeleteRecord(args.entity, String(args.id), undefined, {
+            actorUserId,
+            access: SYSTEM_RECORD_ACCESS,
+          })
+        },
+      })
       return redactRecordForMe(me, args.entity, restored)
     },
 
@@ -1580,6 +1635,7 @@ export const resolvers = {
           accountability?: string | null
           defaultFieldSensitivity?: number | null
           rowLevelSecurity?: string | null
+          inheritOwnerFrom?: string | null
         }
       },
       ctx: GraphQlAuthContext,
@@ -1602,6 +1658,10 @@ export const resolvers = {
         input.rowLevelSecurity === undefined
           ? undefined
           : parseRowLevelSecurity(input.rowLevelSecurity)
+      const inheritOwnerFrom =
+        input.inheritOwnerFrom === undefined
+          ? undefined
+          : parseInheritOwnerFrom(input.inheritOwnerFrom)
 
       await updateEntityMeta(entityApiName, {
         label: input.label,
@@ -1614,6 +1674,7 @@ export const resolvers = {
         accountability,
         defaultFieldSensitivity,
         rowLevelSecurity,
+        inheritOwnerFrom,
       })
       clearCrmStorageCache()
 

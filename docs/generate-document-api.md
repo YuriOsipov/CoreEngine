@@ -2,7 +2,7 @@
 
 Server-side DocEngine generation for automations / n8n / Flows.
 
-**Status:** Phase 0 contract stub — **not production-ready**. Population/PDF rendering is not implemented in the BFF yet. REST returns **HTTP 501** with `code: DOCUMENTS_GENERATE_STUB`. Interactive DocEngine in the Vue UI works; use that until Phase 1/2 ship.
+**Status:** **Phase 1 + Phase 2** are live. The API loads the source record (owner RLS applies), maps field values, can create/update `doc_value`, and when `renderOutput=true` renders PDF/HTML via `@docengine/pdf-renderer`, uploads the file, sets `doc_value.output_file`, and returns `outputFileId` + `downloadUrl` (`/assets/:id`). Interactive DocEngine in the Vue UI still works for browser fill/export.
 
 ## Goal
 
@@ -102,7 +102,7 @@ X-CRM-Automation: n8n
 ```
 
 Response JSON matches `GenerateDocumentResult`.  
-Phase 0 returns **HTTP 501** with `generateDocument is not implemented yet…` until Phase 1/2 land.
+With defaults (`persist` + `renderOutput`), the response includes `docValueId`, `values`, `outputFileId`, and `downloadUrl` (`/assets/:id`, Bearer auth).
 
 ## n8n sketch (Opportunity doc)
 
@@ -129,25 +129,26 @@ POST {{$env.BFF_URL}}/api/v1/documents/generate
 }
 ```
 
-5. Email node: attach via `downloadUrl` or file id (Phase 2).
+5. Email node: attach via `downloadUrl` (`GET /assets/:id` with Bearer) or `outputFileId`.
 6. Optional: `PATCH /api/v1/opportunity/{{recordId}}` to stamp status / note.
 ## Implementation phases
 
-### Phase 0 — contract (this doc + GraphQL stub)
+### Phase 0 — contract (done)
 - Schema types + `generateDocument` mutation registered
-- Resolver throws not-implemented until Phase 1
 
-### Phase 1 — populate + persist `doc_value`
-- Load template (+ snapshot)
-- Run field mapping against the record (port of client `buildPopulatedDocument` / `applyDocFieldMapping`)
-- Create `doc_value` with `values`, `template_snapshot`, parent link (`parent_collection` / `parent_id`)
-- Return `docValueId` + `values` (`renderOutput` may be ignored / false)
+### Phase 1 — populate + persist `doc_value` (done)
+- Load template (+ latest snapshot id when present)
+- Assert source-record read/update + **owner RLS** via `findOneRecord({ me })`
+- Flatten record fields + simple `field_mapping` path overlays + `valuesOverride`
+- Create/update `doc_value` (system write after ACL) with `values`, `template_snapshot`, parent link
+- Return `docValueId` + `values`
 
-### Phase 2 — render + upload
-- Render HTML or PDF from populated document (server DocEngine or headless HTML→PDF)
-- Upload via existing files pipeline
-- Set `doc_value.output_file`
-- Return `outputFileId` + `downloadUrl`
+### Phase 2 — render + upload (done)
+- Render HTML or PDF from `template.body` + mapped/`valuesOverride` via `@docengine/pdf-renderer`
+- Upload via existing files pipeline (`uploadFileBuffer`)
+- Set `doc_value.output_file` when persisting
+- Return `outputFileId` + `downloadUrl` (`/assets/:id`)
+- Requires sibling `../docEngine` locally (CI uses stubs under `ci/stubs/`)
 
 ### Phase 3 — attach helpers (optional)
 - Optional `attachToRecordFiles: Boolean` to also add the file on a record files/M2M field

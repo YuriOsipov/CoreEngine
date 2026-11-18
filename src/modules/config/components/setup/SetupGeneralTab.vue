@@ -32,6 +32,12 @@ import {
   loadOrgFilesUploadSettings,
   saveOrgFilesUploadSettings,
 } from '@/core/orgFilesSettings'
+import {
+  type OrgFailedRunNotifySettings,
+  defaultFailedRunNotifySettings,
+  loadFailedRunNotifySettings,
+  saveFailedRunNotifySettings,
+} from '@/core/orgFailedRunNotify'
 import { IMAGE_FORMAT_OPTIONS } from '@/interfaces'
 import {
   TRANSLATION_LANGUAGE_OPTIONS,
@@ -65,6 +71,10 @@ const filesLoading = ref(false)
 const filesSaving = ref(false)
 const filesDraft = ref<OrgFilesUploadSettings>(defaultOrgFilesUploadSettings())
 const imageFormatOptions = IMAGE_FORMAT_OPTIONS
+
+const notifyLoading = ref(false)
+const notifySaving = ref(false)
+const notifyDraft = ref<OrgFailedRunNotifySettings>(defaultFailedRunNotifySettings())
 
 const filesImageFormats = computed({
   get: () => {
@@ -220,9 +230,54 @@ async function saveProfile(): Promise<void> {
   }
 }
 
+async function loadNotifySettings(): Promise<void> {
+  notifyLoading.value = true
+  try {
+    notifyDraft.value = await loadFailedRunNotifySettings()
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        error instanceof Error
+          ? error.message
+          : t('setup.failedRunNotify.loadError', 'Failed to load failed-run alerts.'),
+      life: 5000,
+    })
+  } finally {
+    notifyLoading.value = false
+  }
+}
+
+async function saveNotifySettings(): Promise<void> {
+  notifySaving.value = true
+  try {
+    notifyDraft.value = await saveFailedRunNotifySettings(notifyDraft.value)
+    toast.add({
+      severity: 'success',
+      summary: t('common.success', 'Success'),
+      detail: t('setup.failedRunNotify.saved', 'Failed-run alerts saved.'),
+      life: 3000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        error instanceof Error
+          ? error.message
+          : t('setup.failedRunNotify.saveError', 'Failed to save failed-run alerts.'),
+      life: 5000,
+    })
+  } finally {
+    notifySaving.value = false
+  }
+}
+
 onMounted(async () => {
   void loadProfile()
   void loadFilesSettings()
+  void loadNotifySettings()
   void scheduleFeatureAvailable().then((available) => {
     scheduleAvailable.value = available
   })
@@ -264,6 +319,52 @@ onMounted(async () => {
 <template>
   <section class="setup-tab-content flex flex-col gap-4">
     <h2>{{ t('setup.generalTitle', 'General') }}</h2>
+
+    <div class="border border-surface-200 rounded-lg p-4 flex flex-col gap-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="font-semibold">
+          {{ t('setup.failedRunNotify.title', 'Failed-run alerts') }}
+        </div>
+        <Button
+          :label="t('setup.failedRunNotify.save', 'Save')"
+          icon="pi pi-save"
+          size="small"
+          :loading="notifySaving"
+          :disabled="notifyLoading"
+          @click="saveNotifySettings"
+        />
+      </div>
+      <ProgressSpinner
+        v-if="notifyLoading"
+        class="self-center"
+        stroke-width="4"
+        style="width: 2rem; height: 2rem"
+      />
+      <template v-else>
+        <div class="flex items-center gap-2">
+          <ToggleSwitch v-model="notifyDraft.enabled" input-id="failed-run-notify" />
+          <label
+            for="failed-run-notify"
+            class="text-[0.9rem] cursor-pointer"
+          >
+            {{
+              t(
+                'setup.failedRunNotify.enable',
+                'Email admins when a flow or scheduled task fails',
+              )
+            }}
+          </label>
+        </div>
+        <p class="text-muted-color text-[0.8rem] m-0">
+          {{
+            t(
+              'setup.failedRunNotify.hint',
+              'Uses platform SMTP (SMTP_HOST / SMTP_FROM). Recipients are active admin users, or FAILED_RUN_NOTIFY_EMAIL if set. Same key is not emailed again for 15 minutes. n8n failures stay in n8n — use its failed-execution alert template.',
+            )
+          }}
+        </p>
+      </template>
+    </div>
 
     <div class="border border-surface-200 rounded-lg p-4 flex flex-col gap-3">
       <div class="font-semibold">

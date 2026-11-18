@@ -5,6 +5,7 @@ import {
   loadO2MRelations,
 } from '../adapters/records/relations.js'
 import { elevateComputedSensitivities } from '../computed/computedSensitivity.js'
+import { bumpCacheEpoch, readCacheEpoch } from './cacheEpoch.js'
 
 /**
  * Field-level security by sensitivity tier.
@@ -13,15 +14,16 @@ import { elevateComputedSensitivities } from '../computed/computedSensitivity.js
  * role_permissions.max_read_sensitivity / max_edit_sensitivity for the entity.
  * Admins and system callers (no `me`) bypass. Both lookups are cached in memory
  * (including formula/rollup elevation). Setup field/role writes call
- * `clearFieldSecurityCache()` on this process immediately; the TTL only bounds
- * staleness on other BFF instances until their cache expires.
+ * `clearFieldSecurityCache()` which clears this process and bumps a DB epoch so
+ * peer BFF instances reload on their next read.
  */
 
 export const MAX_SENSITIVITY = 2
 
 /**
  * Per-process tier/field cache (stores elevated computed tiers too).
- * Same-instance Setup mutations clear immediately; multi-instance lag ≤ TTL.
+ * Same-instance Setup mutations clear immediately; peers reload when the DB
+ * epoch advances. TTL is a secondary bound only.
  */
 export const FIELD_SECURITY_CACHE_TTL_MS = 5_000
 const MAX_FILTER_DEPTH = 6
@@ -37,11 +39,12 @@ type RoleTiers = { read: number; edit: number }
 let sensitiveFields: {
   byEntity: Map<string, Map<string, number>>
   expiresAt: number
+  epoch: number
 } | null = null
 let sensitiveFieldsLoad: Promise<Map<string, Map<string, number>>> | null = null
 const roleTierCache = new Map<
   string,
-  { byEntity: Map<string, RoleTiers>; expiresAt: number }
+  { byEntity: Map<string, RoleTiers>; expiresAt: number; epoch: number }
 >()
 let missingColumnWarned = false
 
@@ -49,6 +52,7 @@ export function clearFieldSecurityCache(): void {
   sensitiveFields = null
   sensitiveFieldsLoad = null
   roleTierCache.clear()
+  void bumpCacheEpoch('field_security')
 }
 
 function entityKey(entity: string): string {
@@ -92,7 +96,12 @@ export async function assertFieldSensitivitySchemaReady(): Promise<void> {
 }
 
 async function loadSensitiveFields(): Promise<Map<string, Map<string, number>>> {
-  if (sensitiveFields && sensitiveFields.expiresAt > Date.now()) {
+  const fieldEpoch = await readCacheEpoch('field_security')
+  if (
+    sensitiveFields &&
+    sensitiveFields.expiresAt > Date.now() &&
+    sensitiveFields.epoch === fieldEpoch
+  ) {
     return sensitiveFields.byEntity
   }
   if (sensitiveFieldsLoad) return sensitiveFieldsLoad
@@ -165,6 +174,7 @@ async function loadSensitiveFields(): Promise<Map<string, Map<string, number>>> 
     sensitiveFields = {
       byEntity,
       expiresAt: Date.now() + FIELD_SECURITY_CACHE_TTL_MS,
+      epoch: await readCacheEpoch('field_security'),
     }
     return byEntity
   })()
@@ -178,7 +188,10 @@ async function loadSensitiveFields(): Promise<Map<string, Map<string, number>>> 
 
 async function loadRoleTiers(roleRef: string): Promise<Map<string, RoleTiers>> {
   const cached = roleTierCache.get(roleRef)
-  if (cached && cached.expiresAt > Date.now()) return cached.byEntity
+  const roleEpoch = await readCacheEpoch('field_security')
+  if (cached && cached.expiresAt > Date.now() && cached.epoch === roleEpoch) {
+    return cached.byEntity
+  }
 
   const byEntity = new Map<string, RoleTiers>()
   try {
@@ -214,6 +227,7 @@ async function loadRoleTiers(roleRef: string): Promise<Map<string, RoleTiers>> {
   roleTierCache.set(roleRef, {
     byEntity,
     expiresAt: Date.now() + FIELD_SECURITY_CACHE_TTL_MS,
+    epoch: roleEpoch,
   })
   return byEntity
 }

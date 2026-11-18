@@ -43,8 +43,10 @@ import {
   readRequestCookie,
 } from './auth/oidcStateCookie.js'
 import { oidcPublicErrorCode } from './auth/oidcPublicErrors.js'
-import { assertProductionBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
+import { assertBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
+import { localLoginHttpGuard } from './auth/localLoginHttp.js'
 import { assertFieldSensitivitySchemaReady } from './services/fieldSecurity.js'
+import { assertOidcRefreshTokenSchemaReady } from './auth/oidcSchemaGate.js'
 import { assertProductionFlowAuthConfig } from './flows/flowAuth.js'
 import { authJwtSecret } from './auth/jwt.js'
 import { bearerToken } from './auth/tokenClaims.js'
@@ -273,14 +275,12 @@ const LOGIN_ACCOUNT_WINDOW_MS = 15 * 60_000
 
 app.get('/auth/oidc/status', async () => oidcStatusPayload())
 
-function oidcCookieSecure(request: {
-  protocol?: string
-  headers: Record<string, unknown>
-}): boolean {
-  const forwarded = request.headers['x-forwarded-proto']
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0]?.trim().toLowerCase() === 'https'
-  }
+/**
+ * Cookie Secure flag. Relies on Fastify `trustProxy` so `request.protocol`
+ * already reflects X-Forwarded-Proto only from allowed proxies (TRUST_PROXY).
+ * Do not read X-Forwarded-Proto directly — clients can spoof it when trust is off.
+ */
+function oidcCookieSecure(request: { protocol?: string }): boolean {
   return request.protocol === 'https'
 }
 
@@ -397,15 +397,22 @@ app.post('/auth/oidc/session', async (request, reply) => {
   return result.session
 })
 
-app.get('/auth/oidc/logout', async (request, reply) => {
+/** IdP logout — POST only (GET would be a logout CSRF nuisance). */
+app.post('/auth/oidc/logout', async (request, reply) => {
+  const body = (request.body ?? {}) as { redirect?: unknown }
   const query = request.query as { redirect?: unknown }
+  const redirectRaw =
+    typeof body.redirect === 'string'
+      ? body.redirect
+      : typeof query.redirect === 'string'
+        ? query.redirect
+        : '/login'
   const idTokenHint = readRequestCookie(
     request.headers.cookie,
     OIDC_ID_TOKEN_COOKIE,
   )
   const result = await buildOidcLogoutRedirect({
-    postLogoutRedirect:
-      typeof query.redirect === 'string' ? query.redirect : '/login',
+    postLogoutRedirect: redirectRaw,
     idTokenHint,
   })
   appendSetCookie(
@@ -422,6 +429,10 @@ app.get('/auth/oidc/logout', async (request, reply) => {
 })
 
 app.post('/auth/login', async (request, reply) => {
+  const localGuard = localLoginHttpGuard()
+  if (!localGuard.ok) {
+    return reply.status(localGuard.status).send({ error: localGuard.error })
+  }
   const limit = rateLimitConsume(
     `login:${clientKeyFromRequest(request)}`,
     20,
@@ -829,10 +840,13 @@ async function start() {
     assertCorsConfigSafe()
     assertProductionFlowAuthConfig()
     assertOidcConfigReady()
-    // Production: refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …).
-    await assertProductionBootstrapPasswordsSafe()
+    // Refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …)
+    // unless ALLOW_INSECURE_BOOTSTRAP=true.
+    await assertBootstrapPasswordsSafe()
     // Production: field-level security columns must exist (no silent FLS-off).
     await assertFieldSensitivitySchemaReady()
+    // When OIDC_CHECK_ON_REFRESH is on, oidc_* columns must exist (no 500 on login).
+    await assertOidcRefreshTokenSchemaReady()
     await app.listen({ port, host: '0.0.0.0' })
     app.log.info(`GraphQL ready at http://localhost:${port}/graphql`)
     app.log.info(`Auth proxy at http://localhost:${port}/auth/login`)

@@ -36,6 +36,7 @@ const SYSTEM_FIELD_NAMES = new Set([
   'status',
   'sort',
   'user_created',
+  'owner_id',
   'date_created',
   'user_updated',
   'date_updated',
@@ -184,6 +185,31 @@ for (const entity of entityRows) {
   if (entity.display_template) entityOut.displayTemplate = entity.display_template
   if (entity.hidden) entityOut.hidden = true
   if (entity.singleton) entityOut.singleton = true
+  const backendConfig =
+    entity.backend_config &&
+    typeof entity.backend_config === 'object' &&
+    !Array.isArray(entity.backend_config)
+      ? (entity.backend_config as Record<string, unknown>)
+      : {}
+  const packBackend: Record<string, unknown> = {}
+  if (backendConfig.rowLevelSecurity === 'owner') {
+    packBackend.rowLevelSecurity = 'owner'
+  }
+  if (
+    typeof backendConfig.defaultFieldSensitivity === 'number' &&
+    Number.isFinite(backendConfig.defaultFieldSensitivity)
+  ) {
+    packBackend.defaultFieldSensitivity = backendConfig.defaultFieldSensitivity
+  }
+  if (
+    typeof backendConfig.inheritOwnerFrom === 'string' &&
+    /^[a-z][a-z0-9_]*$/.test(backendConfig.inheritOwnerFrom.trim())
+  ) {
+    packBackend.inheritOwnerFrom = backendConfig.inheritOwnerFrom.trim().toLowerCase()
+  }
+  if (Object.keys(packBackend).length) {
+    entityOut.backendConfig = packBackend
+  }
   entityOut.fields = fields
   packEntities.push(entityOut)
 }
@@ -324,17 +350,43 @@ const layouts = layoutRows.map((row) => {
   return out
 })
 
-const roleRows = await query<{ name: string; is_admin: boolean }>(
-  `SELECT name, COALESCE(is_admin, false) AS is_admin
+const roleRows = await query<{ id: string; name: string; is_admin: boolean }>(
+  `SELECT id::text AS id, name, COALESCE(is_admin, false) AS is_admin
    FROM public.app_roles
    WHERE COALESCE(is_admin, false) = false
    ORDER BY name`,
 )
-const roles = roleRows.map((row) => ({
-  name: row.name,
-  isAdmin: false,
-  permissions: 'full_pack' as const,
-}))
+const roles: Array<Record<string, unknown>> = []
+for (const row of roleRows) {
+  const bypassRows = await query<{
+    entity_api_name: string
+    can_view_all: boolean
+    can_modify_all: boolean
+  }>(
+    `SELECT entity_api_name,
+            COALESCE(can_view_all, false) AS can_view_all,
+            COALESCE(can_modify_all, false) AS can_modify_all
+     FROM public.role_permissions
+     WHERE role_id = $1::uuid
+       AND (COALESCE(can_view_all, false) OR COALESCE(can_modify_all, false))
+     ORDER BY entity_api_name`,
+    [row.id],
+  )
+  const canViewAllOn = bypassRows
+    .filter((r) => r.can_view_all || r.can_modify_all)
+    .map((r) => r.entity_api_name)
+  const canModifyAllOn = bypassRows
+    .filter((r) => r.can_modify_all)
+    .map((r) => r.entity_api_name)
+  const out: Record<string, unknown> = {
+    name: row.name,
+    isAdmin: false,
+    permissions: 'full_pack',
+  }
+  if (canViewAllOn.length) out.canViewAllOn = canViewAllOn
+  if (canModifyAllOn.length) out.canModifyAllOn = canModifyAllOn
+  roles.push(out)
+}
 
 const recordsByEntity: Record<string, Array<Record<string, unknown>>> = {}
 for (const apiName of packEntityNames) {

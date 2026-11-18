@@ -16,6 +16,7 @@ import {
   relationManyCollection,
   relationRelatedCollection,
 } from '@/core/relationHelpers'
+import { isRegisteredCustomBlock } from '@/core/customBlocks/registry'
 
 const FILES_ASSET_COLLECTION = 'files'
 
@@ -114,6 +115,7 @@ export function isCreateDialogField(field: LayoutFieldMetadata): boolean {
   }
   return (
     !CREATE_DIALOG_EXCLUDED_COMPONENTS.has(field.component) &&
+    !isRegisteredCustomBlock(field) &&
     isEditableFormLayoutField(field)
   )
 }

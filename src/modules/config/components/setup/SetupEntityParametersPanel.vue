@@ -49,9 +49,22 @@ const form = reactive({
   defaultFieldSensitivity: 0,
   /** Maps to backend_config.rowLevelSecurity = "owner" | null. */
   ownerRowSecurity: false,
+  /** Maps to backend_config.inheritOwnerFrom (M2O field api_name). */
+  inheritOwnerFrom: null as string | null,
 })
 
 const fieldOptions = ref<Array<{ label: string; value: string }>>([])
+const m2oFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const inheritOwnerOptions = computed(() => [
+  {
+    label: t(
+      'setup.entityParameters.inheritOwnerFromNone',
+      'None (creator owns the row)',
+    ),
+    value: '',
+  },
+  ...m2oFieldOptions.value,
+])
 const defaultSensitivitySelectOptions = computed(() => sensitivityOptions())
 
 const accountabilityOptions = computed(() => [
@@ -104,8 +117,21 @@ async function load(): Promise<void> {
     form.accountability = toAccountabilityUi(data.accountability)
     form.defaultFieldSensitivity = clampSensitivity(data.defaultFieldSensitivity)
     form.ownerRowSecurity = data.rowLevelSecurity === 'owner'
+    form.inheritOwnerFrom = data.inheritOwnerFrom
     fieldOptions.value = data.fields
       .filter((f) => f.apiName !== 'id' && f.type.toUpperCase() !== 'ALIAS')
+      .map((f) => ({
+        label: `${f.label} (${f.apiName})`,
+        value: f.apiName,
+      }))
+    m2oFieldOptions.value = data.fields
+      .filter(
+        (f) =>
+          f.apiName !== 'id' &&
+          String(f.relationKind || '')
+            .toUpperCase()
+            .includes('M2O'),
+      )
       .map((f) => ({
         label: `${f.label} (${f.apiName})`,
         value: f.apiName,
@@ -133,6 +159,9 @@ async function save(): Promise<void> {
       accountability: fromAccountabilityUi(form.accountability),
       defaultFieldSensitivity: clampSensitivity(form.defaultFieldSensitivity),
       rowLevelSecurity: form.ownerRowSecurity ? 'owner' : null,
+      inheritOwnerFrom: form.ownerRowSecurity
+        ? form.inheritOwnerFrom?.trim() || null
+        : null,
     })
     clearMetadataCache()
     toast.add({
@@ -379,7 +408,7 @@ onMounted(() => {
                 hintTooltip(
                   t(
                     'setup.entityParameters.ownerRowSecurityHint',
-                    'When on, non-admin users can only list, open, edit, and delete records they created (Created By / user_created). Admins still see all rows. Requires Created By on the object. Manual sharing and team hierarchy are not included yet.',
+                    'When on, non-admin users can only list, open, edit, and delete records they own (Owner / owner_id). Created By stays an audit stamp. Admins still see all rows. Manual sharing and team hierarchy are not included yet.',
                   ),
                 )
               "
@@ -390,6 +419,47 @@ onMounted(() => {
           </label>
           <ToggleSwitch v-model="form.ownerRowSecurity" />
         </div>
+      </div>
+
+      <div
+        v-if="form.ownerRowSecurity"
+        class="flex flex-col gap-1"
+      >
+        <label class="inline-flex items-center gap-1">
+          {{
+            t(
+              'setup.entityParameters.inheritOwnerFrom',
+              'Inherit owner from parent',
+            )
+          }}
+          <button
+            type="button"
+            class="setup-entity-parameters__hint"
+            v-tooltip.bottom="
+              hintTooltip(
+                t(
+                  'setup.entityParameters.inheritOwnerFromHint',
+                  'When set, new rows copy Owner (owner_id) from the related parent (master-detail style). Created By stays the creating user. Use for child objects such as opportunity items under an opportunity.',
+                ),
+              )
+            "
+            :aria-label="t('common.moreInfo', 'More information')"
+          >
+            i
+          </button>
+        </label>
+        <Select
+          :model-value="form.inheritOwnerFrom ?? ''"
+          :options="inheritOwnerOptions"
+          option-label="label"
+          option-value="value"
+          class="w-full"
+          @update:model-value="
+            (v: string | null) => {
+              form.inheritOwnerFrom = v && String(v).trim() ? String(v) : null
+            }
+          "
+        />
       </div>
     </div>
 

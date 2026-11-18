@@ -19,7 +19,8 @@
 # External host Supabase: docker-compose.supabase.yml on top of minimal.
 #
 # Endpoints: BFF :4000/health | UI :8080 | Supabase Envoy :8000
-# Does not set NODE_ENV=production (bootstrap weak-password refuse is production-only).
+# Sets NODE_ENV=production on the BFF so production boot guards (FLS schema, CORS *, …) apply.
+# Weak bootstrap passwords are refused in every NODE_ENV unless ALLOW_INSECURE_BOOTSTRAP=true.
 
 include:
   - path: docker/supabase/docker-compose.yml
@@ -49,6 +50,9 @@ services:
       POSTGRES_SUPERUSER_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       DATABASE_URL: postgresql://${POSTGRES_APP_USER:-coreengine_app}:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
       AUTH_BACKEND: local
+      NODE_ENV: ${NODE_ENV:-production}
+      AUTH_LOCAL_LOGIN_ENABLED: ${AUTH_LOCAL_LOGIN_ENABLED:-true}
+      ALLOW_INSECURE_BOOTSTRAP: ${ALLOW_INSECURE_BOOTSTRAP:-false}
       DIRECTUS_RUNTIME: "off"
       RUNNING_IN_DOCKER: "1"
       # OIDC (optional) — set OIDC_ENABLED=true in .env; Keycloak via docker-compose.keycloak.yml

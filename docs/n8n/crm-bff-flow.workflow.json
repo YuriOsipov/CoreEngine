@@ -100,7 +100,7 @@
   "staticData": null,
   "meta": {
     "templateCredsSetupCompleted": false,
-    "crmNotes": "Set n8n env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD. Production webhook URL → N8N_WEBHOOK_URL then npm run registry:seed-n8n-flow-trigger."
+    "crmNotes": "Set n8n env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD. Production webhook URL → N8N_WEBHOOK_URL then npm run registry:seed-n8n-flow-trigger. Other templates: docs/n8n/README.md. Point Settings → Error workflow at CoreEngine — failed execution alert."
   },
   "pinData": {},
   "versionId": "1"

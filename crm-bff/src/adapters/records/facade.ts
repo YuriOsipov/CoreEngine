@@ -72,6 +72,7 @@ import {
   applyOwnerFilterIfNeeded,
   assertOwnerAccessIfNeeded,
 } from '../../services/rowLevelSecurity.js'
+import { resolveCreateOwnerId } from '../../services/ownerInheritance.js'
 import type { MeUser } from '../usersAdapter.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
@@ -163,7 +164,8 @@ function stripClientAuditUserFields(
     !('user_created' in data) &&
     !('user_updated' in data) &&
     !('date_created' in data) &&
-    !('date_updated' in data)
+    !('date_updated' in data) &&
+    !('owner_id' in data)
   ) {
     return data
   }
@@ -172,23 +174,31 @@ function stripClientAuditUserFields(
   delete next.user_updated
   delete next.date_created
   delete next.date_updated
+  delete next.owner_id
   return next
 }
 
 /**
- * Stamp audit users + dates (server-owned; clients cannot set these).
- * `actorUserId` must be `me.id` / `backend_user_id` so owner RLS can match it.
+ * Stamp audit users + dates + owner (server-owned; clients cannot set these).
+ * `actorUserId` must be `me.id` / `backend_user_id`.
+ * On create: `user_created` = actor (audit), `owner_id` = owner (sharing;
+ * may differ when inheritOwnerFrom copies the parent owner).
  */
 async function stampAuditUsers(
   entityApiName: string,
   data: Record<string, unknown>,
   mode: 'create' | 'update',
   actorUserId?: string | null,
+  ownerUserId?: string | null,
 ): Promise<Record<string, unknown>> {
   const actor =
     typeof actorUserId === 'string' && actorUserId.trim()
       ? actorUserId.trim()
       : ''
+  const owner =
+    typeof ownerUserId === 'string' && ownerUserId.trim()
+      ? ownerUserId.trim()
+      : actor
   const nowIso = new Date().toISOString()
   const promoted = await loadPromotedFields(entityApiName)
   const names = new Set(promoted.map((field) => field.apiName))
@@ -202,12 +212,13 @@ async function stampAuditUsers(
     next.date_updated = nowIso
   }
 
-  if (!actor) return next
+  if (!actor && !owner) return next
 
   if (mode === 'create') {
-    if (names.has('user_created')) next.user_created = actor
-    if (names.has('user_updated')) next.user_updated = actor
-  } else if (names.has('user_updated')) {
+    if (names.has('user_created') && actor) next.user_created = actor
+    if (names.has('owner_id') && owner) next.owner_id = owner
+    if (names.has('user_updated') && actor) next.user_updated = actor
+  } else if (names.has('user_updated') && actor) {
     next.user_updated = actor
   }
   return next
@@ -775,7 +786,12 @@ export async function findManyRecords(
     params.access,
     fields,
   )
-  result.nodes = await attachLiveRollupsOnRead(apiName, result.nodes, fields)
+  result.nodes = await attachLiveRollupsOnRead(
+    apiName,
+    result.nodes,
+    fields,
+    params.access,
+  )
   result.nodes = redactRecords(result.nodes, fieldAccess)
   return result
 }
@@ -821,6 +837,7 @@ export async function findOneRecord(
     apiName,
     [expanded ?? record],
     readable,
+    access,
   )
   return redactRecord(withRollups ?? expanded ?? record, fieldAccess)
 }
@@ -931,11 +948,17 @@ export async function createRecord(
     )
     const m2a = await peelM2AAliasFields(apiName, automationResult.patch)
     const o2m = await peelO2MAliasFields(apiName, m2a.parentData)
+    const ownerUserId = await resolveCreateOwnerId(
+      apiName,
+      o2m.parentData,
+      options?.actorUserId,
+    )
     const parentData = await stampAuditUsers(
       apiName,
       o2m.parentData,
       'create',
       options?.actorUserId,
+      ownerUserId,
     )
     try {
       const created = await store.create(apiName, parentData, null)

@@ -13,8 +13,10 @@ import { featureFlags } from '@/core/graphql/featureFlags'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
 import {
   deleteFlowTrigger,
+  fetchFailedFlowDispatches,
   fetchFlowTriggers,
   upsertFlowTrigger,
+  type GraphQlFlowDispatch,
   type GraphQlFlowTrigger,
 } from '@/core/graphql/flowTriggersApi'
 import { useTranslation } from '@/core/translation'
@@ -28,6 +30,9 @@ const loading = ref(false)
 const saving = ref(false)
 const isAdmin = ref(false)
 const flows = ref<GraphQlFlowTrigger[]>([])
+const failedRuns = ref<GraphQlFlowDispatch[]>([])
+const failedVisible = ref(false)
+const failedLoading = ref(false)
 const searchQuery = ref('')
 const dialogVisible = ref(false)
 const editingKey = ref<string | null>(null)
@@ -74,6 +79,13 @@ const authTypeOptions = computed(() => [
   { label: t('setup.flows.authApiKey', 'API key header'), value: 'api_key' },
   { label: t('setup.flows.authBasic', 'Basic auth'), value: 'basic' },
 ])
+
+const failedRunsLabel = computed(() => {
+  const count = failedRuns.value.length
+  if (!count) return t('setup.flows.failedRuns', 'Failed runs')
+  if (count >= 50) return t('setup.flows.failedRunsCount', 'Failed runs ({count})', { count: '50+' })
+  return t('setup.flows.failedRunsCount', 'Failed runs ({count})', { count })
+})
 
 const filteredFlows = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -227,6 +239,12 @@ async function load(): Promise<void> {
       return
     }
     flows.value = await fetchFlowTriggers()
+    try {
+      failedRuns.value = await fetchFailedFlowDispatches(50)
+    } catch (err) {
+      failedRuns.value = []
+      showError(err, t('setup.flows.failedRunsError', 'Failed to load flow run errors'))
+    }
   } catch (err) {
     showError(err, t('setup.flows.loadError', 'Failed to load flows'))
   } finally {
@@ -335,6 +353,26 @@ async function save(): Promise<void> {
   }
 }
 
+async function openFailedRuns(): Promise<void> {
+  failedVisible.value = true
+  failedLoading.value = true
+  try {
+    failedRuns.value = await fetchFailedFlowDispatches(50)
+  } catch (err) {
+    failedRuns.value = []
+    showError(err, t('setup.flows.failedRunsError', 'Failed to load flow run errors'))
+  } finally {
+    failedLoading.value = false
+  }
+}
+
+function recordLabel(row: GraphQlFlowDispatch): string {
+  const collection = row.collection || ''
+  const id = row.recordId || ''
+  if (collection && id) return `${collection} / ${id}`
+  return collection || id || '—'
+}
+
 function confirmDelete(flow: GraphQlFlowTrigger): void {
   confirm.require({
     message: t(
@@ -398,6 +436,14 @@ onMounted(() => {
             :placeholder="t('setup.quickFind', 'Quick Find')"
           />
         </IconField>
+        <Button
+          :label="failedRunsLabel"
+          icon="pi pi-exclamation-triangle"
+          severity="secondary"
+          outlined
+          :disabled="!isAdmin || !graphqlEnabled"
+          @click="openFailedRuns"
+        />
         <Button
           :label="t('setup.flows.new', 'New flow')"
           icon="pi pi-plus"
@@ -530,6 +576,71 @@ onMounted(() => {
         </template>
       </Column>
     </DataTable>
+
+    <Dialog
+      v-model:visible="failedVisible"
+      modal
+      :header="t('setup.flows.failedRunsTitle', 'Failed flow runs')"
+      :style="{ width: 'min(840px, 95vw)' }"
+    >
+      <p class="text-muted-color text-[0.85rem] mt-0">
+        {{
+          t(
+            'setup.flows.failedRunsHint',
+            'Outbound flow calls that failed. n8n execution errors stay in n8n — import the failed-execution alert template.',
+          )
+        }}
+      </p>
+      <div
+        v-if="failedLoading"
+        class="page-loading"
+      >
+        <ProgressSpinner stroke-width="4" />
+      </div>
+      <DataTable
+        v-else
+        :value="failedRuns"
+        striped-rows
+        data-key="id"
+        :empty-message="t('setup.flows.failedRunsEmpty', 'No failed flow runs.')"
+      >
+        <Column
+          field="startedAt"
+          :header="t('setup.flows.columnWhen', 'When')"
+          style="width: 11rem"
+        >
+          <template #body="{ data }">
+            {{ formatLocalizedDateTime(data.startedAt) || '—' }}
+          </template>
+        </Column>
+        <Column
+          field="flowKey"
+          :header="t('setup.flows.columnKey', 'Key')"
+          style="width: 9rem"
+        />
+        <Column
+          field="source"
+          :header="t('setup.flows.columnSource', 'Source')"
+          style="width: 9rem"
+        />
+        <Column
+          :header="t('setup.flows.columnRecord', 'Record')"
+          style="width: 12rem"
+        >
+          <template #body="{ data }">
+            <span class="text-[0.8rem] break-all">{{ recordLabel(data) }}</span>
+          </template>
+        </Column>
+        <Column
+          field="error"
+          :header="t('setup.flows.columnError', 'Error')"
+        >
+          <template #body="{ data }">
+            <span class="text-[0.8rem] break-all">{{ data.error || '—' }}</span>
+          </template>
+        </Column>
+      </DataTable>
+    </Dialog>
 
     <Dialog
       v-model:visible="dialogVisible"

@@ -6,6 +6,7 @@ import {
   isAutoCompleteField,
   isDataTableField,
   isFilesField,
+  isRegisteredCustomBlock,
   isRelationPickerField,
   isSchedulerField,
 } from '@/core/fieldHelpers'
@@ -44,7 +45,8 @@ export function useRuntimeFieldMetadata(entity: () => string) {
       if (
         isDataTableField(field) ||
         isSchedulerField(field) ||
-        isFilesField(field)
+        isFilesField(field) ||
+        isRegisteredCustomBlock(field)
       ) {
         continue
       }

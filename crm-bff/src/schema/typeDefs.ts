@@ -61,6 +61,8 @@ export const typeDefs = /* GraphQL */ `
     restricted: Boolean!
     """True when the caller's role may not write this field (writes are rejected)."""
     writeRestricted: Boolean!
+    """M2O / O2M / M2M / M2A when this field participates in a relation; null otherwise."""
+    relationKind: RelationKind
   }
 
   type Relation {
@@ -210,6 +212,8 @@ export const typeDefs = /* GraphQL */ `
     defaultFieldSensitivity: Int!
     """owner = non-admins only access rows they created (user_created); null = off."""
     rowLevelSecurity: String
+    """M2O field whose parent user_created is stamped on create; null = creator owns the row."""
+    inheritOwnerFrom: String
     """Platform / internal object — hidden from Object Manager pickers."""
     internal: Boolean!
     fields: [Field!]!
@@ -231,6 +235,8 @@ export const typeDefs = /* GraphQL */ `
     defaultFieldSensitivity: Int
     """Pass \"owner\" to enable owner row security, or null to disable."""
     rowLevelSecurity: String
+    """M2O field api_name for parent-owner inheritance on create; null to clear."""
+    inheritOwnerFrom: String
   }
 
   """Create a new registry object (Object Manager)."""
@@ -522,8 +528,12 @@ export const typeDefs = /* GraphQL */ `
     """Admin: cron jobs owned by the BFF scheduler."""
     scheduledTasks: [ScheduledTask!]!
     scheduledTaskRuns(taskId: ID!, limit: Int = 20): [ScheduledTaskRun!]!
+    """Admin: recent scheduled runs with status FAILED."""
+    failedScheduledTaskRuns(limit: Int = 50): [ScheduledTaskRun!]!
     """Admin: local flow triggers (app_flow_triggers) — key → http/update_record."""
     flowTriggers: [FlowTrigger!]!
+    """Admin: recent failed runLocalFlow attempts (app_flow_dispatches)."""
+    failedFlowDispatches(limit: Int = 50): [FlowDispatch!]!
     """
     Group hierarchy with nested prices (exact group-field match per node).
     config is required: collections + parent/group/scope field paths from Tree settings.
@@ -560,6 +570,8 @@ export const typeDefs = /* GraphQL */ `
   type ScheduledTaskRun {
     id: ID!
     taskId: ID!
+    taskKey: String
+    taskName: String
     status: String!
     trigger: String!
     payload: JSON!
@@ -624,6 +636,19 @@ export const typeDefs = /* GraphQL */ `
     enabled: Boolean
     params: JSON
     description: String
+  }
+
+  type FlowDispatch {
+    id: ID!
+    flowKey: String!
+    source: String!
+    status: String!
+    collection: String
+    recordId: String
+    error: String
+    startedAt: String!
+    finishedAt: String
+    createdAt: String!
   }
 
   """Local app_flow_triggers row — maps a key used by automations/actions to a handler."""

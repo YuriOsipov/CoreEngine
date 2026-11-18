@@ -3,11 +3,23 @@ import { BOOTSTRAP_EMAILS, KNOWN_INSECURE_PASSWORDS } from './insecurePasswords.
 import { verifyPassword } from './passwords.js'
 
 /**
- * Production-only: refuse start when a bootstrap account still uses a known
- * example/default password (e.g. admin12345 / ChangeMeNow!).
+ * True when operators explicitly allow known-weak bootstrap passwords
+ * (local/dev escape hatch). Default is refuse.
  */
-export async function assertProductionBootstrapPasswordsSafe(): Promise<void> {
-  if (process.env.NODE_ENV !== 'production') return
+export function allowInsecureBootstrapPasswords(): boolean {
+  const raw = String(process.env.ALLOW_INSECURE_BOOTSTRAP || '')
+    .trim()
+    .toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
+
+/**
+ * Refuse start when a bootstrap account still uses a known example/default
+ * password (e.g. admin12345 / ChangeMeNow!). Runs in every NODE_ENV unless
+ * ALLOW_INSECURE_BOOTSTRAP=true.
+ */
+export async function assertBootstrapPasswordsSafe(): Promise<void> {
+  if (allowInsecureBootstrapPasswords()) return
 
   const emails = [...BOOTSTRAP_EMAILS]
   const rows = await query<{ email: string | null; password_hash: string }>(
@@ -24,10 +36,14 @@ export async function assertProductionBootstrapPasswordsSafe(): Promise<void> {
     for (const candidate of KNOWN_INSECURE_PASSWORDS) {
       if (await verifyPassword(candidate, row.password_hash)) {
         throw new Error(
-          `Refusing to start in production: ${email} still uses a known insecure password. ` +
-            `Run registry:set-user-password / platform provision with a unique secret, then sign in and change it.`,
+          `Refusing to start: ${email} still uses a known insecure password. ` +
+            `Run registry:set-user-password / platform provision with a unique secret, then sign in and change it. ` +
+            `For local-only exceptions set ALLOW_INSECURE_BOOTSTRAP=true.`,
         )
       }
     }
   }
 }
+
+/** @deprecated Use assertBootstrapPasswordsSafe — kept for import compatibility. */
+export const assertProductionBootstrapPasswordsSafe = assertBootstrapPasswordsSafe

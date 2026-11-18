@@ -17,6 +17,7 @@ import {
   takeOidcPending,
   takeOidcSessionTicket,
 } from './oidcStateStore.js'
+import { isLocalLoginEnabled } from './localLogin.js'
 
 function safeRedirectPath(raw: string | null | undefined): string {
   const value = String(raw || '/').trim() || '/'
@@ -29,11 +30,13 @@ function safeRedirectPath(raw: string | null | undefined): string {
 export function oidcStatusPayload(): {
   enabled: boolean
   displayName: string
+  localLoginEnabled: boolean
 } {
   const cfg = readOidcConfig()
   return {
     enabled: cfg.enabled,
     displayName: cfg.displayName,
+    localLoginEnabled: isLocalLoginEnabled(),
   }
 }
 
@@ -85,7 +88,11 @@ export async function buildOidcAuthorizeRedirect(input: {
 async function exchangeAuthorizationCode(input: {
   code: string
   codeVerifier: string
-}): Promise<{ id_token: string; access_token?: string }> {
+}): Promise<{
+  id_token: string
+  access_token?: string
+  refresh_token?: string
+}> {
   const cfg = readOidcConfig()
   const discovery = await fetchOidcDiscovery()
   const body = new URLSearchParams({
@@ -123,6 +130,8 @@ async function exchangeAuthorizationCode(input: {
     id_token: idToken,
     access_token:
       typeof payload?.access_token === 'string' ? payload.access_token : undefined,
+    refresh_token:
+      typeof payload?.refresh_token === 'string' ? payload.refresh_token : undefined,
   }
 }
 
@@ -179,12 +188,21 @@ export async function completeOidcCallback(input: {
     }
 
     // SSO users skip forced local password change — they may have no password.
-    const session = await issueSession({
-      id: linked.user.id,
-      backend_user_id: linked.user.backend_user_id,
-      role_backend_id: linked.user.role_backend_id,
-      must_change_password: false,
-    })
+    // Persist IdP tokens on the CE refresh row so later refresh can userinfo-check.
+    const session = await issueSession(
+      {
+        id: linked.user.id,
+        backend_user_id: linked.user.backend_user_id,
+        role_backend_id: linked.user.role_backend_id,
+        must_change_password: false,
+      },
+      {
+        oidc: {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+        },
+      },
+    )
 
     const ticketId = randomUUID()
     const ticketStored = storeOidcSessionTicket(ticketId, {

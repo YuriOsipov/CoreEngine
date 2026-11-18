@@ -85,6 +85,15 @@ describe('mergeOwnerFilter', () => {
       _and: [{ name: { _eq: 'Acme' } }, { [ROW_OWNER_FIELD]: { _eq: 'u1' } }],
     })
   })
+
+  it('ORs owner with readAlsoIf fields', () => {
+    expect(mergeOwnerFilter(null, 'u1', ['to_user'])).toEqual({
+      _or: [
+        { [ROW_OWNER_FIELD]: { _eq: 'u1' } },
+        { to_user: { _eq: 'u1' } },
+      ],
+    })
+  })
 })
 
 describe('assertRecordOwner', () => {
@@ -119,6 +128,27 @@ describe('assertRecordOwner', () => {
     expect(() =>
       assertRecordOwner(me({ id: 'u1' }), 'opportunity', { owner_id: null }, 'update'),
     ).toThrow('Permission denied: update on opportunity')
+  })
+
+  it('allows read when to_user matches even if not owner', () => {
+    expect(() =>
+      assertRecordOwner(
+        me({ id: 'admin1' }),
+        'message',
+        { owner_id: 'rep1', to_user: 'admin1' },
+        'read',
+        ['to_user'],
+      ),
+    ).not.toThrow()
+    expect(() =>
+      assertRecordOwner(
+        me({ id: 'admin1' }),
+        'message',
+        { owner_id: 'rep1', to_user: 'admin1' },
+        'update',
+        ['to_user'],
+      ),
+    ).toThrow('Permission denied: update on message')
   })
 
   it('reads owner from nested { id } shapes', () => {

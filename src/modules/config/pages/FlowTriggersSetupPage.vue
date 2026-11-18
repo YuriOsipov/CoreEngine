@@ -44,6 +44,8 @@ const form = reactive({
   handler: 'http' as string,
   enabled: true,
   description: '',
+  /** Bundled n8n (ce-{key}) vs custom absolute URL. */
+  httpTarget: 'n8n' as 'n8n' | 'url',
   url: '',
   method: 'POST',
   authType: 'none' as string,
@@ -56,12 +58,23 @@ const form = reactive({
 
 const handlerOptions = computed(() => [
   {
-    label: t('setup.flows.handlerHttp', 'HTTP (external URL)'),
+    label: t('setup.flows.handlerHttp', 'HTTP (webhook)'),
     value: 'http',
   },
   {
     label: t('setup.flows.handlerUpdateRecord', 'Update record'),
     value: 'update_record',
+  },
+])
+
+const httpTargetOptions = computed(() => [
+  {
+    label: t('setup.flows.httpTargetN8n', 'Bundled n8n (recommended)'),
+    value: 'n8n',
+  },
+  {
+    label: t('setup.flows.httpTargetUrl', 'Custom URL'),
+    value: 'url',
   },
 ])
 
@@ -93,11 +106,16 @@ const filteredFlows = computed(() => {
   return flows.value.filter((flow) => {
     const url =
       typeof flow.config?.url === 'string' ? flow.config.url.toLowerCase() : ''
+    const target =
+      typeof flow.config?.target === 'string'
+        ? flow.config.target.toLowerCase()
+        : ''
     return (
       flow.key.toLowerCase().includes(query) ||
       flow.handler.toLowerCase().includes(query) ||
       (flow.description || '').toLowerCase().includes(query) ||
-      url.includes(query)
+      url.includes(query) ||
+      target.includes(query)
     )
   })
 })
@@ -122,6 +140,15 @@ function handlerLabel(handler: string): string {
 
 function destinationLabel(flow: GraphQlFlowTrigger): string {
   if (flow.handler === 'http') {
+    const target =
+      typeof flow.config?.target === 'string'
+        ? flow.config.target.trim().toLowerCase()
+        : ''
+    if (target === 'n8n') {
+      return t('setup.flows.destinationN8n', 'n8n (ce-{key})', {
+        key: flow.key,
+      })
+    }
     const url = typeof flow.config?.url === 'string' ? flow.config.url : ''
     return url || '—'
   }
@@ -151,6 +178,7 @@ function resetForm(): void {
   form.handler = 'http'
   form.enabled = true
   form.description = ''
+  form.httpTarget = 'n8n'
   form.url = ''
   form.method = 'POST'
   resetAuthFields()
@@ -219,6 +247,11 @@ function openEdit(flow: GraphQlFlowTrigger): void {
   form.handler = flow.handler
   form.enabled = flow.enabled
   form.description = flow.description || ''
+  const target =
+    typeof flow.config?.target === 'string'
+      ? flow.config.target.trim().toLowerCase()
+      : ''
+  form.httpTarget = target === 'n8n' ? 'n8n' : 'url'
   form.url = typeof flow.config?.url === 'string' ? flow.config.url : ''
   form.method =
     typeof flow.config?.method === 'string' && flow.config.method
@@ -263,7 +296,7 @@ async function save(): Promise<void> {
     })
     return
   }
-  if (form.handler === 'http' && !form.url.trim()) {
+  if (form.handler === 'http' && form.httpTarget === 'url' && !form.url.trim()) {
     toast.add({
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
@@ -272,7 +305,12 @@ async function save(): Promise<void> {
     })
     return
   }
-  if (form.handler === 'http' && form.authType === 'bearer' && !form.authToken.trim()) {
+  if (
+    form.handler === 'http' &&
+    form.httpTarget === 'url' &&
+    form.authType === 'bearer' &&
+    !form.authToken.trim()
+  ) {
     toast.add({
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
@@ -283,6 +321,7 @@ async function save(): Promise<void> {
   }
   if (
     form.handler === 'http' &&
+    form.httpTarget === 'url' &&
     form.authType === 'api_key' &&
     !form.authHeaderValue.trim()
   ) {
@@ -296,6 +335,7 @@ async function save(): Promise<void> {
   }
   if (
     form.handler === 'http' &&
+    form.httpTarget === 'url' &&
     form.authType === 'basic' &&
     !form.authUsername.trim()
   ) {
@@ -313,13 +353,21 @@ async function save(): Promise<void> {
     const preserved = editingConfig.value
     const config: Record<string, unknown> =
       form.handler === 'http'
-        ? {
-            allowedRoles: preserved.allowedRoles,
-            url: form.url.trim(),
-            method: form.method || 'POST',
-            headers: { Accept: 'application/json' },
-            auth: buildAuthConfig(),
-          }
+        ? form.httpTarget === 'n8n'
+          ? {
+              allowedRoles: preserved.allowedRoles,
+              target: 'n8n',
+              method: form.method || 'POST',
+              headers: { Accept: 'application/json' },
+              auth: { type: 'none' },
+            }
+          : {
+              allowedRoles: preserved.allowedRoles,
+              url: form.url.trim(),
+              method: form.method || 'POST',
+              headers: { Accept: 'application/json' },
+              auth: buildAuthConfig(),
+            }
         : {
             collection: preserved.collection,
             recordId: preserved.recordId,
@@ -687,6 +735,35 @@ onMounted(() => {
         <template v-if="form.handler === 'http'">
           <div class="flex flex-col gap-1">
             <label class="text-[0.85rem] font-medium">
+              {{ t('setup.flows.httpTarget', 'Destination') }}
+            </label>
+            <Select
+              v-model="form.httpTarget"
+              :options="httpTargetOptions"
+              option-label="label"
+              option-value="value"
+            />
+            <span class="text-muted-color text-[0.8rem]">
+              {{
+                form.httpTarget === 'n8n'
+                  ? t(
+                      'setup.flows.httpTargetN8nHint',
+                      'Calls the bundled n8n webhook at /webhook/ce-{key}. Set N8N_BASE_URL on the BFF; no raw URL needed.',
+                      { key: form.key.trim() || 'your_key' },
+                    )
+                  : t(
+                      'setup.flows.httpTargetUrlHint',
+                      'Paste any absolute webhook URL (advanced / non-n8n).',
+                    )
+              }}
+            </span>
+          </div>
+
+          <div
+            v-if="form.httpTarget === 'url'"
+            class="flex flex-col gap-1"
+          >
+            <label class="text-[0.85rem] font-medium">
               {{ t('setup.flows.url', 'External URL') }}
             </label>
             <InputText
@@ -711,6 +788,7 @@ onMounted(() => {
             />
           </div>
 
+          <template v-if="form.httpTarget === 'url'">
           <div class="flex flex-col gap-1">
             <label class="text-[0.85rem] font-medium">
               {{ t('setup.flows.authentication', 'Authentication') }}
@@ -796,6 +874,7 @@ onMounted(() => {
                 :placeholder="t('setup.flows.authPasswordPlaceholder', 'Password')"
               />
             </div>
+          </template>
           </template>
         </template>
 

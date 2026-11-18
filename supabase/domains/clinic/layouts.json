@@ -18,6 +18,84 @@
       }
     },
     {
+      "entityApiName": "patient",
+      "groupKey": "entity",
+      "subGroup": "compact",
+      "settingId": "clinic-patient-compact",
+      "payload": {
+        "name": "Patient compact",
+        "__meta": {
+          "name": "Patient compact",
+          "role": null,
+          "status": "published",
+          "settingId": "clinic-patient-compact"
+        },
+        "entity": "patient",
+        "fields": [
+          {
+            "id": "fld_patient_name",
+            "field": "name",
+            "label": "Name",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_patient_phone",
+            "field": "phone",
+            "label": "Phone",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_patient_dob",
+            "field": "date_of_birth",
+            "label": "Date of birth",
+            "component": "DatePicker"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Patient",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_patient_name",
+                    "span": 12,
+                    "field": "name",
+                    "label": "Name",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_patient_phone",
+                    "span": 6,
+                    "field": "phone",
+                    "label": "Phone",
+                    "component": "InputText"
+                  },
+                  {
+                    "id": "fld_patient_dob",
+                    "span": 6,
+                    "field": "date_of_birth",
+                    "label": "Date of birth",
+                    "component": "DatePicker"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": { "enabled": false, "collapsed": true },
+        "relatedCounts": []
+      }
+    },
+    {
       "entityApiName": "practitioner",
       "groupKey": "list",
       "subGroup": "default",
@@ -52,11 +130,202 @@
       }
     },
     {
+      "entityApiName": "visit",
+      "groupKey": "entity",
+      "subGroup": "compact",
+      "settingId": "clinic-visit-compact",
+      "payload": {
+        "name": "Visit compact",
+        "__meta": {
+          "name": "Visit compact",
+          "role": null,
+          "status": "published",
+          "settingId": "clinic-visit-compact"
+        },
+        "entity": "visit",
+        "fields": [
+          {
+            "id": "fld_visit_patient",
+            "field": "patient_id",
+            "label": "Patient",
+            "component": "AutoComplete",
+            "relatedCollection": "patient"
+          },
+          {
+            "id": "fld_visit_date",
+            "field": "visit_date",
+            "label": "Visit date",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_visit_notes",
+            "field": "notes",
+            "label": "Notes",
+            "component": "Textarea"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Visit",
+            "groups": [
+              {
+                "id": "group_summary",
+                "title": "Summary",
+                "fields": [
+                  {
+                    "id": "fld_visit_patient",
+                    "span": 12,
+                    "field": "patient_id",
+                    "label": "Patient",
+                    "component": "AutoComplete",
+                    "relatedCollection": "patient"
+                  },
+                  {
+                    "id": "fld_visit_date",
+                    "span": 6,
+                    "field": "visit_date",
+                    "label": "Visit date",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_visit_notes",
+                    "span": 12,
+                    "field": "notes",
+                    "label": "Notes",
+                    "component": "Textarea"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": { "enabled": false, "collapsed": true },
+        "relatedCounts": []
+      }
+    },
+    {
+      "entityApiName": "visit",
+      "groupKey": "entity",
+      "subGroup": "full",
+      "settingId": "clinic-visit-clinician",
+      "roleId": "Clinician",
+      "payload": {
+        "name": "Visit clinician",
+        "__meta": {
+          "name": "Visit clinician",
+          "role": "Clinician",
+          "status": "published",
+          "settingId": "clinic-visit-clinician"
+        },
+        "entity": "visit",
+        "fields": [
+          {
+            "id": "fld_visit_notes_main",
+            "field": "notes",
+            "label": "Visit notes",
+            "component": "Textarea"
+          },
+          {
+            "id": "fld_visit_patient_c",
+            "field": "patient_id",
+            "label": "Patient",
+            "component": "AutoComplete",
+            "relatedCollection": "patient"
+          },
+          {
+            "id": "fld_visit_date_c",
+            "field": "visit_date",
+            "label": "Visit date",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_visit_practitioner_c",
+            "field": "practitioner_id",
+            "label": "Practitioner",
+            "component": "AutoComplete",
+            "relatedCollection": "practitioner"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Visit",
+            "groups": [
+              {
+                "id": "group_notes",
+                "title": "Notes",
+                "fields": [
+                  {
+                    "id": "fld_visit_notes_main",
+                    "span": 12,
+                    "field": "notes",
+                    "label": "Visit notes",
+                    "component": "Textarea"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": false
+              },
+              {
+                "id": "group_context",
+                "title": "Context",
+                "fields": [
+                  {
+                    "id": "fld_visit_patient_c",
+                    "span": 12,
+                    "field": "patient_id",
+                    "label": "Patient",
+                    "component": "AutoComplete",
+                    "relatedCollection": "patient"
+                  },
+                  {
+                    "id": "fld_visit_date_c",
+                    "span": 6,
+                    "field": "visit_date",
+                    "label": "Visit date",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_visit_practitioner_c",
+                    "span": 6,
+                    "field": "practitioner_id",
+                    "label": "Practitioner",
+                    "component": "AutoComplete",
+                    "relatedCollection": "practitioner"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": { "enabled": false, "collapsed": true },
+        "relatedCounts": []
+      }
+    },
+    {
       "entityApiName": "appointment",
       "groupKey": "list",
       "subGroup": "default",
       "payload": {
-        "columns": ["name", "starts_at", "ends_at", "patient_id", "practitioner_id"],
+        "columns": [
+          "name",
+          "starts_at",
+          "ends_at",
+          "patient_id",
+          "practitioner_id",
+          "reminder_status"
+        ],
         "sort": ["starts_at"]
       }
     },
@@ -65,7 +334,218 @@
       "groupKey": "form",
       "subGroup": "default",
       "payload": {
-        "fields": ["name", "starts_at", "ends_at", "patient_id", "practitioner_id"]
+        "fields": [
+          "name",
+          "starts_at",
+          "ends_at",
+          "patient_id",
+          "practitioner_id",
+          "reminder_status"
+        ]
+      }
+    },
+    {
+      "entityApiName": "appointment",
+      "groupKey": "entity",
+      "subGroup": "compact",
+      "settingId": "clinic-appointment-compact",
+      "payload": {
+        "name": "Appointment compact",
+        "__meta": {
+          "name": "Appointment compact",
+          "role": null,
+          "status": "published",
+          "settingId": "clinic-appointment-compact"
+        },
+        "entity": "appointment",
+        "fields": [
+          {
+            "id": "fld_appt_patient",
+            "field": "patient_id",
+            "label": "Patient",
+            "component": "AutoComplete",
+            "relatedCollection": "patient"
+          },
+          {
+            "id": "fld_appt_starts",
+            "field": "starts_at",
+            "label": "Starts",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_appt_practitioner",
+            "field": "practitioner_id",
+            "label": "Practitioner",
+            "component": "AutoComplete",
+            "relatedCollection": "practitioner"
+          },
+          {
+            "id": "fld_appt_status",
+            "field": "reminder_status",
+            "label": "Status",
+            "component": "Select"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Appointment",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_appt_patient",
+                    "span": 12,
+                    "field": "patient_id",
+                    "label": "Patient",
+                    "component": "AutoComplete",
+                    "relatedCollection": "patient"
+                  },
+                  {
+                    "id": "fld_appt_starts",
+                    "span": 6,
+                    "field": "starts_at",
+                    "label": "Starts",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_appt_practitioner",
+                    "span": 6,
+                    "field": "practitioner_id",
+                    "label": "Practitioner",
+                    "component": "AutoComplete",
+                    "relatedCollection": "practitioner"
+                  },
+                  {
+                    "id": "fld_appt_status",
+                    "span": 6,
+                    "field": "reminder_status",
+                    "label": "Status",
+                    "component": "Select"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": { "enabled": false, "collapsed": true },
+        "relatedCounts": []
+      }
+    },
+    {
+      "entityApiName": "appointment",
+      "groupKey": "entity",
+      "subGroup": "full",
+      "settingId": "clinic-appointment-reception",
+      "roleId": "Reception",
+      "payload": {
+        "name": "Appointment reception",
+        "__meta": {
+          "name": "Appointment reception",
+          "role": "Reception",
+          "status": "published",
+          "settingId": "clinic-appointment-reception"
+        },
+        "entity": "appointment",
+        "fields": [
+          {
+            "id": "fld_appt_r_patient",
+            "field": "patient_id",
+            "label": "Patient",
+            "component": "AutoComplete",
+            "relatedCollection": "patient"
+          },
+          {
+            "id": "fld_appt_r_starts",
+            "field": "starts_at",
+            "label": "Starts",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_appt_r_ends",
+            "field": "ends_at",
+            "label": "Ends",
+            "component": "DatePicker"
+          },
+          {
+            "id": "fld_appt_r_practitioner",
+            "field": "practitioner_id",
+            "label": "Practitioner",
+            "component": "AutoComplete",
+            "relatedCollection": "practitioner"
+          },
+          {
+            "id": "fld_appt_r_status",
+            "field": "reminder_status",
+            "label": "Status",
+            "component": "Select"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Appointment",
+            "groups": [
+              {
+                "id": "group_booking",
+                "title": "Booking",
+                "fields": [
+                  {
+                    "id": "fld_appt_r_patient",
+                    "span": 12,
+                    "field": "patient_id",
+                    "label": "Patient",
+                    "component": "AutoComplete",
+                    "relatedCollection": "patient"
+                  },
+                  {
+                    "id": "fld_appt_r_starts",
+                    "span": 6,
+                    "field": "starts_at",
+                    "label": "Starts",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_appt_r_ends",
+                    "span": 6,
+                    "field": "ends_at",
+                    "label": "Ends",
+                    "component": "DatePicker"
+                  },
+                  {
+                    "id": "fld_appt_r_practitioner",
+                    "span": 6,
+                    "field": "practitioner_id",
+                    "label": "Practitioner",
+                    "component": "AutoComplete",
+                    "relatedCollection": "practitioner"
+                  },
+                  {
+                    "id": "fld_appt_r_status",
+                    "span": 6,
+                    "field": "reminder_status",
+                    "label": "Status",
+                    "component": "Select"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": { "enabled": false, "collapsed": true },
+        "relatedCounts": []
       }
     }
   ]

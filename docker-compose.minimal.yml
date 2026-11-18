@@ -10,8 +10,11 @@
 #     ./scripts/provision-platform-db.mts --domain sales
 #   docker compose -f docker-compose.minimal.yml up -d bff
 #   docker compose -f docker-compose.minimal.yml --profile ui up -d --build web
+#   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
 #
-# BFF: http://localhost:4000/health   UI (optional): http://localhost:8080
+# BFF: http://localhost:4000/health
+# UI (optional): http://localhost:8080
+# n8n (optional): http://localhost:5678  — import docs/n8n/*.workflow.json
 
 services:
   db:
@@ -62,11 +65,16 @@ services:
       RUNNING_IN_DOCKER: "1"
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       PORT: 4000
+      # Bundled n8n (profile automation): resolve Setup → Flows target=n8n to http://n8n:5678/webhook/ce-{key}
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
+      FLOWS_HTTP_ALLOWED_HOSTS: ${FLOWS_HTTP_ALLOWED_HOSTS:-n8n,n8n:5678}
     ports:
       - "127.0.0.1:${BFF_PUBLISH_PORT:-4000}:4000"
     volumes:
       - ./scripts:/app/scripts:ro
       - ./supabase:/app/supabase
+      - ./docs/n8n:/app/docs/n8n:ro
       - ./.env:/app/.env
     depends_on:
       db:
@@ -82,5 +90,31 @@ services:
     depends_on:
       - bff
 
+  n8n:
+    profiles: ["automation"]
+    image: n8nio/n8n:1.72.1
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_WEBHOOK_PUBLIC_URL:-http://localhost:5678/}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      # Same values as BFF — used by importable workflows under docs/n8n/
+      BFF_URL: http://bff:4000
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
+      CRM_N8N_EMAIL: ${CRM_N8N_EMAIL:-}
+      CRM_N8N_PASSWORD: ${CRM_N8N_PASSWORD:-}
+      OPPORTUNITY_QUOTE_TEMPLATE_ID: ${OPPORTUNITY_QUOTE_TEMPLATE_ID:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    ports:
+      - "127.0.0.1:${N8N_PUBLISH_PORT:-5678}:5678"
+    volumes:
+      - coreengine_n8n:/home/node/.n8n
+      - ./docs/n8n:/templates:ro
+    depends_on:
+      - bff
+
 volumes:
   coreengine_pg:
+  coreengine_n8n:

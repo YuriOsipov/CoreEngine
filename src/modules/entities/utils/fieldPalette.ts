@@ -4,7 +4,8 @@ export interface PaletteItem {
   /** Stable key for draggable item-key and clone source identity. */
   id: string
   label: string
-  component: PrimeVueComponentType
+  /** Built-in OpenVue/layout components, or a custom block id from registerCustomBlock. */
+  component: PrimeVueComponentType | string
   /** Registry column, relation, or related collection key used as layout binding. */
   fieldKey: string
   fieldType: string

@@ -1559,6 +1559,12 @@
                           "component": "Select"
                         },
                         {
+                          "field": "delivery_status",
+                          "header": "Delivery",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
                           "field": "date_created",
                           "format": "dd.MM.yyyy HH:mm",
                           "header": "Date Created",
@@ -3351,6 +3357,13 @@
             "component": "Select"
           },
           {
+            "id": "fld_message_to_user",
+            "field": "to_user",
+            "label": "To user",
+            "component": "Select",
+            "relatedCollection": "users"
+          },
+          {
             "id": "fld_63ee73fd9c97",
             "field": "email",
             "label": "Email",
@@ -3366,6 +3379,12 @@
             "id": "fld_d85b34bdc7fc",
             "field": "result",
             "label": "Result",
+            "component": "Select"
+          },
+          {
+            "id": "fld_delivery_status_list",
+            "field": "delivery_status",
+            "label": "Delivery status",
             "component": "Select"
           }
         ],
@@ -3416,6 +3435,13 @@
                     "component": "Select"
                   },
                   {
+                    "id": "fld_delivery_status_form",
+                    "span": 6,
+                    "field": "delivery_status",
+                    "label": "Delivery status",
+                    "component": "Select"
+                  },
+                  {
                     "id": "fld_4c913893d5ac",
                     "span": 12,
                     "field": "files:message",
@@ -3454,7 +3480,27 @@
           "settingId": "f2530d70-265e-4740-9b90-1655b8e16193"
         },
         "entity": "message",
-        "actions": [],
+        "actions": [
+          {
+            "id": "act_message_send",
+            "name": "send_message",
+            "label": "Send",
+            "behavior": "flow",
+            "displayType": "detailButton",
+            "flow": {
+              "webhook": "dispatch_outbound_message",
+              "method": "POST",
+              "confirmBeforeRun": true,
+              "successMessage": "Message queued for send.",
+              "refreshRecordAfterRun": true
+            },
+            "payload": {
+              "includeCollection": true,
+              "includeRecordId": true,
+              "includeRecord": true
+            }
+          }
+        ],
         "version": 1,
         "sections": [
           {
@@ -3479,6 +3525,21 @@
                     "field": "type",
                     "label": "Type",
                     "component": "Select"
+                  },
+                  {
+                    "id": "fld_message_to_user_form",
+                    "span": 6,
+                    "field": "to_user",
+                    "label": "To user",
+                    "component": "Select",
+                    "relatedCollection": "users"
+                  },
+                  {
+                    "id": "fld_message_scheduled_send_at",
+                    "span": 6,
+                    "field": "scheduled_send_at",
+                    "label": "Scheduled send at",
+                    "component": "DatePicker"
                   },
                   {
                     "id": "fld_65d25f99de64",
@@ -3506,6 +3567,13 @@
                     "span": 6,
                     "field": "result",
                     "label": "Result",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_delivery_status_view",
+                    "span": 6,
+                    "field": "delivery_status",
+                    "label": "Delivery status",
                     "component": "Select"
                   },
                   {
@@ -3601,6 +3669,110 @@
         "defaultValueField": ""
       },
       "subGroup": "phone"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "list",
+      "settingId": "a1b2c3d4-e5f6-7890-abcd-message-list-def",
+      "payload": {
+        "sort": ["-date_created"],
+        "columns": [
+          "name",
+          "type",
+          "to_user",
+          "contact",
+          "body",
+          "scheduled_send_at",
+          "delivery_status",
+          "result",
+          "owner_id"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "message",
+      "groupKey": "list",
+      "settingId": "b2c3d4e5-f6a7-8901-bcde-message-for-me",
+      "payload": {
+        "name": "For me",
+        "sort": {
+          "field": "date_created",
+          "order": -1
+        },
+        "logic": "and",
+        "__meta": {
+          "name": "For me",
+          "role": null,
+          "status": "published",
+          "settingId": "b2c3d4e5-f6a7-8901-bcde-message-for-me"
+        },
+        "columns": [
+          {
+            "field": "name",
+            "header": "Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "type",
+            "header": "Type",
+            "enabled": true,
+            "component": "Select"
+          },
+          {
+            "field": "body",
+            "header": "Body",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "to_user",
+            "header": "To user",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "users"
+          },
+          {
+            "field": "delivery_status",
+            "header": "Delivery",
+            "enabled": true,
+            "component": "Select"
+          },
+          {
+            "field": "result",
+            "header": "Result",
+            "enabled": true,
+            "component": "Select"
+          },
+          {
+            "field": "owner_id",
+            "header": "Owner",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "users"
+          },
+          {
+            "field": "date_created",
+            "header": "Date Created",
+            "enabled": true,
+            "component": "DatePicker"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [
+          {
+            "id": "flt_message_for_me",
+            "type": "uuid",
+            "field": "to_user",
+            "value": "$CURRENT_USER",
+            "operator": "_eq",
+            "userVisible": false
+          }
+        ],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
     },
     {
       "entityApiName": "message",
@@ -3943,6 +4115,12 @@
                         {
                           "field": "result",
                           "header": "Result",
+                          "enabled": true,
+                          "component": "Select"
+                        },
+                        {
+                          "field": "delivery_status",
+                          "header": "Delivery",
                           "enabled": true,
                           "component": "Select"
                         }

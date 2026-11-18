@@ -36,7 +36,7 @@ function hintTooltip(value: string) {
 }
 
 const taskParamsHintDefault =
-  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}.'
+  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}. dispatch_due_messages: { "flowKey": "dispatch_outbound_message", "limit": 50 }.'
 const confirm = useConfirm()
 const toast = useToast()
 
@@ -80,6 +80,14 @@ const JOB_TYPES = [
   {
     id: 'sync_promo_prices',
     params: {},
+  },
+  {
+    id: 'dispatch_due_messages',
+    params: {
+      collection: 'message',
+      flowKey: 'dispatch_outbound_message',
+      limit: 50,
+    },
   },
 ] as const
 
@@ -235,6 +243,9 @@ function jobTypeLabel(jobType: string): string {
   }
   if (jobType === 'sync_promo_prices') {
     return t('setup.tasks.jobSyncPromoPrices', 'Sync promo prices')
+  }
+  if (jobType === 'dispatch_due_messages') {
+    return t('setup.tasks.jobDispatchDueMessages', 'Dispatch due messages')
   }
   return jobType
 }
@@ -808,10 +819,7 @@ onMounted(() => {
                   fluid
                 />
               </label>
-              <label
-                v-if="rule.interval !== 'minutes' && rule.interval !== 'cron'"
-                class="setup-task-field"
-              >
+              <label class="setup-task-field">
                 {{ t('setup.tasks.triggerAtMinute', 'Trigger at minute') }}
                 <InputNumber
                   v-model="rule.minute"

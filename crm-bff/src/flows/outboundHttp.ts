@@ -6,9 +6,10 @@
  * - link-local / cloud-metadata / broadcast ranges are never reachable, even
  *   when the host is on FLOWS_HTTP_ALLOWED_HOSTS
  * Private RFC1918 targets need FLOWS_HTTP_ALLOWED_HOSTS (e.g. "n8n" or "n8n:5678"
- * on a Docker/compose network). Loopback (127.0.0.0/8, ::1) is hard-blocked even
- * when listed — host n8n must be reached via a container DNS name, not localhost.
- * Also allowed: the host of N8N_WEBHOOK_URL.
+ * on a Docker/compose network). Loopback (127.0.0.0/8, ::1) is hard-blocked by
+ * default; local host-BFF → published n8n is allowed when the URL host matches
+ * N8N_BASE_URL / N8N_WEBHOOK_URL (non-production), or FLOWS_ALLOW_LOOPBACK=true.
+ * Also allowed: the host of N8N_BASE_URL / N8N_WEBHOOK_URL (private ranges).
  */
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns'
 import { BlockList, isIP } from 'node:net'
@@ -71,6 +72,15 @@ export function isHardBlockedAddress(address: string): boolean {
   return hardBlocked.check(normalized.address, normalized.family === 4 ? 'ipv4' : 'ipv6')
 }
 
+export function isLoopbackAddress(address: string): boolean {
+  const normalized = normalizeIp(address)
+  if (!normalized) return false
+  if (normalized.family === 4) {
+    return normalized.address.startsWith('127.')
+  }
+  return normalized.address === '::1'
+}
+
 export function isPrivateAddress(address: string): boolean {
   const normalized = normalizeIp(address)
   if (!normalized) return false
@@ -78,10 +88,42 @@ export function isPrivateAddress(address: string): boolean {
 }
 
 /** True when the address must not be contacted (hard block, or private without allowlist). */
-export function isBlockedAddress(address: string, allowPrivate = false): boolean {
+export function isBlockedAddress(
+  address: string,
+  allowPrivate = false,
+  allowLoopback = false,
+): boolean {
+  if (allowLoopback && isLoopbackAddress(address)) return false
   if (isHardBlockedAddress(address)) return true
   if (!allowPrivate && isPrivateAddress(address)) return true
   return false
+}
+
+function n8nConfiguredHosts(): Set<string> {
+  const out = new Set<string>()
+  for (const envName of ['N8N_BASE_URL', 'N8N_WEBHOOK_URL'] as const) {
+    const raw = (process.env[envName] || '').trim()
+    if (!raw) continue
+    try {
+      const url = new URL(raw)
+      out.add(url.host.toLowerCase())
+      out.add(url.hostname.toLowerCase())
+    } catch {
+      // ignore malformed env
+    }
+  }
+  return out
+}
+
+/** Loopback to the configured n8n origin — local host BFF → published Docker port. */
+export function allowLoopbackForUrl(url: URL): boolean {
+  const flag = (process.env.FLOWS_ALLOW_LOOPBACK || '').trim().toLowerCase()
+  if (flag === '1' || flag === 'true' || flag === 'yes') {
+    return hostAllowsPrivate(url)
+  }
+  if ((process.env.NODE_ENV || '').toLowerCase() === 'production') return false
+  const hosts = n8nConfiguredHosts()
+  return hosts.has(url.host.toLowerCase()) || hosts.has(url.hostname.toLowerCase())
 }
 
 function allowedPrivateHosts(): Set<string> {
@@ -90,10 +132,11 @@ function allowedPrivateHosts(): Set<string> {
     const value = raw.trim().toLowerCase()
     if (value) out.add(value)
   }
-  const n8n = (process.env.N8N_WEBHOOK_URL || '').trim()
-  if (n8n) {
+  for (const envName of ['N8N_BASE_URL', 'N8N_WEBHOOK_URL'] as const) {
+    const raw = (process.env[envName] || '').trim()
+    if (!raw) continue
     try {
-      out.add(new URL(n8n).host.toLowerCase())
+      out.add(new URL(raw).host.toLowerCase())
     } catch {
       // ignore malformed env
     }
@@ -132,7 +175,7 @@ export function assertOutboundUrlShape(raw: string): URL {
   return url
 }
 
-function guardedAgent(allowPrivate: boolean): Agent {
+function guardedAgent(allowPrivate: boolean, allowLoopback: boolean): Agent {
   return new Agent({
     connect: {
       lookup(hostname, options, callback) {
@@ -142,7 +185,9 @@ function guardedAgent(allowPrivate: boolean): Agent {
             return
           }
           const list = (Array.isArray(addresses) ? addresses : []) as LookupAddress[]
-          const usable = list.filter((entry) => !isBlockedAddress(entry.address, allowPrivate))
+          const usable = list.filter(
+            (entry) => !isBlockedAddress(entry.address, allowPrivate, allowLoopback),
+          )
           if (!usable.length) {
             callback(
               Object.assign(
@@ -179,11 +224,12 @@ export async function guardedFlowFetch(
   let body = init.body
   for (let hop = 0; ; hop += 1) {
     const allowPrivate = hostAllowsPrivate(url)
+    const allowLoopback = allowLoopbackForUrl(url)
     const host = hostnameFromUrl(url)
-    if (isIP(host) && isBlockedAddress(host, allowPrivate)) {
+    if (isIP(host) && isBlockedAddress(host, allowPrivate, allowLoopback)) {
       throw new Error(`Flow URL host "${url.hostname}" is a blocked address`)
     }
-    const dispatcher = guardedAgent(allowPrivate)
+    const dispatcher = guardedAgent(allowPrivate, allowLoopback)
     let response: Response
     try {
       response = await fetch(url, {

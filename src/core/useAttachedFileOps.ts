@@ -11,6 +11,7 @@ import { uploadFile, deleteFile, linkFileToRecord } from '@/core/graphql/filesPr
 import {
   type FileItem,
   type FilePreviewData,
+  type FileUser,
   fileItemId,
   fileItemName,
   fileIsUnavailable,
@@ -36,6 +37,23 @@ import { keysEqual } from '@/core/utils/object'
 type FilesHandle = ReturnType<typeof useFiles>
 type ConfirmHandle = { require: (opts: Record<string, unknown>) => void }
 type TranslateFn = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function optionalFileUser(value: unknown): FileUser | undefined {
+  if (value === null) return null
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    return value as Exclude<FileUser, string | null>
+  }
+  return undefined
+}
 
 export interface UseAttachedFileOpsOptions {
   field: () => LayoutFieldMetadata
@@ -364,14 +382,14 @@ export function useAttachedFileOps(options: UseAttachedFileOpsOptions) {
           linked.push({
             id: String(shaped.id || asset.id),
             filename_download:
-              shaped.filename_download ?? asset.filename_download,
-            type: shaped.type ?? asset.type,
-            filesize: shaped.filesize ?? asset.filesize,
-            title: shaped.title ?? asset.title,
-            created_on: shaped.created_on ?? asset.created_on,
-            uploaded_by: shaped.uploaded_by ?? asset.uploaded_by,
-            width: asset.width,
-            height: asset.height,
+              shaped.filename_download ?? optionalString(asset.filename_download),
+            type: shaped.type ?? optionalString(asset.type),
+            filesize:
+              shaped.filesize == null
+                ? optionalNumber(asset.filesize)
+                : shaped.filesize,
+            created_on: shaped.created_on ?? optionalString(asset.created_on),
+            uploaded_by: shaped.uploaded_by ?? optionalFileUser(asset.uploaded_by),
           })
         }
 
@@ -403,14 +421,12 @@ export function useAttachedFileOps(options: UseAttachedFileOpsOptions) {
       for (const asset of toLink) {
         const nestedFile = {
           id: asset.id,
-          filename_download: asset.filename_download,
-          type: asset.type,
-          filesize: asset.filesize,
-          title: asset.title,
-          created_on: asset.created_on,
-          uploaded_by: asset.uploaded_by,
-          width: asset.width,
-          height: asset.height,
+          filename_download: optionalString(asset.filename_download),
+          type: optionalString(asset.type),
+          filesize: optionalNumber(asset.filesize),
+          title: optionalString(asset.title),
+          created_on: optionalString(asset.created_on),
+          uploaded_by: optionalFileUser(asset.uploaded_by),
         }
 
         if (!hasParent) {

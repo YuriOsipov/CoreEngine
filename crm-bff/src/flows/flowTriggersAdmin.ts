@@ -63,14 +63,9 @@ function sanitizeConfig(
   const allowedRoles = sanitizeStringList(config.allowedRoles)
   const access = allowedRoles ? { allowedRoles } : {}
   if (handler === 'http') {
-    const url = typeof config.url === 'string' ? config.url.trim() : ''
-    if (!url) {
-      throw new Error('http flow requires config.url')
-    }
-    if (!/^https?:\/\//i.test(url)) {
-      throw new Error('http flow config.url must be an absolute http(s) URL')
-    }
-    assertOutboundUrlShape(url)
+    const target = String(config.target || '')
+      .trim()
+      .toLowerCase()
     const methodRaw =
       typeof config.method === 'string' && config.method.trim()
         ? config.method.trim().toUpperCase()
@@ -92,6 +87,28 @@ function sanitizeConfig(
         headers[headerKey.trim()] = value
       }
     }
+
+    // Bundled n8n: resolve URL at dispatch from N8N_BASE_URL + ce-{key} (no raw URL in Setup).
+    if (target === 'n8n') {
+      return {
+        target: 'n8n',
+        method,
+        headers,
+        auth: { type: 'none' },
+        ...access,
+      }
+    }
+
+    const url = typeof config.url === 'string' ? config.url.trim() : ''
+    if (!url) {
+      throw new Error(
+        'http flow requires config.url, or set config.target to "n8n"',
+      )
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      throw new Error('http flow config.url must be an absolute http(s) URL')
+    }
+    assertOutboundUrlShape(url)
     const auth = sanitizeHttpFlowAuth(config.auth)
     return auth.type === 'none'
       ? { url, method, headers, auth: { type: 'none' }, ...access }

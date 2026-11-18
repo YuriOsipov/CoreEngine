@@ -24,7 +24,7 @@ const props = withDefaults(
     inputId?: string
   }>(),
   {
-    modelValue: null,
+    modelValue: undefined,
     columns: () => [],
     disabled: false,
     readonly: false,
@@ -118,7 +118,9 @@ function removeRow(index: number): void {
                 <InputNumber
                   v-if="col.type === 'number'"
                   :model-value="
-                    typeof row[col.name] === 'number' ? row[col.name] : null
+                    typeof row[col.name] === 'number'
+                      ? (row[col.name] as number)
+                      : null
                   "
                   fluid
                   :disabled="locked"

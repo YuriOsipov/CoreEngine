@@ -900,10 +900,15 @@ function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityA
             successMessage:
               action.cloneRelated?.successMessage ?? 'Structure cloned.',
             refreshRecordAfterRun: action.cloneRelated?.refreshRecordAfterRun ?? true,
-            replaceExisting: action.cloneRelated?.replaceExisting === true
-              || action.cloneRelated?.replaceExisting === 1
-              || action.cloneRelated?.replaceExisting === 'true'
-              || action.cloneRelated?.replaceExisting === '1',
+            replaceExisting: (() => {
+              const raw = action.cloneRelated?.replaceExisting as unknown
+              return (
+                raw === true ||
+                raw === 1 ||
+                raw === 'true' ||
+                raw === '1'
+              )
+            })(),
           },
         }
       }

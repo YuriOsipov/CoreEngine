@@ -328,7 +328,7 @@ export function resolveColumnPaths(
 }
 
 export function getM2OMetadata(
-  collection: string,
+  _collection: string,
   columnKeys: string[],
   fields: FieldDefinition[],
   relations: RelationDefinition[],

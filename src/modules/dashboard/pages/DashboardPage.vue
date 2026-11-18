@@ -6,6 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import type { ChartData } from 'chart.js'
 import { RouterLink, useRoute } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
 import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
@@ -122,6 +123,11 @@ function panelGridStyle(panel: DashboardPanel): Record<string, string> {
 
 function chartRender(panel: DashboardPanel): ChartRender | null {
   return panel.render.kind === 'chart' ? panel.render : null
+}
+
+function chartData(panel: DashboardPanel): ChartData | undefined {
+  const model = chartRender(panel)
+  return model ? (model.data as unknown as ChartData) : undefined
 }
 
 function metricRender(panel: DashboardPanel): MetricRender | null {
@@ -246,7 +252,7 @@ function formattedPanelOptions(panel: DashboardPanel): string {
             <div v-if="chartRender(panel)" class="flex-1 min-h-[8rem]">
               <Chart
                 :type="chartRender(panel)?.chartType"
-                :data="chartRender(panel)?.data"
+                :data="chartData(panel)"
                 :options="chartRender(panel)?.options"
                 class="h-full"
               />

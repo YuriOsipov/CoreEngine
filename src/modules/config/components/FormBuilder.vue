@@ -43,7 +43,7 @@ import {
   isSystemAuditLayoutField,
   isSystemInfoEnabled,
 } from '@/core/layoutFieldRules'
-import { defaultValueForField, generateFieldId } from '@/modules/entities/utils/fieldDefaults'
+import { generateFieldId } from '@/modules/entities/utils/fieldDefaults'
 import { resolvePrimeVueComponent } from '@/core/primevue'
 import { isDateComponent } from '@/core/dateFormatting'
 import {
@@ -1301,13 +1301,13 @@ const configActionIncludeRecord = computed({
   },
 })
 
-const configFilesSettings = computed<FilesSettings>({
-  get: () => {
-    const current =
+const configFilesSettings = computed({
+  get: (): FilesSettings => {
+    const current: FilesSettings =
       (selectedField.value ? filesSettings(selectedField.value) : undefined) ?? {
         multiple: false,
-        display: 'thumbnail' as const,
-        allowedMimeTypes: [] as string[],
+        display: 'thumbnail',
+        allowedMimeTypes: [],
         columns: [],
       }
     if (selectedField.value && isImageField(selectedField.value)) {
@@ -2332,55 +2332,6 @@ function updateDocEngineSettings(
       ...patch,
     },
   })
-}
-
-function canvasComponentProps(
-  field: LayoutFieldMetadata,
-): Record<string, unknown> {
-  const base: Record<string, unknown> = {
-    modelValue: defaultValueForField(field),
-    disabled: true,
-    fluid: true,
-    placeholder: field.label,
-  }
-
-  if (['Select', 'Dropdown', 'SelectButton'].includes(field.component)) {
-    base.options = [{ label: t('formBuilder.option', 'Option'), value: 'option' }]
-    base.optionLabel = 'label'
-    base.optionValue = 'value'
-  }
-
-  if (field.component === 'MultiSelect') {
-    base.options = [{ label: t('formBuilder.option', 'Option'), value: 'option' }]
-    base.optionLabel = 'label'
-    base.optionValue = 'value'
-    base.modelValue = []
-  }
-
-  if (field.component === 'AutoComplete') {
-    base.suggestions = []
-    base.optionLabel = 'label'
-    base.dropdown = true
-  }
-
-  if (field.component === 'Checkbox' || field.component === 'ToggleSwitch') {
-    base.binary = true
-    base.modelValue = false
-  }
-
-  if (field.component === 'CrmTreeTable') {
-    base.modelValue = []
-  }
-
-  if (field.component === 'CrmScheduler') {
-    base.settings = field.scheduler
-  }
-
-  if (isDateComponent(field.component)) {
-    base.showIcon = true
-  }
-
-  return base
 }
 
 function hintTooltip(value: string) {

@@ -570,6 +570,26 @@
           "interface": "input"
         },
         {
+          "apiName": "to_user",
+          "label": "To user",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "users",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "users"
+          }
+        },
+        {
+          "apiName": "scheduled_send_at",
+          "label": "Scheduled send at",
+          "type": "DATETIME",
+          "interface": "datetime",
+          "isIndexed": true
+        },
+        {
           "apiName": "result",
           "label": "Result",
           "type": "INTEGER",
@@ -585,6 +605,37 @@
                 "value": 2
               }
             ]
+          }
+        },
+        {
+          "apiName": "delivery_status",
+          "label": "Delivery status",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Queued",
+                "value": "queued"
+              },
+              {
+                "text": "Sending",
+                "value": "sending"
+              },
+              {
+                "text": "Sent",
+                "value": "sent"
+              },
+              {
+                "text": "Delivered",
+                "value": "delivered"
+              },
+              {
+                "text": "Failed",
+                "value": "failed"
+              }
+            ],
+            "default": "queued"
           }
         },
         {
@@ -605,6 +656,10 @@
               {
                 "text": "Telegram",
                 "value": 3
+              },
+              {
+                "text": "Internal",
+                "value": 4
               }
             ],
             "default": 1
@@ -612,7 +667,48 @@
         }
       ],
       "backendConfig": {
-        "rowLevelSecurity": "owner"
+        "rowLevelSecurity": "owner",
+        "rowLevelReadAlsoIf": ["to_user"],
+        "automations": [
+          {
+            "id": "queue_outbound_message",
+            "name": "Queue outbound message",
+            "enabled": true,
+            "sort": 10,
+            "triggers": ["create"],
+            "logic": "and",
+            "conditions": [
+              { "field": "result", "operator": "empty" },
+              { "field": "is_active", "operator": "_eq", "value": true }
+            ],
+            "requireChanged": [],
+            "setFields": {
+              "delivery_status": "queued"
+            },
+            "actions": []
+          },
+          {
+            "id": "dispatch_outbound_message",
+            "name": "Dispatch outbound message",
+            "enabled": true,
+            "sort": 20,
+            "triggers": ["create"],
+            "logic": "and",
+            "conditions": [
+              { "field": "result", "operator": "empty" },
+              { "field": "is_active", "operator": "_eq", "value": true },
+              { "field": "scheduled_send_at", "operator": "empty" }
+            ],
+            "requireChanged": [],
+            "setFields": {},
+            "actions": [
+              {
+                "type": "trigger_flow",
+                "flowKey": "dispatch_outbound_message"
+              }
+            ]
+          }
+        ]
       }
     },
     {

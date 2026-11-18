@@ -3,7 +3,7 @@
     {
       "settingId": "afc7da67-7f7f-4587-8c07-1c309fe314ac",
       "name": "Sales rep",
-      "roleId": null,
+      "roleId": "Sales Rep",
       "groupKey": "app",
       "subGroup": "full",
       "body": {

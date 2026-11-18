@@ -100,15 +100,14 @@ export interface LoadItemGroupPriceTreeOptions {
 }
 
 /** Config blob passed to BFF `itemGroupPriceTree(config: …)`. */
-export type ItemGroupPriceTreeConfig = Pick<
-  LoadItemGroupPriceTreeOptions,
-  | 'groupCollection'
-  | 'itemPriceCollection'
-  | 'groupParentField'
-  | 'groupLabelField'
-  | 'itemGroupFieldPath'
-  | 'priceGroupField'
->
+export type ItemGroupPriceTreeConfig = {
+  groupCollection: string
+  itemPriceCollection: string
+  groupParentField: string
+  groupLabelField: string
+  itemGroupFieldPath: string
+  priceGroupField?: string
+}
 
 function scalarId(value: unknown): string | null {
   if (value === null || value === undefined) return null
@@ -248,7 +247,7 @@ export async function resolveItemGroupPriceTreeOptionsFromContext(
     const groupCollection = settings?.group?.collection?.trim() || ''
     const groupField = settings?.main?.groupField?.trim() || ''
     const mainCollection = settings?.main?.collection?.trim() || ''
-    if (!groupCollection || !groupField || !mainCollection) continue
+    if (!settings || !groupCollection || !groupField || !mainCollection) continue
 
     let score = 0
     if (groupCollection.toLowerCase() !== mainCollection.toLowerCase()) score += 3
@@ -709,7 +708,7 @@ export async function loadItemGroupPriceTreeViaBridge(
 
   const priceFilter = mergePriceFilters(
     options.priceGroupId,
-    priceGroupField,
+    priceGroupField ?? '',
     options.filter,
   )
 

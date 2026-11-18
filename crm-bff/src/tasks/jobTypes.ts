@@ -3,6 +3,7 @@ import { generateScheduleSlots } from '../schedule/generateSlots.js'
 import { maintainRecentRecordViews } from '../services/recentRecordsService.js'
 import { runSchemaDriftCheck } from '../sync/schemaSyncService.js'
 import { monthRangeIso, nextDaysRangeIso } from './cron.js'
+import { dispatchDueMessages } from './dispatchDueMessages.js'
 import { syncPromoPrices } from './syncPromoPrices.js'
 
 export const JOB_TYPES = [
@@ -11,6 +12,7 @@ export const JOB_TYPES = [
   'send_notification',
   'maintain_recent_views',
   'sync_promo_prices',
+  'dispatch_due_messages',
 ] as const
 
 export type JobType = (typeof JOB_TYPES)[number]
@@ -116,6 +118,10 @@ export async function executeJobType(
 
   if (jobType === 'sync_promo_prices') {
     return syncPromoPrices(params, timeZone)
+  }
+
+  if (jobType === 'dispatch_due_messages') {
+    return dispatchDueMessages(params)
   }
 
   throw new Error(`Unsupported job type "${jobType}"`)

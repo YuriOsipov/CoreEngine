@@ -125,9 +125,14 @@ Content-Type: application/json
 
 ### Setup UI
 
-**Setup → Flows** manages `app_flow_triggers`: create a **key** (e.g. `test_hook`), set handler **HTTP**, paste the external URL, optionally set **Authentication** (None / Bearer / API key header / Basic). Then use that key in Object Manager → Automations → Trigger flow.
+**Setup → Flows** manages `app_flow_triggers`: create a **key** (e.g. `send_quote_pdf`), set handler **HTTP**, choose Destination **Bundled n8n** (recommended) or **Custom URL**.
 
-Outbound http also adds `X-CRM-Source: bff-flow` and, when set, `X-CRM-Flow-Secret` from `N8N_WEBHOOK_SECRET`.
+- **Bundled n8n** stores `config.target=n8n` — no raw URL. At dispatch the BFF posts to `{N8N_BASE_URL}/webhook/ce-{key}` (e.g. `http://n8n:5678/webhook/ce-send_quote_pdf`).
+- **Custom URL** stores an absolute `config.url` (legacy / non-n8n). Optional Authentication (None / Bearer / API key / Basic).
+
+Then use that key in Object Manager → Automations → Trigger flow.
+
+Outbound http also adds `X-CRM-Source: bff-flow` and, when the destination is under `N8N_BASE_URL` / `N8N_WEBHOOK_URL`, `X-CRM-Flow-Secret` from `N8N_WEBHOOK_SECRET`.
 
 ### Record automation payload
 
@@ -147,12 +152,23 @@ When an automation action `trigger_flow` matches, the BFF posts:
 
 Prefer `http` flow handlers from automations. An `update_record` handler can re-enter automations — use conditions / `requireChanged` carefully.
 
+### Sales Message outbox
+
+1. Rep creates a **Message** (Type / Body / Email or Phone / Contact / Opportunity, and/or **To user**, optional **Scheduled send at**).
+2. Pack automation **`queue_outbound_message`** (create; `result` empty + `is_active`) sets `delivery_status=queued`.
+3. If `scheduled_send_at` is empty, **`dispatch_outbound_message`** triggers immediately. If set, stay queued until Setup → Tasks **`dispatch_due_messages`** (params `{ "flowKey": "dispatch_outbound_message", "limit": 50 }`) finds `queued` + due rows, sets `sending`, and runs the same flow.
+4. n8n webhook `ce-dispatch_outbound_message` routes on `record.type` (1 Email / 2 WhatsApp / 3 Telegram / **4 Internal**). Optional: if Opportunity + `OPPORTUNITY_QUOTE_TEMPLATE_ID` / `MESSAGE_DOC_TEMPLATE_ID`, `POST /api/v1/documents/generate` then `POST /files/{outputFileId}/link` onto the message. Then send and `PATCH` `{ "result": 1, "delivery_status": "sent" }` (or `result: 2` / `failed` + error text in `body`). For Internal / `to_user`, load `GET /api/v1/users/{to_user}` and email that address.
+5. Inbox: recipients see rows via list view **For me** (`to_user = $CURRENT_USER`). RLS read-share: `owner_id = me OR to_user = me` (`rowLevelReadAlsoIf`).
+6. Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales` (flows + Message automations + due-messages task). Template: [`n8n/dispatch-outbound-message.workflow.json`](./n8n/dispatch-outbound-message.workflow.json).
+
 ## Env (repo root `.env` and/or `crm-bff/.env`)
 
 | Variable | Purpose |
 |---|---|
-| `N8N_WEBHOOK_URL` | Target URL for seeded http triggers |
-| `N8N_WEBHOOK_SECRET` | Injected as `X-CRM-Flow-Secret` on outbound http flows |
+| `N8N_BASE_URL` | Origin of bundled n8n (e.g. `http://n8n:5678`). Used when flow `config.target=n8n` |
+| `N8N_WEBHOOK_URL` | Legacy single webhook URL for `registry:seed-n8n-flow-trigger`; also supplies origin fallback for `N8N_BASE_URL` |
+| `N8N_WEBHOOK_SECRET` | Injected as `X-CRM-Flow-Secret` on outbound calls to the n8n origin |
+| `FLOWS_HTTP_ALLOWED_HOSTS` | Comma hosts allowed for private/Docker targets (minimal compose sets `n8n,n8n:5678`) |
 | `FLOWS_TRIGGER_REQUIRE_AUTH` | Default `true` — JWT or service key required on `/flows/trigger` |
 | `FLOWS_TRIGGER_SERVICE_KEY` | Optional machine credential (Bearer or `X-CRM-Flow-Secret`) |
 | `FLOWS_REJECT_AUTOMATION_REENTRY` | Default `true` — refuse `/flows/trigger` when `X-CRM-Automation` is set |
@@ -160,32 +176,38 @@ Prefer `http` flow handlers from automations. An `update_record` handler can re-
 ## Bootstrap
 
 ```powershell
-# 1) Automation user (prints password once)
+# 1) Automation user (prints password once → CRM_N8N_EMAIL / CRM_N8N_PASSWORD)
 npm run registry:seed-n8n-automation-user
 
-# 2) Set webhook URL + optional shared secret in .env, then:
-npm run registry:seed-n8n-flow-trigger
+# 2) Preferred: N8N_BASE_URL + pack keys (no raw URLs in Setup)
+#    N8N_BASE_URL=http://n8n:5678
+#    N8N_WEBHOOK_SECRET=…
+npm run registry:seed-n8n-pack-flows -- --pack=sales
+
+#    Legacy single URL instead:
+#    N8N_WEBHOOK_URL=… then npm run registry:seed-n8n-flow-trigger
 
 # 3) Auth smoke (no HTTP server required)
 npm run registry:smoke-flow-trigger-auth
 
 # 4) Bridge smoke (mock webhook + live BFF GraphQL write-back)
 npm run registry:smoke-n8n-http-bridge
+
+# 5) Optional Docker n8n
+docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
 ```
 
 Form Builder action **Send to n8n** is attached to the `visit` entity layout by default (`--entity=` / `--key=` override).
 
 ## Importable n8n workflows
 
-Catalog (patch, document generate, external-id upsert, failed-execution alert): [`n8n/README.md`](./n8n/README.md).
+Catalog (quote PDF + message status, appointment reminder, document generate, failed-execution alert): [`n8n/README.md`](./n8n/README.md).
 
-The original write-back sample is [`n8n/crm-bff-flow.workflow.json`](./n8n/crm-bff-flow.workflow.json). Import it, then set env:
+For bundled n8n, import the template whose webhook path is `ce-{key}`, activate it, and keep Setup → Flows on **Bundled n8n**. From Docker n8n set:
 
-- `BFF_URL` — e.g. `http://host.docker.internal:4000`
+- `BFF_URL` — `http://bff:4000`
 - `N8N_WEBHOOK_SECRET` — same as BFF `.env`
 - `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` — from `registry:seed-n8n-automation-user`
-
-Activate the workflow, copy the Production webhook URL into `N8N_WEBHOOK_URL`, run `npm run registry:seed-n8n-flow-trigger`.
 
 ## n8n workflow sketch
 

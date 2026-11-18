@@ -6,7 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch, watchEffect } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
 import CrmBarcodeScanToolbar from '@/core/ui-kit/CrmBarcodeScanToolbar.vue'
 import CrmListSearchField from '@/core/ui-kit/CrmListSearchField.vue'
@@ -34,6 +34,7 @@ import {
   loadListDetailCollapsed,
   saveListDetailCollapsed,
 } from '@/core/listDetailPanelState'
+import { useNarrowViewport } from '@/core/useNarrowViewport'
 import {
   buildListFilter,
   buildListFilterMetaBlock,
@@ -400,9 +401,13 @@ const detailPanelEnabled = computed(
 
 const usesPageListDetail = computed(() => Boolean(pageListDetailPanel.value?.enabled))
 
+const { isNarrow } = useNarrowViewport()
+
 /** Tree mode always stacks items above detail (horizontal splitter bar). */
 const listDetailOrientation = computed(() => {
   if (listLayout.value === 'tree') return 'stacked'
+  // Phone / tablet-narrow: always stack so compact cards + detail stay usable.
+  if (isNarrow.value) return 'stacked'
   return pageListDetailPanel.value?.orientation === 'sideBySide' ? 'sideBySide' : 'stacked'
 })
 
@@ -437,9 +442,6 @@ const treeListParentRecord = computed(() => {
   if (isTreeUnassignedGroupKey(selectedTreeGroupId.value)) return undefined
   return selectedTreeGroupRecord.value ?? undefined
 })
-
-/** @deprecated Same as {@link treeGroupListFilter} — kept for call sites. */
-const treeGroupBulkFilter = treeGroupListFilter
 
 const treeItemsReady = computed(
   () => listLayout.value === 'tree' && selectedTreeGroupId.value != null,
@@ -560,6 +562,12 @@ watch(
     )
   },
 )
+
+watch(isNarrow, (narrow, wasNarrow) => {
+  if (narrow && !wasNarrow && detailPanelEnabled.value) {
+    setDetailCollapsed(true)
+  }
+})
 
 watch(
   () => objectList.value?.rows,
@@ -2190,7 +2198,7 @@ function syncListLayoutWithAvailableSettings(): void {
               "
             >
               <ObjectListCompactCardList
-                v-if="listDetailOrientation === 'sideBySide'"
+                v-if="listDetailOrientation === 'sideBySide' || isNarrow"
                 ref="sideBySideCompactListRef"
                 v-model:selection="selectedMasterRow"
                 :collection="objectList.collection"
@@ -2201,7 +2209,7 @@ function syncListLayoutWithAvailableSettings(): void {
                 :loading-more="loadingMoreRecords"
                 :total-records="objectList.totalCount"
                 :page-size="pageSize"
-                :show-new-button="false"
+                :show-new-button="isNarrow"
                 :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
                 :reload-token="compactCardReloadToken"
                 :invalidate-record-id="compactCardInvalidateId"
@@ -2448,6 +2456,79 @@ function syncListLayoutWithAvailableSettings(): void {
             </SplitterPanel>
           </Splitter>
         </div>
+
+        <ObjectListCompactCardList
+          v-else-if="isNarrow"
+          :collection="objectList.collection"
+          :primary-key="objectList.primaryKey"
+          :rows="objectList.rows"
+          :loading="refreshingRecords || loading"
+          :has-more="listHasMore"
+          :loading-more="loadingMoreRecords"
+          :total-records="objectList.totalCount"
+          :page-size="pageSize"
+          :show-new-button="true"
+          :empty-message="t('objectList.noRecords', 'No records found in this collection.')"
+          :reload-token="compactCardReloadToken"
+          :invalidate-record-id="compactCardInvalidateId"
+          :invalidate-token="compactCardInvalidateToken"
+          @update:selection="(row) => { if (row) openRecord(row) }"
+          @load-more="loadMoreRecords"
+          @refreshed="handleRefreshFilterValues"
+        >
+          <template #toolbar>
+            <div class="object-list-toolbar-start flex w-full min-w-0 flex-col items-start gap-1.5">
+              <DataTableFilter
+                class="flex-shrink-0"
+                :collection="collectionName"
+                :selected-filter-id="selectedListFilter?.id"
+                :pinned-filter-id="pinnedFilterId"
+                :show-builder="false"
+                @view-selected="handleViewSelected"
+                @pin-filter="handlePinFilter"
+              />
+            </div>
+          </template>
+          <template #toolbar-filters>
+            <ListFilterValuePanel
+              v-if="showFilterValuePanel"
+              v-model="draftFilterValues"
+              class="w-full min-w-0"
+              :collection="collectionName"
+              :conditions="visibleFilterConditions"
+              @values-change="scheduleDraftFilterReload"
+            />
+          </template>
+          <template #toolbar-actions>
+            <Button
+              v-for="action in listToolbarActions"
+              :key="action.id"
+              :label="action.label"
+              :icon="action.behavior === 'bulkUpdate' ? 'pi pi-pencil' : 'pi pi-file'"
+              size="small"
+              :loading="listReportLoading || listBulkRunning"
+              @click="runListToolbarAction(action)"
+            />
+          </template>
+          <template #toolbar-tools>
+            <CrmListSearchField
+              v-model="listSearchQuery"
+              @search="applyListSearch"
+              @clear="handleListSearchClear"
+            />
+            <Button
+              type="button"
+              icon="pi pi-refresh"
+              size="small"
+              severity="secondary"
+              outlined
+              :loading="refreshingRecords"
+              :aria-label="t('common.refresh', 'Refresh')"
+              v-tooltip.bottom="t('common.refresh', 'Refresh')"
+              @click="handleRefreshFilterValues"
+            />
+          </template>
+        </ObjectListCompactCardList>
 
         <CrmDataTable
           v-else

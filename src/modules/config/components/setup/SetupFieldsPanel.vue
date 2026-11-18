@@ -217,12 +217,15 @@ async function handleSave(payload: {
     }
 
     if (payload.childLookup) {
-      await saveChildLookupFieldSetting(
-        props.collection,
-        payload.input.apiName,
-        payload.childLookup.enabled ? payload.childLookup.settings : null,
-        null,
-      )
+      const fieldApiName = payload.input.apiName?.trim() ?? ''
+      if (fieldApiName) {
+        await saveChildLookupFieldSetting(
+          props.collection,
+          fieldApiName,
+          payload.childLookup.enabled ? payload.childLookup.settings : null,
+          null,
+        )
+      }
     }
 
     clearMetadataCache()

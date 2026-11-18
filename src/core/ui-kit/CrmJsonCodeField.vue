@@ -22,7 +22,7 @@ const props = withDefaults(
     rows?: number
   }>(),
   {
-    modelValue: null,
+    modelValue: undefined,
     disabled: false,
     readonly: false,
     inputId: undefined,

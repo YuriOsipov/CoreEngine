@@ -61,8 +61,17 @@ import {
   filterVisibleLayoutSections,
 } from '@/core/recordConditionMatch'
 import { normalizeLayoutSchemaFilesFields } from '@/core/entityLayoutUtils'
+import { useNarrowViewport } from '@/core/useNarrowViewport'
 
 const { t } = useTranslation()
+const { isNarrow } = useNarrowViewport()
+
+function fieldGridStyle(field: LayoutFieldMetadata): Record<string, string> | undefined {
+  if (isNarrow.value || isFullWidthLayoutField(field)) {
+    return { gridColumn: 'span 12' }
+  }
+  return gridStyle(field)
+}
 
 const props = defineProps<{
   schema: EntityLayoutSchema
@@ -265,9 +274,9 @@ watch(
                 'layout-field--inline flex w-full flex-col gap-1 border-b border-surface-200 py-2 md:flex-row md:items-center md:gap-3':
                   isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
                 'flex flex-col gap-1': !isGroupInlineLabels(group) || isFullWidthLayoutField(field),
-                '!col-span-12': isFullWidthLayoutField(field),
+                '!col-span-12': isFullWidthLayoutField(field) || isNarrow,
               }"
-              :style="gridStyle(field)"
+              :style="fieldGridStyle(field)"
             >
               <template v-if="isBlockLayoutRelatedListField(field)">
                 <RelatedListFieldHost

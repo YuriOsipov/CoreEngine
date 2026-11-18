@@ -66,8 +66,58 @@ export function n8nWebhookSecret(): string {
   return (process.env.N8N_WEBHOOK_SECRET || '').trim()
 }
 
+/**
+ * Explicit single-webhook URL (legacy seed / one-off hooks).
+ * Prefer N8N_BASE_URL + per-key paths (`/webhook/ce-{key}`) for pack flows.
+ */
 export function n8nWebhookUrl(): string {
   return (process.env.N8N_WEBHOOK_URL || '').trim()
+}
+
+/** Origin for bundled n8n (e.g. http://n8n:5678). Falls back to N8N_WEBHOOK_URL origin. */
+export function n8nBaseUrl(): string {
+  const explicit = (process.env.N8N_BASE_URL || '').trim().replace(/\/+$/, '')
+  if (explicit) return explicit
+  const legacy = n8nWebhookUrl()
+  if (!legacy) return ''
+  try {
+    return new URL(legacy).origin
+  } catch {
+    return ''
+  }
+}
+
+/** Stable webhook path segment for a flow key: `ce-send_quote_pdf`. */
+export function n8nWebhookPathForKey(flowKey: string): string {
+  const sanitized = String(flowKey || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  if (!sanitized) {
+    throw new Error('Flow key is required for n8n webhook path')
+  }
+  return `ce-${sanitized}`
+}
+
+/** Full webhook URL: `{N8N_BASE_URL}/webhook/ce-{key}`. */
+export function resolveN8nFlowUrl(flowKey: string): string {
+  const base = n8nBaseUrl()
+  if (!base) {
+    throw new Error(
+      'N8N_BASE_URL (or N8N_WEBHOOK_URL) is required to resolve n8n flow targets',
+    )
+  }
+  return `${base}/webhook/${n8nWebhookPathForKey(flowKey)}`
+}
+
+/** True when destination is under the configured n8n base / legacy webhook origin. */
+export function isN8nDestination(destination: URL): boolean {
+  const base = n8nBaseUrl()
+  if (base && sameOrigin(destination, base)) return true
+  const legacy = n8nWebhookUrl()
+  if (legacy && sameOrigin(destination, legacy)) return true
+  return false
 }
 
 /**
@@ -180,7 +230,7 @@ function sameOrigin(url: URL, other: string): boolean {
 
 /**
  * Headers merged into every outbound http flow call. N8N_WEBHOOK_SECRET is only
- * attached when the destination is the configured N8N_WEBHOOK_URL origin.
+ * attached when the destination is under N8N_BASE_URL / N8N_WEBHOOK_URL.
  */
 export function outboundHttpFlowHeaders(
   configHeaders: Record<string, string>,
@@ -191,7 +241,7 @@ export function outboundHttpFlowHeaders(
     [CRM_SOURCE_HEADER]: configHeaders[CRM_SOURCE_HEADER] || 'bff-flow',
   }
   const secret = n8nWebhookSecret()
-  if (secret && !headers[CRM_FLOW_SECRET_HEADER] && sameOrigin(destination, n8nWebhookUrl())) {
+  if (secret && !headers[CRM_FLOW_SECRET_HEADER] && isN8nDestination(destination)) {
     headers[CRM_FLOW_SECRET_HEADER] = secret
   }
   return headers

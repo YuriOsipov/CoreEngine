@@ -78,6 +78,12 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
   return (await currentUser()).isAdmin
 }
 
+/** Sync peek for list-filter `$CURRENT_USER` after `currentUser()` has warmed the cache. */
+export function peekCachedCurrentUserId(): string | null {
+  const id = cachedUser?.id
+  return typeof id === 'string' && id.trim() ? id.trim() : null
+}
+
 export function clearCurrentUserCache(): void {
   cachedUser = null
   userPromise = null

@@ -23,7 +23,7 @@ const props = withDefaults(
     inputId?: string
   }>(),
   {
-    modelValue: null,
+    modelValue: undefined,
     disabled: false,
     readonly: false,
     inputId: undefined,

@@ -84,7 +84,15 @@ const props = withDefaults(
     selectedFilterId?: string | null
     pinnedFilterId?: string | null
     showBuilder?: boolean
-    viewTableSettings?: Pick<DataTableSettings, 'columns' | 'sort' | 'groupBy' | 'recordLinkField'> | null
+    viewTableSettings?: Pick<
+      DataTableSettings,
+      | 'columns'
+      | 'sort'
+      | 'groupBy'
+      | 'recordLinkField'
+      | 'inlineEditRefresh'
+      | 'inlineEditRefreshFields'
+    > | null
     roleId?: string | null
     roleOptions?: AppRoleOption[]
     setupMode?: boolean

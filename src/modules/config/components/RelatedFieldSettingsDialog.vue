@@ -50,7 +50,7 @@ const dialogVisible = computed({
 })
 
 const componentType = computed<PrimeVueComponentType | null>(
-  () => props.field?.component ?? null,
+  () => (props.field?.component ?? null) as PrimeVueComponentType | null,
 )
 
 const isDataTable = computed(() => componentType.value === 'DataTable')

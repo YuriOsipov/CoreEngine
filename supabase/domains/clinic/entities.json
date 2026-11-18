@@ -127,6 +127,20 @@
           "relatedEntity": "practitioner",
           "isIndexed": true,
           "relationMeta": { "on_delete": "SET NULL" }
+        },
+        {
+          "apiName": "reminder_status",
+          "label": "Reminder status",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              { "text": "Queued", "value": "queued" },
+              { "text": "Sent", "value": "sent" },
+              { "text": "Delivered", "value": "delivered" },
+              { "text": "Failed", "value": "failed" }
+            ]
+          }
         }
       ]
     }

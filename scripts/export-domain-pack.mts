@@ -207,6 +207,15 @@ for (const entity of entityRows) {
   ) {
     packBackend.inheritOwnerFrom = backendConfig.inheritOwnerFrom.trim().toLowerCase()
   }
+  if (
+    Array.isArray(backendConfig.rowLevelReadAlsoIf) &&
+    backendConfig.rowLevelReadAlsoIf.length
+  ) {
+    packBackend.rowLevelReadAlsoIf = backendConfig.rowLevelReadAlsoIf
+  }
+  if (Array.isArray(backendConfig.automations) && backendConfig.automations.length) {
+    packBackend.automations = backendConfig.automations
+  }
   if (Object.keys(packBackend).length) {
     entityOut.backendConfig = packBackend
   }

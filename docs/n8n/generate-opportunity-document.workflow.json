@@ -4,7 +4,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "crm-generate-document",
+        "path": "ce-send_opportunity_document",
         "responseMode": "onReceived",
         "options": {}
       },
@@ -13,7 +13,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [0, 0],
-      "webhookId": "crm-generate-document"
+      "webhookId": "ce-send_opportunity_document"
     },
     {
       "parameters": {
@@ -100,7 +100,7 @@
   },
   "meta": {
     "templateCredsSetupCompleted": false,
-    "crmNotes": "Quote/PDF from a record automation payload. Env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD, OPPORTUNITY_QUOTE_TEMPLATE_ID. Needs sibling DocEngine for a real PDF. Response includes outputFileId and downloadUrl. Email stays in a node you add after Generate document. See docs/generate-document-api.md."
+    "crmNotes": "Flow key send_opportunity_document → /webhook/ce-send_opportunity_document (or use send-quote-pdf for message.delivery_status write-back). Env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD, OPPORTUNITY_QUOTE_TEMPLATE_ID. Needs sibling DocEngine for a real PDF. Point Error workflow at failed-execution-alert."
   },
   "pinData": {},
   "versionId": "1"

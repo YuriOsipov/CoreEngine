@@ -851,18 +851,6 @@ const canApplyListActionDraft = computed(() => {
   return Boolean(draft.document?.templateId?.trim())
 })
 
-function templateLabelForAction(action: ListViewAction): string {
-  if (action.behavior === 'bulkUpdate') {
-    const target = action.bulkUpdate?.targetField?.trim()
-    return target
-      ? t('tableSettings.listActionBulkSummary', 'Update {field}', { field: target })
-      : t('tableSettings.listActionBulkDefaultLabel', 'Bulk update')
-  }
-  const id = action.document?.templateId
-  if (!id) return t('tableSettings.listActionNoTemplate', 'No template')
-  return docTemplateOptions.value.find((opt) => opt.value === id)?.label ?? id
-}
-
 function applyListBulkFormulaPreset(formula: string): void {
   if (!actionDraft.value?.bulkUpdate) return
   actionDraft.value.bulkUpdate.formula = formula

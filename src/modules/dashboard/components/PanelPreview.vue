@@ -6,6 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
+import type { ChartData } from 'chart.js'
 import { useTranslation } from '@/core/translation'
 import type { DashboardPanelRecord } from '@/interfaces'
 import {
@@ -63,7 +64,7 @@ watch(
     <template v-else-if="render?.kind === 'chart'">
       <Chart
         :type="render.chartType"
-        :data="render.data"
+        :data="render.data as unknown as ChartData"
         :options="render.options"
         class="h-full min-h-[6rem]"
       />

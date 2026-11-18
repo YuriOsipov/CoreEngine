@@ -60,6 +60,7 @@ import {
 } from '@/modules/entities/utils/recordDisplay'
 import { compactRelatedListHref } from '@/core/compactRecordRoutes'
 import { normalizeSpecial } from '@/modules/entities/utils/fieldMapper'
+import { useNarrowViewport } from '@/core/useNarrowViewport'
 
 interface SchedulerEventMovePayload {
   e: DayPilot.Event
@@ -200,7 +201,9 @@ const availabilityByProvider = ref<Map<string, ProviderAvailabilityWindows>>(new
 const availabilityVersion = ref(0)
 const eventsVersion = ref(0)
 
-const schedulerRowHeaderWidth = 120
+const { isNarrow } = useNarrowViewport()
+const filtersCollapsed = ref(true)
+const schedulerRowHeaderWidth = computed(() => (isNarrow.value ? 72 : 120))
 const availabilityDisabledColor = '#f1f5f9'
 const weekCalendarColumnWidthMin = 88
 const weekCalendarHourWidth = 56
@@ -560,7 +563,7 @@ const schedulerCellCount = computed(() =>
 const schedulerCellWidth = computed(() => {
   const availableWidth = Math.max(
     0,
-    schedulerViewportWidth.value - schedulerRowHeaderWidth - 2,
+    schedulerViewportWidth.value - schedulerRowHeaderWidth.value - 2,
   )
   if (availableWidth <= 0) {
     if (rangeView.value === 'month') return 24
@@ -574,7 +577,7 @@ const schedulerCellWidth = computed(() => {
   return Math.max(28, fittedWidth)
 })
 const schedulerTimelineWidth = computed(() =>
-  schedulerRowHeaderWidth + (schedulerCellWidth.value * schedulerCellCount.value),
+  schedulerRowHeaderWidth.value + (schedulerCellWidth.value * schedulerCellCount.value),
 )
 const schedulerRenderKey = computed(() => [
   rangeView.value,
@@ -769,7 +772,8 @@ const schedulerConfig = computed<DayPilot.SchedulerConfig>(() => ({
   timeFormat: dayPilotTimeFormat.value,
   cellDuration: schedulerCellDuration.value,
   cellWidth: schedulerCellWidth.value,
-  rowHeaderWidth: schedulerRowHeaderWidth,
+  rowHeaderWidth: schedulerRowHeaderWidth.value,
+  eventHeight: isNarrow.value ? 28 : undefined,
   treeEnabled: false,
   timeHeaders: schedulerTimeHeaders(),
   width: `${schedulerTimelineWidth.value}px`,
@@ -3059,8 +3063,41 @@ function daysInMonth(date: Date): number {
       {{ error }}
     </Message>
 
-    <div class="grid grid-cols-[220px_minmax(0,1fr)] gap-2 w-full items-start max-[960px]:grid-cols-1">
-      <aside class="grid gap-2 w-[220px] min-w-0 max-[960px]:w-full">
+    <div
+      class="grid gap-2 w-full items-start"
+      :class="isNarrow ? 'grid-cols-1' : 'grid-cols-[220px_minmax(0,1fr)]'"
+    >
+      <div
+        v-if="isNarrow"
+        class="flex items-center justify-between gap-2"
+      >
+        <Button
+          type="button"
+          :label="
+            filtersCollapsed
+              ? t('scheduler.showFilters', 'Filters')
+              : t('scheduler.hideFilters', 'Hide filters')
+          "
+          :icon="filtersCollapsed ? 'pi pi-filter' : 'pi pi-chevron-up'"
+          size="small"
+          severity="secondary"
+          outlined
+          @click="filtersCollapsed = !filtersCollapsed"
+        />
+        <Button
+          v-if="canCreateEvents"
+          type="button"
+          :label="t('common.new', 'New')"
+          icon="pi pi-plus"
+          size="small"
+          @click="createDialogVisible = true"
+        />
+      </div>
+      <aside
+        v-show="!isNarrow || !filtersCollapsed"
+        class="grid gap-2 min-w-0"
+        :class="isNarrow ? 'w-full' : 'w-[220px]'"
+      >
         <Card class="crm-scheduler__side-card min-w-0 overflow-hidden w-full">
           <template #title>{{ t('scheduler.calendar', 'Calendar') }}</template>
           <template #content>
@@ -3226,10 +3263,19 @@ function daysInMonth(date: Date): number {
               />
               <div class="flex items-center gap-2">
                 <Button
-                  :label="t('common.refresh', 'Refresh')"
+                  v-if="!isNarrow && canCreateEvents"
+                  type="button"
+                  :label="t('common.new', 'New')"
+                  icon="pi pi-plus"
+                  size="small"
+                  @click="createDialogVisible = true"
+                />
+                <Button
+                  :label="isNarrow ? undefined : t('common.refresh', 'Refresh')"
                   icon="pi pi-refresh"
                   size="small"
                   text
+                  :aria-label="t('common.refresh', 'Refresh')"
                   :disabled="loading || saving"
                   @click="loadSchedulerData"
                 />

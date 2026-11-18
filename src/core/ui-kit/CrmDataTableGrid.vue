@@ -264,7 +264,7 @@ function rowNumberLabel(index: number): number {
     :resizable-columns="resizableColumns"
     column-resize-mode="expand"
     :table-style="resolvedTableStyle"
-    @update:expanded-row-groups="emit('update:expandedRowGroups', $event)"
+    @update:expanded-row-groups="emit('update:expandedRowGroups', $event as unknown[])"
     @update:selection="emit('update:selection', $event)"
     @sort="emit('sort', $event)"
     @column-reorder="emit('column-reorder', $event)"

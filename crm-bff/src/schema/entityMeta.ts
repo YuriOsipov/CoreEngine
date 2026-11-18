@@ -3,8 +3,10 @@ import { clampSensitivity } from '../services/fieldSecurity.js'
 import {
   clearRowLevelSecurityCache,
   parseInheritOwnerFrom,
+  parseReadAlsoIf,
   parseRowLevelSecurity,
   readInheritOwnerFrom,
+  readReadAlsoIf,
   readRowLevelSecurity,
   type RowLevelSecurityMode,
 } from '../services/rowLevelSecurity.js'
@@ -38,6 +40,11 @@ export interface EntityMetaInput {
    * (null clears). Omit to leave unchanged.
    */
   inheritOwnerFrom?: string | null | undefined
+  /**
+   * Extra fields that grant read when equal to me (OR owner). Empty array clears.
+   * Omit to leave unchanged.
+   */
+  rowLevelReadAlsoIf?: string[] | null | undefined
 }
 
 export interface EntityMetaRow {
@@ -57,6 +64,8 @@ export interface EntityMetaRow {
   rowLevelSecurity: RowLevelSecurityMode
   /** Parent M2O field for ownership inheritance on create, or null. */
   inheritOwnerFrom: string | null
+  /** Read-share fields (e.g. message.to_user). */
+  rowLevelReadAlsoIf: string[]
   backendConfig: Record<string, unknown>
 }
 
@@ -121,6 +130,7 @@ export async function loadEntityMeta(entityApiName: string): Promise<EntityMetaR
     defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
     rowLevelSecurity: readRowLevelSecurity(backendConfig),
     inheritOwnerFrom: readInheritOwnerFrom(backendConfig),
+    rowLevelReadAlsoIf: readReadAlsoIf(backendConfig),
     backendConfig,
   }
 }
@@ -180,6 +190,11 @@ export async function updateEntityMeta(
   if (input.inheritOwnerFrom !== undefined) {
     configPatch.inheritOwnerFrom = parseInheritOwnerFrom(input.inheritOwnerFrom)
   }
+  if (input.rowLevelReadAlsoIf !== undefined) {
+    configPatch.rowLevelReadAlsoIf = parseReadAlsoIf(
+      input.rowLevelReadAlsoIf ?? [],
+    )
+  }
   if (input.internal !== undefined && input.internal !== null) {
     configPatch.internal = Boolean(input.internal)
   }
@@ -213,7 +228,8 @@ export async function updateEntityMeta(
 
   if (
     input.rowLevelSecurity !== undefined ||
-    input.inheritOwnerFrom !== undefined
+    input.inheritOwnerFrom !== undefined ||
+    input.rowLevelReadAlsoIf !== undefined
   ) {
     clearRowLevelSecurityCache()
   }

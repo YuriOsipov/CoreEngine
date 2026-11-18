@@ -37,11 +37,7 @@ import {
   singleFileM2OPayload,
   writeCoreEngineFileDragData,
 } from '@/core/filesField'
-import {
-  filesSettings,
-  isImageField,
-  isSingleFileField,
-} from '@/core/fieldHelpers'
+import { isImageField, isSingleFileField } from '@/core/fieldHelpers'
 import { useAttachedFileOps } from '@/core/useAttachedFileOps'
 import {
   findParentFkField,

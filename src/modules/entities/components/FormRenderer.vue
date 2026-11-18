@@ -84,6 +84,7 @@ import {
   sectionLabel,
   treeTableValue,
 } from '@/core/fieldHelpers'
+import { useNarrowViewport } from '@/core/useNarrowViewport'
 import { resolveCustomBlockRender } from '@/core/customBlocks/registry'
 import { buildComponentProps } from '@/core/buildComponentProps'
 import { isEditableFormLayoutField } from '@/core/layoutFieldRules'
@@ -115,6 +116,14 @@ const props = defineProps<{
 
 const formState = defineModel<Record<string, unknown>>({ required: true })
 const { t } = useTranslation()
+const { isNarrow } = useNarrowViewport()
+
+function fieldGridStyle(field: LayoutFieldMetadata): Record<string, string> | undefined {
+  if (isNarrow.value || isFullWidthLayoutField(field)) {
+    return { gridColumn: 'span 12' }
+  }
+  return gridStyle(field)
+}
 
 const fieldLabels = useFieldLabels(() => props.schema.entity)
 const runtimeMeta = useRuntimeFieldMetadata(() => props.schema.entity)
@@ -622,9 +631,9 @@ defineExpose({ validateRequired })
                   isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
                 'flex flex-col gap-[0.35rem]':
                   !isGroupInlineLabels(group) || isFullWidthLayoutField(field),
-                '!col-span-12': isFullWidthLayoutField(field),
+                '!col-span-12': isFullWidthLayoutField(field) || isNarrow,
               }"
-              :style="gridStyle(field)"
+              :style="fieldGridStyle(field)"
             >
               <template v-if="isDataTableField(field)">
                 <RelatedDataTableField

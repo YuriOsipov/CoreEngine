@@ -196,7 +196,7 @@ function treeItemTableSettings(): DataTableSettings | null {
   }
 
   return {
-    columns: fields.map((field) => ({ field, enabled: true })),
+    columns: fields.map((field) => ({ field, header: field, enabled: true })),
     sort: effectiveItemSort.value,
     groupBy: null,
   }

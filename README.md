@@ -66,8 +66,8 @@ How CoreEngine maps to common platform checklist items today:
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
 | **Resource scheduler** | Yes — place a **Scheduler** block on a layout; bind resource + event collections (optional resource tree, filters, availability windows). Day/week calendars, drag to create/move, create/edit dialogs. Setup → **Schedule** expands provider work-time templates into dated slots (`generate_slots`). Clinic pack uses practitioners / visits / appointments. |
 | **Projects** | Yes — `pm_project` workspace with **List / Board / Gantt**, stages, services on stages, dependencies, lifecycle, progress, base price / PM cost. Apply a **project template** to create a dated stage plan. |
-| **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, in-process **scheduled jobs** (`TASK_SCHEDULER_ENABLED`, default on). Failed flow/task runs are listed in Setup; optional admin email (needs SMTP). Retries and durable multi-step graphs live in **n8n**. |
-| **Reliable operations** | **Partial** — n8n templates for common flows + failed-execution alert ([`docs/n8n/README.md`](docs/n8n/README.md)). Setup → Flows / Tasks → **Failed runs**; optional admin email (Setup → General → Failed-run alerts, or `FAILED_RUN_NOTIFY_EMAIL`). Backup/restore + upgrade smoke: [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/upgrading.md`](docs/upgrading.md) (`npm run registry:smoke-upgrade`, `npm run registry:smoke-backup-restore`). Still no durable in-process queue, retry, or leader election — run the scheduler on one BFF. |
+| **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, Sales **Message outbox** (queue / schedule / Send → n8n SMTP + attachments), in-process **scheduled jobs** (`TASK_SCHEDULER_ENABLED`, default on). Failed flow/task runs are listed in Setup; optional admin email (needs SMTP). Retries and durable multi-step graphs live in **n8n**. |
+| **Reliable operations** | **Partial** — optional Docker **n8n** profile + pack flow keys (`target=n8n` → `/webhook/ce-{key}`) + Message outbox write-back (SMTP + multi-file attach) + quote PDF / appointment reminder + failed-execution alert ([`docs/n8n/README.md`](docs/n8n/README.md)). Setup → Flows / Tasks → **Failed runs**; optional admin email (Setup → General → Failed-run alerts, or `FAILED_RUN_NOTIFY_EMAIL`). Backup/restore + upgrade smoke: [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/upgrading.md`](docs/upgrading.md). Still no durable in-process queue, retry, or leader election — run the scheduler on one BFF. |
 | **Validation & business rules** | Partial — field required / unique / unique groups exist. Record automations (conditions + notify / set fields / break) are commonly used for validation rules today. No dedicated validation-rules designer or field-level error blocking yet. |
 | **Admin config audit** | **Open** — record **Activity & Revision Tracking** covers business data; no audit history yet for administrative configuration changes (entities, fields, layouts, roles, automations, etc.). |
 | **Integrations** | Partial — GraphQL BFF + REST CRUD, SOQL-style `/api/v1/query`, n8n runbook + importable templates ([`docs/n8n/README.md`](docs/n8n/README.md)), optional Hasura/Directus record backends. **`POST /api/v1/documents/generate`** persists `doc_value` and can return a rendered PDF/HTML file. Interactive DocEngine in the UI works with the sibling. No first-party SaaS connector catalog. |
@@ -112,10 +112,16 @@ How CoreEngine maps to common platform checklist items today:
 
 ### Automation & workflows
 - **Record automations** on create/update/delete: conditions (AND/OR, require-changed), set fields, notify, break, trigger a flow key.
-- **Setup → Flows** — named `app_flow_triggers` (`http` webhook to n8n/external URL, or `update_record`). Prefer keys over raw URLs in automations. **Failed runs** lists recent outbound errors (`app_flow_dispatches`, 90 days).
-- **Setup → Tasks** — scheduled background jobs (e.g. Sync promo prices, notifications via flow triggers). The runner lives in the BFF process and is on unless `TASK_SCHEDULER_ENABLED=false`. A second BFF instance will tick the same table and can run the same job again. **Failed runs** lists recent `FAILED` executions; per-task **History** remains available.
-- Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL. Ready-made workflows (GraphQL update, REST patch, document generate, upsert by external id, failed-execution alert): [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
-- **Failed-run monitoring:** Setup → Flows / Tasks for in-process failures. Optional **admin email**: Setup → General → Failed-run alerts (platform SMTP), or `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` (15‑minute debounce per key). n8n execution errors stay in n8n (Executions filter + the failed-execution alert template).
+- **Setup → Flows** — named `app_flow_triggers` (`http` to **bundled n8n** via `ce-{key}` paths, custom URL, or `update_record`). Flow key stays without prefix; Destination **Bundled n8n** calls `{N8N_BASE_URL}/webhook/ce-{key}`. Prefer keys over raw URLs in automations. **Failed runs** lists recent outbound errors (`app_flow_dispatches`, 90 days).
+- **Setup → Tasks** — scheduled background jobs (e.g. Sync promo prices, **Dispatch due messages**, notifications via flow triggers). The runner lives in the BFF process and is on unless `TASK_SCHEDULER_ENABLED=false`. A second BFF instance will tick the same table and can run the same job again. **Failed runs** lists recent `FAILED` executions; per-task **History** remains available.
+- **Sales Message outbox** (no in-app workflow designer):
+  - Create Message → automation **queue** (`delivery_status=queued`). Empty **Scheduled send at** → immediate flow `dispatch_outbound_message`; otherwise stay queued until Tasks job **`dispatch_due_messages`** (every 5 min) marks `sending` and triggers the same flow.
+  - Record page **Send** re-triggers that flow (retry / send-now / rows created before wiring).
+  - **To user** + list view **For me** (+ RLS `rowLevelReadAlsoIf`) for in-app inbox; Type Internal (4) for user→user notify.
+  - n8n template routes Email / WhatsApp / Telegram / Internal; Email uses SMTP (`SMTP_FROM` + n8n **CoreEngine SMTP** credential), attaches **all** Message files (and optional generated PDF when Opportunity + template env are set), then PATCHes `result` / `delivery_status`.
+  - Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales` (flows + dual automations + due-messages task). Import/activate [`docs/n8n/dispatch-outbound-message.workflow.json`](docs/n8n/dispatch-outbound-message.workflow.json). Also `send_quote_pdf` / Clinic `send_appointment_reminder`. Catalog: [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
+- Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL. Optional compose profile `automation` (`install-minimal` `-WithN8n` / `--with-n8n`).
+- **Failed-run monitoring:** Setup → Flows / Tasks for in-process failures. Optional **admin email**: Setup → General → Failed-run alerts (platform SMTP), or `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` (15‑minute debounce per key). n8n execution errors stay in n8n (Executions filter + the failed-execution alert template → Slack/Telegram).
 
 ### Reliable operations
 - **Backup / restore** — Postgres dump on the host, secrets offline, Storage files separately: [`docs/backup-restore.md`](docs/backup-restore.md). Check with `npm run registry:smoke-backup-restore` (`pg_dump` / `pg_restore` required; scratch restore needs `CREATEDB`).
@@ -186,7 +192,7 @@ How CoreEngine maps to common platform checklist items today:
 - `POST /api/v1/documents/generate` — populate + persist `doc_value` + PDF/HTML render/upload (`outputFileId` / `downloadUrl`).
 - **Record + children in one call:** `GET /api/v1/:collection/:id?expand=children` returns the parent plus `_children` (every entity with an M2O FK to that record, e.g. Opportunity → `quote`) and `_files` (attachments). Optional `childLimit`, `expand=children,nofiles`.
 - GraphQL at `/graphql` for the Vue app and advanced clients.
-- n8n: webhook ← CoreEngine flow key; login + REST/GraphQL write-back. Login may use **any active app user** (not only the seeded admin); object ACL and owner RLS follow that account — see owner row security. Templates: [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
+- n8n: optional compose profile `automation`; Setup → Flows **Bundled n8n** (`ce-{key}` webhooks; set `N8N_BASE_URL`); Integration login + REST/GraphQL write-back (View/Modify all on `message` for outbox PATCH). Record/document email is sent from n8n (SMTP credential + `SMTP_FROM`), not BFF platform mail. Templates + pack seeds: [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
 
 ---
 
@@ -362,10 +368,11 @@ Unit tests live next to source (`*.test.ts` under `crm-bff/src/` and `tests/`). 
 npm test                      # Vitest app unit smoke tests
 npm --prefix crm-bff test     # includes guard audit + field-security / owner RLS / leak tests
 npm --prefix crm-bff run typecheck
-npm run build:ci              # vite build only (what CI runs for the app)
+npm run build                 # vue-tsc -b && vite build (what CI runs for the app)
+npm run build:ci              # vite build only (skip typecheck)
 ```
 
-GitHub Actions runs three jobs on `main` (and `workflow_dispatch`): BFF typecheck + tests, app unit tests, and Vue `npm run build:ci` (`vite build` only — no `vue-tsc`). The BFF `npm test` job includes:
+GitHub Actions runs three jobs on `main` (and `workflow_dispatch`): BFF typecheck + tests, app unit tests, and Vue `npm run build` (`vue-tsc -b && vite build`). The BFF `npm test` job includes:
 
 - **Guard audit** — `crm-bff/src/resolvers/resolverAccessPolicy.test.ts` classifies every GraphQL Query/Mutation root and asserts the matching access guard.
 - **Field-leak / field-security tests** — `crm-bff/src/services/fieldSecurity.test.ts` (tier gates / redaction) plus related coverage such as `uniqueGroups.formatError.test.ts` (unique-violation responses must not echo Postgres `detail` values).
@@ -373,7 +380,7 @@ GitHub Actions runs three jobs on `main` (and `workflow_dispatch`): BFF typechec
 
 CI swaps sibling `file:../docEngine` deps for in-repo stubs under `ci/stubs/` (Vue app and `crm-bff` `@docengine/pdf-renderer` / editor / engine) so installs and builds run without a DocEngine checkout. Those stubs return a fixed PDF/HTML buffer — **CI never tests a real render**. Vite only aliases `@docengine/field-date` to the sibling when that path exists.
 
-`npm run build` is `vue-tsc -b && vite build`. **It does not pass today** — the repo still has Vue/TS typecheck debt — so use `npm run build:ci` (or fix `vue-tsc -b` locally) until that debt is cleared.
+`npm run build` is `vue-tsc -b && vite build` and is the CI app gate. Use `npm run build:ci` only when you need a Vite bundle without waiting on typecheck.
 
 ### Environment (live)
 
@@ -395,7 +402,11 @@ CI swaps sibling `file:../docEngine` deps for in-repo stubs under `ci/stubs/` (V
 | `TRUST_PROXY` | Behind TLS-terminating proxy/nginx, set so `request.protocol` is `https` (e.g. `loopback,uniquelocal`); otherwise OIDC cookies lose `Secure` |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase / PostgREST (optional registry REST) |
 | `DIRECTUS_RUNTIME` | Must be `off` (legacy HTTP SDK refuse; GraphQL adapter is separate) |
-| `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts). Record and document email stays in n8n |
+| `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts). Same `SMTP_FROM` can be passed into the n8n process as the Message outbox From address; record/document delivery still uses n8n SMTP credentials |
+| `N8N_BASE_URL` | Bundled n8n origin for Setup → Flows `target=n8n` (e.g. `http://localhost:5678` from host BFF, `http://n8n:5678` in compose). Required for outbox dispatch |
+| `N8N_WEBHOOK_SECRET` | Shared secret; BFF sends `X-CRM-Flow-Secret`, n8n templates check it |
+| `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP flow targets (e.g. `localhost,127.0.0.1,n8n,n8n:5678`). Loopback to the configured n8n host is allowed outside production |
+| `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Integration user from `npm run registry:seed-n8n-automation-user` (n8n → BFF login) |
 | `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` | Optional email when a flow or scheduled task fails (also Setup → General). Needs SMTP. Email overrides admin-user recipients when set |
 | `TASK_SCHEDULER_ENABLED` | In-process scheduled jobs inside this BFF. Default **on** (`false` / `0` / `off` disables). Set `false` on every extra instance; there is no lock that stops two processes from running the same job |
 
@@ -405,8 +416,8 @@ CI swaps sibling `file:../docEngine` deps for in-repo stubs under `ci/stubs/` (V
 |---------|-------------|
 | `npm run dev` | Vite dev server |
 | `npm run bff:dev` | GraphQL BFF |
-| `npm run build` | `vue-tsc -b && vite build` — **currently fails** on existing `vue-tsc` debt |
-| `npm run build:ci` | `vite build` only (matches CI app job) |
+| `npm run build` | `vue-tsc -b && vite build` (CI app job) |
+| `npm run build:ci` | `vite build` only (skip typecheck) |
 | `npm run preview` | Preview production build |
 | `npm run install:minimal` | One-shot lightweight Docker install (Windows PowerShell) |
 | `npm run install:minimal:sh` | Same via bash (`./scripts/install-minimal.sh`) |
@@ -415,6 +426,8 @@ CI swaps sibling `file:../docEngine` deps for in-repo stubs under `ci/stubs/` (V
 | `npm run registry:migrate:node` | Same kernel SQL via Node (`pg`); use this on Linux / in Docker |
 | `npm run registry:smoke-upgrade` | Migrate twice (idempotent) + require `app_flow_dispatches` + `/health` |
 | `npm run registry:smoke-backup-restore` | `pg_dump` archive check (+ scratch restore when the role can `CREATE DATABASE`) |
+| `npm run registry:seed-n8n-pack-flows` | Seed pack flow keys + Message outbox automations/task (`--pack=sales`) |
+| `npm run registry:seed-n8n-automation-user` | Create Integration user for n8n → BFF login |
 | `npm run platform:provision` | **New** customer DB via Node (`--domain`, `--admin-password`) — Mac/Linux/Windows |
 | `npm run platform:provision:ps1` | Same provision via PowerShell (`-Domain`, `-AdminPassword`) |
 | `npm run platform:provision:node` | Alias of `platform:provision` |

@@ -3,7 +3,17 @@
     {
       "name": "Integration",
       "isAdmin": false,
-      "permissions": "full_pack"
+      "permissions": "full_pack",
+      "canViewAllOn": [
+        "account",
+        "contact",
+        "opportunity",
+        "message",
+        "opportunity_item"
+      ],
+      "canModifyAllOn": [
+        "message"
+      ]
     },
     {
       "name": "Pricing Manager",

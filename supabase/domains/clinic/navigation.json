@@ -1,0 +1,110 @@
+{
+  "apps": [
+    {
+      "settingId": "clinic-nav-reception",
+      "name": "Reception",
+      "roleId": "Reception",
+      "groupKey": "app",
+      "subGroup": "full",
+      "body": {
+        "id": "nav_clinic_reception",
+        "home": {
+          "kind": "object",
+          "collection": "appointment"
+        },
+        "name": "Reception",
+        "label": "Reception",
+        "items": [
+          {
+            "id": "navitem_clinic_desk",
+            "type": "folder",
+            "label": "Front desk",
+            "collapsed": false,
+            "children": [
+              {
+                "id": "navitem_clinic_appointments",
+                "type": "link",
+                "label": "Appointments",
+                "target": {
+                  "kind": "object",
+                  "collection": "appointment"
+                }
+              },
+              {
+                "id": "navitem_clinic_patients",
+                "type": "link",
+                "label": "Patients",
+                "target": {
+                  "kind": "object",
+                  "collection": "patient"
+                }
+              },
+              {
+                "id": "navitem_clinic_practitioners",
+                "type": "link",
+                "label": "Practitioners",
+                "target": {
+                  "kind": "object",
+                  "collection": "practitioner"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "settingId": "clinic-nav-clinician",
+      "name": "Clinician",
+      "roleId": "Clinician",
+      "groupKey": "app",
+      "subGroup": "full",
+      "body": {
+        "id": "nav_clinic_clinician",
+        "home": {
+          "kind": "object",
+          "collection": "visit"
+        },
+        "name": "Clinician",
+        "label": "Clinician",
+        "items": [
+          {
+            "id": "navitem_clinic_clinical",
+            "type": "folder",
+            "label": "Clinical",
+            "collapsed": false,
+            "children": [
+              {
+                "id": "navitem_clinic_visits",
+                "type": "link",
+                "label": "Visits",
+                "target": {
+                  "kind": "object",
+                  "collection": "visit"
+                }
+              },
+              {
+                "id": "navitem_clinic_patients_c",
+                "type": "link",
+                "label": "Patients",
+                "target": {
+                  "kind": "object",
+                  "collection": "patient"
+                }
+              },
+              {
+                "id": "navitem_clinic_appointments_c",
+                "type": "link",
+                "label": "Appointments",
+                "target": {
+                  "kind": "object",
+                  "collection": "appointment"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

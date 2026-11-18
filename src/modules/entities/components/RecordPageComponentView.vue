@@ -42,6 +42,7 @@ import { useTranslation, useTranslatedCollection } from '@/core/translation'
 import { canReadEntity, useEntityPermissions } from '@/core/entityPermissions'
 import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { isRecordPagePathReadonly } from '@/core/layoutFieldRules'
+import { useNarrowViewport } from '@/core/useNarrowViewport'
 
 type HighlightsBarAction =
   | { key: string; kind: 'edit' | 'delete' | 'restore'; label: string }
@@ -76,6 +77,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
+const { isNarrow } = useNarrowViewport()
 const { canDelete: canDeleteRecord } = useEntityPermissions(() => props.collection)
 const { canEdit: canUpdateRecord } = useRecordEditAccess(
   () => props.collection,
@@ -502,6 +504,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
     <div
       v-if="component.type === 'highlights'"
       class="record-page-highlights rounded-lg border border-surface-200 bg-surface-0 p-4"
+      :class="{ 'record-page-highlights--narrow': isNarrow }"
     >
       <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div class="record-page-highlights__identity flex min-w-0 items-start gap-3">
@@ -533,7 +536,10 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
             </h1>
           </div>
         </div>
-        <div class="flex flex-wrap items-center justify-end gap-2">
+        <div
+          class="record-page-highlights__actions flex flex-wrap items-center justify-end gap-2"
+          :class="{ 'record-page-highlights__actions--sticky': isNarrow }"
+        >
           <Button
             v-for="item in visibleHighlightsActions"
             :key="item.key"
@@ -770,5 +776,20 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 <style scoped>
 .record-page-highlights__icon {
   color: var(--p-primary-contrast-color, #fff);
+}
+
+.record-page-highlights--narrow {
+  padding: 0.75rem;
+}
+
+.record-page-highlights__actions--sticky {
+  background: var(--p-surface-0, #fff);
+  border-top: 1px solid var(--p-surface-200, #e5e7eb);
+  bottom: 0;
+  left: 0;
+  padding: 0.65rem 0.75rem;
+  position: sticky;
+  right: 0;
+  z-index: 12;
 }
 </style>

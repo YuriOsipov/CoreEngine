@@ -63,7 +63,8 @@ const PRIME_VUE_COMPONENT_MAP: Record<PrimeVueComponentType, Component> = {
 }
 
 export function resolvePrimeVueComponent(
-  name: PrimeVueComponentType,
+  name: PrimeVueComponentType | string | null | undefined,
 ): Component | undefined {
-  return PRIME_VUE_COMPONENT_MAP[name]
+  if (!name) return undefined
+  return PRIME_VUE_COMPONENT_MAP[name as PrimeVueComponentType]
 }

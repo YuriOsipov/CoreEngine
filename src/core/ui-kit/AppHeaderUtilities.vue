@@ -27,9 +27,22 @@ import FavoriteLabelDialog from './FavoriteLabelDialog.vue'
 import RolePreviewSelector from './RolePreviewSelector.vue'
 import type { NavLink } from '@/interfaces'
 
+const props = withDefaults(
+  defineProps<{
+    /** Show hamburger for overlay navigation (phone / tablet-narrow). */
+    showNavToggle?: boolean
+    navOpen?: boolean
+  }>(),
+  {
+    showNavToggle: false,
+    navOpen: false,
+  },
+)
+
 const emit = defineEmits<{
   'preview-active': [active: boolean]
   'preview-label': [label: string]
+  'toggle-nav': []
 }>()
 
 const route = useRoute()
@@ -224,6 +237,22 @@ defineExpose({ reload })
 
 <template>
   <header class="app-top-bar" role="banner">
+    <Button
+      v-if="props.showNavToggle"
+      type="button"
+      :icon="props.navOpen ? 'pi pi-times' : 'pi pi-bars'"
+      text
+      rounded
+      severity="secondary"
+      class="app-top-bar__icon-btn app-top-bar__nav-toggle"
+      :aria-label="
+        props.navOpen
+          ? t('navigation.closeSidebar', 'Close sidebar')
+          : t('navigation.openSidebar', 'Open sidebar')
+      "
+      :aria-expanded="props.navOpen"
+      @click="emit('toggle-nav')"
+    />
     <button
       type="button"
       class="app-top-bar__brand"

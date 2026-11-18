@@ -27,6 +27,11 @@ import {
   postgresUpsertPanel,
 } from '../crm-bff/src/adapters/postgresDashboards.ts'
 import { upsertLayoutSettingRow } from '../crm-bff/src/schema/layoutSettings.ts'
+import {
+  loadEntityAutomations,
+  saveEntityAutomations,
+  type EntityRecordAutomation,
+} from '../crm-bff/src/schema/recordAutomations.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..')
@@ -108,8 +113,31 @@ interface PackEntity {
     defaultFieldSensitivity?: number
     /** M2O field for parent-owner inheritance on create. */
     inheritOwnerFrom?: string | null
+    /** Extra fields that grant read when equal to me (OR owner), e.g. ["to_user"]. */
+    rowLevelReadAlsoIf?: string[]
+    /** Upserted by id into entities.backend_config.automations (does not wipe other rules). */
+    automations?: EntityRecordAutomation[]
   }
   fields?: PackField[]
+}
+
+async function mergePackAutomations(
+  apiName: string,
+  packRules: EntityRecordAutomation[],
+): Promise<void> {
+  if (!packRules.length) return
+  const existing = await loadEntityAutomations(apiName)
+  const byId = new Map(existing.map((rule) => [rule.id, rule]))
+  for (const rule of packRules) {
+    const id = String(rule.id || '').trim()
+    if (!id) continue
+    byId.set(id, rule)
+  }
+  const merged = [...byId.values()]
+  await saveEntityAutomations(apiName, merged)
+  console.log(
+    `    automations: upserted ${packRules.length} pack rule(s) → ${merged.length} total`,
+  )
 }
 
 interface PackRole {
@@ -195,16 +223,34 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/** Accept a role UUID or role name (e.g. "Reception", "Sales Rep") from pack JSON. */
+async function resolvePackRoleId(raw: string | null | undefined): Promise<string | null> {
+  const value = raw != null ? String(raw).trim() : ''
+  if (!value) return null
+  if (UUID_RE.test(value)) return value
+  const existing = await query<{ id: string }>(
+    `SELECT id::text AS id FROM public.app_roles WHERE lower(name) = lower($1) LIMIT 1`,
+    [value],
+  )
+  if (existing[0]?.id) return existing[0].id
+  console.warn(`  skip role binding (unknown role name): ${value}`)
+  return null
+}
+
 async function ensureLayout(layout: PackLayout): Promise<void> {
   const payload = asRecord(layout.payload)
   const meta = asRecord(payload.__meta)
   const settingId = String(
     layout.settingId || meta.settingId || '',
   ).trim() || null
-  const roleId =
+  const roleId = await resolvePackRoleId(
     (layout.roleId != null && String(layout.roleId).trim()) ||
-    (meta.role != null && String(meta.role).trim()) ||
-    null
+      (meta.role != null && String(meta.role).trim()) ||
+      null,
+  )
   const name =
     (typeof payload.name === 'string' && payload.name.trim()) ||
     (typeof meta.name === 'string' && meta.name.trim()) ||
@@ -367,6 +413,10 @@ for (const entity of entitiesDoc.entities ?? []) {
     entity.backendConfig && 'inheritOwnerFrom' in entity.backendConfig
       ? entity.backendConfig.inheritOwnerFrom
       : undefined
+  const rowLevelReadAlsoIf =
+    entity.backendConfig && 'rowLevelReadAlsoIf' in entity.backendConfig
+      ? entity.backendConfig.rowLevelReadAlsoIf
+      : undefined
 
   if (await entityExists(apiName)) {
     console.log(`  entity exists: ${apiName} (sync meta)`)
@@ -381,6 +431,7 @@ for (const entity of entitiesDoc.entities ?? []) {
         ? { defaultFieldSensitivity }
         : {}),
       ...(inheritOwnerFrom !== undefined ? { inheritOwnerFrom } : {}),
+      ...(rowLevelReadAlsoIf !== undefined ? { rowLevelReadAlsoIf } : {}),
     })
   } else {
     console.log(`  create entity: ${apiName}`)
@@ -399,7 +450,8 @@ for (const entity of entitiesDoc.entities ?? []) {
     if (
       rowLevelSecurity !== undefined ||
       defaultFieldSensitivity !== undefined ||
-      inheritOwnerFrom !== undefined
+      inheritOwnerFrom !== undefined ||
+      rowLevelReadAlsoIf !== undefined
     ) {
       await updateEntityMeta(apiName, {
         ...(rowLevelSecurity !== undefined ? { rowLevelSecurity } : {}),
@@ -407,6 +459,7 @@ for (const entity of entitiesDoc.entities ?? []) {
           ? { defaultFieldSensitivity }
           : {}),
         ...(inheritOwnerFrom !== undefined ? { inheritOwnerFrom } : {}),
+        ...(rowLevelReadAlsoIf !== undefined ? { rowLevelReadAlsoIf } : {}),
       })
     }
   }
@@ -444,6 +497,10 @@ for (const entity of entitiesDoc.entities ?? []) {
   }
 
   await ensureUserEditableNameField(apiName)
+
+  if (entity.backendConfig?.automations?.length) {
+    await mergePackAutomations(apiName, entity.backendConfig.automations)
+  }
 }
 
 // PLATFORM overlays: do not create entities — update meta + custom fields on kernel seeds.
@@ -606,7 +663,7 @@ for (const app of navigationDoc.apps ?? []) {
     entityApiName: 'crm_navigation',
     groupKey: app.groupKey || 'app',
     subGroup: app.subGroup || 'full',
-    roleId: app.roleId ?? null,
+    roleId: await resolvePackRoleId(app.roleId),
     name,
     body,
   })

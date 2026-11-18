@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onErrorCaptured, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onErrorCaptured, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import ConfirmDialog from 'openvue/confirmdialog'
 import Toast from 'openvue/toast'
@@ -12,14 +12,17 @@ import {
   isRolePreviewActive,
 } from '@/core/rolePreview'
 import { subscribeAutomationToasts } from '@/core/automationToasts'
+import { useNarrowViewport } from '@/core/useNarrowViewport'
 import { useTranslation } from './core/translation'
 
 const { t } = useTranslation()
 const toast = useToast()
 const route = useRoute()
+const { isNarrow } = useNarrowViewport()
 const runtimeError = ref<string | null>(null)
 const sidebarRef = ref<InstanceType<typeof AppSidebar> | null>(null)
 const topBarRef = ref<InstanceType<typeof AppHeaderUtilities> | null>(null)
+const navOpen = ref(false)
 const rolePreviewActive = ref(isRolePreviewActive())
 const rolePreviewLabel = ref(getRolePreviewDisplayLabel())
 const showGlobalChrome = computed(() => route.name !== 'login')
@@ -41,6 +44,25 @@ function handlePreviewActive(active: boolean): void {
 function handlePreviewLabel(label: string): void {
   rolePreviewLabel.value = label
 }
+
+function toggleNav(): void {
+  navOpen.value = !navOpen.value
+}
+
+function closeNav(): void {
+  navOpen.value = false
+}
+
+watch(isNarrow, (narrow) => {
+  if (!narrow) navOpen.value = false
+})
+
+watch(
+  () => route.fullPath,
+  () => {
+    navOpen.value = false
+  },
+)
 
 let unsubscribeAutomationToasts: (() => void) | null = null
 
@@ -80,14 +102,27 @@ onErrorCaptured((error) => {
     <AppHeaderUtilities
       v-if="showGlobalChrome"
       ref="topBarRef"
+      :show-nav-toggle="isNarrow"
+      :nav-open="navOpen"
+      @toggle-nav="toggleNav"
       @preview-active="handlePreviewActive"
       @preview-label="handlePreviewLabel"
     />
 
     <div class="app-root__body flex min-h-0 flex-1 flex-row overflow-hidden">
+      <div
+        v-if="showGlobalChrome && isNarrow && navOpen"
+        class="app-root__nav-backdrop"
+        aria-hidden="true"
+        @click="closeNav"
+      />
+
       <AppSidebar
         v-if="showGlobalChrome"
         ref="sidebarRef"
+        :overlay="isNarrow"
+        :open="navOpen"
+        @close="closeNav"
       />
 
       <div class="app-root__main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -123,3 +158,12 @@ onErrorCaptured((error) => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.app-root__nav-backdrop {
+  background: rgba(15, 23, 42, 0.42);
+  inset: 2.75rem 0 0;
+  position: fixed;
+  z-index: 44;
+}
+</style>

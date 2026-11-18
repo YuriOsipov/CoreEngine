@@ -45,6 +45,7 @@
     "registry:seed-visit-draft-flow": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/seed-visit-draft-flow.mts",
     "registry:smoke-visit-draft-flow": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/smoke-visit-draft-flow.mts",
     "registry:seed-n8n-flow-trigger": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/seed-n8n-flow-trigger.mts",
+    "registry:seed-n8n-pack-flows": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/seed-n8n-pack-flows.mts",
     "registry:seed-n8n-automation-user": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/seed-n8n-automation-user.mts",
     "registry:smoke-flow-trigger-auth": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/smoke-flow-trigger-auth.mts",
     "registry:smoke-n8n-http-bridge": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/smoke-n8n-http-bridge.mts",

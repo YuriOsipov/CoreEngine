@@ -6,7 +6,7 @@ Back up three things:
 
 1. **Postgres** — kernel tables (`public.*`) and business data (`crm_schema`). This is the install.
 2. **Secrets** — repo-root `.env`, `supabase/.env`, and for the all-in-one stack `docker/supabase/.env`. Store them offline. They are not inside the database dump.
-3. **Files** — all-in-one Storage files live in `docker/supabase/volumes/storage` (not in the SQL dump). The lightweight stack has no Storage service. If you run n8n, back up its own database or volume separately; the templates in [`n8n/`](./n8n/) are already in git.
+3. **Files** — all-in-one Storage files live in `docker/supabase/volumes/storage` (not in the SQL dump). The lightweight stack has no Storage service. If you run n8n (`--profile automation`), back up the Docker volume `coreengine_n8n` (or n8n’s own DB) separately; the templates in [`n8n/`](./n8n/) are already in git.
 
 Do not copy `docker/supabase/volumes/db/data` or the Docker volume `coreengine_pg` while Postgres is running. Use `pg_dump`.
 

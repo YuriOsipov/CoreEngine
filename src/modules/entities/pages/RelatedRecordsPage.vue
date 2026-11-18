@@ -501,8 +501,9 @@ async function resolveListActionRecordIds(action: ListViewAction): Promise<strin
 }
 
 async function runListDocumentAction(action: ListViewAction): Promise<void> {
-  const templateId = action.document.templateId?.trim()
-  if (!templateId || !relatedCollectionName.value || listReportLoading.value) return
+  const document = action.document
+  const templateId = document?.templateId?.trim()
+  if (!templateId || !document || !relatedCollectionName.value || listReportLoading.value) return
 
   listReportLoading.value = true
   try {
@@ -519,7 +520,7 @@ async function runListDocumentAction(action: ListViewAction): Promise<void> {
 
     listReportTemplateId.value = templateId
     listReportRecordIds.value = ids
-    listReportViewMode.value = action.document.viewMode === 'html' ? 'html' : 'pdf'
+    listReportViewMode.value = document.viewMode === 'html' ? 'html' : 'pdf'
     listReportViewLabel.value = action.label
     listReportVisible.value = true
   } catch (err) {

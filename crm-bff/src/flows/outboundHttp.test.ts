@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  allowLoopbackForUrl,
   assertOutboundUrlShape,
   isBlockedAddress,
   isHardBlockedAddress,
+  isLoopbackAddress,
   isPrivateAddress,
 } from './outboundHttp.js'
 
@@ -20,6 +22,32 @@ describe('address classification', () => {
   ])('hard-blocks %s even when private is allowed', (address) => {
     expect(isHardBlockedAddress(address)).toBe(true)
     expect(isBlockedAddress(address, true)).toBe(true)
+  })
+
+  it('can waive loopback when allowLoopback is set', () => {
+    expect(isLoopbackAddress('127.0.0.1')).toBe(true)
+    expect(isBlockedAddress('127.0.0.1', true, true)).toBe(false)
+    expect(isBlockedAddress('169.254.169.254', true, true)).toBe(true)
+  })
+
+  it('allowLoopbackForUrl matches configured n8n host outside production', () => {
+    const prevNode = process.env.NODE_ENV
+    const prevBase = process.env.N8N_BASE_URL
+    const prevFlag = process.env.FLOWS_ALLOW_LOOPBACK
+    process.env.NODE_ENV = 'development'
+    process.env.N8N_BASE_URL = 'http://localhost:5678'
+    delete process.env.FLOWS_ALLOW_LOOPBACK
+    try {
+      expect(allowLoopbackForUrl(new URL('http://localhost:5678/webhook/x'))).toBe(true)
+      expect(allowLoopbackForUrl(new URL('http://evil.local:5678/webhook/x'))).toBe(false)
+    } finally {
+      if (prevNode === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = prevNode
+      if (prevBase === undefined) delete process.env.N8N_BASE_URL
+      else process.env.N8N_BASE_URL = prevBase
+      if (prevFlag === undefined) delete process.env.FLOWS_ALLOW_LOOPBACK
+      else process.env.FLOWS_ALLOW_LOOPBACK = prevFlag
+    }
   })
 
   it.each(['10.1.2.3', '172.20.0.5', '192.168.1.1', 'fd00::1'])(

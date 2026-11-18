@@ -8,6 +8,7 @@ const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../docs/n8n')
 interface WorkflowNode {
   name: string
   type: string
+  parameters?: { path?: string }
 }
 
 interface WorkflowFile {
@@ -32,11 +33,33 @@ describe('n8n workflow templates', () => {
   it('ships the common-flow set', () => {
     expect(workflows.map((entry) => entry.file)).toEqual([
       'crm-bff-flow.workflow.json',
+      'dispatch-outbound-message.workflow.json',
       'failed-execution-alert.workflow.json',
       'generate-opportunity-document.workflow.json',
       'record-rest-patch.workflow.json',
+      'send-appointment-reminder.workflow.json',
+      'send-quote-pdf.workflow.json',
       'upsert-by-external-id.workflow.json',
     ])
+  })
+
+  it('pack write-back templates use ce-{key} webhook paths', () => {
+    const byFile = Object.fromEntries(
+      workflows.map((entry) => [entry.file, entry.workflow]),
+    )
+    const webhookPath = (file: string) =>
+      byFile[file]?.nodes.find((n) => n.type === 'n8n-nodes-base.webhook')?.parameters
+        ?.path
+    expect(webhookPath('dispatch-outbound-message.workflow.json')).toBe(
+      'ce-dispatch_outbound_message',
+    )
+    expect(webhookPath('send-quote-pdf.workflow.json')).toBe('ce-send_quote_pdf')
+    expect(webhookPath('send-appointment-reminder.workflow.json')).toBe(
+      'ce-send_appointment_reminder',
+    )
+    expect(webhookPath('generate-opportunity-document.workflow.json')).toBe(
+      'ce-send_opportunity_document',
+    )
   })
 
   it.each(workflows.map((entry) => [entry.file, entry.workflow] as const))(

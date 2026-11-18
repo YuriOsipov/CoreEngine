@@ -5,5 +5,6 @@
   "entitiesFile": "entities.json",
   "rolesFile": "roles.json",
   "layoutsFile": "layouts.json",
-  "recordsFile": "records.json"
+  "recordsFile": "records.json",
+  "navigationFile": "navigation.json"
 }

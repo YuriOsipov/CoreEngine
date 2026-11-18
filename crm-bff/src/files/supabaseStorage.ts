@@ -111,6 +111,9 @@ export async function storageDownload(path: string): Promise<{
   buffer: Buffer
   contentType: string | null
 } | null> {
+  // Bucket may be missing after a fresh Supabase volume; create before GET so
+  // callers see object-missing (null) instead of opaque NoSuchBucket.
+  await ensureFilesBucket()
   const encoded = path
     .split('/')
     .map((part) => encodeURIComponent(part))
@@ -121,6 +124,10 @@ export async function storageDownload(path: string): Promise<{
   if (res.status === 404) return null
   if (!res.ok) {
     const text = await res.text()
+    // Storage sometimes returns 400 + NoSuchKey / NoSuchBucket in the body.
+    if (/NoSuchKey|not_found|Object not found|NoSuchBucket|Bucket not found/i.test(text)) {
+      return null
+    }
     throw new Error(`Storage download failed (${res.status}): ${text.slice(0, 400)}`)
   }
   return {

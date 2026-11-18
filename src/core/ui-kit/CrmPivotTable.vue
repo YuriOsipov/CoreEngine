@@ -58,6 +58,9 @@ const { t } = useTranslation()
 const valueDisplayByField = ref<Record<string, NumberDisplayOptions>>({})
 const rowDimensions = computed(() => props.pivot.rows ?? [])
 const columnDimensions = computed(() => props.pivot.columns ?? [])
+/** Header labels for row dimension columns. */
+const rowFields = computed(() => rowDimensions.value.map((dimension) => dimension.field))
+const columnFields = columnDimensions
 const rowSort = computed<ReportSortDirection>(() =>
   normalizePivotSort(props.pivot.rows?.[0]?.sort),
 )

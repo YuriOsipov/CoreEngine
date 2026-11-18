@@ -1,0 +1,167 @@
+{
+  "name": "CoreEngine — send appointment reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## send_appointment_reminder\nWebhook path **ce-send_appointment_reminder**.\nPatches Clinic `appointment.reminder_status` (queued → sent).\nReplace the stub Send step with WhatsApp/Telegram/email. Wire Error workflow → failed-execution-alert.",
+        "height": 200,
+        "width": 380
+      },
+      "id": "note-appointment-reminder",
+      "name": "Setup note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, -240]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ce-send_appointment_reminder",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-appointment-reminder",
+      "name": "CRM Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "ce-send_appointment_reminder"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-crm-flow-secret'] || $json.headers['X-CRM-Flow-Secret']}}",
+              "value2": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        }
+      },
+      "id": "if-secret-reminder",
+      "name": "Secret OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{$env.CRM_N8N_EMAIL}}\",\n  \"password\": \"{{$env.CRM_N8N_PASSWORD}}\"\n}",
+        "options": {}
+      },
+      "id": "bff-login-reminder",
+      "name": "BFF Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, -80]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/appointment/{{$('CRM Webhook').item.json.body.recordId || $('CRM Webhook').item.json.recordId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"reminder_status\":\"queued\"}",
+        "options": {}
+      },
+      "id": "mark-queued",
+      "name": "Mark queued",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stub: replace with WhatsApp / Telegram / email provider node.\nconst body = $('CRM Webhook').item.json.body || $('CRM Webhook').item.json;\nreturn [{\n  json: {\n    ok: true,\n    channel: $env.REMINDER_CHANNEL || 'whatsapp',\n    recordId: body.recordId || body.id,\n    note: 'Reminder stub accepted — wire a real messenger node here',\n  },\n}];"
+      },
+      "id": "stub-send",
+      "name": "Send stub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, -80]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/appointment/{{$('CRM Webhook').item.json.body.recordId || $('CRM Webhook').item.json.recordId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').item.json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"reminder_status\":\"sent\"}",
+        "options": {}
+      },
+      "id": "mark-sent",
+      "name": "Mark sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, -80]
+    }
+  ],
+  "connections": {
+    "CRM Webhook": {
+      "main": [[{ "node": "Secret OK?", "type": "main", "index": 0 }]]
+    },
+    "Secret OK?": {
+      "main": [
+        [{ "node": "BFF Login", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "BFF Login": {
+      "main": [[{ "node": "Mark queued", "type": "main", "index": 0 }]]
+    },
+    "Mark queued": {
+      "main": [[{ "node": "Send stub", "type": "main", "index": 0 }]]
+    },
+    "Send stub": {
+      "main": [[{ "node": "Mark sent", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "Flow key send_appointment_reminder → /webhook/ce-send_appointment_reminder. Env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD. On failure, Error workflow should PATCH reminder_status=failed (or handle in a catch branch)."
+  },
+  "pinData": {},
+  "versionId": "1"
+}

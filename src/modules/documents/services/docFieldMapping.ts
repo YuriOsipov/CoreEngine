@@ -1524,6 +1524,7 @@ export async function fetchDocListMappingPayload(
     item_group_tree?: unknown
     item_group_tree_rows?: unknown
     item_group_tree_sections?: unknown
+    [ITEM_GROUP_TREE_ITEM_SORT_KEY]?: unknown
   } = {
     records,
     meta: {

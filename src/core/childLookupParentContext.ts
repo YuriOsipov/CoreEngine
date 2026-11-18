@@ -194,11 +194,14 @@ export async function resolveChildLookupFilterContext(options: {
     parentRecord = { id: parentId }
   }
 
+  const normalizedParentId =
+    parentId === null || parentId === undefined ? undefined : parentId
+
   if (hasParentTokens && parentCollection) {
     const ctx: RelatedTransferDataContext = {
       t: (key) => key,
       parentRecord,
-      parentId,
+      parentId: normalizedParentId,
       parentCollection,
       resolvedTargetParentField: parentField,
       targetParentField: parentField,
@@ -211,7 +214,7 @@ export async function resolveChildLookupFilterContext(options: {
   return {
     parentRecord,
     sourceRecord,
-    parentId,
+    parentId: normalizedParentId,
     sourcePrimaryKey: options.sourcePrimaryKey,
   }
 }

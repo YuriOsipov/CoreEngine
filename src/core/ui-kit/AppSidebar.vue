@@ -5,7 +5,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import type { MenuItem } from 'openvue/menuitem'
@@ -14,6 +14,23 @@ import { useTranslation } from '@/core/translation'
 import { useNavigationMenu } from '@/core/navigation/useNavigationMenu'
 
 const COLLAPSE_STORAGE_KEY = 'crm.nav.sidebarCollapsed'
+
+const props = withDefaults(
+  defineProps<{
+    /** Drawer/overlay mode for narrow viewports. */
+    overlay?: boolean
+    /** Whether the overlay drawer is open. */
+    open?: boolean
+  }>(),
+  {
+    overlay: false,
+    open: false,
+  },
+)
+
+const emit = defineEmits<{
+  close: []
+}>()
 
 const route = useRoute()
 const router = useRouter()
@@ -25,8 +42,9 @@ const {
 } = useNavigationMenu()
 
 const collapsed = ref(readCollapsed())
+const effectiveCollapsed = computed(() => (props.overlay ? false : collapsed.value))
 const toggleLabel = computed(() =>
-  collapsed.value
+  effectiveCollapsed.value
     ? t('navigation.openSidebar', 'Open sidebar')
     : t('navigation.closeSidebar', 'Close sidebar'),
 )
@@ -74,6 +92,10 @@ function isItemActive(item: MenuItem): boolean {
   }
 }
 
+function closeOverlayIfNeeded(): void {
+  if (props.overlay) emit('close')
+}
+
 function handleMenuItemActivate(item: MenuItem, event: MouseEvent): void {
   // Let PanelMenu handle expand/collapse for group nodes.
   if (hasChildren(item)) return
@@ -91,6 +113,7 @@ function handleMenuItemActivate(item: MenuItem, event: MouseEvent): void {
       if (typeof item.command === 'function') {
         item.command({ originalEvent: event, item })
       }
+      closeOverlayIfNeeded()
     }
   }
 }
@@ -111,9 +134,17 @@ function handleRailActivate(item: MenuItem, event: MouseEvent): void {
       if (typeof item.command === 'function') {
         item.command({ originalEvent: event, item })
       }
+      closeOverlayIfNeeded()
     }
   }
 }
+
+watch(
+  () => route.fullPath,
+  () => {
+    closeOverlayIfNeeded()
+  },
+)
 
 onMounted(() => {
   void reload()
@@ -123,15 +154,26 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 </script>
 
 <template>
-  <aside class="app-sidebar" :class="{ 'app-sidebar--collapsed': collapsed }">
+  <aside
+    class="app-sidebar"
+    :class="{
+      'app-sidebar--collapsed': effectiveCollapsed,
+      'app-sidebar--overlay': overlay,
+      'app-sidebar--overlay-open': overlay && open,
+    }"
+    :aria-hidden="overlay && !open ? 'true' : undefined"
+  >
     <!-- Header: collapse toggle only (app branding lives in the top bar) -->
-    <div class="app-sidebar__header">
+    <div
+      v-if="!overlay"
+      class="app-sidebar__header"
+    >
       <button
         v-tooltip.right="toggleLabel"
         type="button"
         class="app-sidebar__toggle"
         :aria-label="toggleLabel"
-        :aria-expanded="!collapsed"
+        :aria-expanded="!effectiveCollapsed"
         @click="toggleCollapsed"
       >
         <svg class="app-sidebar__toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -156,7 +198,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 
     <div v-else class="app-sidebar__body">
       <!-- Expanded content -->
-      <div class="app-sidebar__content" :inert="collapsed">
+      <div class="app-sidebar__content" :inert="effectiveCollapsed">
       <div class="app-sidebar__group">
         <div class="app-sidebar__group-label">
           <span>{{ t('navigation.menu', 'Menu') }}</span>
@@ -205,7 +247,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
     </div>
 
     <!-- Collapsed icon rail -->
-    <div class="app-sidebar__rail" :inert="!collapsed">
+    <div class="app-sidebar__rail" :inert="!effectiveCollapsed">
       <button
         v-for="(item, index) in menuItems"
         :key="item.key ?? index"
@@ -245,6 +287,28 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 .app-sidebar--collapsed {
   width: 52px;
   min-width: 52px;
+}
+
+.app-sidebar--overlay {
+  border-right: 1px solid var(--p-surface-200, #e5e7eb);
+  bottom: 0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  left: 0;
+  max-width: min(20rem, 88vw);
+  min-width: min(20rem, 88vw);
+  position: fixed;
+  top: 2.75rem;
+  transform: translateX(-105%);
+  transition:
+    transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  width: min(20rem, 88vw);
+  z-index: 45;
+}
+
+.app-sidebar--overlay-open {
+  transform: translateX(0);
 }
 
 @media (prefers-reduced-motion: reduce) {

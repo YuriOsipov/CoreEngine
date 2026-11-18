@@ -1,9 +1,13 @@
+import { peekCachedCurrentUserId } from '@/core/currentUser'
+
 export const DYNAMIC_FILTER_TOKEN_TODAY = '$today'
 export const DYNAMIC_FILTER_TOKEN_YESTERDAY = '$yesterday'
+export const DYNAMIC_FILTER_TOKEN_CURRENT_USER = '$CURRENT_USER'
 
 export const DYNAMIC_FILTER_VALUE_TOKENS = [
   DYNAMIC_FILTER_TOKEN_TODAY,
   DYNAMIC_FILTER_TOKEN_YESTERDAY,
+  DYNAMIC_FILTER_TOKEN_CURRENT_USER,
 ] as const
 
 export type DynamicFilterValueToken = (typeof DYNAMIC_FILTER_VALUE_TOKENS)[number]
@@ -17,6 +21,10 @@ export function resolveDynamicFilterValue(
   referenceDate: Date = new Date(),
 ): Date | unknown {
   if (!isDynamicFilterValue(value)) return value
+
+  if (value === DYNAMIC_FILTER_TOKEN_CURRENT_USER) {
+    return peekCachedCurrentUserId() ?? value
+  }
 
   const date = new Date(referenceDate)
   date.setHours(0, 0, 0, 0)

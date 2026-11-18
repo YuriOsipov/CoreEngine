@@ -578,8 +578,7 @@ const tableRows = computed(() => {
   if (
     useClientColumnSort.value &&
     sortField.value &&
-    sortOrder.value != null &&
-    sortOrder.value !== 0
+    sortOrder.value != null
   ) {
     const field = sortField.value
     const order = (sortOrder.value === -1 ? -1 : 1) as 1 | -1
@@ -1118,13 +1117,6 @@ function isEditingCell(
   )
 }
 
-function isSavingCell(
-  row: Record<string, unknown>,
-  column: CrmDataTableColumn,
-): boolean {
-  return inlineSaving.value && isEditingCell(row, column)
-}
-
 function findInlineColumn(field: string): CrmDataTableColumn | undefined {
   return displayedColumns.value.find((column) => column.field === field)
 }
@@ -1206,7 +1198,11 @@ async function startInlineEdit(
 function selectRowForDetail(row: Record<string, unknown>): void {
   if (!isSelectionEnabled.value) return
   if (tableSelection.value === row) return
-  const selectedId = tableSelection.value?.[managedPrimaryKey.value]
+  const selection = tableSelection.value
+  const selectedId =
+    selection && !Array.isArray(selection)
+      ? selection[managedPrimaryKey.value]
+      : undefined
   const rowId = row[managedPrimaryKey.value]
   if (
     selectedId !== undefined &&
@@ -1639,7 +1635,7 @@ function persistColumnLayoutState(): void {
 }
 
 /** Keep OpenVue table width pinned so Vue rebinds cannot stretch to 100%. */
-const gridTableStyle = computed(() => {
+const gridTableStyle = computed((): Record<string, string> => {
   const width = tableLayoutWidthPx.value
   if (width && width > 0) {
     const px = `${Math.round(width)}px`

@@ -1,0 +1,542 @@
+{
+  "name": "CoreEngine — dispatch outbound message",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message**.\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. Type **Email** → SMTP to `message.email`. Attaches **all** linked Message files (plus generated PDF when Opportunity + template env).\n4. Other types still stub → Mark sent.\n5. Error workflow → failed-execution-alert.",
+        "height": 300,
+        "width": 460
+      },
+      "id": "note-outbox",
+      "name": "Setup note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-80, -340]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ce-dispatch_outbound_message",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-outbox",
+      "name": "CRM Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "ce-dispatch_outbound_message"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.headers['x-crm-flow-secret'] || $json.headers['X-CRM-Flow-Secret']}}",
+              "value2": "={{$env.N8N_WEBHOOK_SECRET}}"
+            }
+          ]
+        }
+      },
+      "id": "if-secret-outbox",
+      "name": "Secret OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{$env.CRM_N8N_EMAIL}}\",\n  \"password\": \"{{$env.CRM_N8N_PASSWORD}}\"\n}",
+        "options": {}
+      },
+      "id": "bff-login-outbox",
+      "name": "BFF Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, -40]
+    },
+    {
+      "parameters": {
+        "jsCode": "const root = $('CRM Webhook').first().json;\nconst body = root.body && typeof root.body === 'object' ? root.body : root;\nconst record = body.record && typeof body.record === 'object' ? body.record : {};\nconst messageId = String(body.recordId || body.id || record.id || '').trim();\nconst opportunity = record.opportunity || body.opportunity || null;\nconst opportunityId = opportunity && typeof opportunity === 'object' ? opportunity.id : opportunity;\nconst templateId = $env.MESSAGE_DOC_TEMPLATE_ID || $env.OPPORTUNITY_QUOTE_TEMPLATE_ID || '';\nconst wantPdf = Boolean(opportunityId && templateId);\nreturn [{ json: { messageId, hasMessageId: Boolean(messageId), opportunityId, templateId, wantPdf, record, body } }];"
+      },
+      "id": "prepare-context",
+      "name": "Prepare context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasMessageId}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-has-message",
+      "name": "Has messageId?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [780, -40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.wantPdf}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-want-pdf",
+      "name": "Need PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [960, -40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/api/v1/documents/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ collectionName: 'opportunity', recordId: $json.opportunityId, templateId: $json.templateId, outputFormat: 'pdf', documentStatus: 'completed', persist: true, renderOutput: true }) }}",
+        "options": {}
+      },
+      "id": "generate-pdf",
+      "name": "Generate PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, -160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/files/{{$json.outputFileId}}/link",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ parent_collection: 'message', parent_record_id: $('Prepare context').first().json.messageId }) }}",
+        "options": {}
+      },
+      "id": "link-pdf",
+      "name": "Link PDF to message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, -160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Prepare context').first().json;\nconst record = ctx.record || {};\nconst type = Number(record.type ?? 0);\nconst toUser = record.to_user || null;\nconst toUserId = toUser && typeof toUser === 'object' ? toUser.id : toUser;\nconst channel =\n  type === 4 || toUserId\n    ? 'internal'\n    : type === 2\n      ? 'whatsapp'\n      : type === 3\n        ? 'telegram'\n        : 'email';\nconst email = String(record.email || '').trim();\nlet generatedFileId = '';\ntry {\n  generatedFileId = String($('Generate PDF').first().json.outputFileId || '').trim();\n} catch (e) {}\nconst subject = String(record.subject || '').trim() || 'Message from CoreEngine';\nconst body = String(record.body || '');\nconst sendEmail = channel === 'email' && Boolean(email);\nreturn [{\n  json: {\n    messageId: ctx.messageId,\n    type,\n    channel,\n    sendEmail,\n    toUserId,\n    email,\n    phone: record.phone || '',\n    subject,\n    body,\n    opportunityId: ctx.opportunityId,\n    generatedFileId,\n  },\n}];"
+      },
+      "id": "route-send",
+      "name": "Route payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, -40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.sendEmail}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-send-email",
+      "name": "Send as email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1760, -40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/graphql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'query($collection:String!,$recordId:ID!){ recordFiles(collection:$collection, recordId:$recordId, fields:[\"id\",\"title\",\"filename_download\",\"type\"]) }', variables: { collection: 'message', recordId: $json.messageId } }) }}",
+        "options": {}
+      },
+      "id": "list-message-files",
+      "name": "List message files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1980, -140]
+    },
+    {
+      "parameters": {
+        "jsCode": "const routed = $('Route payload').first().json;\nconst raw = $('List message files').first().json?.data?.recordFiles || [];\nconst list = Array.isArray(raw) ? raw : [];\nconst byId = new Map();\nfor (const f of list) {\n  if (!f) continue;\n  const id = String(f.id || f.record_id || '').trim();\n  if (!id || byId.has(id)) continue;\n  const fileName = String(\n    f.filename_download || f.title || f.filename || `file-${id.slice(0, 8)}.bin`,\n  );\n  byId.set(id, { id, fileName });\n}\nif (routed.generatedFileId && !byId.has(routed.generatedFileId)) {\n  byId.set(routed.generatedFileId, {\n    id: routed.generatedFileId,\n    fileName: 'generated.pdf',\n  });\n}\nconst files = [...byId.values()];\nreturn [{\n  json: {\n    ...routed,\n    files,\n    hasFiles: files.length > 0,\n  },\n}];"
+      },
+      "id": "resolve-attachment",
+      "name": "Resolve attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, -140]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasFiles}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-has-file",
+      "name": "Has files?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2420, -140]
+    },
+    {
+      "parameters": {
+        "jsCode": "const routed = $input.first().json;\nconst files = Array.isArray(routed.files) ? routed.files : [];\nreturn files.map((f) => ({\n  json: {\n    messageId: routed.messageId,\n    email: routed.email,\n    subject: routed.subject,\n    body: routed.body,\n    fileId: f.id,\n    fileName: f.fileName || 'attachment.bin',\n  },\n}));"
+      },
+      "id": "split-files",
+      "name": "Split files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2580, -240]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.BFF_URL}}/assets/{{$json.fileId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "download-file",
+      "name": "Download file",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2760, -240],
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const routed = $('Resolve attachments').first().json;\nconst binary = {};\nconst keys = [];\nlet i = 0;\nfor (const item of $input.all()) {\n  const bin = item.binary && item.binary.data;\n  if (!bin) continue;\n  const key = `file${i}`;\n  const fileName =\n    item.json.fileName || bin.fileName || `attachment-${i + 1}.bin`;\n  binary[key] = {\n    ...bin,\n    fileName,\n    mimeType: bin.mimeType || 'application/octet-stream',\n  };\n  keys.push(key);\n  i += 1;\n}\nreturn [{\n  json: {\n    messageId: routed.messageId,\n    email: routed.email,\n    subject: routed.subject,\n    body: routed.body,\n    attachOk: keys.length > 0,\n    attachmentKeys: keys.join(','),\n    attachedCount: keys.length,\n  },\n  binary: keys.length ? binary : undefined,\n}];"
+      },
+      "id": "prepare-email-with-file",
+      "name": "Merge attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2940, -240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.attachOk}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-attach-ok",
+      "name": "Attach ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3120, -240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_FROM || 'info@diavitamed.com.ua'}}",
+        "toEmail": "={{$json.email}}",
+        "subject": "={{$json.subject}}",
+        "emailFormat": "text",
+        "text": "={{$json.body}}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "={{$json.attachmentKeys}}"
+        }
+      },
+      "id": "send-email-with-file",
+      "name": "Send email (with files)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [3300, -280],
+      "notes": "Uses CoreEngine SMTP credential",
+      "credentials": {
+        "smtp": {
+          "id": "LPdkpGOiJxMwfm2T",
+          "name": "CoreEngine SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SMTP_FROM || 'info@diavitamed.com.ua'}}",
+        "toEmail": "={{$json.email}}",
+        "subject": "={{$json.subject}}",
+        "emailFormat": "text",
+        "text": "={{$json.body}}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-email-plain",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2640, -40],
+      "notes": "Uses CoreEngine SMTP credential",
+      "credentials": {
+        "smtp": {
+          "id": "LPdkpGOiJxMwfm2T",
+          "name": "CoreEngine SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let messageId = '';\ntry {\n  messageId = String($('Prepare context').first().json.messageId || '');\n} catch (e) {}\nif (!messageId) {\n  try {\n    messageId = String($('Merge attachments').first().json.messageId || '');\n  } catch (e) {}\n}\nif (!messageId) {\n  try {\n    messageId = String($('Resolve attachments').first().json.messageId || '');\n  } catch (e) {}\n}\nif (!messageId) {\n  throw new Error('messageId missing after email send');\n}\nreturn [{ json: { messageId, delivered: true } }];"
+      },
+      "id": "after-email",
+      "name": "After email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3480, -140]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/message/{{$('Prepare context').first().json.messageId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'sent', result: 1 }) }}",
+        "options": {}
+      },
+      "id": "patch-sent",
+      "name": "Mark sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3520, -40]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/message/{{$('Prepare context').first().json.messageId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed', result: 2 }) }}",
+        "options": {}
+      },
+      "id": "patch-failed",
+      "name": "Mark failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3520, 120]
+    }
+  ],
+  "connections": {
+    "CRM Webhook": {
+      "main": [[{ "node": "Secret OK?", "type": "main", "index": 0 }]]
+    },
+    "Secret OK?": {
+      "main": [
+        [{ "node": "BFF Login", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "BFF Login": {
+      "main": [[{ "node": "Prepare context", "type": "main", "index": 0 }]]
+    },
+    "Prepare context": {
+      "main": [[{ "node": "Has messageId?", "type": "main", "index": 0 }]]
+    },
+    "Has messageId?": {
+      "main": [
+        [{ "node": "Need PDF?", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Need PDF?": {
+      "main": [
+        [{ "node": "Generate PDF", "type": "main", "index": 0 }],
+        [{ "node": "Route payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate PDF": {
+      "main": [[{ "node": "Link PDF to message", "type": "main", "index": 0 }]]
+    },
+    "Link PDF to message": {
+      "main": [[{ "node": "Route payload", "type": "main", "index": 0 }]]
+    },
+    "Route payload": {
+      "main": [[{ "node": "Send as email?", "type": "main", "index": 0 }]]
+    },
+    "Send as email?": {
+      "main": [
+        [{ "node": "List message files", "type": "main", "index": 0 }],
+        [{ "node": "Mark sent", "type": "main", "index": 0 }]
+      ]
+    },
+    "List message files": {
+      "main": [[{ "node": "Resolve attachments", "type": "main", "index": 0 }]]
+    },
+    "Resolve attachments": {
+      "main": [[{ "node": "Has files?", "type": "main", "index": 0 }]]
+    },
+    "Has files?": {
+      "main": [
+        [{ "node": "Split files", "type": "main", "index": 0 }],
+        [{ "node": "Send email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split files": {
+      "main": [[{ "node": "Download file", "type": "main", "index": 0 }]]
+    },
+    "Download file": {
+      "main": [[{ "node": "Merge attachments", "type": "main", "index": 0 }]]
+    },
+    "Merge attachments": {
+      "main": [[{ "node": "Attach ok?", "type": "main", "index": 0 }]]
+    },
+    "Attach ok?": {
+      "main": [
+        [{ "node": "Send email (with files)", "type": "main", "index": 0 }],
+        [{ "node": "Send email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send email (with files)": {
+      "main": [[{ "node": "After email", "type": "main", "index": 0 }]]
+    },
+    "Send email": {
+      "main": [[{ "node": "After email", "type": "main", "index": 0 }]]
+    },
+    "After email": {
+      "main": [[{ "node": "Mark sent", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "Email attaches all Message files (Files panel) plus optional generated PDF. SMTP credential on both Send email nodes. SMTP_FROM for From."
+  },
+  "pinData": {},
+  "versionId": "6"
+}

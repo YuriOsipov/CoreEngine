@@ -62,7 +62,7 @@ jobs:
       - run: npm test
 
   build:
-    name: App build:ci
+    name: App build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,5 +81,4 @@ jobs:
           fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
           "
       - run: npm install --no-audit --no-fund
-      # Full `vue-tsc -b` remains local (`npm run build`); CI gates the vite production bundle.
-      - run: npm run build:ci
+      - run: npm run build

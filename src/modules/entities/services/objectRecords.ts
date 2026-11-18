@@ -57,10 +57,9 @@ export async function listReadableCollections(): Promise<
     }),
   )
 
-  return accessChecks.filter(
-    (collection): collection is ReadableCollectionOption =>
-      collection !== null,
-  )
+  return accessChecks
+    .filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+    .map(({ label, value }) => ({ label, value }))
 }
 
 export async function fetchObjectRecords(

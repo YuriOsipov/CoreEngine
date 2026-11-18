@@ -49,7 +49,7 @@ interface RecordPagePaletteItem {
   icon: string
   pageLayoutId?: string
   field?: string
-  fieldComponent?: PrimeVueComponentType
+  fieldComponent?: PrimeVueComponentType | string
   relatedCollection?: string
   componentType?: Exclude<RecordPageComponentType, 'detail' | 'field'>
 }
@@ -2199,7 +2199,7 @@ watch(
             </label>
             <Select
               :model-value="selectedComponent.terminalField ?? null"
-              :options="pathPicklistFieldOptions.filter((opt) => opt.value !== selectedComponent.field)"
+              :options="pathPicklistFieldOptions.filter((opt) => opt.value !== selectedComponent?.field)"
               option-label="label"
               option-value="value"
               :placeholder="t('recordPage.path.selectTerminalField', 'Optional closed-status field')"

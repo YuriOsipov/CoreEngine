@@ -514,7 +514,8 @@ export interface RecordPageComponent {
   /** How to combine {@link readonlyIf} conditions. Default: `and`. */
   readonlyIfLogic?: 'and' | 'or' | string
   /** PrimeVue component for `field` components. */
-  fieldComponent?: PrimeVueComponentType
+  /** Built-in layout component or custom block id. */
+  fieldComponent?: PrimeVueComponentType | string
   /** Grid column span (1–12) for `field` components. */
   span?: number
   /** Display/input format for date `field` components. */

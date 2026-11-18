@@ -38,6 +38,11 @@ export type EntityOwnerSecurityConfig = {
    * `user_created` stays the creating actor.
    */
   inheritOwnerFrom: string | null
+  /**
+   * Extra UUID fields that grant **read** access when equal to `me.id`
+   * (OR with owner). Used for Message inbox (`to_user`). Update/delete stay owner-only.
+   */
+  readAlsoIf: string[]
 }
 
 /** Row owner (sharing). Distinct from audit `user_created`. */
@@ -82,6 +87,29 @@ export function readInheritOwnerFrom(
   return parseInheritOwnerFrom(config.inheritOwnerFrom)
 }
 
+/** Safe field api_names for read-share OR clauses. */
+export function parseReadAlsoIf(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    const field = entry.trim().toLowerCase()
+    if (!field || !/^[a-z][a-z0-9_]*$/.test(field)) continue
+    if (field === ROW_OWNER_FIELD || field === 'user_created') continue
+    if (seen.has(field)) continue
+    seen.add(field)
+    out.push(field)
+  }
+  return out
+}
+
+export function readReadAlsoIf(config: Record<string, unknown>): string[] {
+  return parseReadAlsoIf(
+    config.rowLevelReadAlsoIf ?? config.readAlsoIf ?? config.read_also_if,
+  )
+}
+
 function entityKey(entity: string): string {
   return String(entity || '')
     .trim()
@@ -116,6 +144,7 @@ async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig
         byEntity.set(entityKey(row.api_name), {
           mode: readRowLevelSecurity(config),
           inheritOwnerFrom: readInheritOwnerFrom(config),
+          readAlsoIf: readReadAlsoIf(config),
         })
       }
     } catch (error) {
@@ -141,6 +170,7 @@ export async function resolveEntityOwnerSecurity(
     configs.get(entityKey(entityApiName)) ?? {
       mode: null,
       inheritOwnerFrom: null,
+      readAlsoIf: [],
     }
   )
 }
@@ -173,6 +203,20 @@ export function ownerEqFilter(userId: string): Record<string, unknown> {
   return { [ROW_OWNER_FIELD]: { _eq: userId } }
 }
 
+/** Owner OR any readAlsoIf field equals userId (inbox / share reads). */
+export function ownerOrShareEqFilter(
+  userId: string,
+  readAlsoIf: string[] = [],
+): Record<string, unknown> {
+  if (!readAlsoIf.length) return ownerEqFilter(userId)
+  return {
+    _or: [
+      ownerEqFilter(userId),
+      ...readAlsoIf.map((field) => ({ [field]: { _eq: userId } })),
+    ],
+  }
+}
+
 /**
  * AND the owner predicate into an existing Directus-style filter.
  * Empty / null filter → owner-only. Existing filter → `{ _and: [filter, owner] }`.
@@ -180,8 +224,9 @@ export function ownerEqFilter(userId: string): Record<string, unknown> {
 export function mergeOwnerFilter(
   filter: Record<string, unknown> | null | undefined,
   userId: string,
+  readAlsoIf: string[] = [],
 ): Record<string, unknown> {
-  const owner = ownerEqFilter(userId)
+  const owner = ownerOrShareEqFilter(userId, readAlsoIf)
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
     return owner
   }
@@ -211,15 +256,29 @@ export function readRecordOwnerId(record: Record<string, unknown>): string | nul
   )
 }
 
+export function recordMatchesReadShare(
+  record: Record<string, unknown>,
+  userId: string,
+  readAlsoIf: string[],
+): boolean {
+  for (const field of readAlsoIf) {
+    const value = scalarOwnerId(record[field])
+    if (value && value === userId) return true
+  }
+  return false
+}
+
 /**
  * Throw when a non-admin user does not own the row.
  * Missing / null `owner_id` (and no legacy `user_created`) → denied.
+ * For **read**, `readAlsoIf` fields may also grant access (e.g. message.to_user).
  */
 export function assertRecordOwner(
   me: MeUser,
   entityApiName: string,
   record: Record<string, unknown>,
   action: 'read' | 'update' | 'delete' = 'read',
+  readAlsoIf: string[] = [],
 ): void {
   if (isAdminMe(me)) return
   const myId = typeof me.id === 'string' ? me.id.trim() : ''
@@ -227,9 +286,11 @@ export function assertRecordOwner(
     throw new Error(`Permission denied: ${action} on ${entityApiName}`)
   }
   const ownerId = readRecordOwnerId(record)
-  if (!ownerId || ownerId !== myId) {
-    throw new Error(`Permission denied: ${action} on ${entityApiName}`)
+  if (ownerId && ownerId === myId) return
+  if (action === 'read' && recordMatchesReadShare(record, myId, readAlsoIf)) {
+    return
   }
+  throw new Error(`Permission denied: ${action} on ${entityApiName}`)
 }
 
 async function roleBypassesOwnerForAction(
@@ -263,7 +324,8 @@ export async function applyOwnerFilterIfNeeded(
   if (!myId) {
     throw new Error(`Permission denied: read on ${entityApiName}`)
   }
-  return mergeOwnerFilter(filter, myId)
+  const readAlsoIf = (await resolveEntityOwnerSecurity(entityApiName)).readAlsoIf
+  return mergeOwnerFilter(filter, myId, readAlsoIf)
 }
 
 /**
@@ -287,7 +349,11 @@ export async function assertOwnerAccessIfNeeded(
   if (!me) {
     throw new Error(`Permission denied: ${action} on ${entityApiName}`)
   }
-  assertRecordOwner(me, entityApiName, record, action)
+  const readAlsoIf =
+    action === 'read'
+      ? (await resolveEntityOwnerSecurity(entityApiName)).readAlsoIf
+      : []
+  assertRecordOwner(me, entityApiName, record, action, readAlsoIf)
 }
 
 /**
@@ -308,27 +374,34 @@ export async function relatedOwnerFilterIfNeeded(
     // No actor id → match nothing (do not widen to all rows).
     return { [ROW_OWNER_FIELD]: { _eq: '__rls_deny__' } }
   }
-  return ownerEqFilter(myId)
+  const readAlsoIf = (await resolveEntityOwnerSecurity(entityApiName)).readAlsoIf
+  return ownerOrShareEqFilter(myId, readAlsoIf)
 }
 
 /**
  * SQL AND-fragment for a related-table alias (`r.owner_id = $n`).
  * `ownerColumnExpr` must already be a safe identifier/expression (not user input).
+ * When `readAlsoIf` is set, OR those columns on the same alias (`r.to_user = $n`).
  */
 export async function relatedOwnerSqlIfNeeded(
   entityApiName: string,
   me: MeUser | null | undefined,
   ownerColumnExpr: string,
   paramIndex: number,
+  tableAlias = 'r',
 ): Promise<{ sql: string; params: unknown[] } | null> {
   if (!me || isAdminMe(me)) return null
-  const mode = await resolveEntityRowLevelSecurity(entityApiName)
-  if (mode !== 'owner') return null
+  const config = await resolveEntityOwnerSecurity(entityApiName)
+  if (config.mode !== 'owner') return null
   if (await roleBypassesOwnerForAction(me, entityApiName, 'read')) return null
   const myId = typeof me.id === 'string' ? me.id.trim() : ''
   if (!myId) return { sql: 'FALSE', params: [] }
+  const parts = [`(${ownerColumnExpr}) = $${paramIndex}`]
+  for (const field of config.readAlsoIf) {
+    parts.push(`(${tableAlias}.${field}) = $${paramIndex}`)
+  }
   return {
-    sql: `(${ownerColumnExpr}) = $${paramIndex}`,
+    sql: parts.length === 1 ? parts[0]! : `(${parts.join(' OR ')})`,
     params: [myId],
   }
 }

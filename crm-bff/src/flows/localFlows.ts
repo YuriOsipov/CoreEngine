@@ -8,7 +8,7 @@ import { writeAuditEntry } from '../audit/auditService.js'
 import { query } from '../db/pool.js'
 import { assertFieldsEditable, redactRecordForMe } from '../services/fieldSecurity.js'
 import { assertMeEntityPermission, resolveAppRoleId } from '../services/rolePermissions.js'
-import { outboundHttpFlowHeaders } from './flowAuth.js'
+import { outboundHttpFlowHeaders, resolveN8nFlowUrl } from './flowAuth.js'
 import { flowDispatchContext, recordFlowDispatchFailure } from './flowDispatchLog.js'
 import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
 import { assertOutboundUrlShape, guardedFlowFetch } from './outboundHttp.js'
@@ -65,15 +65,36 @@ export async function loadFlowTrigger(key: string): Promise<FlowTriggerRow | nul
   return rows[0] ?? null
 }
 
+function resolveHttpFlowUrl(key: string, config: Record<string, unknown>): string {
+  const target = String(config.target || '')
+    .trim()
+    .toLowerCase()
+  if (target === 'n8n') {
+    try {
+      return resolveN8nFlowUrl(key)
+    } catch (error) {
+      throw new LocalFlowError(
+        500,
+        `Flow "${key}" n8n target: ${error instanceof Error ? error.message : error}`,
+      )
+    }
+  }
+  const url = typeof config.url === 'string' ? config.url.trim() : ''
+  if (!url) {
+    throw new LocalFlowError(
+      500,
+      `Flow "${key}" http handler missing config.url (or set config.target=n8n)`,
+    )
+  }
+  return url
+}
+
 async function runHttpHandler(
   key: string,
   config: Record<string, unknown>,
   payload: unknown,
 ): Promise<unknown> {
-  const url = typeof config.url === 'string' ? config.url.trim() : ''
-  if (!url) {
-    throw new LocalFlowError(500, `Flow "${key}" http handler missing config.url`)
-  }
+  const url = resolveHttpFlowUrl(key, config)
 
   const method =
     typeof config.method === 'string' && config.method.trim()
@@ -109,7 +130,14 @@ async function runHttpHandler(
           : { Accept: 'application/json', 'Content-Type': 'application/json' },
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const top = error instanceof Error ? error.message : String(error)
+    const cause =
+      error instanceof Error && error.cause instanceof Error
+        ? error.cause.message
+        : error instanceof Error && typeof error.cause === 'string'
+          ? error.cause
+          : ''
+    const message = cause && cause !== top ? `${top} (${cause})` : top
     throw new LocalFlowError(502, `Flow "${key}" request refused/failed: ${message}`)
   }
 

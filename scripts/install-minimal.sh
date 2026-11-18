@@ -3,6 +3,7 @@
 # Usage (repo root):
 #   ./scripts/install-minimal.sh
 #   ./scripts/install-minimal.sh --domain sales --with-ui
+#   ./scripts/install-minimal.sh --domain clinic --with-n8n
 #   ./scripts/install-minimal.sh --admin-password 'ChooseAUniqueSecret!'
 set -euo pipefail
 
@@ -12,6 +13,7 @@ cd "$ROOT"
 COMPOSE=(docker compose -f docker-compose.minimal.yml)
 DOMAIN=sales
 WITH_UI=0
+WITH_N8N=0
 ADMIN_PASSWORD=""
 
 while [[ $# -gt 0 ]]; do
@@ -24,12 +26,16 @@ while [[ $# -gt 0 ]]; do
       WITH_UI=1
       shift
       ;;
+    --with-n8n)
+      WITH_N8N=1
+      shift
+      ;;
     --admin-password)
       ADMIN_PASSWORD="${2:-}"
       shift 2
       ;;
     -h|--help)
-      sed -n '2,8p' "$0"
+      sed -n '2,9p' "$0"
       exit 0
       ;;
     *)
@@ -118,11 +124,52 @@ if [[ "$WITH_UI" -eq 1 ]]; then
   "${COMPOSE[@]}" --profile ui up -d --build web
 fi
 
+if [[ "$WITH_N8N" -eq 1 ]]; then
+  set_kv() {
+    local key="$1" val="$2"
+    if grep -q "^${key}=" .env; then
+      sed -i.bak "s|^${key}=.*|${key}=${val}|" .env && rm -f .env.bak
+    else
+      echo "${key}=${val}" >> .env
+    fi
+  }
+  n8n_env_changed=0
+  if ! grep -q '^N8N_WEBHOOK_SECRET=.\+' .env 2>/dev/null; then
+    set_kv N8N_WEBHOOK_SECRET "$(rand_secret)"
+    n8n_env_changed=1
+  fi
+  if ! grep -q '^N8N_BASE_URL=.\+' .env 2>/dev/null; then
+    set_kv N8N_BASE_URL 'http://n8n:5678'
+    n8n_env_changed=1
+  fi
+  if ! grep -q '^FLOWS_HTTP_ALLOWED_HOSTS=.\+' .env 2>/dev/null; then
+    set_kv FLOWS_HTTP_ALLOWED_HOSTS 'n8n,n8n:5678'
+    n8n_env_changed=1
+  fi
+  if [[ "$n8n_env_changed" -eq 1 ]]; then
+    cp .env supabase/.env
+    echo "==> Wrote n8n env (N8N_BASE_URL / secret / allowlist); restarting BFF"
+    "${COMPOSE[@]}" up -d bff
+  fi
+  echo "==> Seeding Integration user + n8n pack flow keys (${DOMAIN})"
+  "${COMPOSE[@]}" run --rm --workdir /app bff \
+    npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env \
+    ./scripts/seed-n8n-automation-user.mts || true
+  "${COMPOSE[@]}" run --rm --workdir /app bff \
+    npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env \
+    ./scripts/seed-n8n-pack-flows.mts --pack="$DOMAIN"
+  echo "==> Starting n8n (import docs/n8n/*.workflow.json, then activate)"
+  "${COMPOSE[@]}" --profile automation up -d n8n
+fi
+
 echo
 echo "Lightweight install ready."
 echo "  BFF health: http://localhost:4000/health"
 if [[ "$WITH_UI" -eq 1 ]]; then
   echo "  UI:         http://localhost:8080"
+fi
+if [[ "$WITH_N8N" -eq 1 ]]; then
+  echo "  n8n:        http://localhost:5678  (see docs/n8n/README.md)"
 fi
 echo "  Login:      admin@example.com (password from provision output above)"
 echo "  Upgrade:    see docs/upgrading.md"

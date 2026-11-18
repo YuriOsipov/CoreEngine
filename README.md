@@ -1,14 +1,14 @@
-# CoreEngine — schema-driven business application platform
+# CoreEngine — operations suite for service and sales teams
 
-Vue 3 + Vite + TypeScript. Schema-driven objects, layouts, documents, dashboards, and reports via GraphQL BFF + Supabase registry — with domain packs for vertical starters (Sales, Clinic, Pricing, Documents).
+Vue 3 + Vite + TypeScript. Schema-driven objects, layouts, documents, dashboards, and reports via GraphQL BFF + Supabase registry — with domain packs for vertical starters (Sales, Clinic, Pricing, Documents). Scope is sales, scheduling, projects, pricing, and documents.
 
-**License:** MIT ([`LICENSE`](LICENSE)). Support: [`SUPPORT.md`](SUPPORT.md) (community, no SLA). Vulnerabilities: [`SECURITY.md`](SECURITY.md). Upgrades: [`docs/upgrading.md`](docs/upgrading.md). Backups: [`docs/backup-restore.md`](docs/backup-restore.md).
+**License:** MIT ([`LICENSE`](LICENSE)). Other components: [`THIRD_PARTY.md`](THIRD_PARTY.md). Support: [`SUPPORT.md`](SUPPORT.md) (community, no SLA). Vulnerabilities: [`SECURITY.md`](SECURITY.md). Upgrades: [`docs/upgrading.md`](docs/upgrading.md). Backups: [`docs/backup-restore.md`](docs/backup-restore.md).
 
 **DocEngine (documents):** interactive HTML/PDF editing and server PDF/HTML render ship as a **sibling repo**, not this tree. It is **public** on GitHub ([YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine)) under the **MIT License** (same author). Local installs use `file:../docEngine` (Vue app + `crm-bff`); CI swaps those deps for in-repo stubs under `ci/stubs/` — **CI never exercises a real render**. Server output uses `@docengine/pdf-renderer` (**pdfmake + linkedom**, not a headless browser). Clone the sibling for `npm run dev`, real `generateDocument` PDF/HTML, and the optional Docker `ui` profile. Automation `POST /api/v1/documents/generate` / GraphQL `generateDocument` persists `doc_value` and can upload a PDF or HTML file (`outputFileId` + `downloadUrl`).
 
 **Project status:** early-stage. Aimed at **SMB / mid-market teams (tens to a few hundred users)** — not full Salesforce Enterprise sharing. The idea is clear (git-versioned domain packs, role layouts, pricing/document features), but CoreEngine is **not yet** a drop-in NocoBase or Salesforce alternative for production adoption. Owner row security + role View/Modify all cover the common “my rows / manager sees all” pattern. Durable multi-step runs still belong in **n8n** (ready-made templates + failed-run monitoring in Setup; no in-process durable queue yet). Interactive DocEngine in the UI needs the sibling checkout locally. **OIDC SSO** via an external IdP covers the SMB / mid-market SSO ask; **SAML and SCIM** are not implemented yet.
 
-**CoreEngine takes the core Salesforce ideas** (custom objects, relationships, role-based layouts, record pages with related lists, and in-app document generation) **and delivers them as a modern, self-hosted, free platform** with git-versioned domain packs — without the per-seat cost or complexity of the full Salesforce stack. The lightweight Docker option is [`docker-compose.minimal.yml`](docker-compose.minimal.yml) (Postgres + BFF). The default `docker compose` runs the full self-hosted Supabase suite.
+**Operations suite for service and sales teams:** sales, scheduling, projects, pricing, and documents. CoreEngine takes the core Salesforce ideas (custom objects, relationships, role-based layouts, record pages with related lists, and in-app document generation) and delivers them as a modern, self-hosted, free product with git-versioned domain packs — without the per-seat cost or complexity of the full Salesforce stack. The lightweight Docker option is [`docker-compose.minimal.yml`](docker-compose.minimal.yml) (Postgres + BFF). The default `docker compose` runs the full self-hosted Supabase suite.
 
 Build internal and vertical applications with custom objects, relationships, role-specific forms, and in-app document generation — without starting from a blank low-code canvas.
 
@@ -26,6 +26,8 @@ Build internal and vertical applications with custom objects, relationships, rol
 - A Twenty-style developer platform CRM (full `twenty-sdk` apps, sandboxed front components, CLI-synced TypeScript workspace)
 - A free-form internal-tools canvas like Retool
 - A no-code workflow product with a visual multi-step designer (use n8n on top of CoreEngine)
+- Inbound email or calendar sync (EspoCRM has that)
+- Accounting or inventory (ERPNext and Odoo have those)
 
 **Positioning vs Twenty:** Twenty wins developer-led teams and ISVs who want to *build products on* the CRM. CoreEngine’s position wins operators / vertical implementers who want Setup + packs + documents, with optional engineer-owned blocks — without adopting a full app SDK.
 
@@ -38,9 +40,9 @@ Build internal and vertical applications with custom objects, relationships, rol
 | Owner / row-level access | Opt-in owner RLS + View/Modify all; no share/groups/hierarchy | Record / sharing rules | Workspace / object permissions | App logic | Sharing rules / teams / hierarchy |
 | SSO (OIDC) / MFA | OIDC via external IdP; MFA on IdP; local login toggle; **no SAML/SCIM** | Auth plugins / IdP (incl. OIDC/SAML depending on plugin) | OIDC + SAML SSO on Organization plan (self-host needs paid license); Google/Microsoft social login without it | IdP / SSO (product-dependent) | Full (SAML, SCIM, …) |
 | AI / MCP assistants | Not in current scope; REST/GraphQL API available | Built-in MCP server + AI Employees plugins | In-product AI agents | Retool AI | Agentforce (Einstein brand still on some predictive features) |
-| CRM pipeline + email/calendar | Starter pack | Build / plugins | Strong | Build it | Excellent |
+| CRM pipeline | Sales starter pack | Build / plugins | Strong | Build it | Excellent |
 | Campaign → promo pricing engine | Built-in | Build it | Custom objects | Build it | Custom / AppExchange |
-| Resource scheduler (calendars) | Built-in block + Setup schedule slots | Plugins / build | Limited | Build it | Service Cloud / custom |
+| Resource scheduling (internal calendars) | Built-in block + Setup schedule slots | Plugins / build | Limited | Build it | Service Cloud / custom |
 | Projects (stages / board / Gantt) | Built-in PM workspace + templates | Plugins / build | Limited | Build it | Custom / AppExchange |
 | Document generation (PDF/HTML) | UI DocEngine + server generate (persist `doc_value` + PDF/HTML file) | Plugins / build | Limited | Build it | Good (packages) |
 | Visual multi-step / **durable** workflows | Via **n8n** (not in-process durable queue) | Built-in (approvals, jobs) | Built-in + AI agents | Built-in | Flow + Apex |
@@ -66,7 +68,7 @@ How CoreEngine maps to common platform checklist items today:
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, **dashboards**, role-scoped **navigation** apps, reports. Pages are schema/nav targets (not a free-form CMS). |
 | **Resource scheduler** | Yes — place a **Scheduler** block on a layout; bind resource + event collections (optional resource tree, filters, availability windows). Day/week calendars, drag to create/move, create/edit dialogs. Setup → **Schedule** expands provider work-time templates into dated slots (`generate_slots`). Clinic pack uses practitioners / visits / appointments. |
 | **Projects** | Yes — `pm_project` workspace with **List / Board / Gantt**, stages, services on stages, dependencies, lifecycle, progress, base price / PM cost. Apply a **project template** to create a dated stage plan. |
-| **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, Sales **Message outbox** (queue / schedule / Send → n8n SMTP + attachments), in-process **scheduled jobs** (`TASK_SCHEDULER_ENABLED`, default on). Failed flow/task runs are listed in Setup; optional admin email (needs SMTP). Retries and durable multi-step graphs live in **n8n**. |
+| **Automation** | Partial — record automations (set fields, notify, break, **trigger flow**), outbound **webhooks** via flow keys, Sales **Message outbox** (multichannel notifications and automations: queue / schedule / Send → n8n channel connectors, one Message row per send), in-process **scheduled jobs** (`TASK_SCHEDULER_ENABLED`, default on). Failed flow/task runs are listed in Setup; optional admin email (needs SMTP). Retries and durable multi-step graphs live in **n8n**. |
 | **Reliable operations** | **Partial** — optional Docker **n8n** profile + pack flow keys (`target=n8n` → `/webhook/ce-{key}`) + Message outbox write-back (SMTP + multi-file attach) + quote PDF / appointment reminder + failed-execution alert ([`docs/n8n/README.md`](docs/n8n/README.md)). Setup → Flows / Tasks → **Failed runs**; optional admin email (Setup → General → Failed-run alerts, or `FAILED_RUN_NOTIFY_EMAIL`). Backup/restore + upgrade smoke: [`docs/backup-restore.md`](docs/backup-restore.md), [`docs/upgrading.md`](docs/upgrading.md). Still no durable in-process queue, retry, or leader election — run the scheduler on one BFF. |
 | **Validation & business rules** | Partial — field required / unique / unique groups exist. Record automations (conditions + notify / set fields / break) are commonly used for validation rules today. No dedicated validation-rules designer or field-level error blocking yet. |
 | **Admin config audit** | **Open** — record **Activity & Revision Tracking** covers business data; no audit history yet for administrative configuration changes (entities, fields, layouts, roles, automations, etc.). |
@@ -112,19 +114,21 @@ How CoreEngine maps to common platform checklist items today:
 
 ### Automation & workflows
 - **Record automations** on create/update/delete: conditions (AND/OR, require-changed), set fields, notify, break, trigger a flow key.
-- **Setup → Flows** — named `app_flow_triggers` (`http` to **bundled n8n** via `ce-{key}` paths, custom URL, or `update_record`). Flow key stays without prefix; Destination **Bundled n8n** calls `{N8N_BASE_URL}/webhook/ce-{key}`. Prefer keys over raw URLs in automations. **Failed runs** lists recent outbound errors (`app_flow_dispatches`, 90 days).
+- **Setup → Flows** — named `app_flow_triggers` (`http` to **your n8n** via `ce-{key}` paths, custom URL, or `update_record`). Flow key stays without prefix; Destination **Your n8n** calls `{N8N_BASE_URL}/webhook/ce-{key}`. Prefer keys over raw URLs in automations. **Failed runs** lists recent outbound errors (`app_flow_dispatches`, 90 days).
 - **Setup → Tasks** — scheduled background jobs (e.g. Sync promo prices, **Dispatch due messages**, notifications via flow triggers). The runner lives in the BFF process and is on unless `TASK_SCHEDULER_ENABLED=false`. A second BFF instance will tick the same table and can run the same job again. **Failed runs** lists recent `FAILED` executions; per-task **History** remains available.
-- **Sales Message outbox** (no in-app workflow designer):
+- **Sales Message outbox** — multichannel notifications and automations. n8n supplies the channel connectors. Each send is one Message row (no in-app workflow designer, and no conversation threads):
   - Create Message → automation **queue** (`delivery_status=queued`). Empty **Scheduled send at** → immediate flow `dispatch_outbound_message`; otherwise stay queued until Tasks job **`dispatch_due_messages`** (every 5 min) marks `sending` and triggers the same flow.
   - Record page **Send** re-triggers that flow (retry / send-now / rows created before wiring).
-  - **To user** + list view **For me** (+ RLS `rowLevelReadAlsoIf`) for in-app inbox; Type Internal (4) for user→user notify.
-  - n8n template routes Email / WhatsApp / Telegram / Internal; Email uses SMTP (`SMTP_FROM` + n8n **CoreEngine SMTP** credential), attaches **all** Message files (and optional generated PDF when Opportunity + template env are set), then PATCHes `result` / `delivery_status`.
+  - **To user** + list view **For me** (+ RLS `rowLevelReadAlsoIf`) lists Message rows addressed to you; Type Internal (4) for user→user notify.
+  - n8n connectors route Email / WhatsApp / Telegram / Internal; Email uses SMTP (`SMTP_FROM` + n8n **CoreEngine SMTP** credential), attaches **all** Message files (and optional generated PDF when Opportunity + template env are set), then PATCHes `result` / `delivery_status`.
   - Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales` (flows + dual automations + due-messages task). Import/activate [`docs/n8n/dispatch-outbound-message.workflow.json`](docs/n8n/dispatch-outbound-message.workflow.json). Also `send_quote_pdf` / Clinic `send_appointment_reminder`. Catalog: [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
-- Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL. Optional compose profile `automation` (`install-minimal` `-WithN8n` / `--with-n8n`).
+- Complex branching / retries / multi-system orchestration: use **n8n** against CoreEngine REST/GraphQL. Optional compose profile `automation` references upstream `n8nio/n8n`. Customers pull that image themselves (`docker compose -f docker-compose.minimal.yml --profile automation up -d n8n`). The installers do not start n8n, and the CoreEngine images do not contain it.
+- n8n Community Edition is free for internal business use; hosted or resold use needs a separate agreement with n8n. The Sustainable Use License allows internal business use. It bars white-labeling n8n for customers, and hosting n8n and charging for access. Putting n8n inside a commercial product or appliance is outside that grant. Consulting on a customer’s own instance is a different matter: sell implementation and support, not “n8n access.” Managed hosting or a true bundle needs a commercial agreement. n8n’s license contact is [license@n8n.io](mailto:license@n8n.io). This note is not legal advice; confirm with them.
+- Customers who outgrow Community can move to a paid n8n plan for SSO, Projects and Git, without changing your webhook contract (`{N8N_BASE_URL}/webhook/ce-{key}` and `X-CRM-Flow-Secret`).
 - **Failed-run monitoring:** Setup → Flows / Tasks for in-process failures. Optional **admin email**: Setup → General → Failed-run alerts (platform SMTP), or `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` (15‑minute debounce per key). n8n execution errors stay in n8n (Executions filter + the failed-execution alert template → Slack/Telegram).
 
 ### Reliable operations
-- **Backup / restore** — Postgres dump on the host, secrets offline, Storage files separately: [`docs/backup-restore.md`](docs/backup-restore.md). Check with `npm run registry:smoke-backup-restore` (`pg_dump` / `pg_restore` required; scratch restore needs `CREATEDB`).
+- **Backup / restore** — Postgres dump on the host, secrets offline (including `N8N_ENCRYPTION_KEY`), Storage files, and the `coreengine_n8n` volume when n8n is in use: [`docs/backup-restore.md`](docs/backup-restore.md). Check with `npm run registry:smoke-backup-restore` (`pg_dump` / `pg_restore` required; scratch restore needs `CREATEDB`).
 - **Upgrades** — pull → kernel migrate → rebuild/restart (**do not** re-provision casually): [`docs/upgrading.md`](docs/upgrading.md). `npm run registry:smoke-upgrade` applies migrate twice (second pass must be empty) and checks `/health`.
 
 ### Permissions & authentication
@@ -192,7 +196,7 @@ How CoreEngine maps to common platform checklist items today:
 - `POST /api/v1/documents/generate` — populate + persist `doc_value` + PDF/HTML render/upload (`outputFileId` / `downloadUrl`).
 - **Record + children in one call:** `GET /api/v1/:collection/:id?expand=children` returns the parent plus `_children` (every entity with an M2O FK to that record, e.g. Opportunity → `quote`) and `_files` (attachments). Optional `childLimit`, `expand=children,nofiles`.
 - GraphQL at `/graphql` for the Vue app and advanced clients.
-- n8n: optional compose profile `automation`; Setup → Flows **Bundled n8n** (`ce-{key}` webhooks; set `N8N_BASE_URL`); Integration login + REST/GraphQL write-back (View/Modify all on `message` for outbox PATCH). Record/document email is sent from n8n (SMTP credential + `SMTP_FROM`), not BFF platform mail. Templates + pack seeds: [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
+- n8n: optional compose profile `automation` pulls upstream `n8nio/n8n` (UI on `127.0.0.1` only; fixed `N8N_ENCRYPTION_KEY`; Git/shell nodes excluded). Not inside the CoreEngine image or installer. Setup → Flows **Your n8n** (`ce-{key}` + `X-CRM-Flow-Secret`). Non-admin Integration login + REST/GraphQL write-back (Modify all on `message` for outbox PATCH). Record/document email is sent from n8n (SMTP credential + `SMTP_FROM`), not BFF platform mail. License: [`THIRD_PARTY.md`](THIRD_PARTY.md). Hardening + templates: [`docs/n8n/README.md`](docs/n8n/README.md). Runbook: [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md).
 
 ---
 
@@ -403,10 +407,11 @@ CI swaps sibling `file:../docEngine` deps for in-repo stubs under `ci/stubs/` (V
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase / PostgREST (optional registry REST) |
 | `DIRECTUS_RUNTIME` | Must be `off` (legacy HTTP SDK refuse; GraphQL adapter is separate) |
 | `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts). Same `SMTP_FROM` can be passed into the n8n process as the Message outbox From address; record/document delivery still uses n8n SMTP credentials |
-| `N8N_BASE_URL` | Bundled n8n origin for Setup → Flows `target=n8n` (e.g. `http://localhost:5678` from host BFF, `http://n8n:5678` in compose). Required for outbox dispatch |
-| `N8N_WEBHOOK_SECRET` | Shared secret; BFF sends `X-CRM-Flow-Secret`, n8n templates check it |
+| `N8N_BASE_URL` | Origin of the n8n instance you run, for Setup → Flows `target=n8n` (e.g. `http://127.0.0.1:5678` from host BFF, `http://n8n:5678` in compose). Required for outbox dispatch |
+| `N8N_WEBHOOK_SECRET` | Shared secret; BFF sends `X-CRM-Flow-Secret`, n8n templates check it (required in production when n8n is configured) |
+| `N8N_ENCRYPTION_KEY` | Fixed n8n credential encryption key (compose requires it; persist with the n8n volume) |
 | `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP flow targets (e.g. `localhost,127.0.0.1,n8n,n8n:5678`). Loopback to the configured n8n host is allowed outside production |
-| `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Integration user from `npm run registry:seed-n8n-automation-user` (n8n → BFF login) |
+| `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Non-admin Integration user from `npm run registry:seed-n8n-automation-user` (n8n → BFF login; Modify all on `message` only) |
 | `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` | Optional email when a flow or scheduled task fails (also Setup → General). Needs SMTP. Email overrides admin-user recipients when set |
 | `TASK_SCHEDULER_ENABLED` | In-process scheduled jobs inside this BFF. Default **on** (`false` / `0` / `off` disables). Set `false` on every extra instance; there is no lock that stops two processes from running the same job |
 

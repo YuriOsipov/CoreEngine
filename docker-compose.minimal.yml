@@ -14,7 +14,8 @@
 #
 # BFF: http://localhost:4000/health
 # UI (optional): http://localhost:8080
-# n8n (optional): http://localhost:5678  — import docs/n8n/*.workflow.json
+# n8n (optional): http://127.0.0.1:5678 only (not LAN) — import docs/n8n/*.workflow.json
+#   BFF reaches n8n on the Docker network (http://n8n:5678). Hardening: docs/n8n/README.md
 
 services:
   db:
@@ -65,7 +66,7 @@ services:
       RUNNING_IN_DOCKER: "1"
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       PORT: 4000
-      # Bundled n8n (profile automation): resolve Setup → Flows target=n8n to http://n8n:5678/webhook/ce-{key}
+      # Optional upstream n8n (profile automation; customers pull n8nio/n8n). Setup → Flows target=n8n → http://n8n:5678/webhook/ce-{key}
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
       FLOWS_HTTP_ALLOWED_HOSTS: ${FLOWS_HTTP_ALLOWED_HOSTS:-n8n,n8n:5678}
@@ -90,6 +91,8 @@ services:
     depends_on:
       - bff
 
+  # Optional. Not part of the CoreEngine image or installer. Customers pull this upstream image themselves.
+  # Sustainable Use License — see THIRD_PARTY.md. Do not white-label it or charge for access to it.
   n8n:
     profiles: ["automation"]
     image: n8nio/n8n:1.72.1
@@ -97,17 +100,30 @@ services:
       N8N_HOST: ${N8N_HOST:-localhost}
       N8N_PORT: 5678
       N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
-      WEBHOOK_URL: ${N8N_WEBHOOK_PUBLIC_URL:-http://localhost:5678/}
+      # Loopback editor / host-BFF only. Do not publish 0.0.0.0:5678.
+      WEBHOOK_URL: ${N8N_WEBHOOK_PUBLIC_URL:-http://127.0.0.1:5678/}
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      # Persist across recreate — without this, stored SMTP/API credentials become unreadable.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env before starting n8n}
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      # Drop risky nodes (Git, shell, local filesystem). Override only by editing this list.
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.git"]'
+      N8N_GIT_NODE_DISABLE_BARE_REPOS: "true"
+      # Stock CE templates use $env (BFF_URL, CRM_N8N_*, N8N_WEBHOOK_SECRET). Set true only after moving those into Credentials / $vars.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: ${N8N_BLOCK_ENV_ACCESS_IN_NODE:-false}
+      EXECUTIONS_DATA_PRUNE: ${EXECUTIONS_DATA_PRUNE:-true}
+      EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-168}
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${EXECUTIONS_DATA_PRUNE_MAX_COUNT:-10000}
       # Same values as BFF — used by importable workflows under docs/n8n/
       BFF_URL: http://bff:4000
-      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:?Set N8N_WEBHOOK_SECRET in .env (shared with BFF)}
       CRM_N8N_EMAIL: ${CRM_N8N_EMAIL:-}
       CRM_N8N_PASSWORD: ${CRM_N8N_PASSWORD:-}
       OPPORTUNITY_QUOTE_TEMPLATE_ID: ${OPPORTUNITY_QUOTE_TEMPLATE_ID:-}
       SMTP_FROM: ${SMTP_FROM:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     ports:
+      # Localhost only — BFF in Docker uses service DNS n8n:5678 (no host publish needed for dispatch).
       - "127.0.0.1:${N8N_PUBLISH_PORT:-5678}:5678"
     volumes:
       - coreengine_n8n:/home/node/.n8n

@@ -83,6 +83,17 @@ export async function ensureFilesBucket(): Promise<void> {
   }
 }
 
+function isRetryableStorageFailure(status: number, body: string): boolean {
+  if (status === 429 || status === 502 || status === 503 || status === 504 || status === 544) {
+    return true
+  }
+  return /DatabaseTimeout|connection timed out|ECONNRESET|ETIMEDOUT/i.test(body)
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export async function storageUpload(options: {
   path: string
   buffer: Buffer
@@ -93,18 +104,27 @@ export async function storageUpload(options: {
     .split('/')
     .map((part) => encodeURIComponent(part))
     .join('/')
-  const res = await storageFetch(`/object/${filesBucket()}/${encoded}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': options.mimeType || 'application/octet-stream',
-      'x-upsert': 'true',
-    },
-    body: new Uint8Array(options.buffer),
-  })
-  if (!res.ok) {
+  const maxAttempts = 3
+  let lastError = ''
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const res = await storageFetch(`/object/${filesBucket()}/${encoded}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': options.mimeType || 'application/octet-stream',
+        'x-upsert': 'true',
+      },
+      body: new Uint8Array(options.buffer),
+    })
+    if (res.ok) return
     const text = await res.text()
-    throw new Error(`Storage upload failed (${res.status}): ${text.slice(0, 400)}`)
+    lastError = `Storage upload failed (${res.status}): ${text.slice(0, 400)}`
+    if (attempt < maxAttempts && isRetryableStorageFailure(res.status, text)) {
+      await sleep(400 * attempt)
+      continue
+    }
+    throw new Error(lastError)
   }
+  throw new Error(lastError || 'Storage upload failed')
 }
 
 export async function storageDownload(path: string): Promise<{

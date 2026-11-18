@@ -1,5 +1,5 @@
 /**
- * Seed vertical pack flow keys that target bundled n8n (`config.target=n8n`).
+ * Seed vertical pack flow keys that target the customer's n8n (`config.target=n8n`).
  * URLs are resolved at dispatch: `{N8N_BASE_URL}/webhook/ce-{key}`.
  * For sales, also upserts the Message create → dispatch_outbound_message automation.
  *

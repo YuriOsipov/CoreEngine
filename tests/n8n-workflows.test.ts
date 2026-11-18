@@ -85,4 +85,42 @@ describe('n8n workflow templates', () => {
       true,
     )
   })
+
+  it('BFF-triggered templates gate on X-CRM-Flow-Secret / N8N_WEBHOOK_SECRET', () => {
+    const gated = workflows.filter((entry) =>
+      [
+        'crm-bff-flow.workflow.json',
+        'dispatch-outbound-message.workflow.json',
+        'generate-opportunity-document.workflow.json',
+        'record-rest-patch.workflow.json',
+        'send-appointment-reminder.workflow.json',
+        'send-quote-pdf.workflow.json',
+      ].includes(entry.file),
+    )
+    expect(gated.length).toBe(6)
+    for (const { file, workflow } of gated) {
+      const raw = JSON.stringify(workflow)
+      expect(raw, file).toMatch(/N8N_WEBHOOK_SECRET/)
+      expect(raw, file).toMatch(/X-CRM-Flow-Secret|x-crm-flow-secret/i)
+    }
+  })
+
+  it('outbox SMTP failure path marks message failed then rethrows', () => {
+    const outbox = workflows.find((entry) => entry.file === 'dispatch-outbound-message.workflow.json')
+    expect(outbox).toBeTruthy()
+    const workflow = outbox!.workflow as WorkflowFile & {
+      connections: Record<string, { main?: Array<Array<{ node: string }>> }>
+      nodes: Array<WorkflowNode & { onError?: string; parameters?: { responseMode?: string } }>
+    }
+    const webhook = workflow.nodes.find((n) => n.type === 'n8n-nodes-base.webhook')
+    expect(webhook?.parameters?.responseMode).toBe('lastNode')
+    for (const name of ['Send email', 'Send email (with files)']) {
+      const node = workflow.nodes.find((n) => n.name === name)
+      expect(node?.onError, name).toBe('continueErrorOutput')
+      expect(workflow.connections[name]?.main?.[1]?.some((l) => l.node === 'Mark failed')).toBe(true)
+    }
+    expect(workflow.connections['Mark failed']?.main?.[0]?.some((l) => l.node === 'Rethrow after failed')).toBe(
+      true,
+    )
+  })
 })

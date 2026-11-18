@@ -54,7 +54,10 @@ const props = withDefaults(
     modelValue: Record<string, unknown>
     parentId?: string | number
     parentName?: string
-    /** View mode: show preview only; upload/replace/remove in edit form. */
+    /**
+     * View mode: no upload/replace/remove/drop-in.
+     * Drag-out to link onto another record’s Files zone stays enabled.
+     */
     readonly?: boolean
   }>(),
   {
@@ -286,9 +289,9 @@ function handleDrop(event: DragEvent): void {
 }
 
 function handleAttachedFileDragStart(event: DragEvent, item: (typeof files.value)[number]): void {
-  if (props.readonly) return
+  // Drag-to-link is allowed on view (readonly): it does not mutate this field.
   const id = fileItemId(item)
-  if (!id) {
+  if (!id || fileIsUnavailable(item)) {
     event.preventDefault()
     return
   }
@@ -603,7 +606,7 @@ function clearCurrentFile(): void {
         <template #body="{ data: item }">
           <div class="inline-flex items-center gap-1">
             <i
-              v-if="!readonly && !fileIsUnavailable(item)"
+              v-if="!fileIsUnavailable(item)"
               class="pi pi-bars cursor-grab active:cursor-grabbing text-muted-color"
               draggable="true"
               :title="t('filePreview.dragToLink', 'Drag to link onto another record’s Files drop zone')"

@@ -47,7 +47,10 @@ import { assertBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
 import { localLoginHttpGuard } from './auth/localLoginHttp.js'
 import { assertFieldSensitivitySchemaReady } from './services/fieldSecurity.js'
 import { assertOidcRefreshTokenSchemaReady } from './auth/oidcSchemaGate.js'
-import { assertProductionFlowAuthConfig } from './flows/flowAuth.js'
+import {
+  assertProductionFlowAuthConfig,
+  warnIfN8nWebhookSecretMissing,
+} from './flows/flowAuth.js'
 import { authJwtSecret } from './auth/jwt.js'
 import { bearerToken } from './auth/tokenClaims.js'
 import { requireAuthenticatedUser } from './auth/accessGuards.js'
@@ -839,6 +842,7 @@ async function start() {
     authJwtSecret()
     assertCorsConfigSafe()
     assertProductionFlowAuthConfig()
+    warnIfN8nWebhookSecretMissing(app.log)
     assertOidcConfigReady()
     // Refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …)
     // unless ALLOW_INSECURE_BOOTSTRAP=true.

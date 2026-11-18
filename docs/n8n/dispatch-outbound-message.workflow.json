@@ -1,9 +1,9 @@
 {
-  "name": "CoreEngine — dispatch outbound message",
+  "name": "CoreEngine \u2014 dispatch outbound message",
   "nodes": [
     {
       "parameters": {
-        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message**.\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. Type **Email** → SMTP to `message.email`. Attaches **all** linked Message files (plus generated PDF when Opportunity + template env).\n4. Other types still stub → Mark sent.\n5. Error workflow → failed-execution-alert.",
+        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. Type **Email** \u2192 SMTP. On SMTP error \u2192 **Mark failed** (result=2) \u2192 rethrow (Error workflow + BFF Failed runs).\n4. Other types stub \u2192 Mark sent.\n5. Settings \u2192 Error workflow \u2192 failed-execution-alert.\n6. Repo JSON is source of truth \u2014 re-export after UI edits.",
         "height": 300,
         "width": 460
       },
@@ -11,20 +11,26 @@
       "name": "Setup note",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-80, -340]
+      "position": [
+        -80,
+        -340
+      ]
     },
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "ce-dispatch_outbound_message",
-        "responseMode": "onReceived",
+        "responseMode": "lastNode",
         "options": {}
       },
       "id": "webhook-outbox",
       "name": "CRM Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "ce-dispatch_outbound_message"
     },
     {
@@ -42,7 +48,10 @@
       "name": "Secret OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ]
     },
     {
       "parameters": {
@@ -57,7 +66,10 @@
       "name": "BFF Login",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, -40]
+      "position": [
+        440,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -67,7 +79,10 @@
       "name": "Prepare context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, -40]
+      "position": [
+        660,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -84,7 +99,10 @@
       "name": "Has messageId?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [780, -40]
+      "position": [
+        780,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -101,7 +119,10 @@
       "name": "Need PDF?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [960, -40]
+      "position": [
+        960,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -133,7 +154,10 @@
       "name": "Generate PDF",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1100, -160]
+      "position": [
+        1100,
+        -160
+      ]
     },
     {
       "parameters": {
@@ -165,7 +189,10 @@
       "name": "Link PDF to message",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, -160]
+      "position": [
+        1320,
+        -160
+      ]
     },
     {
       "parameters": {
@@ -175,7 +202,10 @@
       "name": "Route payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, -40]
+      "position": [
+        1540,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -192,7 +222,10 @@
       "name": "Send as email?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [1760, -40]
+      "position": [
+        1760,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -224,7 +257,10 @@
       "name": "List message files",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1980, -140]
+      "position": [
+        1980,
+        -140
+      ]
     },
     {
       "parameters": {
@@ -234,7 +270,10 @@
       "name": "Resolve attachments",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2200, -140]
+      "position": [
+        2200,
+        -140
+      ]
     },
     {
       "parameters": {
@@ -251,7 +290,10 @@
       "name": "Has files?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [2420, -140]
+      "position": [
+        2420,
+        -140
+      ]
     },
     {
       "parameters": {
@@ -261,7 +303,10 @@
       "name": "Split files",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2580, -240]
+      "position": [
+        2580,
+        -240
+      ]
     },
     {
       "parameters": {
@@ -293,7 +338,10 @@
       "name": "Download file",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2760, -240],
+      "position": [
+        2760,
+        -240
+      ],
       "continueOnFail": true,
       "onError": "continueRegularOutput"
     },
@@ -306,7 +354,10 @@
       "name": "Merge attachments",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2940, -240]
+      "position": [
+        2940,
+        -240
+      ]
     },
     {
       "parameters": {
@@ -323,11 +374,14 @@
       "name": "Attach ok?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [3120, -240]
+      "position": [
+        3120,
+        -240
+      ]
     },
     {
       "parameters": {
-        "fromEmail": "={{$env.SMTP_FROM || 'info@diavitamed.com.ua'}}",
+        "fromEmail": "={{$env.SMTP_FROM}}",
         "toEmail": "={{$json.email}}",
         "subject": "={{$json.subject}}",
         "emailFormat": "text",
@@ -341,18 +395,22 @@
       "name": "Send email (with files)",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [3300, -280],
+      "position": [
+        3300,
+        -280
+      ],
       "notes": "Uses CoreEngine SMTP credential",
       "credentials": {
         "smtp": {
           "id": "LPdkpGOiJxMwfm2T",
           "name": "CoreEngine SMTP"
         }
-      }
+      },
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "fromEmail": "={{$env.SMTP_FROM || 'info@diavitamed.com.ua'}}",
+        "fromEmail": "={{$env.SMTP_FROM}}",
         "toEmail": "={{$json.email}}",
         "subject": "={{$json.subject}}",
         "emailFormat": "text",
@@ -365,14 +423,18 @@
       "name": "Send email",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [2640, -40],
+      "position": [
+        2640,
+        -40
+      ],
       "notes": "Uses CoreEngine SMTP credential",
       "credentials": {
         "smtp": {
           "id": "LPdkpGOiJxMwfm2T",
           "name": "CoreEngine SMTP"
         }
-      }
+      },
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -382,7 +444,10 @@
       "name": "After email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3480, -140]
+      "position": [
+        3480,
+        -140
+      ]
     },
     {
       "parameters": {
@@ -414,7 +479,10 @@
       "name": "Mark sent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3520, -40]
+      "position": [
+        3520,
+        -40
+      ]
     },
     {
       "parameters": {
@@ -439,94 +507,308 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed', result: 2 }) }}",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed', result: 2, body: String(($json.error && ($json.error.message || $json.error)) || $json.message || 'Outbound send failed') }) }}",
         "options": {}
       },
       "id": "patch-failed",
       "name": "Mark failed",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3520, 120]
+      "position": [
+        3520,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const err = $json.error && ($json.error.message || $json.error);\nconst msg = String(err || $json.body || $json.message || 'Outbound send failed');\nthrow new Error(msg);"
+      },
+      "id": "rethrow-after-failed",
+      "name": "Rethrow after failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3720,
+        120
+      ],
+      "notes": "Fails the execution after Mark failed so Error workflow / BFF Failed runs still see the error"
     }
   ],
   "connections": {
     "CRM Webhook": {
-      "main": [[{ "node": "Secret OK?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Secret OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Secret OK?": {
       "main": [
-        [{ "node": "BFF Login", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "BFF Login",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "BFF Login": {
-      "main": [[{ "node": "Prepare context", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Prepare context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Prepare context": {
-      "main": [[{ "node": "Has messageId?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Has messageId?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Has messageId?": {
       "main": [
-        [{ "node": "Need PDF?", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "Need PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Need PDF?": {
       "main": [
-        [{ "node": "Generate PDF", "type": "main", "index": 0 }],
-        [{ "node": "Route payload", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Generate PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Generate PDF": {
-      "main": [[{ "node": "Link PDF to message", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Link PDF to message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Link PDF to message": {
-      "main": [[{ "node": "Route payload", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Route payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Route payload": {
-      "main": [[{ "node": "Send as email?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Send as email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Send as email?": {
       "main": [
-        [{ "node": "List message files", "type": "main", "index": 0 }],
-        [{ "node": "Mark sent", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "List message files",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "List message files": {
-      "main": [[{ "node": "Resolve attachments", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Resolve attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Resolve attachments": {
-      "main": [[{ "node": "Has files?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Has files?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Has files?": {
       "main": [
-        [{ "node": "Split files", "type": "main", "index": 0 }],
-        [{ "node": "Send email", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Split files",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Split files": {
-      "main": [[{ "node": "Download file", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Download file": {
-      "main": [[{ "node": "Merge attachments", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Merge attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Merge attachments": {
-      "main": [[{ "node": "Attach ok?", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Attach ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Attach ok?": {
       "main": [
-        [{ "node": "Send email (with files)", "type": "main", "index": 0 }],
-        [{ "node": "Send email", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Send email (with files)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Send email (with files)": {
-      "main": [[{ "node": "After email", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "After email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Send email": {
-      "main": [[{ "node": "After email", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "After email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "After email": {
-      "main": [[{ "node": "Mark sent", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Mark sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark failed": {
+      "main": [
+        [
+          {
+            "node": "Rethrow after failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -535,7 +817,7 @@
   },
   "meta": {
     "templateCredsSetupCompleted": false,
-    "crmNotes": "Email attaches all Message files (Files panel) plus optional generated PDF. SMTP credential on both Send email nodes. SMTP_FROM for From."
+    "crmNotes": "SMTP error \u2192 Mark failed + rethrow. Webhook lastNode so BFF Failed runs record delivery failure. Re-export this file after editing in the n8n UI."
   },
   "pinData": {},
   "versionId": "6"

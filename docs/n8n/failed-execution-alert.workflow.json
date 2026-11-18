@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Failed-run alert\nSet n8n env ALERT_WEBHOOK_URL (Slack incoming webhook or any JSON POST).\nOn each CoreEngine workflow: Settings → Error workflow → select this workflow.\nn8n's own Executions list (filter Error) remains the full history.",
+        "content": "## Failed-run alert\nSet n8n env ALERT_WEBHOOK_URL (Slack incoming webhook or any JSON POST).\nOn each CoreEngine workflow: Settings → Error workflow → select this workflow.\nDo **not** toggle Active on this Error Trigger workflow itself.\nn8n Executions (filter Error) remains the full history.\nRepo JSON is source of truth — re-export after UI edits.",
         "height": 180,
         "width": 320
       },

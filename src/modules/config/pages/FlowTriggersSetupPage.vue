@@ -44,7 +44,7 @@ const form = reactive({
   handler: 'http' as string,
   enabled: true,
   description: '',
-  /** Bundled n8n (ce-{key}) vs custom absolute URL. */
+  /** Customer's n8n (ce-{key}) vs custom absolute URL. CoreEngine does not ship n8n. */
   httpTarget: 'n8n' as 'n8n' | 'url',
   url: '',
   method: 'POST',
@@ -69,7 +69,7 @@ const handlerOptions = computed(() => [
 
 const httpTargetOptions = computed(() => [
   {
-    label: t('setup.flows.httpTargetN8n', 'Bundled n8n (recommended)'),
+    label: t('setup.flows.httpTargetN8n', 'Your n8n (recommended)'),
     value: 'n8n',
   },
   {
@@ -748,7 +748,7 @@ onMounted(() => {
                 form.httpTarget === 'n8n'
                   ? t(
                       'setup.flows.httpTargetN8nHint',
-                      'Calls the bundled n8n webhook at /webhook/ce-{key}. Set N8N_BASE_URL on the BFF; no raw URL needed.',
+                      'Calls your n8n webhook at /webhook/ce-{key}. Point N8N_BASE_URL at the n8n instance you run. CoreEngine does not include n8n.',
                       { key: form.key.trim() || 'your_key' },
                     )
                   : t(

@@ -88,7 +88,7 @@ function sanitizeConfig(
       }
     }
 
-    // Bundled n8n: resolve URL at dispatch from N8N_BASE_URL + ce-{key} (no raw URL in Setup).
+    // Customer's n8n: resolve URL at dispatch from N8N_BASE_URL + ce-{key} (no raw URL in Setup).
     if (target === 'n8n') {
       return {
         target: 'n8n',

@@ -261,14 +261,18 @@ body {
 .page-loading {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   color: #64748b;
   min-height: 160px;
 }
 
 .page-loading .p-progressspinner {
+  /* Theme sets margin: 0 auto — that centers the spinner alone and
+     pushes sibling text (e.g. "Rendering document...") to the edge. */
   width: 32px;
   height: 32px;
+  margin: 0;
 }
 
 .object-list-pane {

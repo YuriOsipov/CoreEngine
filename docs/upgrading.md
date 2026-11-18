@@ -6,7 +6,7 @@ CoreEngine is early-stage: upgrades track **`main`** (or a release tag when one 
 
 For an **already provisioned** database, upgrade means:
 
-1. Back up Postgres (and Storage volumes if you use the all-in-one stack)
+1. Back up Postgres, Storage volumes if you use the all-in-one stack, and — if you run n8n — the `coreengine_n8n` volume plus `N8N_ENCRYPTION_KEY`
 2. Pull the new code
 3. Apply **kernel SQL** with `registry:migrate` / `registry:migrate:node` (idempotent via `public.schema_migrations`)
 4. Rebuild / restart BFF (and optional web) containers or processes
@@ -16,7 +16,7 @@ For an **already provisioned** database, upgrade means:
 
 ## Backup first
 
-Full dump, restore, secrets, and Storage notes: [`backup-restore.md`](./backup-restore.md).
+Full dump, restore, secrets, Storage, and n8n volume notes: [`backup-restore.md`](./backup-restore.md).
 
 ```bash
 # Lightweight (docker-compose.minimal.yml) example — adjust names/ports for your .env

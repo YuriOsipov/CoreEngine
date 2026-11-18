@@ -446,7 +446,7 @@ const messages = {
     flows: {
       title: 'Flows',
       subtitle:
-        'Map a flow key to bundled n8n or an external HTTP webhook (or update record). Use the key in Automations → Trigger flow.',
+        'Map a flow key to your n8n or an external HTTP webhook (or update record). Use the key in Automations → Trigger flow.',
       linkHint: 'Map flow keys to n8n or external HTTP webhooks for Automations.',
       graphqlRequired: 'Set VITE_DATA_SOURCE=graphql to manage flows.',
       loading: 'Loading flows...',
@@ -478,10 +478,10 @@ const messages = {
       handlerHttpShort: 'HTTP',
       handlerUpdateRecordShort: 'Update record',
       httpTarget: 'Destination',
-      httpTargetN8n: 'Bundled n8n (recommended)',
+      httpTargetN8n: 'Your n8n (recommended)',
       httpTargetUrl: 'Custom URL',
       httpTargetN8nHint:
-        'Calls the bundled n8n webhook at /webhook/ce-{key}. Set N8N_BASE_URL on the BFF; no raw URL needed.',
+        'Calls your n8n webhook at /webhook/ce-{key}. Point N8N_BASE_URL at the n8n instance you run. CoreEngine does not include n8n.',
       httpTargetUrlHint: 'Paste any absolute webhook URL (advanced / non-n8n).',
       destinationN8n: 'n8n (ce-{key})',
       url: 'External URL',

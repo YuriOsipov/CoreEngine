@@ -448,7 +448,7 @@ const messages = {
     flows: {
       title: 'Flows',
       subtitle:
-        'Зв’яжіть ключ flow із вбудованим n8n або зовнішнім HTTP webhook (або update record). Використовуйте ключ у Automations → Trigger flow.',
+        'Зв’яжіть ключ flow із вашим n8n або зовнішнім HTTP webhook (або update record). Використовуйте ключ у Automations → Trigger flow.',
       linkHint: 'Зв’язування ключів flow із n8n або зовнішніми HTTP webhook для Automations.',
       graphqlRequired: 'Встановіть VITE_DATA_SOURCE=graphql, щоб керувати flows.',
       loading: 'Завантаження flows...',
@@ -480,10 +480,10 @@ const messages = {
       handlerHttpShort: 'HTTP',
       handlerUpdateRecordShort: 'Update record',
       httpTarget: 'Призначення',
-      httpTargetN8n: 'Вбудований n8n (рекомендовано)',
+      httpTargetN8n: 'Ваш n8n (рекомендовано)',
       httpTargetUrl: 'Довільний URL',
       httpTargetN8nHint:
-        'Викликає webhook вбудованого n8n за шляхом /webhook/ce-{key}. Задайте N8N_BASE_URL у BFF; сирий URL не потрібен.',
+        'Викликає webhook вашого n8n за шляхом /webhook/ce-{key}. Вкажіть N8N_BASE_URL на той n8n, який запускаєте ви. CoreEngine не містить n8n.',
       httpTargetUrlHint: 'Вставте абсолютний webhook URL (розширено / не n8n).',
       destinationN8n: 'n8n (ce-{key})',
       url: 'Зовнішній URL',

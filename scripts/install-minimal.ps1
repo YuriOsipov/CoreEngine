@@ -2,7 +2,8 @@
 # Usage (repo root):
 #   powershell -File ./scripts/install-minimal.ps1
 #   powershell -File ./scripts/install-minimal.ps1 -Domain sales -WithUi
-#   powershell -File ./scripts/install-minimal.ps1 -Domain clinic -WithN8n
+# n8n is not started here. Customers pull upstream n8n themselves:
+#   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
 #   powershell -File ./scripts/install-minimal.ps1 -AdminPassword 'ChooseAUniqueSecret!'
 param(
   [ValidateSet('none', 'sales', 'clinic', 'pricing', 'documents')]
@@ -13,6 +14,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($WithN8n) {
+  throw @"
+This installer does not start n8n. Pull the upstream image yourself:
+
+  docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
+
+See THIRD_PARTY.md. Sell implementation and support, not n8n access.
+"@
+}
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $Root
 
@@ -100,42 +110,12 @@ if ($WithUi) {
   & docker @compose --profile ui up -d --build web
 }
 
-if ($WithN8n) {
-  $n8nEnvChanged = $false
-  if (-not (Get-EnvKv '.env' 'N8N_WEBHOOK_SECRET')) {
-    Set-EnvKv '.env' 'N8N_WEBHOOK_SECRET' (Get-RandSecret)
-    $n8nEnvChanged = $true
-  }
-  if (-not (Get-EnvKv '.env' 'N8N_BASE_URL')) {
-    Set-EnvKv '.env' 'N8N_BASE_URL' 'http://n8n:5678'
-    $n8nEnvChanged = $true
-  }
-  if (-not (Get-EnvKv '.env' 'FLOWS_HTTP_ALLOWED_HOSTS')) {
-    Set-EnvKv '.env' 'FLOWS_HTTP_ALLOWED_HOSTS' 'n8n,n8n:5678'
-    $n8nEnvChanged = $true
-  }
-  if ($n8nEnvChanged) {
-    Copy-Item '.env' 'supabase/.env' -Force
-    Write-Host '==> Wrote n8n env (N8N_BASE_URL / secret / allowlist); restarting BFF'
-    & docker @compose up -d bff
-  }
-  Write-Host "==> Seeding Integration user + n8n pack flow keys ($Domain)"
-  & docker @compose run --rm --workdir /app bff `
-    npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env `
-    ./scripts/seed-n8n-automation-user.mts
-  & docker @compose run --rm --workdir /app bff `
-    npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env `
-    ./scripts/seed-n8n-pack-flows.mts --pack=$Domain
-  if ($LASTEXITCODE -ne 0) { throw 'seed-n8n-pack-flows failed' }
-  Write-Host '==> Starting n8n (import docs/n8n/*.workflow.json, then activate)'
-  & docker @compose --profile automation up -d n8n
-}
-
 Write-Host ''
 Write-Host 'Lightweight install ready.'
 Write-Host '  BFF health: http://localhost:4000/health'
 if ($WithUi) { Write-Host '  UI:         http://localhost:8080' }
-if ($WithN8n) { Write-Host '  n8n:        http://localhost:5678  (see docs/n8n/README.md)' }
+Write-Host '  n8n:        not started. Pull upstream yourself if you want it (see THIRD_PARTY.md):'
+Write-Host '              docker compose -f docker-compose.minimal.yml --profile automation up -d n8n'
 Write-Host '  Login:      admin@example.com (password from provision output above)'
 Write-Host '  Upgrade:    see docs/upgrading.md'
 Write-Host '  Backup:     see docs/backup-restore.md'

@@ -47,10 +47,25 @@ export function flowsTriggerRequireAuth(): boolean {
 /** Production: open flow triggers (REQUIRE_AUTH=false) are refused at boot. */
 export function assertProductionFlowAuthConfig(): void {
   if (process.env.NODE_ENV !== 'production') return
-  if (flowsTriggerRequireAuth()) return
-  throw new Error(
-    'Refusing to start in production: FLOWS_TRIGGER_REQUIRE_AUTH=false opens /flows/trigger. ' +
-      'Require JWT or FLOWS_TRIGGER_SERVICE_KEY.',
+  if (!flowsTriggerRequireAuth()) {
+    throw new Error(
+      'Refusing to start in production: FLOWS_TRIGGER_REQUIRE_AUTH=false opens /flows/trigger. ' +
+        'Require JWT or FLOWS_TRIGGER_SERVICE_KEY.',
+    )
+  }
+  if (n8nBaseUrl() && !n8nWebhookSecret()) {
+    throw new Error(
+      'Refusing to start in production: N8N_BASE_URL (or N8N_WEBHOOK_URL) is set without N8N_WEBHOOK_SECRET. ' +
+        'n8n webhooks must check X-CRM-Flow-Secret so only the BFF can call /webhook/ce-{key}.',
+    )
+  }
+}
+
+/** Dev/staging hint when n8n is configured without the shared webhook secret. */
+export function warnIfN8nWebhookSecretMissing(log: { warn: (msg: string) => void }): void {
+  if (!n8nBaseUrl() || n8nWebhookSecret()) return
+  log.warn(
+    'N8N_BASE_URL is set but N8N_WEBHOOK_SECRET is empty — /webhook/ce-{key} templates cannot authenticate BFF calls. Set a shared secret (see docs/n8n/README.md).',
   )
 }
 
@@ -74,7 +89,7 @@ export function n8nWebhookUrl(): string {
   return (process.env.N8N_WEBHOOK_URL || '').trim()
 }
 
-/** Origin for bundled n8n (e.g. http://n8n:5678). Falls back to N8N_WEBHOOK_URL origin. */
+/** Origin for the customer's n8n (e.g. http://n8n:5678). Falls back to N8N_WEBHOOK_URL origin. */
 export function n8nBaseUrl(): string {
   const explicit = (process.env.N8N_BASE_URL || '').trim().replace(/\/+$/, '')
   if (explicit) return explicit

@@ -125,9 +125,9 @@ Content-Type: application/json
 
 ### Setup UI
 
-**Setup → Flows** manages `app_flow_triggers`: create a **key** (e.g. `send_quote_pdf`), set handler **HTTP**, choose Destination **Bundled n8n** (recommended) or **Custom URL**.
+**Setup → Flows** manages `app_flow_triggers`: create a **key** (e.g. `send_quote_pdf`), set handler **HTTP**, choose Destination **Your n8n** (recommended) or **Custom URL**.
 
-- **Bundled n8n** stores `config.target=n8n` — no raw URL. At dispatch the BFF posts to `{N8N_BASE_URL}/webhook/ce-{key}` (e.g. `http://n8n:5678/webhook/ce-send_quote_pdf`).
+- **Your n8n** stores `config.target=n8n` — no raw URL. At dispatch the BFF posts to `{N8N_BASE_URL}/webhook/ce-{key}` (e.g. `http://n8n:5678/webhook/ce-send_quote_pdf`). CoreEngine does not ship n8n; that URL is the instance you run.
 - **Custom URL** stores an absolute `config.url` (legacy / non-n8n). Optional Authentication (None / Bearer / API key / Basic).
 
 Then use that key in Object Manager → Automations → Trigger flow.
@@ -154,20 +154,23 @@ Prefer `http` flow handlers from automations. An `update_record` handler can re-
 
 ### Sales Message outbox
 
+Multichannel notifications and automations. n8n supplies the channel connectors. Each send is one Message row; there is no threaded conversation view.
+
 1. Rep creates a **Message** (Type / Body / Email or Phone / Contact / Opportunity, and/or **To user**, optional **Scheduled send at**).
 2. Pack automation **`queue_outbound_message`** (create; `result` empty + `is_active`) sets `delivery_status=queued`.
 3. If `scheduled_send_at` is empty, **`dispatch_outbound_message`** triggers immediately. If set, stay queued until Setup → Tasks **`dispatch_due_messages`** (params `{ "flowKey": "dispatch_outbound_message", "limit": 50 }`) finds `queued` + due rows, sets `sending`, and runs the same flow.
-4. n8n webhook `ce-dispatch_outbound_message` routes on `record.type` (1 Email / 2 WhatsApp / 3 Telegram / **4 Internal**). Optional: if Opportunity + `OPPORTUNITY_QUOTE_TEMPLATE_ID` / `MESSAGE_DOC_TEMPLATE_ID`, `POST /api/v1/documents/generate` then `POST /files/{outputFileId}/link` onto the message. Then send and `PATCH` `{ "result": 1, "delivery_status": "sent" }` (or `result: 2` / `failed` + error text in `body`). For Internal / `to_user`, load `GET /api/v1/users/{to_user}` and email that address.
-5. Inbox: recipients see rows via list view **For me** (`to_user = $CURRENT_USER`). RLS read-share: `owner_id = me OR to_user = me` (`rowLevelReadAlsoIf`).
+4. n8n webhook `ce-dispatch_outbound_message` (`responseMode=lastNode`) routes on `record.type` (1 Email / 2 WhatsApp / 3 Telegram / **4 Internal**). Optional: if Opportunity + `OPPORTUNITY_QUOTE_TEMPLATE_ID` / `MESSAGE_DOC_TEMPLATE_ID`, `POST /api/v1/documents/generate` then `POST /files/{outputFileId}/link` onto the message. Then send and `PATCH` `{ "result": 1, "delivery_status": "sent" }`. On SMTP/channel error: **Mark failed** (`result: 2`, `delivery_status=failed`, error in `body`) then rethrow so Setup → Flows → **Failed runs** and the Error workflow alert both fire. For Internal / `to_user`, load `GET /api/v1/users/{to_user}` and email that address.
+5. Recipients see Message rows addressed to them via list view **For me** (`to_user = $CURRENT_USER`). RLS read-share: `owner_id = me OR to_user = me` (`rowLevelReadAlsoIf`).
 6. Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales` (flows + Message automations + due-messages task). Template: [`n8n/dispatch-outbound-message.workflow.json`](./n8n/dispatch-outbound-message.workflow.json).
 
 ## Env (repo root `.env` and/or `crm-bff/.env`)
 
 | Variable | Purpose |
 |---|---|
-| `N8N_BASE_URL` | Origin of bundled n8n (e.g. `http://n8n:5678`). Used when flow `config.target=n8n` |
+| `N8N_BASE_URL` | Origin of the n8n instance you run (e.g. `http://n8n:5678`). Used when flow `config.target=n8n` |
 | `N8N_WEBHOOK_URL` | Legacy single webhook URL for `registry:seed-n8n-flow-trigger`; also supplies origin fallback for `N8N_BASE_URL` |
-| `N8N_WEBHOOK_SECRET` | Injected as `X-CRM-Flow-Secret` on outbound calls to the n8n origin |
+| `N8N_WEBHOOK_SECRET` | Injected as `X-CRM-Flow-Secret` on outbound calls to the n8n origin (required in production when n8n is configured) |
+| `N8N_ENCRYPTION_KEY` | Fixed key for the n8n process (compose) so credentials survive container recreate |
 | `FLOWS_HTTP_ALLOWED_HOSTS` | Comma hosts allowed for private/Docker targets (minimal compose sets `n8n,n8n:5678`) |
 | `FLOWS_TRIGGER_REQUIRE_AUTH` | Default `true` — JWT or service key required on `/flows/trigger` |
 | `FLOWS_TRIGGER_SERVICE_KEY` | Optional machine credential (Bearer or `X-CRM-Flow-Secret`) |
@@ -182,6 +185,7 @@ npm run registry:seed-n8n-automation-user
 # 2) Preferred: N8N_BASE_URL + pack keys (no raw URLs in Setup)
 #    N8N_BASE_URL=http://n8n:5678
 #    N8N_WEBHOOK_SECRET=…
+#    N8N_ENCRYPTION_KEY=…   # fixed; required by compose profile automation
 npm run registry:seed-n8n-pack-flows -- --pack=sales
 
 #    Legacy single URL instead:
@@ -201,13 +205,14 @@ Form Builder action **Send to n8n** is attached to the `visit` entity layout by 
 
 ## Importable n8n workflows
 
-Catalog (quote PDF + message status, appointment reminder, document generate, failed-execution alert): [`n8n/README.md`](./n8n/README.md).
+Catalog (quote PDF + message status, appointment reminder, document generate, failed-execution alert): [`n8n/README.md`](./n8n/README.md). Hardening checklist (localhost bind, encryption key, node exclude, Integration ACL): same doc → **Hardening**.
 
-For bundled n8n, import the template whose webhook path is `ce-{key}`, activate it, and keep Setup → Flows on **Bundled n8n**. From Docker n8n set:
+For your n8n, import the template whose webhook path is `ce-{key}`, activate it, and keep Setup → Flows on **Your n8n**. From Docker n8n set:
 
 - `BFF_URL` — `http://bff:4000`
-- `N8N_WEBHOOK_SECRET` — same as BFF `.env`
-- `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` — from `registry:seed-n8n-automation-user`
+- `N8N_WEBHOOK_SECRET` — same as BFF `.env` (templates reject calls without matching `X-CRM-Flow-Secret`)
+- `N8N_ENCRYPTION_KEY` — fixed; never rotate casually without re-entering credentials
+- `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` — non-admin Integration from `registry:seed-n8n-automation-user`
 
 ## n8n workflow sketch
 

@@ -108,6 +108,7 @@ export const ENTITY_PERMISSION_MUTATIONS = new Set([
   'updateRecord',
   'softDeleteRecord',
   'restoreRecord',
+  'runOpenRecordAutomations',
   'generateScheduleSlots',
   'bulkUpdateRelatedFromAction',
   'bulkUpdateFilteredFromAction',

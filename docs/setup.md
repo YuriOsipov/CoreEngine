@@ -131,6 +131,6 @@ npm --prefix crm-bff run typecheck
 npm run build                 # vue-tsc -b && vite build
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, Vue `npm run build`, and **DocEngine real PDF render**. Default deps are npm `@docengine/*@0.0.105`; if those packages are not on npmjs yet, CI falls back to `ci/stubs/` (fast jobs) or a sibling checkout (render job). Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, Vue `npm run build`, and **DocEngine real PDF render**. Default deps are npm `@docengine/*@0.0.105`. CI falls back to `ci/stubs/` or a sibling checkout only if that pin is missing from the registry. Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
 
 Layout schemas live under `src/interfaces` / config layout services and are stored in registry `layout_settings`.

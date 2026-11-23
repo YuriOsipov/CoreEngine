@@ -13,7 +13,6 @@ declare module 'vue' {
   export interface GlobalComponents {
     AutoComplete: typeof import('openvue/autocomplete')['default']
     Avatar: typeof import('openvue/avatar')['default']
-    Breadcrumb: typeof import('openvue/breadcrumb')['default']
     Button: typeof import('openvue/button')['default']
     ButtonGroup: typeof import('openvue/buttongroup')['default']
     Card: typeof import('openvue/card')['default']

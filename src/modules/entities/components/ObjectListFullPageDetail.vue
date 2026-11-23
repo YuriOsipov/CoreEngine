@@ -12,12 +12,8 @@ import RecordPageRenderer from '@/modules/entities/components/RecordPageRenderer
 import RecordEditDialog from '@/modules/entities/components/RecordEditDialog.vue'
 import RecordCreateDialog from '@/modules/entities/components/RecordCreateDialog.vue'
 import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
-import {
-  canChangeRecordOwner,
-  canWriteOwnedRecord,
-} from '@/core/ownerRowWriteAccess'
+import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
 import ChangeOwnerDialog from '@/modules/entities/components/ChangeOwnerDialog.vue'
-import { fetchEntityMeta } from '@/core/graphql/entityMetaApi'
 import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
@@ -66,7 +62,6 @@ const {
   canModifyAll: canModifyAllRecords,
   ready: permissionsReady,
 } = useEntityPermissions(() => props.collection)
-const ownerRowSecurityOn = ref(false)
 const changeOwnerVisible = ref(false)
 
 const loading = ref(false)
@@ -119,37 +114,13 @@ const showEditRecord = computed(
       bypassOwnerFilter: canModifyAllRecords.value,
     }),
 )
-const showChangeOwner = computed(
-  () =>
-    ownerRowSecurityOn.value
-    && canUpdateRecord.value
-    && canChangeRecordOwner(recordData.value, effectiveUserId.value, {
-      bypassOwnerFilter: canModifyAllRecords.value,
-      canUpdate: true,
-    }),
-)
-const currentOwnerId = computed(
-  () =>
+const currentOwnerId = computed((): string | null => {
+  const raw =
     extractRelationFieldId(recordData.value.owner_id)
-    ?? extractRelationFieldId(recordData.value.user_created),
-)
+    ?? extractRelationFieldId(recordData.value.user_created)
+  return raw == null || raw === '' ? null : String(raw)
+})
 
-watch(
-  () => props.collection,
-  (collection) => {
-    ownerRowSecurityOn.value = false
-    if (!collection) return
-    void fetchEntityMeta(collection)
-      .then((meta) => {
-        if (props.collection !== collection) return
-        ownerRowSecurityOn.value = meta.rowLevelSecurity === 'owner'
-      })
-      .catch(() => {
-        if (props.collection === collection) ownerRowSecurityOn.value = false
-      })
-  },
-  { immediate: true },
-)
 const {
   actionRunning,
   actionMessage,

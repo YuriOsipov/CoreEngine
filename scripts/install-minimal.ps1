@@ -106,7 +106,7 @@ Write-Host '==> Starting BFF'
 & docker @compose up -d bff
 
 if ($WithUi) {
-  Write-Host '==> Building optional web UI (DocEngine stubs — sibling ../docEngine needed for full editor)'
+  Write-Host '==> Building optional web UI (@docengine/* from npm, or npm run docengine:use-local)'
   & docker @compose --profile ui up -d --build web
 }
 

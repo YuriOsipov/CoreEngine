@@ -61,10 +61,11 @@ async function searchUsers(event: { query: string }): Promise<void> {
     suggestions.value = rows
       .filter((row) => row.is_active !== false)
       .map((row) => {
-        const id = extractRelationFieldId(row.id) ?? String(row.id ?? '')
+        const raw = extractRelationFieldId(row.id) ?? row.id
+        const id = raw == null || raw === '' ? '' : String(raw)
         return { id, label: formatUserLabel(row) }
       })
-      .filter((row) => row.id)
+      .filter((row): row is UserOption => Boolean(row.id))
   } catch (error) {
     suggestions.value = []
     toast.add({

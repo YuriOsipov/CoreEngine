@@ -21,18 +21,17 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: crm-bff/package-lock.json
-      # @docengine/* is normally file:../../docEngine (sibling). Point at in-repo CI stubs
-      # so BFF installs work without a DocEngine checkout.
-      - name: Point DocEngine deps at CI stubs
+      # Prefer published @docengine/*; fall back to in-repo stubs when not on npm yet.
+      - name: Resolve DocEngine deps (npm or stubs)
         run: |
-          node -e "
-          const fs = require('fs');
-          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          p.dependencies['@docengine/editor'] = 'file:../ci/stubs/docengine-editor';
-          p.dependencies['@docengine/engine'] = 'file:../ci/stubs/docengine-engine';
-          p.dependencies['@docengine/pdf-renderer'] = 'file:../ci/stubs/docengine-pdf-renderer';
-          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
-          "
+          if npm view @docengine/engine@$DOCENGINE_VERSION version >/dev/null 2>&1; then
+            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
+          else
+            echo "npm @docengine/*@$DOCENGINE_VERSION missing — using CI stubs"
+            node ../scripts/use-docengine.mjs stub
+          fi
+        env:
+          DOCENGINE_VERSION: '0.0.105'
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
@@ -47,17 +46,16 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      # @docengine/* is normally file:../docEngine (sibling). Point at in-repo CI stubs
-      # so installs work without publishing DocEngine.
-      - name: Point DocEngine deps at CI stubs
+      - name: Resolve DocEngine deps (npm or stubs)
         run: |
-          node -e "
-          const fs = require('fs');
-          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          p.dependencies['@docengine/editor'] = 'file:./ci/stubs/docengine-editor';
-          p.dependencies['@docengine/field-date'] = 'file:./ci/stubs/docengine-field-date';
-          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
-          "
+          if npm view @docengine/editor@$DOCENGINE_VERSION version >/dev/null 2>&1; then
+            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
+          else
+            echo "npm @docengine/*@$DOCENGINE_VERSION missing — using CI stubs"
+            node ./scripts/use-docengine.mjs stub
+          fi
+        env:
+          DOCENGINE_VERSION: '0.0.105'
       - run: npm install --no-audit --no-fund
       - run: npm test
 
@@ -71,19 +69,20 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Point DocEngine deps at CI stubs
+      - name: Resolve DocEngine deps (npm or stubs)
         run: |
-          node -e "
-          const fs = require('fs');
-          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          p.dependencies['@docengine/editor'] = 'file:./ci/stubs/docengine-editor';
-          p.dependencies['@docengine/field-date'] = 'file:./ci/stubs/docengine-field-date';
-          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
-          "
+          if npm view @docengine/editor@$DOCENGINE_VERSION version >/dev/null 2>&1; then
+            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
+          else
+            echo "npm @docengine/*@$DOCENGINE_VERSION missing — using CI stubs"
+            node ./scripts/use-docengine.mjs stub
+          fi
+        env:
+          DOCENGINE_VERSION: '0.0.105'
       - run: npm install --no-audit --no-fund
       - run: npm run build
 
-  # Headline feature: real PDF/HTML via sibling DocEngine (not CI stubs).
+  # Headline feature: real PDF/HTML (npm @docengine/* when published, else sibling checkout).
   docengine-render:
     name: DocEngine real PDF render
     runs-on: ubuntu-latest
@@ -91,33 +90,55 @@ jobs:
       - name: Checkout CoreEngine
         uses: actions/checkout@v4
 
-      - name: Checkout DocEngine (sibling)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: crm-bff/package-lock.json
+
+      - name: Prefer npm DocEngine; else checkout sibling
+        id: docengine_source
+        run: |
+          if npm view @docengine/pdf-renderer@$DOCENGINE_VERSION version >/dev/null 2>&1; then
+            echo "mode=npm" >> "$GITHUB_OUTPUT"
+            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
+          else
+            echo "mode=sibling" >> "$GITHUB_OUTPUT"
+            echo "npm package missing — will use sibling DocEngine checkout"
+          fi
+        env:
+          DOCENGINE_VERSION: '0.0.105'
+
+      - name: Checkout DocEngine (sibling fallback)
+        if: steps.docengine_source.outputs.mode == 'sibling'
         uses: actions/checkout@v4
         with:
           repository: YuriiOsypov/docEngine
           path: _docEngine
 
       - name: Link DocEngine as sibling of the workspace
+        if: steps.docengine_source.outputs.mode == 'sibling'
         run: ln -sfn "$GITHUB_WORKSPACE/_docEngine" "$(dirname "$GITHUB_WORKSPACE")/docEngine"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: |
-            _docEngine/package-lock.json
-            crm-bff/package-lock.json
-
       - name: Install and build DocEngine packages
+        if: steps.docengine_source.outputs.mode == 'sibling'
         working-directory: _docEngine
         run: |
-          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-          # engine first; editor ↔ pdf-renderer are mutual deps (workspace links).
+          # Skip prepare until packages build in order (field-date needs engine first).
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts --no-audit --no-fund
+          else
+            npm install --ignore-scripts --no-audit --no-fund
+          fi
           npm run build -w @docengine/engine
           npm run build -w @docengine/pdf-renderer
           npm run build -w @docengine/editor
 
-      - name: Install BFF against real DocEngine (no stubs)
+      - name: Point BFF at sibling DocEngine
+        if: steps.docengine_source.outputs.mode == 'sibling'
+        run: node ./scripts/use-docengine.mjs local
+
+      - name: Install BFF
         working-directory: crm-bff
         run: npm install --no-audit --no-fund
 

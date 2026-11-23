@@ -122,7 +122,7 @@ echo "==> Starting BFF"
 "${COMPOSE[@]}" up -d bff
 
 if [[ "$WITH_UI" -eq 1 ]]; then
-  echo "==> Building optional web UI (DocEngine stubs — sibling ../docEngine needed for full editor)"
+  echo "==> Building optional web UI (@docengine/* from npm, or npm run docengine:use-local)"
   "${COMPOSE[@]}" --profile ui up -d --build web
 fi
 

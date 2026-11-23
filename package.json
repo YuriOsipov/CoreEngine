@@ -62,11 +62,15 @@
     "bff:check-o2m-expand": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-o2m-expand-path.mts",
     "bff:check-o2m-write": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-o2m-write-path.mts",
     "bff:check-files-uploaded-by": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-files-uploaded-by.mts",
-    "bff:check-activity-actor": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-activity-actor.mts"
+    "bff:check-activity-actor": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-activity-actor.mts",
+    "docengine:use-npm": "node ./scripts/use-docengine.mjs npm",
+    "docengine:use-local": "node ./scripts/use-docengine.mjs local",
+    "docengine:use-stub": "node ./scripts/use-docengine.mjs stub"
   },
   "dependencies": {
     "@daypilot/daypilot-lite-vue": "^5.8.0",
-    "@docengine/editor": "file:../docEngine/packages/editor",
+    "@docengine/editor": "0.0.105",
+    "@docengine/field-date": "0.0.105",
     "@editorjs/editorjs": "^2.30.8",
     "@fontsource/inter": "^5.3.0",
     "@openvue/themes": "1.0.0",

@@ -6,7 +6,7 @@ Vue 3 + Vite + TypeScript. Registry on Supabase; vertical starters (Sales, Clini
 
 **License:** MIT ([`LICENSE`](LICENSE)). Other components: [`THIRD_PARTY.md`](THIRD_PARTY.md). Support: [`SUPPORT.md`](SUPPORT.md) (community, no SLA). Vulnerabilities: [`SECURITY.md`](SECURITY.md).
 
-**Project status:** early-stage, aimed at **SMB / mid-market** (tens to a few hundred users). No sharing hierarchies, **no SAML/SCIM**, no AppExchange-depth automation. Owner row security + View/Modify all + **Change Owner** cover “my rows / manager sees all / reassign leavers”; durable multi-step runs go to **n8n** (or a future Postgres queue). Interactive DocEngine is a sibling checkout for local UI — see below.
+**Project status:** early-stage, aimed at **SMB / mid-market** (tens to a few hundred users). No sharing hierarchies, **no SAML/SCIM**, no AppExchange-depth automation. Owner row security + View/Modify all + **Change Owner** cover “my rows / manager sees all / reassign leavers”; durable multi-step runs go to **n8n** (or a future Postgres queue). Interactive DocEngine comes from npm `@docengine/*` — see below.
 
 **For:** operators and vertical implementers who want Setup + packs + documents, with optional engineer-owned blocks — not Twenty-style SDK CRM, Retool canvases, inbox/calendar CRM, or full ERP accounting (see Frappe note below).
 
@@ -71,4 +71,4 @@ Full Supabase stack, local npm, env vars, and scripts: [`docs/setup.md`](docs/se
 | [`supabase/domains/sales/README.md`](supabase/domains/sales/README.md) | Sales pack (CRM + messaging) |
 | [`crm-bff/README.md`](crm-bff/README.md) | GraphQL / REST BFF |
 
-**DocEngine** (interactive HTML/PDF) is a sibling MIT repo: [YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine). Clone it next to this tree for `npm run dev` and local server render. Fast CI jobs use stubs under `ci/stubs/`; the **DocEngine real PDF render** job checks out the sibling and asserts a non-stub PDF/HTML.
+**DocEngine** (interactive HTML/PDF) ships as npm packages `@docengine/editor`, `@docengine/engine`, `@docengine/pdf-renderer`, `@docengine/field-date` (MIT source: [YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine)). Default `package.json` pins registry versions. Until those packages are on npmjs, CI falls back to `ci/stubs/` (or a sibling checkout for the real PDF job). Maintainers hacking DocEngine locally: `npm run docengine:use-local` (sibling `../docEngine`), then `npm run docengine:use-npm` before committing. Publish checklist: [docEngine/docs/PUBLISH.md](https://github.com/YuriiOsypov/docEngine/blob/main/docs/PUBLISH.md).

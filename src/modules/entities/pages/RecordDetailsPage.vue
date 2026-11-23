@@ -298,11 +298,12 @@ const showChangeOwner = computed(
       canUpdate: true,
     }),
 )
-const currentOwnerId = computed(
-  () =>
+const currentOwnerId = computed((): string | null => {
+  const raw =
     extractRelationFieldId(recordData.value.owner_id)
-    ?? extractRelationFieldId(recordData.value.user_created),
-)
+    ?? extractRelationFieldId(recordData.value.user_created)
+  return raw == null || raw === '' ? null : String(raw)
+})
 const createDialogVisible = ref(false)
 const createTargetCollection = ref('')
 const createInitialValues = ref<Record<string, unknown>>({})

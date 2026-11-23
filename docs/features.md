@@ -64,7 +64,7 @@ Product surface for operators and implementers. For security layers see [`securi
 ## Documents & list reports
 
 - Document Templates + Field Mapping; list Document reports; tree-aware price lists.
-- Interactive DocEngine needs sibling [docEngine](https://github.com/YuriiOsypov/docEngine). Automation generate: [`generate-document-api.md`](./generate-document-api.md). CI covers a real PDF/HTML smoke via the DocEngine render job (stubs remain for fast unit/build jobs).
+- Interactive DocEngine via npm `@docengine/*` ([docEngine](https://github.com/YuriiOsypov/docEngine); local: `npm run docengine:use-local`). Automation generate: [`generate-document-api.md`](./generate-document-api.md).
 - Cross-object file links (D2D).
 
 ## Reports, import/export, activity

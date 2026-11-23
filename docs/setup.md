@@ -24,7 +24,7 @@ chmod +x ./scripts/install-minimal.sh
 - UI (if started): http://localhost:8080  
 - Login: `admin@example.com` with the password printed by provision (or pass `--admin-password` / `-AdminPassword`)
 
-Optional `--with-ui` builds the web profile with **DocEngine CI stubs** — full interactive editor needs sibling [`../docEngine`](https://github.com/YuriiOsypov/docEngine) + `npm run dev`.
+Optional `--with-ui` builds the web profile. Interactive DocEngine uses npm `@docengine/*` (or `npm run docengine:use-local` with sibling [`../docEngine`](https://github.com/YuriiOsypov/docEngine) while developing the editor).
 
 ## Quick start — all-in-one Docker (full Supabase)
 
@@ -66,7 +66,7 @@ npm install
 npm run bff:install
 npm run platform:provision -- --domain sales --admin-password 'ChooseAUniqueSecret!'
 npm run bff:dev   # terminal 1 — :4000
-npm run dev       # terminal 2 — Vite (requires sibling ../docEngine)
+npm run dev       # terminal 2 — Vite (@docengine/* from npm, or docengine:use-local)
 ```
 
 Admin after provision: `admin@example.com` (password change required on first login).  
@@ -131,6 +131,6 @@ npm --prefix crm-bff run typecheck
 npm run build                 # vue-tsc -b && vite build
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, Vue `npm run build`, and **DocEngine real PDF render** (checks out [YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine) as a sibling, builds packages, runs `crm-bff` `npm run test:docengine-render`). Fast jobs still swap DocEngine for `ci/stubs/`; only the render job exercises real pdfmake output.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, Vue `npm run build`, and **DocEngine real PDF render**. Default deps are npm `@docengine/*@0.0.105`; if those packages are not on npmjs yet, CI falls back to `ci/stubs/` (fast jobs) or a sibling checkout (render job). Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
 
 Layout schemas live under `src/interfaces` / config layout services and are stored in registry `layout_settings`.

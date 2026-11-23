@@ -179,7 +179,6 @@ function resetState(): void {
   recordData.value = {}
   detailActions.value = []
   editDialogVisible.value = false
-  composeDialogVisible.value = false
   actionMessage.value = null
   actionError.value = null
 }
@@ -258,7 +257,6 @@ async function loadFullPageDetail(collection: string, id: string): Promise<void>
   recordData.value = {}
   detailActions.value = []
   editDialogVisible.value = false
-  composeDialogVisible.value = false
 
   try {
     const { pageLayout, blockLayout: schema } = await resolvePreferredBlockLayoutForCurrentUser(

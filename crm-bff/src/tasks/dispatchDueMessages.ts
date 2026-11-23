@@ -67,6 +67,7 @@ export async function dispatchDueMessages(
         collection,
         recordId,
         { delivery_status: 'sending' },
+        null,
         { access: SYSTEM_RECORD_ACCESS },
       )
       await runLocalFlow(
@@ -90,6 +91,7 @@ export async function dispatchDueMessages(
           collection,
           recordId,
           { delivery_status: 'queued' },
+          null,
           { access: SYSTEM_RECORD_ACCESS },
         )
       } catch {

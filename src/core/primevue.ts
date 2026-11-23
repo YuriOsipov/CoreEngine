@@ -43,6 +43,8 @@ const PRIME_VUE_COMPONENT_MAP: Record<PrimeVueComponentType, Component> = {
   ChildLookup: undefined as unknown as Component,
   // CrmActivityLog is rendered by FormRendererLight directly — never resolved as a PrimeVue component.
   CrmActivityLog: undefined as unknown as Component,
+  // CrmMessageTimeline is rendered by RecordPageComponentView directly.
+  CrmMessageTimeline: undefined as unknown as Component,
   // CrmDocEngine is rendered by FormRendererLight / FormRenderer directly.
   CrmDocEngine: undefined as unknown as Component,
   // M2ABlocksField is rendered by FormRendererLight directly — never resolved as a PrimeVue component.

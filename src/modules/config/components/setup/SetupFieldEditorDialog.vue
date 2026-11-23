@@ -690,6 +690,7 @@ async function loadDynamicJsonFields(): Promise<void> {
           label: form.dynamicJsonField,
           value: form.dynamicJsonField,
           columns: form.dynamicValueColumn ? [form.dynamicValueColumn] : [],
+          kind: 'json-list',
         }]
       : []
     syncDynamicValueColumns()

@@ -352,8 +352,6 @@ async function loadPeerLookupMeta(): Promise<void> {
     peerLookupProps.value = {
       optionLabel: 'label',
       placeholder: 'Select...',
-      dropdown: true,
-      forceSelection: true,
       ...metadata.props,
       dropdown: true,
       forceSelection: true,

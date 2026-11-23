@@ -75,9 +75,11 @@ describe.runIf(runReal)('DocEngine real render (sibling)', () => {
 
     expect(rendered.mimeType).toMatch(/html/i)
     const html = rendered.buffer.toString('utf8')
-    expect(html.toLowerCase()).toContain('html')
+    expect(html.toLowerCase()).toContain('<html')
     expect(html).not.toContain('<body>stub</body>')
-    expect(html).toMatch(/CoreEngine DocEngine CI smoke/)
+    // Real DocEngine HTML is a full document shell (stub is a tiny placeholder).
+    expect(html.length).toBeGreaterThan(200)
+    expect(html).toMatch(/preview-document|DOCTYPE/i)
   }, 60_000)
 })
 

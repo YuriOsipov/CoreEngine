@@ -4,6 +4,29 @@
  */
 import { parentPort, workerData } from 'node:worker_threads'
 
+/**
+ * postMessage with a transferable ArrayBuffer copy.
+ * Node Buffers often share a pooled ArrayBuffer — transferring that pool
+ * throws "Cannot transfer object of unsupported type".
+ */
+function postOk(result) {
+  if (!parentPort) throw new Error('renderWorkerThread must run as a Worker')
+  const source = Buffer.isBuffer(result.buffer)
+    ? result.buffer
+    : Buffer.from(result.buffer ?? [])
+  const bytes = new Uint8Array(source.byteLength)
+  bytes.set(source)
+  parentPort.postMessage(
+    {
+      ok: true,
+      mimeType: result.mimeType,
+      filename: result.filename,
+      buffer: bytes,
+    },
+    [bytes.buffer],
+  )
+}
+
 async function run() {
   if (!parentPort) throw new Error('renderWorkerThread must run as a Worker')
   const input = workerData || {}
@@ -28,30 +51,20 @@ async function run() {
       document,
       fullDocument: true,
     })
-    const buffer = Buffer.from(html, 'utf8')
-    parentPort.postMessage(
-      {
-        ok: true,
-        mimeType: 'text/html;charset=utf-8',
-        filename: `${base}.html`,
-        buffer,
-      },
-      [buffer.buffer],
-    )
+    postOk({
+      mimeType: 'text/html;charset=utf-8',
+      filename: `${base}.html`,
+      buffer: Buffer.from(html, 'utf8'),
+    })
     return
   }
 
   const pdf = await generatePdfFromTemplate({ template, document })
-  const buffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf)
-  parentPort.postMessage(
-    {
-      ok: true,
-      mimeType: 'application/pdf',
-      filename: `${base}.pdf`,
-      buffer,
-    },
-    [buffer.buffer],
-  )
+  postOk({
+    mimeType: 'application/pdf',
+    filename: `${base}.pdf`,
+    buffer: Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf),
+  })
 }
 
 run().catch((error) => {

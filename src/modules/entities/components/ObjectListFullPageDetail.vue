@@ -12,7 +12,13 @@ import RecordPageRenderer from '@/modules/entities/components/RecordPageRenderer
 import RecordEditDialog from '@/modules/entities/components/RecordEditDialog.vue'
 import RecordCreateDialog from '@/modules/entities/components/RecordCreateDialog.vue'
 import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
-import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
+import {
+  canChangeRecordOwner,
+  canWriteOwnedRecord,
+} from '@/core/ownerRowWriteAccess'
+import ChangeOwnerDialog from '@/modules/entities/components/ChangeOwnerDialog.vue'
+import { fetchEntityMeta } from '@/core/graphql/entityMetaApi'
+import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
@@ -57,8 +63,11 @@ const toast = useToast()
 const {
   canRead: canReadRecord,
   canDelete: canDeleteRecord,
+  canModifyAll: canModifyAllRecords,
   ready: permissionsReady,
 } = useEntityPermissions(() => props.collection)
+const ownerRowSecurityOn = ref(false)
+const changeOwnerVisible = ref(false)
 
 const loading = ref(false)
 const loadError = ref<string | null>(null)
@@ -106,7 +115,40 @@ watch(
 const showEditRecord = computed(
   () =>
     canUpdateRecord.value
-    && canWriteOwnedRecord(recordData.value, effectiveUserId.value),
+    && canWriteOwnedRecord(recordData.value, effectiveUserId.value, {
+      bypassOwnerFilter: canModifyAllRecords.value,
+    }),
+)
+const showChangeOwner = computed(
+  () =>
+    ownerRowSecurityOn.value
+    && canUpdateRecord.value
+    && canChangeRecordOwner(recordData.value, effectiveUserId.value, {
+      bypassOwnerFilter: canModifyAllRecords.value,
+      canUpdate: true,
+    }),
+)
+const currentOwnerId = computed(
+  () =>
+    extractRelationFieldId(recordData.value.owner_id)
+    ?? extractRelationFieldId(recordData.value.user_created),
+)
+
+watch(
+  () => props.collection,
+  (collection) => {
+    ownerRowSecurityOn.value = false
+    if (!collection) return
+    void fetchEntityMeta(collection)
+      .then((meta) => {
+        if (props.collection !== collection) return
+        ownerRowSecurityOn.value = meta.rowLevelSecurity === 'owner'
+      })
+      .catch(() => {
+        if (props.collection === collection) ownerRowSecurityOn.value = false
+      })
+  },
+  { immediate: true },
 )
 const {
   actionRunning,
@@ -415,6 +457,12 @@ function onEditUpdated(record: Record<string, unknown>): void {
   void refreshRecord()
 }
 
+function onOwnerChanged(record: Record<string, unknown>): void {
+  recordData.value = { ...recordData.value, ...record }
+  emit('record-updated', recordData.value)
+  void refreshRecord()
+}
+
 function onEditDeleted(id: string | number): void {
   editDialogVisible.value = false
   emit('record-deleted', id)
@@ -594,6 +642,7 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
           @run-action="runEntityAction"
           @edit-record="openEditDialog"
           @delete-record="deleteCurrentRecord"
+          @change-owner="changeOwnerVisible = true"
         />
       </div>
     </template>
@@ -604,6 +653,14 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
       :initial-values="createInitialValues"
       @update:visible="createDialogVisible = $event"
       @created="onCreateRecordCreated"
+    />
+
+    <ChangeOwnerDialog
+      v-model:visible="changeOwnerVisible"
+      :collection="collection"
+      :record-id="recordId"
+      :current-owner-id="currentOwnerId"
+      @saved="onOwnerChanged"
     />
 
     <RecordEditDialog

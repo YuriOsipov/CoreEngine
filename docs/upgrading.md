@@ -1,6 +1,6 @@
 # Upgrading an existing CoreEngine install
 
-CoreEngine is early-stage: upgrades track **`main`** (or a release tag when one is published). There is no LTS channel yet — see [`SUPPORT.md`](../SUPPORT.md) and [`SECURITY.md`](../SECURITY.md).
+Upgrades track **`main`** (or a release tag when one is published). There is no LTS channel yet — see [`SUPPORT.md`](../SUPPORT.md) and [`SECURITY.md`](../SECURITY.md).
 
 ## What an upgrade is
 

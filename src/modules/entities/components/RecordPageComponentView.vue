@@ -50,11 +50,15 @@ import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
 import { isRecordPagePathReadonly } from '@/core/layoutFieldRules'
 import { useNarrowViewport } from '@/core/useNarrowViewport'
-import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
+import {
+  canChangeRecordOwner,
+  canWriteOwnedRecord,
+} from '@/core/ownerRowWriteAccess'
 import { isCreateRecordActionVisible } from '@/core/createRecordAction'
+import { fetchEntityMeta } from '@/core/graphql/entityMetaApi'
 
 type HighlightsBarAction =
-  | { key: string; kind: 'edit' | 'delete' | 'restore'; label: string }
+  | { key: string; kind: 'edit' | 'delete' | 'restore' | 'changeOwner'; label: string }
   | { key: string; kind: 'custom'; label: string; action: EntityAction }
 
 const props = defineProps<{
@@ -82,16 +86,21 @@ const emit = defineEmits<{
   'run-action': [action: EntityAction]
   'edit-record': []
   'delete-record': []
+  'change-owner': []
   'related-changed': []
 }>()
 
 const { t } = useTranslation()
 const { isNarrow } = useNarrowViewport()
-const { canDelete: canDeleteRecord } = useEntityPermissions(() => props.collection)
+const {
+  canDelete: canDeleteRecord,
+  canModifyAll: canModifyAllRecords,
+} = useEntityPermissions(() => props.collection)
 const { canEdit: canUpdateRecord } = useRecordEditAccess(
   () => props.collection,
   () => props.recordId,
 )
+const ownerRowSecurityOn = ref(false)
 
 /** Reactive stand-in for peekCachedCurrentUserId (cache warm is async). */
 const effectiveUserId = ref<string | null>(peekCachedCurrentUserId())
@@ -111,13 +120,41 @@ watch(
 
 /** Hide Edit/Delete/Send when Owner RLS would deny writes (preview or real session). */
 const canWriteOwnedRow = computed(() =>
-  canWriteOwnedRecord(props.modelValue, effectiveUserId.value),
+  canWriteOwnedRecord(props.modelValue, effectiveUserId.value, {
+    bypassOwnerFilter: canModifyAllRecords.value,
+  }),
 )
 const showEditRecord = computed(
   () => canUpdateRecord.value && canWriteOwnedRow.value,
 )
 const showDeleteRecord = computed(
   () => canDeleteRecord.value && canWriteOwnedRow.value,
+)
+const showChangeOwner = computed(
+  () =>
+    ownerRowSecurityOn.value
+    && canUpdateRecord.value
+    && canChangeRecordOwner(props.modelValue, effectiveUserId.value, {
+      bypassOwnerFilter: canModifyAllRecords.value,
+      canUpdate: true,
+    }),
+)
+
+watch(
+  () => props.collection,
+  (collection) => {
+    ownerRowSecurityOn.value = false
+    if (!collection) return
+    void fetchEntityMeta(collection)
+      .then((meta) => {
+        if (props.collection !== collection) return
+        ownerRowSecurityOn.value = meta.rowLevelSecurity === 'owner'
+      })
+      .catch(() => {
+        if (props.collection === collection) ownerRowSecurityOn.value = false
+      })
+  },
+  { immediate: true },
 )
 
 const collectionLabel = useTranslatedCollection(() => props.collection)
@@ -356,6 +393,13 @@ const highlightsBarActions = computed((): HighlightsBarAction[] => {
   if (showEditRecord.value) {
     standard.push({ key: 'edit', kind: 'edit', label: t('common.edit', 'Edit') })
   }
+  if (showChangeOwner.value) {
+    standard.push({
+      key: 'changeOwner',
+      kind: 'changeOwner',
+      label: t('recordDetails.changeOwner', 'Change Owner'),
+    })
+  }
   if (showDeleteRecord.value) {
     standard.push(
       props.recordArchived
@@ -436,6 +480,10 @@ function runHighlightsAction(item: HighlightsBarAction): void {
     emit('edit-record')
     return
   }
+  if (item.kind === 'changeOwner') {
+    emit('change-owner')
+    return
+  }
   emit('delete-record')
 }
 
@@ -447,7 +495,8 @@ function highlightsActionSeverity(item: HighlightsBarAction): 'danger' | undefin
   return item.kind === 'delete' ? 'danger' : undefined
 }
 
-function highlightsActionOutlined(_item: HighlightsBarAction): boolean {
+function highlightsActionOutlined(item: HighlightsBarAction): boolean {
+  if (item.kind === 'changeOwner') return true
   return false
 }
 
@@ -831,6 +880,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
                   @run-action="emit('run-action', $event)"
                   @edit-record="emit('edit-record')"
                   @delete-record="emit('delete-record')"
+                  @change-owner="emit('change-owner')"
                 />
               </div>
               <p

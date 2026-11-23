@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { query } from '../db/pool.js'
+import {
+  scheduledTaskLockKey,
+  withAdvisoryLock,
+} from '../db/advisoryLock.js'
 import { validateCron } from './cron.js'
 import {
   compileSchedule,
@@ -311,13 +315,10 @@ export async function refreshNextRun(task: ScheduledTaskRow, from = new Date()):
   )
 }
 
-export async function runScheduledTask(
-  taskId: string,
+async function executeScheduledTaskRun(
+  task: ScheduledTaskRow,
   trigger: TaskRunTrigger,
 ): Promise<ScheduledTaskRunRow> {
-  const task = await getScheduledTask(taskId)
-  if (!task) throw new Error('Scheduled task not found')
-
   const running = await findRunningRun(task.id)
   if (running) {
     throw new Error(`Task "${task.name}" is already running`)
@@ -385,4 +386,21 @@ export async function runScheduledTask(
     })
     return mapRun(updated[0]!)
   }
+}
+
+export async function runScheduledTask(
+  taskId: string,
+  trigger: TaskRunTrigger,
+): Promise<ScheduledTaskRunRow> {
+  const task = await getScheduledTask(taskId)
+  if (!task) throw new Error('Scheduled task not found')
+
+  // Cross-instance mutex — complements the in-row RUNNING check.
+  const locked = await withAdvisoryLock(scheduledTaskLockKey(task.id), () =>
+    executeScheduledTaskRun(task, trigger),
+  )
+  if (!locked.acquired) {
+    throw new Error(`Task "${task.name}" is already running`)
+  }
+  return locked.value
 }

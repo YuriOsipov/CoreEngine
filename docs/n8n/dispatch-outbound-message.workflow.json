@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. **Is Draft?** If draft → PATCH `is_draft=false` and stop (CoreEngine queue/dispatch automations send once). If not draft → continue (retry / send-now).\n4. Type **Email** → SMTP. On SMTP error → **Mark failed** → rethrow.\n5. Other types stub → Mark sent.\n6. After Mark sent: if `to_user` set → **Create incoming_message** (always new; owner=`to_user`) via BFF REST — no BFF special-case code.\n7. Settings → Error workflow → failed-execution-alert.\n8. Repo JSON is source of truth — re-export after UI edits.",
+        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. **Is Draft?** If draft → PATCH `is_draft=false` and stop (CoreEngine queue/dispatch automations send once). If not draft → continue (retry / send-now).\n4. Idempotency: BFF sends `idempotencyKey` (`ce-message-{id}`); skip SMTP when `delivery_status` is already `sent`; SMTP Message-ID uses that key.\n5. Type **Email** → SMTP. On SMTP error → **Mark failed** → rethrow.\n6. Other types stub → Mark sent.\n7. After Mark sent: if `to_user` set → **Create incoming_message** (always new; owner=`to_user`) via BFF REST — no BFF special-case code.\n8. Settings → Error workflow → failed-execution-alert.\n9. Repo JSON is source of truth — re-export after UI edits.",
         "height": 300,
         "width": 460
       },
@@ -73,7 +73,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const root = $('CRM Webhook').first().json;\nconst body = root.body && typeof root.body === 'object' ? root.body : root;\nconst record = body.record && typeof body.record === 'object' ? body.record : {};\nconst messageId = String(body.recordId || body.id || record.id || '').trim();\nconst opportunity = record.opportunity || body.opportunity || null;\nconst opportunityId = opportunity && typeof opportunity === 'object' ? opportunity.id : opportunity;\nconst templateId = $env.MESSAGE_DOC_TEMPLATE_ID || $env.OPPORTUNITY_QUOTE_TEMPLATE_ID || '';\nconst wantPdf = Boolean(opportunityId && templateId);\nreturn [{ json: { messageId, hasMessageId: Boolean(messageId), opportunityId, templateId, wantPdf, record, body } }];"
+        "jsCode": "const root = $('CRM Webhook').first().json;\nconst body = root.body && typeof root.body === 'object' ? root.body : root;\nconst record = body.record && typeof body.record === 'object' ? body.record : {};\nconst messageId = String(body.recordId || body.id || record.id || '').trim();\nconst idempotencyKey = String(body.idempotencyKey || (messageId ? `ce-message-${messageId}` : '')).trim();\nconst opportunity = record.opportunity || body.opportunity || null;\nconst opportunityId = opportunity && typeof opportunity === 'object' ? opportunity.id : opportunity;\nconst templateId = $env.MESSAGE_DOC_TEMPLATE_ID || $env.OPPORTUNITY_QUOTE_TEMPLATE_ID || '';\nconst wantPdf = Boolean(opportunityId && templateId);\nreturn [{ json: { messageId, idempotencyKey, hasMessageId: Boolean(messageId), opportunityId, templateId, wantPdf, record, body } }];"
       },
       "id": "prepare-context",
       "name": "Prepare context",
@@ -196,7 +196,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const ctx = $('Merge message record').first().json;\nconst record = ctx.record || {};\nconst rawType = String(record.type ?? '').trim().toLowerCase();\nconst toUser = record.to_user || null;\nconst toUserId = toUser && typeof toUser === 'object' ? toUser.id : toUser;\nconst channel =\n  rawType === 'internal' || rawType === '4' || toUserId\n    ? 'internal'\n    : rawType === 'whatsapp' || rawType === '2'\n      ? 'whatsapp'\n      : rawType === 'telegram' || rawType === '3'\n        ? 'telegram'\n        : 'email';\nconst email = String(record.email || '').trim();\nlet generatedFileId = '';\ntry {\n  generatedFileId = String($('Generate PDF').first().json.outputFileId || '').trim();\n} catch (e) {}\nconst subject = String(record.subject || record.name || '').trim() || 'Message from CoreEngine';\nconst body = String(record.body || '');\nconst sendEmail = channel === 'email' && Boolean(email);\nreturn [{\n  json: {\n    messageId: ctx.messageId,\n    type: rawType || channel,\n    channel,\n    sendEmail,\n    toUserId,\n    email,\n    phone: record.phone || '',\n    subject,\n    body,\n    opportunityId: ctx.opportunityId,\n    generatedFileId,\n  },\n}];"
+        "jsCode": "const ctx = $('Merge message record').first().json;\nconst record = ctx.record || {};\nconst rawType = String(record.type ?? '').trim().toLowerCase();\nconst toUser = record.to_user || null;\nconst toUserId = toUser && typeof toUser === 'object' ? toUser.id : toUser;\nconst channel =\n  rawType === 'internal' || rawType === '4' || toUserId\n    ? 'internal'\n    : rawType === 'whatsapp' || rawType === '2'\n      ? 'whatsapp'\n      : rawType === 'telegram' || rawType === '3'\n        ? 'telegram'\n        : 'email';\nconst email = String(record.email || '').trim();\nlet generatedFileId = '';\ntry {\n  generatedFileId = String($('Generate PDF').first().json.outputFileId || '').trim();\n} catch (e) {}\nconst subject = String(record.subject || record.name || '').trim() || 'Message from CoreEngine';\nconst body = String(record.body || '');\nconst alreadyDelivered = Boolean(ctx.alreadyDelivered);\nconst sendEmail = !alreadyDelivered && channel === 'email' && Boolean(email);\nconst idempotencyKey = String(ctx.idempotencyKey || (ctx.messageId ? `ce-message-${ctx.messageId}` : '')).trim();\nreturn [{\n  json: {\n    messageId: ctx.messageId,\n    idempotencyKey,\n    alreadyDelivered,\n    type: rawType || channel,\n    channel,\n    sendEmail,\n    toUserId,\n    email,\n    phone: record.phone || '',\n    subject,\n    body,\n    opportunityId: ctx.opportunityId,\n    generatedFileId,\n  },\n}];"
       },
       "id": "route-send",
       "name": "Route payload",
@@ -388,7 +388,8 @@
         "text": "={{$json.body}}",
         "options": {
           "appendAttribution": false,
-          "attachments": "={{$json.attachmentKeys}}"
+          "attachments": "={{$json.attachmentKeys}}",
+          "additionalHeaders": "Message-ID: <{{$json.idempotencyKey || ('ce-message-' + $json.messageId)}}@coreengine.local>"
         }
       },
       "id": "send-email-with-file",
@@ -416,7 +417,8 @@
         "emailFormat": "text",
         "text": "={{$json.body}}",
         "options": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "additionalHeaders": "Message-ID: <{{$json.idempotencyKey || ('ce-message-' + $json.messageId)}}@coreengine.local>"
         }
       },
       "id": "send-email-plain",
@@ -563,7 +565,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const ctx = $('Prepare context').first().json;\nconst loaded = $input.first().json;\nconst record = {\n  ...(ctx.record && typeof ctx.record === 'object' ? ctx.record : {}),\n  ...(loaded && typeof loaded === 'object' && !Array.isArray(loaded) ? loaded : {}),\n};\nreturn [{ json: { ...ctx, record } }];"
+        "jsCode": "const ctx = $('Prepare context').first().json;\nconst loaded = $input.first().json;\nconst record = {\n  ...(ctx.record && typeof ctx.record === 'object' ? ctx.record : {}),\n  ...(loaded && typeof loaded === 'object' && !Array.isArray(loaded) ? loaded : {}),\n};\nconst status = String(record.delivery_status || '').trim().toLowerCase();\nconst alreadyDelivered = status === 'sent' || status === 'delivered';\nreturn [{ json: { ...ctx, record, alreadyDelivered } }];"
       },
       "id": "merge-message-record",
       "name": "Merge message record",
@@ -576,7 +578,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const ctx = $input.first().json;\nconst record = ctx.record && typeof ctx.record === 'object' ? ctx.record : ($('Merge message record').first().json.record || {});\nconst toRaw = record.to_user;\nconst toUserId = toRaw && typeof toRaw === 'object' ? String(toRaw.id || '').trim() : String(toRaw || '').trim();\nconst fromRaw = record.from_user;\nconst fromUserId = fromRaw && typeof fromRaw === 'object' ? String(fromRaw.id || '').trim() : String(fromRaw || '').trim();\nconst contactRaw = record.contact;\nconst contactId = contactRaw && typeof contactRaw === 'object' ? String(contactRaw.id || '').trim() : String(contactRaw || '').trim();\nconst oppRaw = record.opportunity;\nconst opportunityId = oppRaw && typeof oppRaw === 'object' ? String(oppRaw.id || '').trim() : String(oppRaw || '').trim();\nconst subject = String(record.subject || record.name || '').trim();\nconst body = record.body == null ? '' : String(record.body);\nconst type = String(record.type || 'internal').trim() || 'internal';\nconst fromEmail = record.from_email == null ? '' : String(record.from_email);\nconst messageId = String($('Prepare context').first().json.messageId || record.id || '').trim();\nconst name = subject || `Message ${messageId.slice(0, 8)}`;\nreturn [{\n  json: {\n    messageId,\n    toUserId,\n    hasToUser: Boolean(toUserId),\n    inboxPayload: {\n      name,\n      subject: subject || null,\n      body,\n      type,\n      from_user: fromUserId || null,\n      from_email: fromEmail || null,\n      contact: contactId || null,\n      opportunity: opportunityId || null,\n      source_message: messageId || null,\n      owner_id: toUserId || null,\n    },\n  },\n}];"
+        "jsCode": "const ctx = $input.first().json;\nconst merge = $('Merge message record').first().json;\nconst alreadyDelivered = Boolean(merge.alreadyDelivered || ctx.alreadyDelivered);\nconst record = ctx.record && typeof ctx.record === 'object' ? ctx.record : (merge.record || {});\nconst toRaw = record.to_user;\nconst toUserId = toRaw && typeof toRaw === 'object' ? String(toRaw.id || '').trim() : String(toRaw || '').trim();\nconst fromRaw = record.from_user;\nconst fromUserId = fromRaw && typeof fromRaw === 'object' ? String(fromRaw.id || '').trim() : String(fromRaw || '').trim();\nconst contactRaw = record.contact;\nconst contactId = contactRaw && typeof contactRaw === 'object' ? String(contactRaw.id || '').trim() : String(contactRaw || '').trim();\nconst oppRaw = record.opportunity;\nconst opportunityId = oppRaw && typeof oppRaw === 'object' ? String(oppRaw.id || '').trim() : String(oppRaw || '').trim();\nconst subject = String(record.subject || record.name || '').trim();\nconst body = record.body == null ? '' : String(record.body);\nconst type = String(record.type || 'internal').trim() || 'internal';\nconst fromEmail = record.from_email == null ? '' : String(record.from_email);\nconst messageId = String($('Prepare context').first().json.messageId || record.id || '').trim();\nconst name = subject || `Message ${messageId.slice(0, 8)}`;\nreturn [{\n  json: {\n    messageId,\n    toUserId,\n    // Skip inbox create on idempotent re-entry (already sent).\n    hasToUser: Boolean(toUserId) && !alreadyDelivered,\n    inboxPayload: {\n      name,\n      subject: subject || null,\n      body,\n      type,\n      from_user: fromUserId || null,\n      from_email: fromEmail || null,\n      contact: contactId || null,\n      opportunity: opportunityId || null,\n      source_message: messageId || null,\n      owner_id: toUserId || null,\n    },\n  },\n}];"
       },
       "id": "prepare-inbox",
       "name": "Prepare inbox",

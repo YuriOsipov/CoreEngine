@@ -18,7 +18,7 @@ import {
   ROW_OWNER_FIELD,
 } from './rowLevelSecurity.js'
 
-/** True when the caller may set `owner_id` on create. */
+/** True when the caller may set `owner_id` on create (admin / system / Modify all). */
 export async function canAssignOwnerOnCreate(
   access: RecordAccess,
   entityApiName: string,
@@ -29,6 +29,24 @@ export async function canAssignOwnerOnCreate(
   if (isAdminMe(me)) return true
   const scope = await resolveRoleOwnerBypass(me, entityApiName)
   return scope.modifyAll
+}
+
+/**
+ * True when the caller may reassign `owner_id` on update.
+ * Same trusted callers as create, plus the **current owner** (so a departing
+ * rep can hand off their book before deactivate; managers use Modify all).
+ */
+export async function canAssignOwnerOnUpdate(
+  access: RecordAccess,
+  entityApiName: string,
+  existingOwnerId?: string | null,
+): Promise<boolean> {
+  if (await canAssignOwnerOnCreate(access, entityApiName)) return true
+  const meId =
+    typeof access.me?.id === 'string' ? access.me.id.trim() : ''
+  const owner =
+    typeof existingOwnerId === 'string' ? existingOwnerId.trim() : ''
+  return Boolean(meId && owner && meId === owner)
 }
 
 /**

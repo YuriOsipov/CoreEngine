@@ -18,6 +18,10 @@ import { writeAuditEntry, listRecordActivities, listRecordRevisions } from '../a
 import { hardDeleteAfterAudit } from '../audit/hardDeleteAfterAudit.js'
 import { auditAfterMutation } from '../audit/auditAfterMutation.js'
 import {
+  listConfigAudits,
+  recordConfigAudit,
+} from '../audit/configAuditService.js'
+import {
   detectSchemaDrift,
   listEntitySyncStates,
   listSyncJobs,
@@ -926,6 +930,25 @@ export const resolvers = {
       return listPermissionEntities()
     },
 
+    configAudits: async (
+      _: unknown,
+      args: {
+        resourceType?: string | null
+        resourceKey?: string | null
+        limit?: number | null
+        offset?: number | null
+      },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return listConfigAudits({
+        resourceType: args.resourceType ?? null,
+        resourceKey: args.resourceKey ?? null,
+        limit: args.limit ?? 50,
+        offset: args.offset ?? 0,
+      })
+    },
+
     myRolePermissions: async (
       _: unknown,
       __: unknown,
@@ -1249,7 +1272,28 @@ export const resolvers = {
     ) => {
       const me = await requireAuthenticatedUser(ctx)
       const input = await authorizeLayoutSettingUpsert(me, args.input)
-      return upsertLayoutSettingRow(input)
+      const saved = await upsertLayoutSettingRow(input)
+      const layoutKey = [
+        input.entityApiName,
+        input.groupKey,
+        input.subGroup || '',
+        input.roleId || '',
+      ].join(':')
+      await recordConfigAudit(me, {
+        action: input.settingId ? 'UPDATE' : 'CREATE',
+        resourceType: 'layout',
+        resourceKey: layoutKey,
+        summary: `${input.settingId ? 'Updated' : 'Created'} layout ${layoutKey}`,
+        after: {
+          settingId: saved?.id ?? input.settingId,
+          entityApiName: input.entityApiName,
+          groupKey: input.groupKey,
+          subGroup: input.subGroup,
+          roleId: input.roleId,
+          name: input.name,
+        },
+      })
+      return saved
     },
 
     deleteLayoutSetting: async (
@@ -1272,6 +1316,12 @@ export const resolvers = {
       await query(`DELETE FROM public.layout_settings WHERE id = $1::uuid`, [
         layoutId,
       ])
+      await recordConfigAudit(me, {
+        action: 'DELETE',
+        resourceType: 'layout',
+        resourceKey: layoutId,
+        summary: `Deleted layout setting ${layoutId}`,
+      })
       return true
     },
 
@@ -1719,7 +1769,7 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       const input = args.input ?? {}
@@ -1750,7 +1800,29 @@ export const resolvers = {
           ? undefined
           : parseReadAlsoIfSameRole(input.rowLevelReadAlsoIfSameRole)
 
-      await updateEntityMeta(entityApiName, {
+      const beforeRows = await query(
+        `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
+        [entityApiName],
+      )
+      if (!beforeRows[0]) throw new Error(`Entity not found: ${entityApiName}`)
+      const beforeMapped = mapEntityBase(beforeRows[0])
+      const before = {
+        label: beforeMapped.label,
+        note: beforeMapped.note,
+        icon: beforeMapped.icon,
+        displayTemplate: beforeMapped.displayTemplate,
+        hidden: beforeMapped.hidden,
+        singleton: beforeMapped.singleton,
+        internal: beforeMapped.internal,
+        accountability: beforeMapped.accountability,
+        defaultFieldSensitivity: beforeMapped.defaultFieldSensitivity,
+        rowLevelSecurity: beforeMapped.rowLevelSecurity,
+        inheritOwnerFrom: beforeMapped.inheritOwnerFrom,
+        rowLevelReadAlsoIf: beforeMapped.rowLevelReadAlsoIf,
+        rowLevelReadAlsoIfSameRole: beforeMapped.rowLevelReadAlsoIfSameRole,
+      }
+
+      const after = {
         label: input.label,
         note: input.note,
         icon: input.icon,
@@ -1764,8 +1836,17 @@ export const resolvers = {
         inheritOwnerFrom,
         rowLevelReadAlsoIf,
         rowLevelReadAlsoIfSameRole,
-      })
+      }
+      await updateEntityMeta(entityApiName, after)
       clearCrmStorageCache()
+      await recordConfigAudit(me, {
+        action: 'UPDATE',
+        resourceType: 'entity',
+        resourceKey: entityApiName,
+        summary: `Updated entity meta ${entityApiName}`,
+        before,
+        after: after as Record<string, unknown>,
+      })
 
       const rows = await query(
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
@@ -1792,7 +1873,7 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const input = args.input ?? ({} as { apiName: string; label: string })
       if (!String(input.apiName || '').trim()) {
         throw new Error('input.apiName is required')
@@ -1813,6 +1894,17 @@ export const resolvers = {
         },
         { applyDdl: args.applyDdl !== false },
       )
+      await recordConfigAudit(me, {
+        action: 'CREATE',
+        resourceType: 'entity',
+        resourceKey: created.apiName,
+        summary: `Created entity ${created.apiName}`,
+        after: {
+          apiName: created.apiName,
+          label: input.label,
+          hidden: input.hidden,
+        },
+      })
       const rows = await query(
         `SELECT * FROM public.entities WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
         [created.apiName],
@@ -1826,10 +1918,17 @@ export const resolvers = {
       args: { entity: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
-      return deleteRegistryEntity(entityApiName)
+      const ok = await deleteRegistryEntity(entityApiName)
+      await recordConfigAudit(me, {
+        action: 'DELETE',
+        resourceType: 'entity',
+        resourceKey: entityApiName,
+        summary: `Soft-deleted entity ${entityApiName}`,
+      })
+      return ok
     },
 
     createAppRole: async (
@@ -1843,12 +1942,25 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return createAppRole({
+      const me = await requireAdminAccess(ctx)
+      const created = await createAppRole({
         name: args.input.name,
         isAdmin: args.input.isAdmin,
         canAuthorReports: args.input.canAuthorReports,
       })
+      await recordConfigAudit(me, {
+        action: 'CREATE',
+        resourceType: 'role',
+        resourceKey: String(created.id),
+        summary: `Created role ${args.input.name}`,
+        after: {
+          id: created.id,
+          name: args.input.name,
+          isAdmin: args.input.isAdmin,
+          canAuthorReports: args.input.canAuthorReports,
+        },
+      })
+      return created
     },
 
     updateAppRole: async (
@@ -1863,8 +1975,17 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return updateAppRole(String(args.id), args.input ?? {})
+      const me = await requireAdminAccess(ctx)
+      const id = String(args.id)
+      const updated = await updateAppRole(id, args.input ?? {})
+      await recordConfigAudit(me, {
+        action: 'UPDATE',
+        resourceType: 'role',
+        resourceKey: id,
+        summary: `Updated role ${id}`,
+        after: { ...(args.input ?? {}), id },
+      })
+      return updated
     },
 
     deleteAppRole: async (
@@ -1872,8 +1993,16 @@ export const resolvers = {
       args: { id: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return deleteAppRole(String(args.id))
+      const me = await requireAdminAccess(ctx)
+      const id = String(args.id)
+      const ok = await deleteAppRole(id)
+      await recordConfigAudit(me, {
+        action: 'DELETE',
+        resourceType: 'role',
+        resourceKey: id,
+        summary: `Deleted role ${id}`,
+      })
+      return ok
     },
 
     createAppUser: async (
@@ -1890,8 +2019,21 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return createAppUser(args.input)
+      const me = await requireAdminAccess(ctx)
+      const created = await createAppUser(args.input)
+      await recordConfigAudit(me, {
+        action: 'CREATE',
+        resourceType: 'user',
+        resourceKey: String(created.id ?? args.input.email),
+        summary: `Created user ${args.input.email}`,
+        after: {
+          email: args.input.email,
+          roleId: args.input.roleId,
+          isActive: args.input.isActive,
+          passwordSet: Boolean(args.input.password),
+        },
+      })
+      return created
     },
 
     updateAppUser: async (
@@ -1908,8 +2050,17 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return updateAppUser(String(args.id), args.input ?? {})
+      const me = await requireAdminAccess(ctx)
+      const id = String(args.id)
+      const updated = await updateAppUser(id, args.input ?? {})
+      await recordConfigAudit(me, {
+        action: 'UPDATE',
+        resourceType: 'user',
+        resourceKey: id,
+        summary: `Updated user ${id}`,
+        after: { ...(args.input ?? {}), id },
+      })
+      return updated
     },
 
     setAppUserPassword: async (
@@ -1917,8 +2068,17 @@ export const resolvers = {
       args: { id: string; password: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return setAppUserPassword(String(args.id), String(args.password ?? ''))
+      const me = await requireAdminAccess(ctx)
+      const id = String(args.id)
+      const ok = await setAppUserPassword(id, String(args.password ?? ''))
+      await recordConfigAudit(me, {
+        action: 'UPDATE',
+        resourceType: 'user',
+        resourceKey: id,
+        summary: `Reset password for user ${id}`,
+        after: { passwordChanged: true },
+      })
+      return ok
     },
 
     replaceRolePermissions: async (
@@ -1941,8 +2101,18 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return replaceRolePermissions(String(args.roleId), args.permissions ?? [])
+      const me = await requireAdminAccess(ctx)
+      const roleId = String(args.roleId)
+      const permissions = args.permissions ?? []
+      const result = await replaceRolePermissions(roleId, permissions)
+      await recordConfigAudit(me, {
+        action: 'REPLACE',
+        resourceType: 'role_permissions',
+        resourceKey: roleId,
+        summary: `Replaced permissions for role ${roleId} (${permissions.length} rows)`,
+        after: { roleId, permissions },
+      })
+      return result
     },
 
     setFieldIsUnique: async (
@@ -1984,17 +2154,18 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
       if (!args.input?.apiName?.trim()) throw new Error('input.apiName is required')
       if (!args.input?.label?.trim() && !args.input?.apiName?.trim()) {
         throw new Error('input.label or apiName is required')
       }
+      const fieldApiName = String(args.input.apiName)
       const row = await createRegistryField(
         entityApiName,
         {
-          apiName: String(args.input.apiName),
+          apiName: fieldApiName,
           label: String(args.input.label || args.input.apiName),
           type: String(args.input.type || 'STRING'),
           interface: String(args.input.interface || ''),
@@ -2014,6 +2185,19 @@ export const resolvers = {
         },
         { applyDdl: args.applyDdl !== false },
       )
+      await recordConfigAudit(me, {
+        action: 'CREATE',
+        resourceType: 'field',
+        resourceKey: `${entityApiName}.${fieldApiName}`,
+        summary: `Created field ${entityApiName}.${fieldApiName}`,
+        after: {
+          entity: entityApiName,
+          apiName: fieldApiName,
+          sensitivity: args.input.sensitivity,
+          type: args.input.type,
+          interface: args.input.interface,
+        },
+      })
       return toGraphQlField(row)
     },
 
@@ -2026,7 +2210,7 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const id = String(args.id || '').trim()
       if (!id) throw new Error('id is required')
       const row = await updateRegistryField(
@@ -2055,6 +2239,21 @@ export const resolvers = {
         },
         { applyDdl: args.applyDdl !== false },
       )
+      const fieldApiName = String(row.apiName || args.input.apiName || id)
+      await recordConfigAudit(me, {
+        action: 'UPDATE',
+        resourceType: 'field',
+        resourceKey: fieldApiName,
+        summary: `Updated field ${fieldApiName}`,
+        after: {
+          id,
+          apiName: fieldApiName,
+          sensitivity: args.input.sensitivity,
+          hidden: args.input.hidden,
+          readonly: args.input.readonly,
+          options: args.input.options as Record<string, unknown> | null | undefined,
+        },
+      })
       return toGraphQlField(row)
     },
 
@@ -2067,15 +2266,22 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       const fieldApiName = String(args.field || '').trim()
       if (!entityApiName || !fieldApiName) {
         throw new Error('entity and field are required')
       }
-      return deleteRegistryField(entityApiName, fieldApiName, {
+      const ok = await deleteRegistryField(entityApiName, fieldApiName, {
         applyDdl: Boolean(args.applyDdl),
       })
+      await recordConfigAudit(me, {
+        action: 'DELETE',
+        resourceType: 'field',
+        resourceKey: `${entityApiName}.${fieldApiName}`,
+        summary: `Deleted field ${entityApiName}.${fieldApiName}`,
+      })
+      return ok
     },
 
     upsertUserSetting: async (

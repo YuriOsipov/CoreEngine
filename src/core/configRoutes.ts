@@ -66,6 +66,11 @@ const configRoutes: RouteRecordRaw[] = [
         component: () => import('@/modules/config/pages/ArchivedRecordsSetupPage.vue'),
       },
       {
+        path: 'config-audit',
+        name: 'setup-config-audit',
+        component: () => import('@/modules/config/pages/ConfigAuditSetupPage.vue'),
+      },
+      {
         path: 'users',
         name: 'setup-users',
         component: () => import('@/modules/config/components/setup/SetupUsersTab.vue'),

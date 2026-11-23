@@ -196,13 +196,98 @@ export async function pathMaxSensitivity(
   return max
 }
 
+const FILTER_LOGICAL_KEYS = new Set(['_and', '_or', '_not'])
+const MAX_FILTER_WALK_DEPTH = 6
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Field paths a Directus-style filter predicate reads (flat, dotted, or nested
+ * relation objects). Used so rollup child filters elevate parent sensitivity —
+ * otherwise COUNT/SUM with a sensitive predicate leaks via inference.
+ */
+export function collectFilterFieldPaths(
+  filter: unknown,
+  depth = 0,
+  prefix = '',
+): string[] {
+  if (depth > MAX_FILTER_WALK_DEPTH) return []
+  const out = new Set<string>()
+  collectFilterFieldPathsInto(filter, depth, prefix, out)
+  return [...out]
+}
+
+function collectFilterFieldPathsInto(
+  filter: unknown,
+  depth: number,
+  prefix: string,
+  out: Set<string>,
+): void {
+  if (depth > MAX_FILTER_WALK_DEPTH) return
+  if (Array.isArray(filter)) {
+    for (const item of filter) {
+      collectFilterFieldPathsInto(item, depth + 1, prefix, out)
+    }
+    return
+  }
+  if (!isPlainObject(filter)) return
+
+  for (const [key, value] of Object.entries(filter)) {
+    if (FILTER_LOGICAL_KEYS.has(key)) {
+      collectFilterFieldPathsInto(value, depth + 1, prefix, out)
+      continue
+    }
+    if (key.startsWith('_')) continue
+
+    const path = prefix ? `${prefix}.${key}` : key
+    if (key.includes('.') || !isPlainObject(value)) {
+      out.add(path)
+      continue
+    }
+
+    const nested: Record<string, unknown> = {}
+    let hasOperator = false
+    for (const [childKey, childValue] of Object.entries(value)) {
+      if (childKey === '_some' || childKey === '_none') {
+        if (isPlainObject(childValue)) Object.assign(nested, childValue)
+        continue
+      }
+      if (childKey.startsWith('_')) {
+        hasOperator = true
+        continue
+      }
+      nested[childKey] = childValue
+    }
+    if (Object.keys(nested).length) {
+      // Relation hop: `manager: { salary: { _gt: 1 } }` → `manager.salary`
+      collectFilterFieldPathsInto(nested, depth + 1, path, out)
+    } else if (hasOperator) {
+      out.add(path)
+    }
+  }
+}
+
 export async function rollupSourceSensitivity(
   rollup: RollupConfig,
   sensitivityByEntity: Map<string, Map<string, number>>,
 ): Promise<number> {
+  let max = 0
   const valueField = String(rollup.valueField || '').trim()
-  if (!valueField || valueField === '*') return 0
-  return pathMaxSensitivity(rollup.childEntity, valueField, sensitivityByEntity)
+  if (valueField && valueField !== '*') {
+    max = Math.max(
+      max,
+      await pathMaxSensitivity(rollup.childEntity, valueField, sensitivityByEntity),
+    )
+  }
+  for (const path of collectFilterFieldPaths(rollup.filter ?? null)) {
+    max = Math.max(
+      max,
+      await pathMaxSensitivity(rollup.childEntity, path, sensitivityByEntity),
+    )
+  }
+  return max
 }
 
 export async function formulaSourceSensitivity(

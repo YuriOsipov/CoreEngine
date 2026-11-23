@@ -20,7 +20,12 @@ import {
   canShowCreateRecordAction,
   isCreateRecordActionVisible,
 } from '@/core/createRecordAction'
-import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
+import {
+  canChangeRecordOwner,
+  canWriteOwnedRecord,
+} from '@/core/ownerRowWriteAccess'
+import ChangeOwnerDialog from '@/modules/entities/components/ChangeOwnerDialog.vue'
+import { fetchEntityMeta } from '@/core/graphql/entityMetaApi'
 import { isRecordNotFoundError } from '../utils/isRecordNotFoundError'
 import type {
   EntityAction,
@@ -110,8 +115,11 @@ const detailCollectionLabel = useTranslatedCollection(() => detailCollectionName
 const {
   canDelete: canDeleteRecord,
   canRead: canReadRecord,
+  canModifyAll: canModifyAllRecords,
   ready: permissionsReady,
 } = useEntityPermissions(() => detailCollectionName.value)
+const ownerRowSecurityOn = ref(false)
+const changeOwnerVisible = ref(false)
 const detailRecordId = computed(() =>
   pathPairs.value[pathPairs.value.length - 1]?.id || recordId.value,
 )
@@ -271,13 +279,29 @@ watch(
 
 /** Hide Edit/Delete/Send when Owner RLS would deny writes (preview or real session). */
 const canWriteOwnedRow = computed(() =>
-  canWriteOwnedRecord(recordData.value, effectiveUserId.value),
+  canWriteOwnedRecord(recordData.value, effectiveUserId.value, {
+    bypassOwnerFilter: canModifyAllRecords.value,
+  }),
 )
 const showEditRecord = computed(
   () => canUpdateRecord.value && canWriteOwnedRow.value,
 )
 const showDeleteRecord = computed(
   () => canDeleteRecord.value && canWriteOwnedRow.value,
+)
+const showChangeOwner = computed(
+  () =>
+    ownerRowSecurityOn.value
+    && canUpdateRecord.value
+    && canChangeRecordOwner(recordData.value, effectiveUserId.value, {
+      bypassOwnerFilter: canModifyAllRecords.value,
+      canUpdate: true,
+    }),
+)
+const currentOwnerId = computed(
+  () =>
+    extractRelationFieldId(recordData.value.owner_id)
+    ?? extractRelationFieldId(recordData.value.user_created),
 )
 const createDialogVisible = ref(false)
 const createTargetCollection = ref('')
@@ -351,6 +375,13 @@ function onCreateRecordCreated(record: Record<string, unknown>): void {
   void router.push(
     `/object/${encodeURIComponent(createTargetCollection.value)}/${encodeURIComponent(id)}`,
   )
+}
+
+function onOwnerChanged(record: Record<string, unknown>): void {
+  if (record && typeof record === 'object') {
+    recordData.value = { ...recordData.value, ...record }
+  }
+  void loadRecordDetails(detailCollectionName.value, detailRecordId.value)
 }
 
 const stayOnProjectForm = computed(
@@ -494,6 +525,25 @@ watch(
       }
       void loadRecordDetails(collection, id)
     })()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => detailCollectionName.value,
+  (collection) => {
+    ownerRowSecurityOn.value = false
+    if (!collection) return
+    void fetchEntityMeta(collection)
+      .then((meta) => {
+        if (detailCollectionName.value !== collection) return
+        ownerRowSecurityOn.value = meta.rowLevelSecurity === 'owner'
+      })
+      .catch(() => {
+        if (detailCollectionName.value === collection) {
+          ownerRowSecurityOn.value = false
+        }
+      })
   },
   { immediate: true },
 )
@@ -1305,6 +1355,15 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
                 @click="openEditDialog"
               />
               <Button
+                v-if="showChangeOwner"
+                :label="t('recordDetails.changeOwner', 'Change Owner')"
+                size="small"
+                severity="secondary"
+                outlined
+                :disabled="loading || deleting || !layoutSchema"
+                @click="changeOwnerVisible = true"
+              />
+              <Button
                 v-if="showDeleteRecord"
                 :label="
                   isArchivedRecord
@@ -1450,6 +1509,7 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
           @run-action="runEntityAction"
           @edit-record="openEditDialog"
           @delete-record="deleteCurrentRecord"
+          @change-owner="changeOwnerVisible = true"
         />
 
         <div
@@ -1475,6 +1535,14 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
       :initial-values="createInitialValues"
       @update:visible="createDialogVisible = $event"
       @created="onCreateRecordCreated"
+    />
+
+    <ChangeOwnerDialog
+      v-model:visible="changeOwnerVisible"
+      :collection="detailCollectionName"
+      :record-id="detailRecordId"
+      :current-owner-id="currentOwnerId"
+      @saved="onOwnerChanged"
     />
 
     <Dialog

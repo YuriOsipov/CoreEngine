@@ -12,6 +12,8 @@ export interface EntityPermissionFlags {
   canDelete: boolean
   canImport: boolean
   canExport: boolean
+  canViewAll: boolean
+  canModifyAll: boolean
 }
 
 /**
@@ -38,6 +40,8 @@ const READ_ONLY_ACCESS: EntityPermissionFlags = {
   canDelete: false,
   canImport: false,
   canExport: false,
+  canViewAll: false,
+  canModifyAll: false,
 }
 
 const FULL_ACCESS: EntityPermissionFlags = {
@@ -47,6 +51,8 @@ const FULL_ACCESS: EntityPermissionFlags = {
   canDelete: true,
   canImport: true,
   canExport: true,
+  canViewAll: true,
+  canModifyAll: true,
 }
 
 const NO_ACCESS: EntityPermissionFlags = {
@@ -56,6 +62,8 @@ const NO_ACCESS: EntityPermissionFlags = {
   canDelete: false,
   canImport: false,
   canExport: false,
+  canViewAll: false,
+  canModifyAll: false,
 }
 
 let cache: Map<string, EntityPermissionFlags> | null = null
@@ -83,6 +91,8 @@ function applyPermissionRows(rows: EntityPermissionDto[]): void {
       canDelete: Boolean(row.canDelete),
       canImport: Boolean(row.canImport),
       canExport: Boolean(row.canExport),
+      canViewAll: Boolean(row.canViewAll),
+      canModifyAll: Boolean(row.canModifyAll),
     })
   }
   cache = next
@@ -239,6 +249,14 @@ export function canExportEntity(collection: string | null | undefined): boolean 
   return getEntityPermission(collection).canExport
 }
 
+export function canViewAllEntity(collection: string | null | undefined): boolean {
+  return getEntityPermission(collection).canViewAll
+}
+
+export function canModifyAllEntity(collection: string | null | undefined): boolean {
+  return getEntityPermission(collection).canModifyAll
+}
+
 /**
  * Reactive CRUD flags for a collection. Loads the role matrix once and refreshes
  * when the collection changes or the permission cache is cleared.
@@ -283,6 +301,8 @@ export function useEntityPermissions(
     canDelete: computed(() => flags.value.canDelete),
     canImport: computed(() => flags.value.canImport),
     canExport: computed(() => flags.value.canExport),
+    canViewAll: computed(() => flags.value.canViewAll),
+    canModifyAll: computed(() => flags.value.canModifyAll),
     refresh,
   }
 }

@@ -5,6 +5,7 @@
 import { runLocalFlow } from '../flows/localFlows.js'
 import type { RecordAutomationTrigger } from '../schema/recordAutomations.js'
 import type { AutomationFlowTrigger } from './applyRecordAutomations.js'
+import { messageIdempotencyKey } from '../tasks/claimQueuedMessages.js'
 
 export async function dispatchAutomationFlows(input: {
   entityApiName: string
@@ -27,6 +28,11 @@ export async function dispatchAutomationFlows(input: {
       trigger: input.trigger,
       collection: input.entityApiName,
       recordId: input.recordId,
+      // Stable per-record key so channel connectors can dedupe retries / double ticks.
+      idempotencyKey:
+        input.entityApiName === 'message'
+          ? messageIdempotencyKey(input.recordId)
+          : `ce-${input.entityApiName}-${input.recordId}`,
       record: input.record,
       before: input.before,
       automation: {

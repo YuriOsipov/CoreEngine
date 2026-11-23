@@ -10,6 +10,7 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:docengine-render": "vitest run src/documents/renderInWorker.integration.test.ts",
     "registry:import-layouts": "node --env-file=.env --env-file=supabase/.env ./scripts/import-layout-settings.mjs"
   },
   "dependencies": {

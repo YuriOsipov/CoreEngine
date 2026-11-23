@@ -82,3 +82,47 @@ jobs:
           "
       - run: npm install --no-audit --no-fund
       - run: npm run build
+
+  # Headline feature: real PDF/HTML via sibling DocEngine (not CI stubs).
+  docengine-render:
+    name: DocEngine real PDF render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CoreEngine
+        uses: actions/checkout@v4
+
+      - name: Checkout DocEngine (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: YuriiOsypov/docEngine
+          path: _docEngine
+
+      - name: Link DocEngine as sibling of the workspace
+        run: ln -sfn "$GITHUB_WORKSPACE/_docEngine" "$(dirname "$GITHUB_WORKSPACE")/docEngine"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            _docEngine/package-lock.json
+            crm-bff/package-lock.json
+
+      - name: Install and build DocEngine packages
+        working-directory: _docEngine
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          # engine first; editor ↔ pdf-renderer are mutual deps (workspace links).
+          npm run build -w @docengine/engine
+          npm run build -w @docengine/pdf-renderer
+          npm run build -w @docengine/editor
+
+      - name: Install BFF against real DocEngine (no stubs)
+        working-directory: crm-bff
+        run: npm install --no-audit --no-fund
+
+      - name: Render a real PDF (and HTML)
+        working-directory: crm-bff
+        env:
+          DOCENGINE_REAL_RENDER: '1'
+        run: npm run test:docengine-render

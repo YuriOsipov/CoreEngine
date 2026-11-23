@@ -80,6 +80,11 @@ export interface CrmPromotedField {
    * Display Template (opt-in Setup → Use in search).
    */
   useInSearch: boolean
+  /**
+   * Registry `fields.sensitivity` (0–2). Carried into ddlSync as
+   * `COMMENT ON COLUMN … IS 'coreengine.sensitivity=N'`.
+   */
+  sensitivity: number
 }
 
 export interface CrmRecordRelation {
@@ -255,6 +260,12 @@ export function clearCrmStorageCache(): void {
   storageCache.clear()
 }
 
+function clampPromotedSensitivity(value: unknown): number {
+  const num = Math.trunc(Number(value))
+  if (!Number.isFinite(num) || num <= 0) return 0
+  return Math.min(num, 2)
+}
+
 export async function loadPromotedFields(
   entityApiName: string,
 ): Promise<CrmPromotedField[]> {
@@ -263,6 +274,7 @@ export async function loadPromotedFields(
     field_type: string
     options: Record<string, unknown> | null
     is_indexed: boolean
+    sensitivity: number | null
     kind: string | null
     related_entity_api_name: string | null
     meta: Record<string, unknown> | null
@@ -271,6 +283,7 @@ export async function loadPromotedFields(
             f.field_type,
             f.options,
             COALESCE(f.is_indexed, false) AS is_indexed,
+            COALESCE(f.sensitivity, 0) AS sensitivity,
             r.kind,
             re.api_name AS related_entity_api_name,
             r.meta
@@ -321,10 +334,12 @@ export async function loadPromotedFields(
       onDelete?: OnDeleteAction | null
       forceText?: boolean
       fieldOptions?: Record<string, unknown> | null
+      sensitivity?: number | null
     },
   ): void => {
     if (!shouldPromoteField(apiName, fieldType)) return
     const useInSearch = opts.fieldOptions?.useInSearch === true
+    const sensitivity = clampPromotedSensitivity(opts.sensitivity)
     if (seen.has(apiName)) {
       // Upgrade flags if we already promoted as a plain scalar.
       const existing = out.find((f) => f.apiName === apiName)
@@ -340,6 +355,7 @@ export async function loadPromotedFields(
           existing.onDelete = opts.onDelete
         }
         if (useInSearch) existing.useInSearch = true
+        if (sensitivity > existing.sensitivity) existing.sensitivity = sensitivity
         existing.needsBtreeIndex =
           existing.needsBtreeIndex || existing.needsFkIndex
       }
@@ -362,6 +378,7 @@ export async function loadPromotedFields(
       relatedEntityApiName: related,
       onDelete: opts.onDelete ?? null,
       useInSearch: isFk && useInSearch,
+      sensitivity,
     })
   }
 
@@ -409,6 +426,7 @@ export async function loadPromotedFields(
       relatedEntityApiName: related,
       onDelete,
       fieldOptions: asObject(row.options),
+      sensitivity: row.sensitivity,
     })
   }
 

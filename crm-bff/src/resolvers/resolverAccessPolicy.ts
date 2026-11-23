@@ -56,6 +56,7 @@ export const ADMIN_QUERIES = new Set([
   'failedScheduledTaskRuns',
   'flowTriggers',
   'failedFlowDispatches',
+  'configAudits',
 ])
 
 export const ADMIN_MUTATIONS = new Set([

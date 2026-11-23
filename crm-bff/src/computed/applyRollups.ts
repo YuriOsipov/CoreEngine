@@ -1,7 +1,11 @@
-import type { RecordAccess } from '../adapters/records/types.js'
+import {
+  isSystemRecordAccess,
+  type RecordAccess,
+} from '../adapters/records/types.js'
 import { resolveRecordsStore } from '../adapters/records/registry.js'
 import { fkIdFromValue } from '../adapters/records/relations.js'
 import { applyOwnerFilterIfNeeded } from '../services/rowLevelSecurity.js'
+import { assertReadableQuery } from '../services/fieldSecurity.js'
 import { applyFormulasOnWrite } from './applyFormulas.js'
 import {
   isLiveRollup,
@@ -90,18 +94,37 @@ function readAggregateNumber(
 
 /**
  * Batch-compute one live rollup for many parents via groupBy on the parent FK.
- * When `access` is a user caller, child aggregates respect owner RLS.
+ * When `access` is a user caller, child aggregates respect owner RLS and FLS
+ * on the rollup filter / value field (defense in depth vs sensitivity elevation).
+ *
+ * Returns `null` when the caller cannot read a filter/value path — caller must
+ * omit the rollup field instead of attaching `0` (which would still infer).
  */
 async function aggregateRollupByParents(
   rollup: RollupConfig,
   parentIds: string[],
   access?: RecordAccess,
-): Promise<Map<string, number>> {
+): Promise<Map<string, number> | null> {
   const out = new Map<string, number>()
   if (!parentIds.length) return out
 
   const op = rollup.op.toLowerCase()
   const valueField = rollup.op === 'COUNT' ? '*' : rollup.valueField || '*'
+
+  if (access && !isSystemRecordAccess(access)) {
+    try {
+      await assertReadableQuery(access.me, rollup.childEntity, {
+        filter: rollup.filter ?? undefined,
+        aggregate:
+          valueField && valueField !== '*'
+            ? { [op]: valueField }
+            : undefined,
+      })
+    } catch {
+      return null
+    }
+  }
+
   const filter = mergeRollupFilter(rollup, parentIds)
   const securedFilter = access
     ? await applyOwnerFilterIfNeeded(rollup.childEntity, access, filter)
@@ -224,7 +247,7 @@ export async function attachLiveRollupsOnRead(
     .filter((id): id is string => Boolean(id))
   if (!parentIds.length) return records
 
-  const valueByField = new Map<string, Map<string, number>>()
+  const valueByField = new Map<string, Map<string, number> | null>()
   for (const field of liveFields) {
     valueByField.set(
       field.apiName,
@@ -237,7 +260,13 @@ export async function attachLiveRollupsOnRead(
     if (!id) return record
     const next = { ...record }
     for (const field of liveFields) {
-      next[field.apiName] = valueByField.get(field.apiName)?.get(id) ?? 0
+      const values = valueByField.get(field.apiName)
+      if (values == null) {
+        // FLS denied on child filter/value — omit (do not attach 0).
+        delete next[field.apiName]
+        continue
+      }
+      next[field.apiName] = values.get(id) ?? 0
     }
     return next
   })

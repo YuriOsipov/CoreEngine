@@ -16,6 +16,7 @@ vi.mock('../adapters/records/relations.js', () => ({
 
 import {
   collectComputedSourcePaths,
+  collectFilterFieldPaths,
   elevateComputedSensitivities,
   requiredComputedSensitivity,
 } from './computedSensitivity.js'
@@ -73,6 +74,71 @@ describe('computedSensitivity', () => {
       byEntity,
     )
     expect(required).toBe(2)
+  })
+
+  it('collects flat, dotted, and nested filter field paths', () => {
+    expect(
+      collectFilterFieldPaths({ salary: { _gt: 100 } }).sort(),
+    ).toEqual(['salary'])
+    expect(
+      collectFilterFieldPaths({
+        _and: [
+          { status: { _eq: 'open' } },
+          { 'manager.salary': { _gt: 0 } },
+        ],
+      }).sort(),
+    ).toEqual(['manager.salary', 'status'])
+    expect(
+      collectFilterFieldPaths({
+        manager: { salary: { _gte: 50 } },
+      }).sort(),
+    ).toEqual(['manager.salary'])
+  })
+
+  it('elevates COUNT rollups from sensitive child filter fields (inference)', async () => {
+    const byEntity = new Map([
+      ['employee', new Map([['salary', 2]])],
+    ])
+    const required = await requiredComputedSensitivity(
+      'account',
+      {
+        computeMode: 'rollup',
+        rollup: {
+          childEntity: 'employee',
+          parentField: 'account',
+          valueField: '*',
+          op: 'COUNT',
+          filter: { salary: { _gt: 100_000 } },
+        },
+      },
+      'input',
+      byEntity,
+    )
+    expect(required).toBe(2)
+  })
+
+  it('elevates unmarked rollup when only the child filter is sensitive', async () => {
+    const byEntity = new Map([
+      ['opportunity_item', new Map([['discount_pct', 1]])],
+    ])
+    await elevateComputedSensitivities(byEntity, [
+      {
+        entity: 'opportunity',
+        apiName: 'promo_line_count',
+        options: {
+          computeMode: 'rollup',
+          rollup: {
+            childEntity: 'opportunity_item',
+            parentField: 'opportunity',
+            valueField: '*',
+            op: 'COUNT',
+            filter: { discount_pct: { _gt: 0 } },
+          },
+        },
+        fieldInterface: 'input',
+      },
+    ])
+    expect(byEntity.get('opportunity')?.get('promo_line_count')).toBe(1)
   })
 
   it('elevates unmarked formula fields from sensitive sources', async () => {

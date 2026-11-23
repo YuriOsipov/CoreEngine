@@ -558,6 +558,16 @@ export const typeDefs = /* GraphQL */ `
     """Admin: recent failed runLocalFlow attempts (app_flow_dispatches)."""
     failedFlowDispatches(limit: Int = 50): [FlowDispatch!]!
     """
+    Admin: append-only Setup / registry config change trail
+    (entities, fields, roles, permissions, users, layouts, …).
+    """
+    configAudits(
+      resourceType: String
+      resourceKey: String
+      limit: Int = 50
+      offset: Int = 0
+    ): ConfigAuditPage!
+    """
     Group hierarchy with nested prices (exact group-field match per node).
     config is required: collections + parent/group/scope field paths from Tree settings.
     Always returns { tree, rows, sections }. When flatten is false, rows is [].
@@ -569,6 +579,23 @@ export const typeDefs = /* GraphQL */ `
       flatten: Boolean = true
       config: JSON
     ): JSON
+  }
+
+  type ConfigAuditPage {
+    nodes: [ConfigAudit!]!
+    totalCount: Int!
+  }
+
+  type ConfigAudit {
+    id: ID!
+    action: String!
+    resourceType: String!
+    resourceKey: String!
+    summary: String!
+    userId: ID
+    before: JSON
+    after: JSON
+    createdAt: String!
   }
 
   type ScheduledTask {

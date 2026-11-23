@@ -40,6 +40,7 @@ vi.mock('../adapters/records/registry.js', () => ({
 
 import {
   canAssignOwnerOnCreate,
+  canAssignOwnerOnUpdate,
   resolveCreateOwnerId,
   resolveEffectiveCreateOwnerId,
 } from './ownerInheritance.js'
@@ -149,5 +150,71 @@ describe('resolveEffectiveCreateOwnerId (trusted owner assign)', () => {
     expect(await canAssignOwnerOnCreate(SYSTEM_RECORD_ACCESS, 'incoming_message')).toBe(
       true,
     )
+  })
+})
+
+describe('canAssignOwnerOnUpdate (transfer)', () => {
+  beforeEach(() => {
+    resolveRoleOwnerBypass.mockReset()
+  })
+
+  it('allows Modify all to reassign any row', async () => {
+    resolveRoleOwnerBypass.mockResolvedValue({
+      viewAll: true,
+      modifyAll: true,
+    })
+    await expect(
+      canAssignOwnerOnUpdate(
+        {
+          me: {
+            id: 'mgr',
+            email: 'mgr@example.com',
+            isAdmin: false,
+          } as never,
+        },
+        'account',
+        'rep-owner',
+      ),
+    ).resolves.toBe(true)
+  })
+
+  it('allows the current owner to transfer their own row', async () => {
+    resolveRoleOwnerBypass.mockResolvedValue({
+      viewAll: false,
+      modifyAll: false,
+    })
+    await expect(
+      canAssignOwnerOnUpdate(
+        {
+          me: {
+            id: 'rep-owner',
+            email: 'rep@example.com',
+            isAdmin: false,
+          } as never,
+        },
+        'account',
+        'rep-owner',
+      ),
+    ).resolves.toBe(true)
+  })
+
+  it('denies a peer without Modify all', async () => {
+    resolveRoleOwnerBypass.mockResolvedValue({
+      viewAll: false,
+      modifyAll: false,
+    })
+    await expect(
+      canAssignOwnerOnUpdate(
+        {
+          me: {
+            id: 'other-rep',
+            email: 'other@example.com',
+            isAdmin: false,
+          } as never,
+        },
+        'account',
+        'rep-owner',
+      ),
+    ).resolves.toBe(false)
   })
 })

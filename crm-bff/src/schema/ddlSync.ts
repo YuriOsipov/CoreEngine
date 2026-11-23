@@ -27,7 +27,37 @@ export type DdlActionType =
   | 'CREATE_INDEX'
   | 'CREATE_FK'
   | 'BACKFILL_COLUMN'
+  | 'COMMENT_COLUMN'
   | 'ENSURE_TRIGGER'
+
+/** Stable Postgres column comment marker for registry field sensitivity. */
+export const SENSITIVITY_COMMENT_PREFIX = 'coreengine.sensitivity='
+
+export function formatSensitivityComment(sensitivity: number): string {
+  const tier = Math.min(2, Math.max(0, Math.trunc(Number(sensitivity) || 0)))
+  return `${SENSITIVITY_COMMENT_PREFIX}${tier}`
+}
+
+/** Parse our marker from a column comment; missing / foreign comments → null. */
+export function parseSensitivityComment(
+  comment: string | null | undefined,
+): number | null {
+  const text = String(comment || '')
+  const match = text.match(/coreengine\.sensitivity\s*=\s*([0-2])\b/i)
+  if (!match) return null
+  return Number(match[1])
+}
+
+export function buildSensitivityCommentSql(
+  schema: string,
+  table: string,
+  fieldApiName: string,
+  sensitivity: number,
+): string {
+  const relation = `${quoteIdent(schema)}.${quoteIdent(table)}`
+  const literal = formatSensitivityComment(sensitivity).replace(/'/g, "''")
+  return `COMMENT ON COLUMN ${relation}.${quoteIdent(fieldApiName)} IS '${literal}'`
+}
 
 export interface DdlAction {
   type: DdlActionType
@@ -356,6 +386,57 @@ function buildCreateTableSql(
     ...promoted.map((f) => `${quoteIdent(f.apiName)} ${f.pgType}`),
   ]
   return `CREATE TABLE IF NOT EXISTS ${relation} (\n  ${cols.join(',\n  ')}\n)`
+}
+
+async function listColumnComments(
+  schema: string,
+  table: string,
+): Promise<Map<string, string | null>> {
+  const rows = await query<{ column_name: string; comment: string | null }>(
+    `SELECT a.attname AS column_name,
+            col_description(a.attrelid, a.attnum) AS comment
+     FROM pg_catalog.pg_attribute a
+     JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = $1
+       AND c.relname = $2
+       AND a.attnum > 0
+       AND NOT a.attisdropped`,
+    [schema, table],
+  )
+  return new Map(rows.map((row) => [row.column_name, row.comment]))
+}
+
+/**
+ * Align Postgres column comments with registry `fields.sensitivity`.
+ * Missing marker is treated as 0. Idempotent.
+ */
+export function planSensitivityCommentActions(
+  entityApiName: string,
+  schema: string,
+  table: string,
+  promoted: CrmPromotedField[],
+  existingComments: Map<string, string | null> | null,
+): DdlAction[] {
+  const actions: DdlAction[] = []
+  for (const field of promoted) {
+    const expected = Math.min(2, Math.max(0, Math.trunc(field.sensitivity || 0)))
+    const rawComment = existingComments?.get(field.apiName)
+    const actual =
+      existingComments == null
+        ? null
+        : parseSensitivityComment(rawComment)
+    // New table / new column: always stamp. Existing: only when marker drifts.
+    if (existingComments != null && (actual ?? 0) === expected) continue
+    actions.push({
+      type: 'COMMENT_COLUMN',
+      entityApiName,
+      fieldApiName: field.apiName,
+      sql: buildSensitivityCommentSql(schema, table, field.apiName, expected),
+      message: `Comment ${entityApiName}.${field.apiName} sensitivity=${expected}`,
+    })
+  }
+  return actions
 }
 
 function buildBackfillSql(
@@ -714,6 +795,16 @@ export async function planEntityDdlSync(
         hasDeletedColumn: envelopeFlags.includeDeleted,
       }),
     )
+    // New table: stamp sensitivity comments for every promoted column.
+    actions.push(
+      ...planSensitivityCommentActions(
+        entityApiName,
+        schema,
+        table,
+        promoted,
+        null,
+      ),
+    )
 
     if (includeFk) {
       actions.push(...(await planForeignKeys(entityApiName, promoted, schema, table)))
@@ -799,6 +890,23 @@ export async function planEntityDdlSync(
       hasStatusColumn,
       hasDeletedColumn,
     }),
+  )
+
+  const commentsForPlan = await listColumnComments(schema, table)
+  // Columns we are about to ADD have no comment yet — treat marker as missing.
+  for (const field of promoted) {
+    if (!byName.has(field.apiName)) {
+      commentsForPlan.set(field.apiName, null)
+    }
+  }
+  actions.push(
+    ...planSensitivityCommentActions(
+      entityApiName,
+      schema,
+      table,
+      promoted,
+      commentsForPlan,
+    ),
   )
 
   if (includeFk) {
@@ -947,6 +1055,7 @@ export function ddlActionsIndicateDrift(actions: DdlAction[]): boolean {
       'CREATE_INDEX',
       'CREATE_FK',
       'BACKFILL_COLUMN',
+      'COMMENT_COLUMN',
       'ENSURE_TRIGGER',
     ].includes(a.type) && !a.sql.trim().startsWith('--'),
   )

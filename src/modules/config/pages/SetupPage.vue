@@ -94,6 +94,11 @@ const allTabs = computed(() => [
     to: '/setup/archived',
     adminOnly: true,
   },
+  {
+    label: t('setup.configAuditTab', 'Config audit'),
+    to: '/setup/config-audit',
+    adminOnly: true,
+  },
 ])
 
 const tabs = computed(() => {
@@ -191,6 +196,9 @@ function isTabActive(path: string): boolean {
   }
   if (path === '/setup/archived') {
     return route.path.startsWith('/setup/archived')
+  }
+  if (path === '/setup/config-audit') {
+    return route.path.startsWith('/setup/config-audit')
   }
   return false
 }

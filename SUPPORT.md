@@ -1,6 +1,6 @@
 # Support
 
-CoreEngine is **early-stage MIT OSS** aimed at SMB / mid-market self-hosters. There is **no paid SLA** and no dedicated support desk yet.
+Community support only — **no paid SLA** and no dedicated support desk. Product scope: [README](README.md).
 
 ## Where to ask
 
@@ -29,4 +29,4 @@ CoreEngine is **early-stage MIT OSS** aimed at SMB / mid-market self-hosters. Th
 
 - Building or hosting a customer’s production environment
 - Guaranteeing parity with Salesforce / NocoBase / Twenty feature checklists
-- Enterprise sharing hierarchies, SAML/SCIM, or in-product AI agents (not in current scope — see README)
+- Sharing hierarchies, SAML/SCIM, or in-product AI agents (scope: [README](README.md))

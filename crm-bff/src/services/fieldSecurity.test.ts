@@ -145,6 +145,41 @@ describe('fieldSecurity', () => {
     expect([...(access?.unreadable ?? [])]).toEqual(['salary_sum'])
   })
 
+  it('elevates unmarked COUNT rollups from a sensitive child filter (no inference leak)', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM public.fields')) {
+        return [
+          {
+            entity_api_name: 'employee',
+            field_api_name: 'salary',
+            sensitivity: 2,
+            interface: 'input',
+            options: {},
+          },
+          {
+            entity_api_name: 'account',
+            field_api_name: 'high_earner_count',
+            sensitivity: 0,
+            interface: 'input',
+            options: {
+              computeMode: 'rollup',
+              rollup: {
+                childEntity: 'employee',
+                parentField: 'account',
+                valueField: '*',
+                op: 'COUNT',
+                filter: { salary: { _gt: 100_000 } },
+              },
+            },
+          },
+        ]
+      }
+      return []
+    })
+    const access = await resolveFieldAccess(user(), 'account')
+    expect([...(access?.unreadable ?? [])]).toEqual(['high_earner_count'])
+  })
+
   it('applies tiers per entity: restricted read, no edit', async () => {
     mockRegistry([{ entity: 'employee', read: 1, edit: 0 }])
     const access = await resolveFieldAccess(user(), 'Employee')
@@ -379,6 +414,39 @@ describe('fieldSecurity', () => {
     expect(children.map((row) => redactRecord(row, access))).toEqual([
       { id: 'c1', name: 'A' },
       { id: 'c2', name: 'B' },
+    ])
+  })
+
+  it('child value lookup: rejects filter/value paths on sensitive child fields', async () => {
+    // ChildLookup fetch uses findMany with valueField projection + optional
+    // filter — same assertReadableQuery gate as list/SOQL.
+    mockRegistry([])
+    const me = user()
+    await expect(
+      assertReadableQuery(me, 'employee', {
+        filter: { salary: { _gt: 0 } },
+        paths: ['salary'],
+      }),
+    ).rejects.toThrow(/salary/i)
+    await expect(
+      assertReadableQuery(me, 'employee', {
+        filter: { name: { _eq: 'A' } },
+        paths: ['name'],
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('child value lookup: redacts sensitive valueField from option rows', async () => {
+    mockRegistry([])
+    const access = await resolveFieldAccess(user(), 'employee')
+    // Shape returned to ChildLookup after BFF list (valueField = salary).
+    const rows = [
+      { id: '1', salary: 120_000, name: 'A' },
+      { id: '2', salary: 80_000, name: 'B' },
+    ]
+    expect(rows.map((row) => redactRecord(row, access))).toEqual([
+      { id: '1', name: 'A' },
+      { id: '2', name: 'B' },
     ])
   })
 })

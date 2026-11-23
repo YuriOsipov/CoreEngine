@@ -50,6 +50,7 @@ const emit = defineEmits<{
   'run-action': [action: EntityAction]
   'edit-record': []
   'delete-record': []
+  'change-owner': []
   'related-changed': []
 }>()
 
@@ -290,6 +291,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
           @run-action="emit('run-action', $event)"
           @edit-record="emit('edit-record')"
           @delete-record="emit('delete-record')"
+          @change-owner="emit('change-owner')"
         />
       </div>
     </section>
@@ -332,6 +334,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
             @run-action="emit('run-action', $event)"
             @edit-record="emit('edit-record')"
             @delete-record="emit('delete-record')"
+            @change-owner="emit('change-owner')"
           />
         </div>
 
@@ -376,6 +379,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
             @run-action="emit('run-action', $event)"
             @edit-record="emit('edit-record')"
             @delete-record="emit('delete-record')"
+            @change-owner="emit('change-owner')"
           />
         </div>
 

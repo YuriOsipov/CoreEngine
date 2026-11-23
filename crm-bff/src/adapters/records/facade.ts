@@ -76,8 +76,12 @@ import {
   applyOwnerFilterIfNeeded,
   assertOwnerAccessIfNeeded,
   ownerAccessCheckFields,
+  readRecordOwnerId,
 } from '../../services/rowLevelSecurity.js'
-import { resolveEffectiveCreateOwnerId } from '../../services/ownerInheritance.js'
+import {
+  canAssignOwnerOnUpdate,
+  resolveEffectiveCreateOwnerId,
+} from '../../services/ownerInheritance.js'
 import type { MeUser } from '../usersAdapter.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
@@ -1102,7 +1106,11 @@ export async function updateRecord(
   }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  await assertWriteAllowed(options.access, apiName, data)
+  // Capture before strip / field ACL — only trusted callers may reassign owner.
+  const requestedOwnerId = fkIdFromValue(data.owner_id)
+  const dataForWrite: Record<string, unknown> = { ...data }
+  delete dataForWrite.owner_id
+  await assertWriteAllowed(options.access, apiName, dataForWrite)
   let existing: Record<string, unknown> | null = null
   try {
     existing = await store.findOne(apiName, String(id), null)
@@ -1122,7 +1130,7 @@ export async function updateRecord(
   }
   const withoutClientAudit = await sanitizeHtmlFieldWrites(
     apiName,
-    stripClientAuditUserFields(data),
+    stripClientAuditUserFields(dataForWrite),
   )
   const strippedRollups = await stripRollupWrites(apiName, withoutClientAudit)
   const stripped = await stripAutoNumberWrites(apiName, strippedRollups)
@@ -1141,6 +1149,14 @@ export async function updateRecord(
     'update',
     recordAuditStampId(options),
   )
+  if (requestedOwnerId) {
+    const existingOwner = existing ? readRecordOwnerId(existing) : null
+    if (
+      await canAssignOwnerOnUpdate(options.access, apiName, existingOwner)
+    ) {
+      parentData.owner_id = requestedOwnerId
+    }
+  }
   const updated = await store.update(apiName, id, parentData, null)
   await applyM2ANestedWrites(apiName, String(id), m2a.nested)
   await applyO2MNestedWrites(apiName, String(id), o2m.nested)

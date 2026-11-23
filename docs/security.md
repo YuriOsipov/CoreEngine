@@ -1,0 +1,105 @@
+# Security model
+
+CoreEngine security is enforced by the **BFF** (GraphQL / REST / SOQL). The UI never stands alone — hiding a field or list filter in Setup does not replace API checks.
+
+Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`](../SUPPORT.md).
+
+## Layers
+
+| Layer | Answers | Where you configure it | Enforced by |
+|-------|---------|------------------------|-------------|
+| **Authentication** | Who is signed in? | Local login and/or OIDC IdP | BFF JWT + optional IdP |
+| **Object ACL** | May this role Create / Read / Update / Delete / Import / Export this object? | Setup → Roles | BFF `assertEntityPermission` |
+| **Field sensitivity** | Which columns may this role see or edit? | Setup → Fields + Roles (Sensitive read/edit) | BFF FLS redaction / write deny |
+| **Owner row security** | Which **rows** may this user reach? | Setup → Entity parameters + Roles View all / Modify all | BFF owner / read-share filters |
+| **Layouts / nav** | What does the UI show? | Role Block / Record / list layouts, nav apps | UX only (on top of the layers above) |
+
+## Common SMB patterns
+
+| Goal | Configure |
+|------|-----------|
+| Rep sees only own Accounts / Opportunities | Owner row security **on** for those objects; Rep has Read/Update (no View all) |
+| Manager sees everyone’s book / reassigns leavers | Same objects; Manager gets **View all** + **Modify all**, then **Change Owner** on records |
+| Recipient can open Messages sent to them | Owner RLS on `message` + **Also grant read if** → `to_user` (Sales pack seeds this) |
+| Peer queue (all Sales Reps read each other’s rows) | **Also grant read if same role as owner** on that object (coarser than future Teams) |
+| Hide salary / cost from most roles | Mark field Restricted/Confidential; grant Sensitive read/edit only on trusted roles |
+| SSO with IdP MFA | Enable OIDC; set `AUTH_LOCAL_LOGIN_ENABLED=false` so local password cannot bypass IdP MFA |
+
+## Authentication
+
+- BFF local login (`VITE_AUTH_MODE=bff`) issues verified Bearer access tokens (**15-minute** TTL) + refresh tokens (**30-day** TTL).
+- Optional **OIDC SSO** (`OIDC_ENABLED`) — Authorization Code + PKCE against an external IdP (Keycloak, Auth0, Entra, …). See [`oidc-sso.md`](./oidc-sso.md).
+- **Roles and admin flags stay in CoreEngine** (Setup → Users / Roles) — IdP groups/roles are not synced. MFA lives on the IdP.
+- Local password login defaults **on**; set `AUTH_LOCAL_LOGIN_ENABLED=false` for SSO-only.
+- Refresh-token **reuse** revokes all sessions for that user. Admin status comes from the **database**, not from JWT / IdP claims.
+- Deactivate in Setup (`is_active = false`) for immediate API deny.
+
+## Object-level ACL
+
+- Per-role Create / Read / Update / Delete / Import / Export — **enforced by the BFF**. Without Read, the object is unreachable even if a layout or nav item points at it.
+- Setup → Roles also grants optional **View all** / **Modify all** per object (only meaningful when owner row security is on).
+- **Setup / registry** mutations require **admin** (`requireAdminAccess`). Successful changes append to **`config_audits`** (GraphQL `configAudits`) — entities, fields, roles, permissions, users, layouts.
+
+## Field-level security (sensitivity)
+
+- Mark a field **None / Restricted / Confidential** in Setup → Fields; grant a per-role max **Sensitive read** / **Sensitive edit** tier in Setup → Roles. Platform default is open (new fields = None) until an admin marks them. Admins bypass. **UI hide alone is not enough**.
+- **Entity / pack default:** Setup → Entity parameters → **Default field security level** (`backend_config.defaultFieldSensitivity`).
+- **Column-level only.** Flags do **not** by themselves cover “Sales can see salary only for their own team” — combine with owner row security or keep that data on a separate object.
+- **Covered (unit-tested):** record reads & writes; filters, sorts, aggregates (`assertReadableQuery` before every store); dotted SOQL keys; list search; revision snapshot redaction; export/import; upsert / unique-key lookups; `expand=children`; bulk update; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (value field, **rollup child filters**, formula sources); live rollup omit on filter FLS deny; child value lookup filter/value FLS; ddlSync sensitivity column comments; production boot refuses missing sensitivity columns; hard delete audits **before** erase.
+- **Documents vs FLS:** `generateDocument` freezes the generating caller’s readable snapshot. Persisted `doc_value` / PDF/HTML then follows **document-object ACL**. See [`generate-document-api.md`](./generate-document-api.md).
+- **Known gaps** (close or add regression tests — see below).
+
+## Owner row security (record-level)
+
+- Opt-in per object so users without View/Modify all only reach rows they **own** (`owner_id`). Kernel default is **off**. The **Sales pack** turns it **on** for `account`, `contact`, `opportunity`, `message`, and `opportunity_item`.
+- **Enable:** Setup → Entity parameters → **Owner row security**, or `backendConfig.rowLevelSecurity = "owner"` in pack JSON.
+- Optional **Inherit owner from parent** (`backendConfig.inheritOwnerFrom`) copies parent `owner_id` on create. **Created By** (`user_created`) stays the creating actor.
+- **Change Owner:** record action + `updateRecord` with `owner_id`. Allowed for **Modify all** / admin / system, and for the **current owner**. Use this when a rep leaves — reassign their rows before (or after) deactivating the user. Managers with Modify all are not limited to “edit others’ fields while leaving ownership stranded.”
+- **Also grant read if** (`rowLevelReadAlsoIf`): UUID/M2O → Users fields (e.g. Message `to_user`). Matching users may **read**; update/delete stay owner-only.
+- **Also grant read if same role as owner** (`rowLevelReadAlsoIfSameRole`): peers with the owner’s app Role may **read**. Coarser than a future Teams object.
+- **Typical setup:** Reps = Read/Update (owner filter). Managers = same CRUD **plus View all** (and **Modify all** if needed). Platform admins bypass.
+- **Enforced:** list, get-by-id, update, soft-delete, restore, aggregates, live rollups, M2O list search, file read/write on parent records, generateDocument source access.
+- **Bypass:** admins; `SYSTEM_RECORD_ACCESS`; role **View all** / **Modify all** (still need Read / Update / Delete).
+- **Not yet:** Teams / membership subsets, manual share UI, role hierarchy, criteria sharing rules, or **bulk** Change Owner from the list. Role list filters/views are UX-only.
+- **n8n / automation:** any active app user JWT works for record APIs. Seed helper defaults to non-admin **Integration**. With owner RLS on, creates stamp `owner_id` to that user.
+- **Tests:** `crm-bff/src/services/rowLevelSecurity.test.ts`, `fieldSecurity.test.ts`, `resolverAccessPolicy.test.ts`.
+
+## Layouts, preview, and UX
+
+- **Admin “View as role”** — `X-Role-Preview` applies the selected role’s object ACL, FLS, and owner rules without logging out. Setup mutations and GraphQL `me` keep real admin identity; audits still stamp the admin.
+- Per-role layouts, list filters/views, and navigation apps are UX on top of API security — they do not grant access by themselves.
+
+## Known gaps (close or test)
+
+Prioritized for FLS / buyer diligence. Record Activity & Revision Tracking covers **business rows**, not Setup.
+
+| Priority | Gap | Risk | Status |
+|----------|-----|------|--------|
+| **P0** | **Rollup child filters on sensitive fields** | Filtered aggregates can leak sensitive child columns via inference (e.g. COUNT where `salary > X`). | **Closed** — rollups inherit max sensitivity from child **value + filter** paths (`computedSensitivity`); live reads also `assertReadableQuery` the filter and omit the field on deny (`applyRollups`). Tests: `computedSensitivity.test.ts`, `fieldSecurity.test.ts`. |
+| **P1** | **`ddlSync` ignores sensitivity** | Physical column plan/apply did not consult `fields.sensitivity`. | **Closed** — `loadPromotedFields` carries sensitivity; ddlSync plans `COMMENT ON COLUMN … IS 'coreengine.sensitivity=N'` on create/add/drift (`planSensitivityCommentActions`). Tests: `ddlSync.sensitivity.test.ts`. |
+| **P1** | **Child value lookups — no FLS test** | Form/inline **child value lookup** paths lacked a dedicated FLS regression. | **Closed** — regression covers filter/value `assertReadableQuery` deny + valueField redaction (same gates as ChildLookup list fetches). Tests: `fieldSecurity.test.ts`. |
+| **P2** | **Admin config audit trail** | Security-minded buyers expect who-changed-what for Roles, Fields, layouts, packs, nav. | **Closed** — `public.config_audits` + GraphQL `configAudits` + Setup → **Config audit** UI. Wired for entities, fields, roles, permissions, users, layouts. Best-effort write; passwords never stored. Packs via CLI use git. Tests: `configAuditService.test.ts`. |
+| **P2** | Automation `setFields` / `notify` | Trusted server-side rules; document and bound as system context, not caller FLS. | Partial |
+| **P3** | Field/role FLS caches | **5s TTL** + DB epoch; brief stale grants possible after Setup edits. | Accepted for now |
+
+**Mitigations until closed:** keep Confidential data on objects with tight object ACL / owner RLS. Config history: GraphQL `configAudits` (after `npm run registry:migrate`) or DB `public.config_audits`.
+
+## Deployment checklist
+
+| Topic | Behavior |
+|-------|----------|
+| **JWTs** | HMAC-signed, algorithm-pinned, verified on each guarded request. Access TTL **15 minutes**; refresh rotates. Reuse of a rotated refresh token revokes **all** sessions. Placeholder / too-short `AUTH_JWT_SECRET` refused at every BFF start. |
+| **OIDC SSO** | Optional external IdP. BFF is the relying party. Roles stay in CoreEngine. See [`oidc-sso.md`](./oidc-sso.md). |
+| **Admin status** | From the **database**, not JWT / IdP claims. |
+| **Setup mutations** | Require **admin**. Config changes → `config_audits` / `configAudits` query. |
+| **Object ACL** | Per-role CRUD matrix. Missing Read blocks the object on API paths. |
+| **Field tiers** | Sensitivity `0` / `1` / `2` + per-role max read/edit. Production refuses to start if sensitivity columns are missing. |
+| **Owner row security** | Opt-in `owner_id` + optional read-share / same-role read. Managers: View all / Modify all. No Teams object yet. |
+| **Document render** | Worker thread + hard kill on timeout; `DOC_RENDER_*` caps. CI uses stubs. |
+| **Hasura / Directus** | Optional record backends — keep admin consoles / secrets off public networks. Clients talk to the BFF only. |
+| **Scheduler** | In-process with **Postgres advisory locks** per task + Message **SKIP LOCKED** claim. Prefer **one** BFF with `TASK_SCHEDULER_ENABLED=true`; disable on replicas. Durable multi-instance queue (pg-boss / Graphile Worker) is planned. |
+| **Flows** | `FLOWS_TRIGGER_REQUIRE_AUTH=false` refused in production. |
+| **CORS** | Explicit origin allowlist; `CORS_ORIGIN=*` ignored / refused in production. |
+| **TLS & rate limiting** | Terminate TLS at the reverse proxy. Login uses per-IP and per-IP+email failure windows. |
+| **Bootstrap** | Weak bootstrap admin passwords refused unless `ALLOW_INSECURE_BOOTSTRAP=true`. |
+| **n8n automation user** | Any active app user JWT; seed helper defaults to non-admin Integration. |

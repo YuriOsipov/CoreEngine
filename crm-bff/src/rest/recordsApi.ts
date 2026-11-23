@@ -35,7 +35,10 @@ import {
   PASSWORD_CHANGE_REQUIRED,
   requireAuthenticatedUser,
 } from '../auth/accessGuards.js'
-import { readRolePreviewHeader } from '../auth/rolePreview.js'
+import {
+  actorIdFromMe,
+  readRolePreviewHeader,
+} from '../auth/rolePreview.js'
 import { loadEntityUniqueGroups } from '../schema/uniqueGroups.js'
 import { assertMeEntityPermission } from '../services/rolePermissions.js'
 import {
@@ -132,10 +135,6 @@ function flagTrue(raw: unknown): boolean {
     .trim()
     .toLowerCase()
   return token === '1' || token === 'true' || token === 'yes' || token === 'on'
-}
-
-function actorIdFromMe(me: { id?: string | null } | null | undefined): string | null {
-  return me?.id ? String(me.id) : null
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -535,7 +534,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
                 action: 'UPDATE',
                 before,
                 after: updated,
-                userId: actorUserId,
+                userId: actorIdFromMe(me),
               })
             },
             compensate: before
@@ -563,7 +562,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
               recordId: createdId,
               action: 'CREATE',
               after: created,
-              userId: actorUserId,
+              userId: actorIdFromMe(me),
             })
           },
           compensate: async () => {
@@ -591,7 +590,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
               recordId: createdId,
               action: 'CREATE',
               after: created,
-              userId: actorUserId,
+              userId: actorIdFromMe(me),
             })
           },
           compensate: async () => {
@@ -649,7 +648,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
             action: 'UPDATE',
             before,
             after: updated,
-            userId: actorUserId,
+            userId: actorIdFromMe(me),
           })
         },
         compensate: before
@@ -710,7 +709,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
               action: 'DELETE',
               before,
               after: null,
-              userId: actorUserId,
+              userId: actorIdFromMe(me),
             })
           },
           delete: async () => {
@@ -732,7 +731,7 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
             action: 'SOFT_DELETE',
             before,
             after: deleted,
-            userId: actorUserId,
+            userId: actorIdFromMe(me),
           })
         },
         compensate: async () => {

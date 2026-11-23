@@ -352,6 +352,7 @@ export interface PostgresMeUser {
   roleId: string | null
   roleName: string | null
   roleAdminAccess: boolean
+  canAuthorReports: boolean
   mustChangePassword: boolean
 }
 
@@ -378,6 +379,7 @@ export async function postgresFetchMe(
     role_id: string | null
     role_name: string | null
     is_admin: boolean | null
+    can_author_reports: boolean | null
     must_change_password: boolean | null
   }>(
     `SELECT u.backend_user_id AS id,
@@ -387,6 +389,7 @@ export async function postgresFetchMe(
             COALESCE(NULLIF(r.backend_role_id, ''), r.id::text) AS role_id,
             r.name AS role_name,
             COALESCE(r.is_admin, false) AS is_admin,
+            COALESCE(r.can_author_reports, false) AS can_author_reports,
             COALESCE(c.must_change_password, false) AS must_change_password
      FROM public.app_users u
      LEFT JOIN public.app_roles r ON r.id = u.role_id
@@ -416,6 +419,7 @@ export async function postgresFetchMe(
     roleId: row.role_id,
     roleName: row.role_name?.trim() || null,
     roleAdminAccess: isAdmin,
+    canAuthorReports: isAdmin || row.can_author_reports === true,
     mustChangePassword: row.must_change_password === true,
   }
 }

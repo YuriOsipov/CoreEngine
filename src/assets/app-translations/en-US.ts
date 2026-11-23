@@ -31,6 +31,7 @@ const messages = {
     viewAll: 'View all',
     moreInfo: 'More information',
     hint: 'Hint',
+    relatedRecordRestricted: 'Restricted',
   },
   iconPicker: {
     choose: 'Choose icon',
@@ -52,7 +53,7 @@ const messages = {
     rolePreviewActual: 'My role ({role})',
     rolePreviewUnknownRole: 'Unknown',
     rolePreviewBanner:
-      'Preview mode: layouts, views, object access, and field security follow role "{role}". Setup admin actions still use your admin account. Audit stamps still record you as the actor.',
+      'Preview mode: layouts, views, object access, field security, Owner row security, and Created By follow role "{role}" (as a sample user of that role). Setup admin actions still use your admin account.',
   },
   permissions: {
     checkingAccess: 'Checking access...',
@@ -260,6 +261,11 @@ const messages = {
     canvasBlockLayoutMissing: 'Block Layout could not be loaded.',
     compactLayout: 'Compact Layout',
     compactLayoutHint: 'Fields shown in the Highlights panel.',
+    compactView: 'Compact view',
+    compactViewHint:
+      'Inline = single-line header strip. Panel = multi-row grid using Compact Layout field widths.',
+    compactViewInline: 'Inline (single line)',
+    compactViewPanel: 'Panel (grid)',
     useRoleCompactLayout: 'Use role default',
     actionLayout: 'Actions from Block Layout',
     actionLayoutHint: 'Uses the action list configured on that Block Layout.',
@@ -287,6 +293,7 @@ const messages = {
       relatedList: 'Related List',
       files: 'Files',
       activityLog: 'Activity log',
+      messageTimeline: 'Message timeline',
       tabs: 'Tabs',
       actions: 'Actions',
       field: 'Field',
@@ -409,6 +416,8 @@ const messages = {
       subtitle:
         'Configure pivot reports from registry collections. Link them from Navigation when ready.',
       linkHint: 'Create and edit pivot reports for Navigation and dashboards.',
+      authorAccessRequired: 'You do not have permission to manage reports.',
+      authorOwnRoleOnly: 'You can only edit reports locked to your role.',
     },
     dashboards: {
       title: 'Dashboards',
@@ -683,9 +692,14 @@ const messages = {
       empty: 'No roles yet.',
       columnName: 'Name',
       columnAdmin: 'Admin',
+      columnAuthorReports: 'Reports',
       columnUsers: 'Users',
       columnCollection: 'Collection',
       isAdmin: 'Administrator',
+      canAuthorReports: 'Author reports',
+      canAuthorReportsHint:
+        'Members can create and edit reports locked to this role. Publishing for all roles stays admin-only.',
+      ownRoleLocked: 'Your role (locked)',
       adminBypass:
         'Administrators bypass the permission matrix and have full access.',
       permissions: 'Permissions',
@@ -728,7 +742,7 @@ const messages = {
     entityParameters: {
       title: 'Entity parameters',
       hint:
-        'Object-level settings: note, icon, display template, visibility, activity tracking, and duplication rules.',
+        'Object-level settings: note, icon, display template, visibility, activity tracking, owner row security, and duplication rules.',
       collection: 'Collection',
       label: 'Label',
       note: 'Note',
@@ -752,6 +766,21 @@ const messages = {
       defaultFieldSensitivity: 'Default field security level',
       defaultFieldSensitivityHint:
         'Applied to new fields when Field security level is left at the default. Existing fields are unchanged. Domain packs can set backendConfig.defaultFieldSensitivity the same way. Roles still need Sensitive read / edit grants to see marked fields.',
+      ownerRowSecurity: 'Owner row security',
+      ownerRowSecurityHint:
+        'When on, non-admin users can only list, open, edit, and delete records they own (Owner / owner_id). Created By stays an audit stamp. Admins still see all rows. Manual sharing and team hierarchy are not included yet.',
+      inheritOwnerFrom: 'Inherit owner from parent',
+      inheritOwnerFromNone: 'None (creator owns the row)',
+      inheritOwnerFromHint:
+        'When set, new rows copy Owner (owner_id) from the related parent (master-detail style). Created By stays the creating user. Use for child objects such as opportunity items under an opportunity.',
+      rowLevelReadAlsoIf: 'Also grant read if',
+      rowLevelReadAlsoIfHint:
+        'Users matching any selected Users M2O field (for example To user) can read the row in addition to the owner. Update and delete stay owner-only. Typical use: Message inbox.',
+      rowLevelReadAlsoIfPlaceholder: 'Select Users fields…',
+      rowLevelReadAlsoIfEmpty: 'No Users M2O fields available for read-share.',
+      rowLevelReadAlsoIfSameRole: 'Also grant read if same role as owner',
+      rowLevelReadAlsoIfSameRoleHint:
+        'When on, every user with the same Role as the record Owner can read the row (list and open). Update and delete stay owner-only. Coarser than a future Teams object — e.g. all Sales Reps see each other’s rows on this object.',
       saved: 'Entity parameters saved',
       loadError: 'Failed to load entity parameters',
       saveError: 'Failed to save entity parameters',
@@ -961,15 +990,15 @@ const messages = {
     automations: {
       title: 'Automations',
       hint:
-        'When a record is created or updated, matching rules set fields automatically. Use “Require field changed” so updates only fire when that field is part of the write (e.g. fulfilled_qty). Special values: $NOW, $NULL.',
+        'Matching rules run on create, update, delete, or when a user opens a record (detail). Use “Require field changed” on create/update so writes only fire when that field is part of the patch (ignored for On open / On delete). Special values: $NOW, $NULL.',
       addRule: 'Add rule',
       save: 'Save automations',
       saved: 'Automations saved',
-      savedDetail: 'Rules run on record create/update in the BFF.',
+      savedDetail: 'Rules run in the BFF on create/update/delete and when a record detail is opened.',
       loadError: 'Failed to load automations',
       saveError: 'Failed to save automations',
       empty:
-        'No automations yet. Add a rule — for example when fulfilled_qty is not empty and changed, set status and date_fulfilled = $NOW.',
+        'No automations yet. Add a rule — for example when fulfilled_qty is not empty and changed, set status and date_fulfilled = $NOW. Or On open: when status is new, set status = read.',
       newRuleName: 'New rule',
       ruleName: 'Rule name',
       sort: 'Sort',
@@ -982,11 +1011,12 @@ const messages = {
       triggerCreate: 'On create',
       triggerUpdate: 'On update',
       triggerDelete: 'On delete',
+      triggerOpen: 'On open',
       logic: 'Condition logic',
       logicAnd: 'Match all (AND)',
       logicOr: 'Match any (OR)',
       requireChanged: 'Require field changed',
-      requireChangedPlaceholder: 'Optional — only run when these fields change',
+      requireChangedPlaceholder: 'Optional — only on create/update when these fields change',
       configureRule: 'Configure rule',
       configureRuleNamed: 'Configure: {name}',
       deleteRule: 'Delete rule',
@@ -1157,6 +1187,10 @@ const messages = {
     actionPromptHeader: 'Enter value',
     actionPromptMultiplier: 'Multiplier',
     actionPromptRequired: 'Enter a numeric value to continue.',
+    actionRequiresWrite:
+      'You do not have permission to run this action on this record.',
+    replyMessage: 'Reply',
+    forwardMessage: 'Forward',
     bulkUpdateRelatedCompletedCount:
       'Updated {updated} record(s); skipped {skipped}.',
     bulkUpdateRelatedCompletedCountWithCreate:
@@ -1632,6 +1666,38 @@ const messages = {
     actionBehaviorFlow: 'Flow webhook',
     actionBehaviorCloneRelated: 'Clone structure',
     actionBehaviorBulkUpdateRelated: 'Bulk update related',
+    actionBehaviorCreateRecord: 'Create record',
+    createRecord: 'Create record',
+    createRecordHint:
+      'Open a create form for another object and prefill fields from this record or static values. Tokens: $ME, $ME_EMAIL, $NOW, $NULL.',
+    createRecordTarget: 'Target object',
+    createRecordTargetPlaceholder: 'Select object…',
+    createRecordOpenAfter: 'Open new record after create',
+    createRecordWhenNotWritable: 'Only when source is not writable',
+    createRecordWhenNotWritableHint:
+      'Hide this action when the current user can edit the source record (e.g. Message Reply for recipients).',
+    createRecordMappings: 'Field mappings',
+    createRecordConfigureMappings: 'Configure field mappings',
+    createRecordMappingsSummary: '{count} mapping(s)',
+    createRecordMappingsDialogTitle: 'Field mappings · {label}',
+    createRecordMappingsDialogTitleDefault: 'Field mappings',
+    createRecordMappingsDialogHint:
+      'Map target fields from the source record or set static values. Tokens: $ME, $ME_EMAIL, $NOW, $NULL.',
+    createRecordAddMapping: '+ Mapping',
+    createRecordMappingN: 'Mapping {n}',
+    createRecordTargetField: 'Target field',
+    createRecordSourceField: 'From source field',
+    createRecordSourceStatic: 'Static value',
+    createRecordSourceFieldPick: 'Source field',
+    createRecordSourceFields: 'Fallback fields (comma-separated)',
+    createRecordStaticValue: 'Static value ($ME, $NULL, …)',
+    createRecordTransformNone: 'None',
+    createRecordTransformQuoteLines: 'Quote lines (> )',
+    createRecordTransformSubjectPrefix: 'Subject prefix',
+    createRecordPrefix: 'Prefix (Re: / Fwd:)',
+    createRecordNoMappings: 'No field mappings yet.',
+    createRecordMissingTarget: 'Select a target object for this action.',
+    createRecordRequiresCreate: 'You do not have permission to create that object.',
     bulkUpdateRelated: 'Bulk update related',
     bulkUpdateRelatedHint:
       'Prompt for a number, then set Target field from Source path + formula. Optionally pick a Source collection to create missing related rows (upsert) before updating.',
@@ -2101,6 +2167,55 @@ const messages = {
     backToRecord: 'Back to {collection} record',
     pageSubtitle: 'Full activity history for this {collection}.',
   },
+  messageTimeline: {
+    title: 'Messages',
+    loading: 'Loading messages…',
+    loadMore: 'Load more',
+    loadFailed: 'Unable to load messages.',
+    empty: 'No messages yet.',
+    configureFields:
+      'Select outgoing and incoming objects and their link fields in the Record Page Builder.',
+    showingCount: '{shown} of {total}',
+    peerFilter: 'Filter',
+    contextLoadFailed: 'Unable to load message context.',
+    outgoingCollection: 'Outgoing object',
+    outgoingCollectionHint: 'Collection for outgoing rows (right side of the thread).',
+    incomingCollection: 'Incoming object',
+    incomingCollectionHint: 'Collection for incoming rows (left side of the thread).',
+    selectCollection: 'Select an object',
+    outgoingCompactLayout: 'Outgoing Compact Layout',
+    outgoingCompactLayoutHint:
+      'Compact Layout for outgoing bubbles. Leave empty for the role default on that object.',
+    incomingCompactLayout: 'Incoming Compact Layout',
+    incomingCompactLayoutHint:
+      'Compact Layout for incoming bubbles. Leave empty for the role default on that object.',
+    draft: 'Draft',
+    typeEmail: 'Email',
+    typeWhatsapp: 'WhatsApp',
+    typeTelegram: 'Telegram',
+    typeInternal: 'Internal',
+    builderDescription:
+      'Merges two related collections into one chronological thread. Choose the outgoing and incoming objects, then their link fields and Compact Layouts.',
+    outgoingParentField: 'Outgoing link field',
+    outgoingParentFieldHint: 'M2O on the outgoing object that equals this record id.',
+    incomingParentField: 'Incoming link field',
+    incomingParentFieldHint: 'M2O on the incoming object that equals this record id.',
+    outgoingPeerField: 'Outgoing peer filter field',
+    outgoingPeerFieldHint:
+      'Optional M2O on the outgoing object used by the header filter (for example To user).',
+    incomingPeerField: 'Incoming peer filter field',
+    incomingPeerFieldHint:
+      'Optional M2O on the incoming object used by the header filter (for example From user).',
+    outgoingDraftField: 'Outgoing draft field',
+    outgoingDraftFieldHint:
+      'Optional boolean field on the outgoing object. Used only when Hide drafts is on.',
+    selectParentField: 'Select a field',
+    maxItems: 'Messages per page',
+    maxItemsHint:
+      'Newest messages shown first. Load more appends the next page (default {count}).',
+    hideDrafts: 'Hide drafts',
+    hideDraftsHint: 'When on, and a draft field is set, outgoing draft rows are omitted.',
+  },
   reports: {
     addCondition: 'Add condition',
     addValue: 'Add value',
@@ -2363,6 +2478,8 @@ const messages = {
     noGroups: 'No groups in this tab yet.',
     noTabs: 'No tabs in this layout yet.',
     scheduler: 'Scheduler',
+    showLess: 'Show less',
+    showMore: 'Show more',
     tabFallback: 'Tab {n}',
     unknownComponent: 'Unknown component: {component}',
   },
@@ -2648,6 +2765,8 @@ const messages = {
     favoriteAddError: 'Failed to add favorite.',
     removeFavorite: 'Remove favorite',
     renameFavorite: 'Rename favorite',
+    account: 'Account',
+    profile: 'Profile',
     favoriteDialogTitle: 'Add to favorites',
     favoriteLabel: 'Label',
     favoriteAdd: 'Add to favorites',

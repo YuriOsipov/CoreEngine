@@ -22,20 +22,41 @@ import {
   mergeOwnerFilter,
   ownerEqFilter,
   parseInheritOwnerFrom,
+  parseReadAlsoIf,
+  parseReadAlsoIfSameRole,
   parseRowLevelSecurity,
   readInheritOwnerFrom,
+  readReadAlsoIf,
+  readReadAlsoIfSameRole,
   readRecordOwnerId,
   readRowLevelSecurity,
   ROW_OWNER_FIELD,
 } from './rowLevelSecurity.js'
+import { query } from '../db/pool.js'
 
 vi.mock('../db/pool.js', () => ({
-  query: vi.fn(async () => [
-    {
-      api_name: 'opportunity',
-      backend_config: { rowLevelSecurity: 'owner' },
-    },
-  ]),
+  query: vi.fn(async (sql: string) => {
+    if (String(sql).includes('FROM public.entities')) {
+      return [
+        {
+          api_name: 'opportunity',
+          backend_config: { rowLevelSecurity: 'owner' },
+        },
+        {
+          api_name: 'message',
+          backend_config: {
+            rowLevelSecurity: 'owner',
+            rowLevelReadAlsoIf: ['to_user'],
+            rowLevelReadAlsoIfSameRole: true,
+          },
+        },
+      ]
+    }
+    if (String(sql).includes('app_users')) {
+      return [{ actor_id: 'u1' }, { actor_id: 'u2' }]
+    }
+    return []
+  }),
 }))
 
 function me(partial: Partial<MeUser> & { id: string }): MeUser {
@@ -48,6 +69,7 @@ function me(partial: Partial<MeUser> & { id: string }): MeUser {
     roleId: partial.roleId ?? null,
     roleName: partial.roleName ?? null,
     roleAdminAccess: partial.roleAdminAccess ?? false,
+    canAuthorReports: partial.canAuthorReports ?? false,
     mustChangePassword: partial.mustChangePassword ?? false,
   }
 }
@@ -72,6 +94,26 @@ describe('rowLevelSecurity parse', () => {
     )
     expect(readInheritOwnerFrom({})).toBeNull()
   })
+
+  it('parses rowLevelReadAlsoIf and drops owner/audit fields', () => {
+    expect(parseReadAlsoIf(['to_user', 'owner_id', 'user_created', 'To_User'])).toEqual([
+      'to_user',
+    ])
+    expect(parseReadAlsoIf(null)).toEqual([])
+    expect(readReadAlsoIf({ rowLevelReadAlsoIf: ['to_user'] })).toEqual(['to_user'])
+    expect(readReadAlsoIf({})).toEqual([])
+  })
+
+  it('parses rowLevelReadAlsoIfSameRole', () => {
+    expect(parseReadAlsoIfSameRole(true)).toBe(true)
+    expect(parseReadAlsoIfSameRole('true')).toBe(true)
+    expect(parseReadAlsoIfSameRole(false)).toBe(false)
+    expect(parseReadAlsoIfSameRole(null)).toBe(false)
+    expect(
+      readReadAlsoIfSameRole({ rowLevelReadAlsoIfSameRole: true }),
+    ).toBe(true)
+    expect(readReadAlsoIfSameRole({})).toBe(false)
+  })
 })
 
 describe('mergeOwnerFilter', () => {
@@ -90,6 +132,19 @@ describe('mergeOwnerFilter', () => {
     expect(mergeOwnerFilter(null, 'u1', ['to_user'])).toEqual({
       _or: [
         { [ROW_OWNER_FIELD]: { _eq: 'u1' } },
+        { to_user: { _eq: 'u1' } },
+      ],
+    })
+  })
+
+  it('uses owner_id _in peer ids when same-role peers are provided', () => {
+    expect(
+      mergeOwnerFilter(null, 'u1', ['to_user'], {
+        sameRolePeerIds: ['u1', 'u2'],
+      }),
+    ).toEqual({
+      _or: [
+        { [ROW_OWNER_FIELD]: { _in: ['u1', 'u2'] } },
         { to_user: { _eq: 'u1' } },
       ],
     })
@@ -147,6 +202,29 @@ describe('assertRecordOwner', () => {
         { owner_id: 'rep1', to_user: 'admin1' },
         'update',
         ['to_user'],
+      ),
+    ).toThrow('Permission denied: update on message')
+  })
+
+  it('allows read for same-role peers but not update', () => {
+    expect(() =>
+      assertRecordOwner(
+        me({ id: 'u1', roleId: 'sales-rep' }),
+        'message',
+        { owner_id: 'u2' },
+        'read',
+        [],
+        { sameRolePeerIds: ['u1', 'u2'] },
+      ),
+    ).not.toThrow()
+    expect(() =>
+      assertRecordOwner(
+        me({ id: 'u1', roleId: 'sales-rep' }),
+        'message',
+        { owner_id: 'u2' },
+        'update',
+        [],
+        { sameRolePeerIds: ['u1', 'u2'] },
       ),
     ).toThrow('Permission denied: update on message')
   })
@@ -219,5 +297,32 @@ describe('View all / Modify all bypass', () => {
         'update',
       ),
     ).rejects.toThrow('Permission denied: update on opportunity')
+  })
+
+  it('list filter expands to same-role peers when enabled on the entity', async () => {
+    await expect(
+      applyOwnerFilterIfNeeded(
+        'message',
+        { me: me({ id: 'u1', roleId: 'sales-rep' }) },
+        null,
+      ),
+    ).resolves.toEqual({
+      _or: [
+        { [ROW_OWNER_FIELD]: { _in: ['u1', 'u2'] } },
+        { to_user: { _eq: 'u1' } },
+      ],
+    })
+    expect(query).toHaveBeenCalled()
+  })
+
+  it('allows get-by-id read for a same-role peer on message', async () => {
+    await expect(
+      assertOwnerAccessIfNeeded(
+        'message',
+        { me: me({ id: 'u1', roleId: 'sales-rep' }) },
+        { owner_id: 'u2' },
+        'read',
+      ),
+    ).resolves.toBeUndefined()
   })
 })

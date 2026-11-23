@@ -37,6 +37,9 @@ export const AUTHENTICATED_MUTATIONS = new Set([
   'upsertUserSetting',
   'upsertRecentRecordView',
   'generateDocument',
+  // Admins: any group. Non-admins with canAuthorReports: report/full only (own role).
+  'upsertLayoutSetting',
+  'deleteLayoutSetting',
 ])
 
 /** `requireAdminAccess` — Setup / registry / admin ops. */
@@ -60,8 +63,6 @@ export const ADMIN_MUTATIONS = new Set([
   'deleteDashboard',
   'upsertPanel',
   'deletePanel',
-  'upsertLayoutSetting',
-  'deleteLayoutSetting',
   'runSchemaDriftCheck',
   'runSchemaSync',
   'upsertEntityUniqueGroups',

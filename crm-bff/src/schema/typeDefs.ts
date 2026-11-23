@@ -63,6 +63,8 @@ export const typeDefs = /* GraphQL */ `
     writeRestricted: Boolean!
     """M2O / O2M / M2M / M2A when this field participates in a relation; null otherwise."""
     relationKind: RelationKind
+    """Related entity api_name when this field is an M2O (or similar); null otherwise."""
+    relatedEntityApiName: String
   }
 
   type Relation {
@@ -137,12 +139,12 @@ export const typeDefs = /* GraphQL */ `
     enabled: Boolean!
     """Lower number runs first."""
     sort: Int!
-    """create, update, and/or delete"""
+    """create, update, delete, and/or open"""
     triggers: [String!]!
     """and | or"""
     logic: String!
     conditions: [EntityRecordAutomationCondition!]!
-    """Fields that must change in this write for the rule to run."""
+    """Fields that must change in this write (create/update only; ignored for open/delete)."""
     requireChanged: [String!]!
     """Field → value. Special tokens: $NOW, $NULL, or {{DATE_ADD_DAYS(...)}} templates"""
     setFields: JSON!
@@ -202,7 +204,7 @@ export const typeDefs = /* GraphQL */ `
     backendConfig: JSON!
     """Effective unique groups (backend_config.uniqueGroups + fields.is_unique)."""
     uniqueGroups: [EntityUniqueGroup!]!
-    """Record automations from backend_config.automations (field updates on save)."""
+    """Record automations from backend_config.automations (create/update/delete/open)."""
     automations: [EntityRecordAutomation!]!
     labelTranslations: [LocalizedLabel!]!
     hidden: Boolean!
@@ -214,6 +216,17 @@ export const typeDefs = /* GraphQL */ `
     rowLevelSecurity: String
     """M2O field whose parent user_created is stamped on create; null = creator owns the row."""
     inheritOwnerFrom: String
+    """
+    Extra UUID/M2O fields that grant read when equal to me (OR owner).
+    Update/delete stay owner-only. Example: [\"to_user\"] on Message.
+    """
+    rowLevelReadAlsoIf: [String!]!
+    """
+    When true, users with the same app role as the row owner may read
+    (list/get). Update/delete stay owner-only. MVP peer-queue sharing via Roles
+    (Teams object is a later enhancement).
+    """
+    rowLevelReadAlsoIfSameRole: Boolean!
     """Platform / internal object — hidden from Object Manager pickers."""
     internal: Boolean!
     fields: [Field!]!
@@ -237,6 +250,16 @@ export const typeDefs = /* GraphQL */ `
     rowLevelSecurity: String
     """M2O field api_name for parent-owner inheritance on create; null to clear."""
     inheritOwnerFrom: String
+    """
+    Extra fields that grant read when equal to me (OR owner). Pass [] or null to clear.
+    Ignored when rowLevelSecurity is off.
+    """
+    rowLevelReadAlsoIf: [String!]
+    """
+    Pass true to allow same-role peers to read; false/null to clear.
+    Ignored when rowLevelSecurity is off.
+    """
+    rowLevelReadAlsoIfSameRole: Boolean
   }
 
   """Create a new registry object (Object Manager)."""
@@ -680,6 +703,8 @@ export const typeDefs = /* GraphQL */ `
     id: ID!
     name: String!
     isAdmin: Boolean!
+    """Non-admin roles may author reports scoped to their own role."""
+    canAuthorReports: Boolean!
     backendRoleId: String
     userCount: Int!
   }
@@ -737,11 +762,13 @@ export const typeDefs = /* GraphQL */ `
   input CreateAppRoleInput {
     name: String!
     isAdmin: Boolean = false
+    canAuthorReports: Boolean = false
   }
 
   input UpdateAppRoleInput {
     name: String
     isAdmin: Boolean
+    canAuthorReports: Boolean
   }
 
   input CreateAppUserInput {
@@ -770,7 +797,14 @@ export const typeDefs = /* GraphQL */ `
     roleId: ID
     roleName: String
     roleAdminAccess: Boolean!
+    """True when the user is admin or their role has can_author_reports."""
+    canAuthorReports: Boolean!
     mustChangePassword: Boolean!
+    """
+    When View-as-role is active: effective Owner-RLS / $CURRENT_USER actor
+    (sample user of that role). Null when not previewing.
+    """
+    rolePreviewActorId: ID
   }
 
   type RecentRecordView {
@@ -803,6 +837,8 @@ export const typeDefs = /* GraphQL */ `
     deletePanel(id: ID!): Boolean!
     createRecord(entity: String!, data: JSON!, fields: [String!]): JSON!
     updateRecord(entity: String!, id: ID!, data: JSON!, fields: [String!]): JSON!
+    """Run On-open automations for a record (detail view). May update fields and return toasts."""
+    runOpenRecordAutomations(entity: String!, id: ID!, fields: [String!]): JSON!
     softDeleteRecord(entity: String!, id: ID!): JSON!
     """Hard-delete a row (junction rows, etc.). Prefer softDeleteRecord for business records."""
     deleteRecord(entity: String!, id: ID!): Boolean!

@@ -73,6 +73,7 @@ const matrix = ref<PermissionMatrixRow[]>([])
 const form = reactive({
   name: '',
   isAdmin: false,
+  canAuthorReports: false,
 })
 
 const filteredRoles = computed(() => {
@@ -166,6 +167,7 @@ function openCreate(): void {
   editingId.value = null
   form.name = ''
   form.isAdmin = false
+  form.canAuthorReports = false
   permissionFilter.value = ''
   matrix.value = buildMatrix(entities.value, [])
   // New roles get full access by default (matches BFF seed on create).
@@ -186,6 +188,7 @@ async function openEdit(role: AppRoleAdminDto): Promise<void> {
   editingId.value = role.id
   form.name = role.name
   form.isAdmin = role.isAdmin
+  form.canAuthorReports = Boolean(role.canAuthorReports && !role.isAdmin)
   permissionFilter.value = ''
   dialogVisible.value = true
   saving.value = true
@@ -270,11 +273,13 @@ async function save(): Promise<void> {
       await updateAppRole(roleId, {
         name: form.name.trim(),
         isAdmin: form.isAdmin,
+        canAuthorReports: form.isAdmin ? false : form.canAuthorReports,
       })
     } else {
       const created = await createAppRole({
         name: form.name.trim(),
         isAdmin: form.isAdmin,
+        canAuthorReports: form.isAdmin ? false : form.canAuthorReports,
       })
       roleId = created.id
     }
@@ -432,6 +437,19 @@ onMounted(() => {
         </template>
       </Column>
       <Column
+        field="canAuthorReports"
+        :header="t('setup.roles.columnAuthorReports', 'Reports')"
+        style="width: 8rem"
+        header-style="width: 8rem"
+      >
+        <template #body="{ data }">
+          <i
+            v-if="data.canAuthorReports && !data.isAdmin"
+            class="pi pi-check"
+          />
+        </template>
+      </Column>
+      <Column
         field="userCount"
         :header="t('setup.roles.columnUsers', 'Users')"
         sortable
@@ -504,6 +522,19 @@ onMounted(() => {
           >
             {{ t('setup.roles.isAdmin', 'Administrator') }}
           </label>
+          <template v-if="!form.isAdmin">
+            <Checkbox
+              v-model="form.canAuthorReports"
+              binary
+              input-id="role-can-author-reports"
+            />
+            <label
+              for="role-can-author-reports"
+              class="setup-roles-dialog__label"
+            >
+              {{ t('setup.roles.canAuthorReports', 'Author reports') }}
+            </label>
+          </template>
         </div>
 
         <Message
@@ -519,7 +550,20 @@ onMounted(() => {
           }}
         </Message>
 
-        <template v-else>
+        <Message
+          v-if="!form.isAdmin && form.canAuthorReports"
+          severity="info"
+          :closable="false"
+        >
+          {{
+            t(
+              'setup.roles.canAuthorReportsHint',
+              'Members can create and edit reports locked to this role. Publishing for all roles stays admin-only.',
+            )
+          }}
+        </Message>
+
+        <template v-if="!form.isAdmin">
           <div class="setup-roles-dialog__permissions flex flex-col gap-2 min-h-0 flex-1">
           <div class="flex flex-wrap items-center justify-between gap-2 shrink-0">
             <label class="font-semibold">

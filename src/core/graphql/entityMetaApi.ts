@@ -20,6 +20,10 @@ export interface EntityMetaDto {
   rowLevelSecurity: 'owner' | null
   /** M2O field for parent-owner inheritance on create; null = creator owns the row. */
   inheritOwnerFrom: string | null
+  /** Extra fields that grant read when equal to me (OR owner). */
+  rowLevelReadAlsoIf: string[]
+  /** Same app role as owner may read (MVP; Teams later). */
+  rowLevelReadAlsoIfSameRole: boolean
   fields: Array<{
     apiName: string
     label: string
@@ -27,6 +31,7 @@ export interface EntityMetaDto {
     hidden: boolean
     isSystem: boolean
     relationKind?: string | null
+    relatedEntityApiName?: string | null
   }>
 }
 
@@ -42,6 +47,8 @@ export interface UpdateEntityMetaInput {
   defaultFieldSensitivity?: number | null
   rowLevelSecurity?: 'owner' | null
   inheritOwnerFrom?: string | null
+  rowLevelReadAlsoIf?: string[] | null
+  rowLevelReadAlsoIfSameRole?: boolean | null
 }
 
 const ENTITY_META_QUERY = /* GraphQL */ `
@@ -59,6 +66,8 @@ const ENTITY_META_QUERY = /* GraphQL */ `
       defaultFieldSensitivity
       rowLevelSecurity
       inheritOwnerFrom
+      rowLevelReadAlsoIf
+      rowLevelReadAlsoIfSameRole
       fields {
         apiName
         label
@@ -66,6 +75,7 @@ const ENTITY_META_QUERY = /* GraphQL */ `
         hidden
         isSystem
         relationKind
+        relatedEntityApiName
       }
     }
   }
@@ -86,12 +96,30 @@ const UPDATE_ENTITY_META = /* GraphQL */ `
       defaultFieldSensitivity
       rowLevelSecurity
       inheritOwnerFrom
+      rowLevelReadAlsoIf
+      rowLevelReadAlsoIfSameRole
     }
   }
 `
 
 function normalizeRowLevelSecurity(raw: unknown): 'owner' | null {
   return raw === 'owner' ? 'owner' : null
+}
+
+function normalizeReadAlsoIf(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    const field = entry.trim().toLowerCase()
+    if (!field || !/^[a-z][a-z0-9_]*$/.test(field)) continue
+    if (field === 'owner_id' || field === 'user_created') continue
+    if (seen.has(field)) continue
+    seen.add(field)
+    out.push(field)
+  }
+  return out
 }
 
 function normalizeAccountability(raw: unknown): EntityAccountability {
@@ -131,6 +159,8 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
       defaultFieldSensitivity?: number | null
       rowLevelSecurity?: string | null
       inheritOwnerFrom?: string | null
+      rowLevelReadAlsoIf?: string[] | null
+      rowLevelReadAlsoIfSameRole?: boolean | null
       fields: EntityMetaDto['fields']
     }
   }>(ENTITY_META_QUERY, { apiName })
@@ -151,6 +181,8 @@ export async function fetchEntityMeta(apiName: string): Promise<EntityMetaDto> {
       typeof row.inheritOwnerFrom === 'string' && row.inheritOwnerFrom.trim()
         ? row.inheritOwnerFrom.trim()
         : null,
+    rowLevelReadAlsoIf: normalizeReadAlsoIf(row.rowLevelReadAlsoIf),
+    rowLevelReadAlsoIfSameRole: Boolean(row.rowLevelReadAlsoIfSameRole),
     fields: row.fields ?? [],
   }
 }
@@ -176,6 +208,8 @@ export async function updateEntityMeta(
       defaultFieldSensitivity?: number | null
       rowLevelSecurity?: string | null
       inheritOwnerFrom?: string | null
+      rowLevelReadAlsoIf?: string[] | null
+      rowLevelReadAlsoIfSameRole?: boolean | null
     }
   }>(UPDATE_ENTITY_META, { entity, input })
   const row = data.updateEntityMeta
@@ -195,5 +229,7 @@ export async function updateEntityMeta(
       typeof row.inheritOwnerFrom === 'string' && row.inheritOwnerFrom.trim()
         ? row.inheritOwnerFrom.trim()
         : null,
+    rowLevelReadAlsoIf: normalizeReadAlsoIf(row.rowLevelReadAlsoIf),
+    rowLevelReadAlsoIfSameRole: Boolean(row.rowLevelReadAlsoIfSameRole),
   }
 }

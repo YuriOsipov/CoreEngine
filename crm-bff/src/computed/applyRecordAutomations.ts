@@ -160,7 +160,8 @@ function matchRequireChanged(
   existing: Record<string, unknown> | null,
   trigger: RecordAutomationTrigger,
 ): boolean {
-  if (trigger === 'delete') return true
+  // Open has no write patch; delete has no field edits — ignore requireChanged.
+  if (trigger === 'delete' || trigger === 'open') return true
   if (!rule.requireChanged.length) return true
   return rule.requireChanged.every((field) =>
     fieldChangedInWrite(field, patch, existing, trigger),
@@ -255,6 +256,7 @@ export function attachAutomationToasts(
  * Merge matching automation setFields into the write patch and collect toasts /
  * flow triggers. Conditions evaluate against existing + current patch (after formulas).
  * On delete, setFields are skipped; requireChanged is ignored.
+ * On open, requireChanged is ignored; setFields become an update patch for the caller.
  * trigger_flow actions are collected here and must run after the write commits.
  *
  * setFields values support $NOW, $NULL, and computed templates such as

@@ -9,10 +9,16 @@ import {
 
 export interface MeUser {
   /**
-   * Actor id for audit + owner RLS: `app_users.backend_user_id` (not the UUID PK).
-   * Same value stamped into `user_created` / `user_updated` and used as JWT `sub`.
+   * Effective id for Owner RLS / share reads: `app_users.backend_user_id`
+   * (not the UUID PK). Under role preview this becomes a sample user of that
+   * role; audit stamps use `auditActorId` instead.
    */
   id: string | null
+  /**
+   * Real session actor when role-previewing (audit `user_created` / `user_updated`).
+   * Absent when not previewing — callers fall back to `id`.
+   */
+  auditActorId?: string | null
   firstName: string | null
   lastName: string | null
   email: string | null
@@ -20,6 +26,8 @@ export interface MeUser {
   roleId: string | null
   roleName: string | null
   roleAdminAccess: boolean
+  /** Admin or role.can_author_reports — may author own-role report settings. */
+  canAuthorReports: boolean
   /** From app_user_credentials — blocks API until changed (except change-password / me). */
   mustChangePassword: boolean
 }
@@ -65,6 +73,7 @@ function emptyMe(): MeUser {
     roleId: null,
     roleName: null,
     roleAdminAccess: false,
+    canAuthorReports: false,
     mustChangePassword: false,
   }
 }

@@ -46,6 +46,7 @@ describe('Setup / registry mutations require admin', () => {
       roleId: 'role-empty',
       roleName: 'Empty',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -71,6 +72,34 @@ describe('Setup / registry mutations require admin', () => {
           },
         },
         noAuth,
+      ),
+    ).rejects.toThrow('Authentication required')
+  })
+
+  it('upsertLayoutSetting rejects authenticated non-author for non-report groups', async () => {
+    vi.mocked(fetchMe).mockResolvedValueOnce({
+      id: 'user-1',
+      firstName: null,
+      lastName: null,
+      email: 'noperms@example.com',
+      adminAccess: false,
+      roleId: 'role-empty',
+      roleName: 'Empty',
+      roleAdminAccess: false,
+      canAuthorReports: false,
+      mustChangePassword: false,
+    })
+    await expect(
+      resolvers.Mutation.upsertLayoutSetting(
+        null,
+        {
+          input: {
+            entityApiName: 'opportunity',
+            groupKey: 'detail',
+            body: {},
+          },
+        },
+        { authorization: 'Bearer user-token', rolePreview: null, clientKey: 'test' },
       ),
     ).rejects.toThrow('Admin access required')
   })

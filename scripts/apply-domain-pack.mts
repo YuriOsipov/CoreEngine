@@ -16,6 +16,7 @@ import {
 import { updateEntityMeta } from '../crm-bff/src/schema/entityMeta.ts'
 import {
   createRegistryField,
+  deleteRegistryField,
   updateRegistryField,
 } from '../crm-bff/src/schema/fieldRegistry.ts'
 import {
@@ -115,10 +116,14 @@ interface PackEntity {
     inheritOwnerFrom?: string | null
     /** Extra fields that grant read when equal to me (OR owner), e.g. ["to_user"]. */
     rowLevelReadAlsoIf?: string[]
+    /** Peers with the same app role as the owner may read (MVP; Teams later). */
+    rowLevelReadAlsoIfSameRole?: boolean
     /** Upserted by id into entities.backend_config.automations (does not wipe other rules). */
     automations?: EntityRecordAutomation[]
   }
   fields?: PackField[]
+  /** Drop these registry fields if still present (does not DROP physical columns). */
+  retireFields?: string[]
 }
 
 async function mergePackAutomations(
@@ -143,6 +148,8 @@ async function mergePackAutomations(
 interface PackRole {
   name: string
   isAdmin?: boolean
+  /** Non-admin roles may author reports scoped to their own role. */
+  canAuthorReports?: boolean
   permissions?: 'full_pack' | 'none'
   /** After full_pack seed, set can_view_all on these entity api_names. */
   canViewAllOn?: string[]
@@ -202,18 +209,32 @@ async function findFieldId(
   return rows[0]?.id ?? null
 }
 
-async function ensureRole(name: string, isAdmin: boolean): Promise<string> {
+async function ensureRole(
+  name: string,
+  isAdmin: boolean,
+  canAuthorReports = false,
+): Promise<string> {
   const existing = await query<{ id: string }>(
     `SELECT id::text AS id FROM public.app_roles WHERE lower(name) = lower($1) LIMIT 1`,
     [name],
   )
-  if (existing[0]?.id) return existing[0].id
+  if (existing[0]?.id) {
+    await query(
+      `UPDATE public.app_roles
+       SET is_admin = $2,
+           can_author_reports = $3,
+           updated_at = now()
+       WHERE id = $1::uuid`,
+      [existing[0].id, isAdmin, isAdmin ? false : canAuthorReports],
+    )
+    return existing[0].id
+  }
 
   const id = randomUUID()
   await query(
-    `INSERT INTO public.app_roles (id, name, is_admin, backend_role_id)
-     VALUES ($1::uuid, $2, $3, $4)`,
-    [id, name, isAdmin, id],
+    `INSERT INTO public.app_roles (id, name, is_admin, can_author_reports, backend_role_id)
+     VALUES ($1::uuid, $2, $3, $4, $5)`,
+    [id, name, isAdmin, isAdmin ? false : canAuthorReports, id],
   )
   return id
 }
@@ -255,6 +276,56 @@ async function ensureLayout(layout: PackLayout): Promise<void> {
     (typeof payload.name === 'string' && payload.name.trim()) ||
     (typeof meta.name === 'string' && meta.name.trim()) ||
     null
+
+  // If this pack settingId is new but a same-named layout already exists
+  // (customer-edited), do not insert a duplicate — leave theirs alone.
+  // Users is a platform entity: never overwrite existing page/block layouts
+  // (Setup edits must survive re-apply). Seed only on first insert.
+  if (settingId && name) {
+    const mapped = await query<{ id: string }>(
+      `SELECT layout_setting_id::text AS id
+       FROM public.layout_settings_id_map
+       WHERE setting_id = $1
+       LIMIT 1`,
+      [settingId],
+    )
+    const byId = mapped[0]?.id
+      ? mapped
+      : await query<{ id: string }>(
+          `SELECT id::text AS id FROM public.layout_settings WHERE id = $1::uuid LIMIT 1`,
+          [settingId],
+        )
+    if (byId[0]?.id && layout.entityApiName === 'users') {
+      console.log(
+        `  skip layout (keep existing users): ${layout.entityApiName}/${layout.groupKey}`,
+      )
+      return
+    }
+    if (!byId[0]?.id) {
+      const existingByName = await query<{ id: string }>(
+        `SELECT id::text AS id
+         FROM public.layout_settings
+         WHERE entity_api_name = $1
+           AND group_key = $2
+           AND coalesce(sub_group, '') = coalesce($3, '')
+           AND coalesce(payload->>'name', payload->'__meta'->>'name') = $4
+         ORDER BY updated_at DESC NULLS LAST
+         LIMIT 1`,
+        [
+          layout.entityApiName,
+          layout.groupKey,
+          layout.subGroup ?? null,
+          name,
+        ],
+      )
+      if (existingByName[0]?.id) {
+        console.log(
+          `  skip layout (keep existing "${name}"): ${layout.entityApiName}/${layout.groupKey}`,
+        )
+        return
+      }
+    }
+  }
 
   // Preserve settingId so Record Page pageLayoutId / blockLayoutId refs keep working.
   const { __meta: _drop, ...body } = payload
@@ -417,6 +488,10 @@ for (const entity of entitiesDoc.entities ?? []) {
     entity.backendConfig && 'rowLevelReadAlsoIf' in entity.backendConfig
       ? entity.backendConfig.rowLevelReadAlsoIf
       : undefined
+  const rowLevelReadAlsoIfSameRole =
+    entity.backendConfig && 'rowLevelReadAlsoIfSameRole' in entity.backendConfig
+      ? entity.backendConfig.rowLevelReadAlsoIfSameRole
+      : undefined
 
   if (await entityExists(apiName)) {
     console.log(`  entity exists: ${apiName} (sync meta)`)
@@ -432,6 +507,9 @@ for (const entity of entitiesDoc.entities ?? []) {
         : {}),
       ...(inheritOwnerFrom !== undefined ? { inheritOwnerFrom } : {}),
       ...(rowLevelReadAlsoIf !== undefined ? { rowLevelReadAlsoIf } : {}),
+      ...(rowLevelReadAlsoIfSameRole !== undefined
+        ? { rowLevelReadAlsoIfSameRole }
+        : {}),
     })
   } else {
     console.log(`  create entity: ${apiName}`)
@@ -451,7 +529,8 @@ for (const entity of entitiesDoc.entities ?? []) {
       rowLevelSecurity !== undefined ||
       defaultFieldSensitivity !== undefined ||
       inheritOwnerFrom !== undefined ||
-      rowLevelReadAlsoIf !== undefined
+      rowLevelReadAlsoIf !== undefined ||
+      rowLevelReadAlsoIfSameRole !== undefined
     ) {
       await updateEntityMeta(apiName, {
         ...(rowLevelSecurity !== undefined ? { rowLevelSecurity } : {}),
@@ -460,6 +539,9 @@ for (const entity of entitiesDoc.entities ?? []) {
           : {}),
         ...(inheritOwnerFrom !== undefined ? { inheritOwnerFrom } : {}),
         ...(rowLevelReadAlsoIf !== undefined ? { rowLevelReadAlsoIf } : {}),
+        ...(rowLevelReadAlsoIfSameRole !== undefined
+          ? { rowLevelReadAlsoIfSameRole }
+          : {}),
       })
     }
   }
@@ -497,6 +579,17 @@ for (const entity of entitiesDoc.entities ?? []) {
   }
 
   await ensureUserEditableNameField(apiName)
+
+  for (const retired of entity.retireFields ?? []) {
+    const fieldApi = String(retired || '')
+      .trim()
+      .toLowerCase()
+    if (!fieldApi) continue
+    const removed = await deleteRegistryField(apiName, fieldApi, {
+      allowSystem: true,
+    })
+    if (removed) console.log(`    retire field: ${apiName}.${fieldApi}`)
+  }
 
   if (entity.backendConfig?.automations?.length) {
     await mergePackAutomations(apiName, entity.backendConfig.automations)
@@ -551,7 +644,11 @@ for (const entity of platformDoc.entities ?? []) {
 }
 
 for (const role of rolesDoc.roles ?? []) {
-  const roleId = await ensureRole(role.name, Boolean(role.isAdmin))
+  const roleId = await ensureRole(
+    role.name,
+    Boolean(role.isAdmin),
+    Boolean(role.canAuthorReports),
+  )
   console.log(`  role: ${role.name} (${roleId})`)
   if (role.permissions === 'full_pack' || role.permissions == null) {
     await seedFullPermissionsForRole(roleId)

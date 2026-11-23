@@ -4,9 +4,11 @@ import {
   clearRowLevelSecurityCache,
   parseInheritOwnerFrom,
   parseReadAlsoIf,
+  parseReadAlsoIfSameRole,
   parseRowLevelSecurity,
   readInheritOwnerFrom,
   readReadAlsoIf,
+  readReadAlsoIfSameRole,
   readRowLevelSecurity,
   type RowLevelSecurityMode,
 } from '../services/rowLevelSecurity.js'
@@ -45,6 +47,11 @@ export interface EntityMetaInput {
    * Omit to leave unchanged.
    */
   rowLevelReadAlsoIf?: string[] | null | undefined
+  /**
+   * When true, peers with the same app role as the owner may read.
+   * Pass false/null to clear. Omit to leave unchanged.
+   */
+  rowLevelReadAlsoIfSameRole?: boolean | null | undefined
 }
 
 export interface EntityMetaRow {
@@ -66,6 +73,8 @@ export interface EntityMetaRow {
   inheritOwnerFrom: string | null
   /** Read-share fields (e.g. message.to_user). */
   rowLevelReadAlsoIf: string[]
+  /** Same app role as owner may read (MVP peer queue; not Teams). */
+  rowLevelReadAlsoIfSameRole: boolean
   backendConfig: Record<string, unknown>
 }
 
@@ -131,6 +140,7 @@ export async function loadEntityMeta(entityApiName: string): Promise<EntityMetaR
     rowLevelSecurity: readRowLevelSecurity(backendConfig),
     inheritOwnerFrom: readInheritOwnerFrom(backendConfig),
     rowLevelReadAlsoIf: readReadAlsoIf(backendConfig),
+    rowLevelReadAlsoIfSameRole: readReadAlsoIfSameRole(backendConfig),
     backendConfig,
   }
 }
@@ -195,6 +205,11 @@ export async function updateEntityMeta(
       input.rowLevelReadAlsoIf ?? [],
     )
   }
+  if (input.rowLevelReadAlsoIfSameRole !== undefined) {
+    configPatch.rowLevelReadAlsoIfSameRole = parseReadAlsoIfSameRole(
+      input.rowLevelReadAlsoIfSameRole,
+    )
+  }
   if (input.internal !== undefined && input.internal !== null) {
     configPatch.internal = Boolean(input.internal)
   }
@@ -229,7 +244,8 @@ export async function updateEntityMeta(
   if (
     input.rowLevelSecurity !== undefined ||
     input.inheritOwnerFrom !== undefined ||
-    input.rowLevelReadAlsoIf !== undefined
+    input.rowLevelReadAlsoIf !== undefined ||
+    input.rowLevelReadAlsoIfSameRole !== undefined
   ) {
     clearRowLevelSecurityCache()
   }

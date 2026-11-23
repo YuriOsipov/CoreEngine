@@ -5,6 +5,10 @@ import {
   bridgeSoftDeleteItem,
   bridgeUpdateItem,
 } from '@/core/graphql/itemsBridge'
+import {
+  OPEN_AUTOMATIONS_APPLIED_KEY,
+  runOpenRecordAutomationsViaGraphQL,
+} from '@/core/graphql/recordsApi'
 import { readAggregateRecordsBridge } from '@/core/graphql/dashboardsApi'
 import { triggerFlow } from '@/core/graphql/flowsProxy'
 import { applyCloneRelatedFromLayout } from '@/modules/entities/services/cloneRelatedFromSource'
@@ -38,6 +42,10 @@ import {
 } from '../utils/recordDisplay'
 import { isFieldM2O } from '../utils/relatedTransferSchema'
 import { findRelationForField } from '../utils/fieldMapper'
+import {
+  bestParentRelation,
+  parentFkFromRelation,
+} from '../utils/parentRelation'
 import { buildM2ARequestFields, buildM2ARequestFieldsFallback, isFieldM2A, resolveM2AMetadata } from '../utils/m2aSchema'
 import {
   isFieldM2M,
@@ -79,6 +87,8 @@ export interface CompactRecordRuntimeField {
   field: string
   label: string
   value: string
+  /** Grid column span (1–12) from Compact Layout. */
+  span?: number
 }
 
 export interface CompactRecordRuntimeCount {
@@ -384,6 +394,7 @@ export async function fetchCompactRecordDetails(
         field,
         record[field.field],
       ),
+      span: field.span,
     })),
   )
   const relatedCounts =
@@ -409,6 +420,33 @@ export async function fetchCompactRecordDetails(
     schema,
     fields,
     relatedCounts,
+  }
+}
+
+/**
+ * Fire On-open automations after a detail view loads.
+ * Returns merged record when rules applied setFields; null when skipped/failed.
+ */
+export async function applyOpenRecordAutomations(
+  collection: string,
+  id: string,
+  current?: Record<string, unknown> | null,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const { record, applied } = await runOpenRecordAutomationsViaGraphQL(
+      collection,
+      id,
+    )
+    if (!applied) return null
+    const next = { ...(current ?? {}), ...record }
+    delete next[OPEN_AUTOMATIONS_APPLIED_KEY]
+    return next
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(
+      `[recordDetails] Open automations failed for ${collection}/${id}: ${message}`,
+    )
+    return null
   }
 }
 
@@ -584,17 +622,13 @@ async function countRelatedRecords(
   ])
   const relations = relationsRaw as unknown as RelationDefinition[]
   const fields = fieldsRaw as unknown as FieldDefinition[]
-  const parentRelation = bestRelatedCountRelation(
-    relations.filter(
-      (relation) =>
-        relationCollectionName(relation) === relatedCollection &&
-        (relation.related_collection === parentCollection ||
-          relation.meta?.one_collection === parentCollection),
-    ),
+  const parentRelation = bestParentRelation(
+    relations,
     relatedCollection,
+    parentCollection,
     relatedField,
   )
-  const parentField = parentRelation?.field ?? parentRelation?.meta?.many_field
+  const parentField = parentFkFromRelation(parentRelation)
   if (!parentField) return 0
 
   const filters: Record<string, unknown>[] = [
@@ -632,37 +666,6 @@ async function countRelatedRecords(
   })
 
   return aggregateCount(response)
-}
-
-function relationCollectionName(relation: RelationDefinition): string {
-  return relation.meta?.many_collection || relation.collection
-}
-
-function bestRelatedCountRelation(
-  relations: RelationDefinition[],
-  relatedCollection: string,
-  relatedField: string,
-): RelationDefinition | undefined {
-  return [...relations].sort((left, right) =>
-    relationMatchScore(right, relatedCollection, relatedField) -
-    relationMatchScore(left, relatedCollection, relatedField),
-  )[0]
-}
-
-function relationMatchScore(
-  relation: RelationDefinition,
-  relatedCollection: string,
-  relatedField: string,
-): number {
-  if (relation.meta?.one_field === relatedField) return 4
-  if (relation.field === relatedField || relation.meta?.many_field === relatedField) {
-    return 3
-  }
-  if (`${relatedCollection}_${relation.field}` === relatedField) return 2
-  if (`${relationCollectionName(relation)}_${relation.field}` === relatedField) {
-    return 1
-  }
-  return 0
 }
 
 function isChoiceComponent(component: string): boolean {

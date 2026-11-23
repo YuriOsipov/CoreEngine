@@ -52,6 +52,7 @@ declare module 'vue' {
     Tabs: typeof import('openvue/tabs')['default']
     Tag: typeof import('openvue/tag')['default']
     Textarea: typeof import('openvue/textarea')['default']
+    Timeline: typeof import('openvue/timeline')['default']
     ToggleSwitch: typeof import('openvue/toggleswitch')['default']
     Tree: typeof import('openvue/tree')['default']
     TreeSelect: typeof import('openvue/treeselect')['default']

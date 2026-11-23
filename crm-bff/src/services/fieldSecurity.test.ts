@@ -46,6 +46,7 @@ function user(overrides: Partial<MeUser> = {}): MeUser {
     roleId: 'sales',
     roleName: null,
     roleAdminAccess: false,
+    canAuthorReports: false,
     mustChangePassword: false,
     ...overrides,
   }

@@ -7,7 +7,10 @@ export default {
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import type { DynamicPicklistOption, DynamicPicklistSource } from '@/core/dynamicPicklist'
-import { loadDynamicPicklistOptions } from '@/core/dynamicPicklist'
+import {
+  isRelatedPicklistSource,
+  loadDynamicPicklistOptions,
+} from '@/core/dynamicPicklist'
 import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 import { useTranslation } from '@/core/translation'
 
@@ -42,15 +45,27 @@ const selectOptions = ref<DynamicPicklistOption[]>([])
 let requestId = 0
 
 watch(
-  () => [
-    props.entityCollection,
-    props.choiceSource.relationField,
-    props.choiceSource.jsonField,
-    props.choiceSource.valueColumn,
-    extractRelationFieldId(props.sourceRecord?.id),
-    extractRelationFieldId(props.sourceRecord?.[props.choiceSource.relationField]),
-    embeddedJsonToken(),
-  ],
+  () => {
+    const source = props.choiceSource
+    if (isRelatedPicklistSource(source)) {
+      return [
+        props.entityCollection,
+        source.mode,
+        source.relationField,
+        source.jsonField,
+      ] as const
+    }
+    return [
+      props.entityCollection,
+      source.mode,
+      source.relationField,
+      source.jsonField,
+      source.valueColumn,
+      extractRelationFieldId(props.sourceRecord?.id),
+      extractRelationFieldId(props.sourceRecord?.[source.relationField]),
+      embeddedJsonToken(),
+    ] as const
+  },
   () => {
     void refresh()
   },
@@ -58,6 +73,7 @@ watch(
 )
 
 function embeddedJsonToken(): string {
+  if (isRelatedPicklistSource(props.choiceSource)) return ''
   const raw = props.sourceRecord?.[props.choiceSource.relationField]
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ''
   const related = raw as Record<string, unknown>

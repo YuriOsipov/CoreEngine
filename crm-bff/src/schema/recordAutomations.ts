@@ -1,11 +1,12 @@
 /**
  * Record automations — admin rules in entities.backend_config.automations.
- * Applied on create/update/delete after formulas (see applyRecordAutomations).
+ * Applied on create/update/delete after formulas, and on record open
+ * (see applyRecordAutomations / runOpenRecordAutomations).
  */
 import { flowTriggerKeyFromWebhook } from '../flows/flowKey.js'
 import { query } from '../db/pool.js'
 
-export type RecordAutomationTrigger = 'create' | 'update' | 'delete'
+export type RecordAutomationTrigger = 'create' | 'update' | 'delete' | 'open'
 export type RecordAutomationLogic = 'and' | 'or'
 
 export type RecordAutomationNotifySeverity = 'info' | 'warn'
@@ -66,7 +67,12 @@ function parseTriggers(raw: unknown): RecordAutomationTrigger[] {
     const token = String(entry || '')
       .trim()
       .toLowerCase()
-    if (token === 'create' || token === 'update' || token === 'delete') {
+    if (
+      token === 'create' ||
+      token === 'update' ||
+      token === 'delete' ||
+      token === 'open'
+    ) {
       if (!out.includes(token)) out.push(token)
     }
   }

@@ -1,9 +1,9 @@
 {
-  "name": "CoreEngine \u2014 dispatch outbound message",
+  "name": "CoreEngine — dispatch outbound message",
   "nodes": [
     {
       "parameters": {
-        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. Type **Email** \u2192 SMTP. On SMTP error \u2192 **Mark failed** (result=2) \u2192 rethrow (Error workflow + BFF Failed runs).\n4. Other types stub \u2192 Mark sent.\n5. Settings \u2192 Error workflow \u2192 failed-execution-alert.\n6. Repo JSON is source of truth \u2014 re-export after UI edits.",
+        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. **Is Draft?** If draft → PATCH `is_draft=false` and stop (CoreEngine queue/dispatch automations send once). If not draft → continue (retry / send-now).\n4. Type **Email** → SMTP. On SMTP error → **Mark failed** → rethrow.\n5. Other types stub → Mark sent.\n6. After Mark sent: if `to_user` set → **Create incoming_message** (always new; owner=`to_user`) via BFF REST — no BFF special-case code.\n7. Settings → Error workflow → failed-execution-alert.\n8. Repo JSON is source of truth — re-export after UI edits.",
         "height": 300,
         "width": 460
       },
@@ -120,7 +120,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
       "position": [
-        960,
+        1260,
         -40
       ]
     },
@@ -196,7 +196,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const ctx = $('Prepare context').first().json;\nconst record = ctx.record || {};\nconst type = Number(record.type ?? 0);\nconst toUser = record.to_user || null;\nconst toUserId = toUser && typeof toUser === 'object' ? toUser.id : toUser;\nconst channel =\n  type === 4 || toUserId\n    ? 'internal'\n    : type === 2\n      ? 'whatsapp'\n      : type === 3\n        ? 'telegram'\n        : 'email';\nconst email = String(record.email || '').trim();\nlet generatedFileId = '';\ntry {\n  generatedFileId = String($('Generate PDF').first().json.outputFileId || '').trim();\n} catch (e) {}\nconst subject = String(record.subject || '').trim() || 'Message from CoreEngine';\nconst body = String(record.body || '');\nconst sendEmail = channel === 'email' && Boolean(email);\nreturn [{\n  json: {\n    messageId: ctx.messageId,\n    type,\n    channel,\n    sendEmail,\n    toUserId,\n    email,\n    phone: record.phone || '',\n    subject,\n    body,\n    opportunityId: ctx.opportunityId,\n    generatedFileId,\n  },\n}];"
+        "jsCode": "const ctx = $('Merge message record').first().json;\nconst record = ctx.record || {};\nconst rawType = String(record.type ?? '').trim().toLowerCase();\nconst toUser = record.to_user || null;\nconst toUserId = toUser && typeof toUser === 'object' ? toUser.id : toUser;\nconst channel =\n  rawType === 'internal' || rawType === '4' || toUserId\n    ? 'internal'\n    : rawType === 'whatsapp' || rawType === '2'\n      ? 'whatsapp'\n      : rawType === 'telegram' || rawType === '3'\n        ? 'telegram'\n        : 'email';\nconst email = String(record.email || '').trim();\nlet generatedFileId = '';\ntry {\n  generatedFileId = String($('Generate PDF').first().json.outputFileId || '').trim();\n} catch (e) {}\nconst subject = String(record.subject || record.name || '').trim() || 'Message from CoreEngine';\nconst body = String(record.body || '');\nconst sendEmail = channel === 'email' && Boolean(email);\nreturn [{\n  json: {\n    messageId: ctx.messageId,\n    type: rawType || channel,\n    channel,\n    sendEmail,\n    toUserId,\n    email,\n    phone: record.phone || '',\n    subject,\n    body,\n    opportunityId: ctx.opportunityId,\n    generatedFileId,\n  },\n}];"
       },
       "id": "route-send",
       "name": "Route payload",
@@ -472,7 +472,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ delivery_status: 'sent', result: 1 }) }}",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'sent' }) }}",
         "options": {}
       },
       "id": "patch-sent",
@@ -507,7 +507,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed', result: 2, body: String(($json.error && ($json.error.message || $json.error)) || $json.message || 'Outbound send failed') }) }}",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed', body: String(($json.error && ($json.error.message || $json.error)) || $json.message || 'Outbound send failed') }) }}",
         "options": {}
       },
       "id": "patch-failed",
@@ -532,6 +532,206 @@
         120
       ],
       "notes": "Fails the execution after Mark failed so Error workflow / BFF Failed runs still see the error"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.BFF_URL}}/api/v1/message/{{$json.messageId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "load-message",
+      "name": "Load message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Prepare context').first().json;\nconst loaded = $input.first().json;\nconst record = {\n  ...(ctx.record && typeof ctx.record === 'object' ? ctx.record : {}),\n  ...(loaded && typeof loaded === 'object' && !Array.isArray(loaded) ? loaded : {}),\n};\nreturn [{ json: { ...ctx, record } }];"
+      },
+      "id": "merge-message-record",
+      "name": "Merge message record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\nconst record = ctx.record && typeof ctx.record === 'object' ? ctx.record : ($('Merge message record').first().json.record || {});\nconst toRaw = record.to_user;\nconst toUserId = toRaw && typeof toRaw === 'object' ? String(toRaw.id || '').trim() : String(toRaw || '').trim();\nconst fromRaw = record.from_user;\nconst fromUserId = fromRaw && typeof fromRaw === 'object' ? String(fromRaw.id || '').trim() : String(fromRaw || '').trim();\nconst contactRaw = record.contact;\nconst contactId = contactRaw && typeof contactRaw === 'object' ? String(contactRaw.id || '').trim() : String(contactRaw || '').trim();\nconst oppRaw = record.opportunity;\nconst opportunityId = oppRaw && typeof oppRaw === 'object' ? String(oppRaw.id || '').trim() : String(oppRaw || '').trim();\nconst subject = String(record.subject || record.name || '').trim();\nconst body = record.body == null ? '' : String(record.body);\nconst type = String(record.type || 'internal').trim() || 'internal';\nconst fromEmail = record.from_email == null ? '' : String(record.from_email);\nconst messageId = String($('Prepare context').first().json.messageId || record.id || '').trim();\nconst name = subject || `Message ${messageId.slice(0, 8)}`;\nreturn [{\n  json: {\n    messageId,\n    toUserId,\n    hasToUser: Boolean(toUserId),\n    inboxPayload: {\n      name,\n      subject: subject || null,\n      body,\n      type,\n      from_user: fromUserId || null,\n      from_email: fromEmail || null,\n      contact: contactId || null,\n      opportunity: opportunityId || null,\n      source_message: messageId || null,\n      owner_id: toUserId || null,\n    },\n  },\n}];"
+      },
+      "id": "prepare-inbox",
+      "name": "Prepare inbox",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3720,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasToUser}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "has-to-user",
+      "name": "Has to_user?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3900,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/api/v1/incoming_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.inboxPayload) }}",
+        "options": {}
+      },
+      "id": "create-incoming-message",
+      "name": "Create incoming message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ Boolean($json.record?.is_draft === true || $json.record?.is_draft === 'true' || $json.record?.is_draft === 1 || $json.record?.is_draft === '1') }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-is-draft",
+      "name": "Is Draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/message/{{$json.messageId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ is_draft: false }) }}",
+        "options": {}
+      },
+      "id": "clear-draft",
+      "name": "Clear draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        -160
+      ],
+      "notes": "Send on draft: only clear is_draft. Pack automations queue + dispatch once."
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.BFF_URL}}/api/v1/message/{{$('Prepare context').first().json.messageId}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$('BFF Login').first().json.access_token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source_message: $json.id || $json.record_id || null }) }}",
+        "options": {}
+      },
+      "id": "link-source-message",
+      "name": "Link source_message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3960,
+        -120
+      ]
     }
   ],
   "connections": {
@@ -584,7 +784,7 @@
       "main": [
         [
           {
-            "node": "Need PDF?",
+            "node": "Load message",
             "type": "main",
             "index": 0
           }
@@ -809,6 +1009,101 @@
           }
         ]
       ]
+    },
+    "Load message": {
+      "main": [
+        [
+          {
+            "node": "Merge message record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge message record": {
+      "main": [
+        [
+          {
+            "node": "Is Draft?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare inbox": {
+      "main": [
+        [
+          {
+            "node": "Has to_user?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has to_user?": {
+      "main": [
+        [
+          {
+            "node": "Create incoming message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Create incoming message": {
+      "main": [
+        [
+          {
+            "node": "Link source_message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Draft?": {
+      "main": [
+        [
+          {
+            "node": "Clear draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Need PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear draft": {
+      "main": [
+        []
+      ]
+    },
+    "Mark sent": {
+      "main": [
+        [
+          {
+            "node": "Prepare inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link source_message": {
+      "main": [
+        []
+      ]
     }
   },
   "active": false,
@@ -817,7 +1112,7 @@
   },
   "meta": {
     "templateCredsSetupCompleted": false,
-    "crmNotes": "SMTP error \u2192 Mark failed + rethrow. Webhook lastNode so BFF Failed runs record delivery failure. Re-export this file after editing in the n8n UI."
+    "crmNotes": "Draft Send → clear is_draft only. Non-draft → channel + Mark sent + always Create incoming_message. No BFF message special-cases."
   },
   "pinData": {},
   "versionId": "6"

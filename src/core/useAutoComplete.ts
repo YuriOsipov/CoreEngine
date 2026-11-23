@@ -6,6 +6,7 @@ import {
 } from '@/modules/entities/services/collectionSchema'
 import { isAutoCompleteField, isRelationPickerField } from '@/core/fieldHelpers'
 import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
+import { useTranslation } from '@/core/translation'
 
 export interface AutoCompleteOption {
   label: string
@@ -13,6 +14,7 @@ export interface AutoCompleteOption {
 }
 
 export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
+  const { t } = useTranslation()
   const selections = reactive<Record<string, AutoCompleteOption | null>>({})
   const templates = reactive<Record<string, string | undefined>>({})
 
@@ -115,7 +117,12 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
       template,
     )
     if (option) {
-      selections[field.field] = option
+      selections[field.field] = option.restricted
+        ? {
+            value: option.value,
+            label: t('common.relatedRecordRestricted', 'Restricted'),
+          }
+        : option
       if (extractRelationFieldId(formState.value[field.field]) === null) {
         formState.value = {
           ...formState.value,

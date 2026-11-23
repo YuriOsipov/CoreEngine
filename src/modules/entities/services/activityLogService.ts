@@ -11,7 +11,7 @@ import {
 } from '@/core/dateFormatting'
 import type { ActivityLogAction, ActivityLogSettings, FieldDefinition } from '@/interfaces'
 import { normalizeActivityLogSettings } from '@/interfaces'
-import { translateField } from '@/core/translation'
+import { t, translateField } from '@/core/translation'
 import {
   formatSensitivitySummary,
   isSensitivityMatrixFieldDefinition,
@@ -528,13 +528,6 @@ function actionSummary(action: string, deltas: ActivityLogDeltaEntry[]): string 
   }
 }
 
-function shouldSkipCreateTimeUpdate(
-  entry: Pick<ActivityLogEntry, 'action' | 'timestampLabel'>,
-  createTimestampLabels: Set<string>,
-): boolean {
-  return entry.action === 'update' && createTimestampLabels.has(entry.timestampLabel)
-}
-
 async function buildFieldDisplayContext(
   collection: string,
 ): Promise<FieldDisplayContext> {
@@ -556,6 +549,10 @@ async function buildFieldDisplayContext(
     ).trim()
     if (!related) continue
     m2oRelationFields.set(relation.field, related)
+  }
+  // Sharing owner is always users; cover DBs before owner_id relation seed.
+  if (!m2oRelationFields.has('owner_id')) {
+    m2oRelationFields.set('owner_id', 'users')
   }
 
   await Promise.all(
@@ -616,6 +613,13 @@ async function populateRelationLabelCache(
               relatedCollection,
               id,
             )
+            if (option?.restricted) {
+              context.relationLabelCache.set(
+                cacheKey,
+                t('common.relatedRecordRestricted', 'Restricted'),
+              )
+              return
+            }
             const label = option?.label != null ? String(option.label).trim() : ''
             if (label && label !== String(id)) {
               context.relationLabelCache.set(cacheKey, label)
@@ -814,15 +818,7 @@ function mapActivitiesToEntries(
     }
   })
 
-  const createTimestampLabels = new Set(
-    entries
-      .filter((entry) => entry.action === 'create')
-      .map((entry) => entry.timestampLabel),
-  )
-
-  return entries.filter(
-    (entry) => !shouldSkipCreateTimeUpdate(entry, createTimestampLabels),
-  )
+  return entries
 }
 
 export async function fetchRecordActivityLogPage(

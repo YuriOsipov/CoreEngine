@@ -60,6 +60,32 @@ async function rememberSettingMap(
   )
 }
 
+/** Resolve a layout setting by public setting id or layout uuid. */
+export async function findLayoutSettingBySettingId(
+  settingId: string,
+): Promise<LayoutSettingRow | null> {
+  await ensureIdMapTable()
+  const settingKey = String(settingId || '').trim()
+  if (!settingKey) return null
+  const existingId = await resolveExistingLayoutId(settingKey)
+  if (!existingId) return null
+  const rows = await query<{
+    id: string
+    entity_api_name: string
+    group_key: string
+    sub_group: string | null
+    role_id: string | null
+    payload: unknown
+  }>(
+    `SELECT id::text AS id, entity_api_name, group_key, sub_group, role_id, payload
+     FROM public.layout_settings
+     WHERE id = $1::uuid
+     LIMIT 1`,
+    [existingId],
+  )
+  return rows[0] ? toGraphQlRow(rows[0]) : null
+}
+
 async function resolveExistingLayoutId(settingKey: string | null): Promise<string | null> {
   if (!settingKey) return null
 
@@ -108,12 +134,16 @@ export async function upsertLayoutSettingRow(input: {
 
   const settingKey = input.settingId?.trim() || null
   const existingId = await resolveExistingLayoutId(settingKey)
+  const roleId =
+    input.roleId === undefined || input.roleId === null || input.roleId === ''
+      ? null
+      : String(input.roleId)
   const payload = {
     name: input.name ?? null,
     ...(input.body ?? {}),
     __meta: {
       settingId: settingKey ?? existingId,
-      role: input.roleId ?? null,
+      role: roleId,
       name: input.name ?? null,
       status: 'published',
     },
@@ -132,7 +162,7 @@ export async function upsertLayoutSettingRow(input: {
        SET entity_api_name = $2,
            group_key = $3,
            sub_group = $4,
-           role_id = NULL,
+           role_id = $6,
            payload = $5::jsonb,
            updated_at = now()
        WHERE id = $1::uuid
@@ -149,6 +179,7 @@ export async function upsertLayoutSettingRow(input: {
             settingId: settingKey ?? existingId,
           },
         }),
+        roleId,
       ],
     )
     const row = updated[0]
@@ -176,7 +207,7 @@ export async function upsertLayoutSettingRow(input: {
     `INSERT INTO public.layout_settings (
        id, entity_api_name, group_key, sub_group, role_id, payload
      ) VALUES (
-       COALESCE($5::uuid, gen_random_uuid()), $1, $2, $3, NULL, $4::jsonb
+       COALESCE($5::uuid, gen_random_uuid()), $1, $2, $3, $6, $4::jsonb
      )
      RETURNING id::text AS id, entity_api_name, group_key, sub_group, role_id, payload`,
     [
@@ -185,6 +216,7 @@ export async function upsertLayoutSettingRow(input: {
       input.subGroup ?? null,
       JSON.stringify(insertPayload),
       insertId,
+      roleId,
     ],
   )
   const row = inserted[0]

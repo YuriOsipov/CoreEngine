@@ -5,84 +5,146 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import { useTranslation } from '@/core/translation'
 import { PM_PROJECT_TEMPLATE_COLLECTION } from '@/interfaces/projects'
 import { collectionExistsInRegistry } from '@/modules/entities/services/collectionSchema'
 
 const route = useRoute()
+const router = useRouter()
 const { t } = useTranslation()
 
 const projectTemplatesPath = `/object/${PM_PROJECT_TEMPLATE_COLLECTION}`
 const projectTemplateExists = ref(false)
+const isFullSetupAdmin = ref(false)
+const canAuthorReports = ref(false)
+const canOpenSetup = ref(false)
+const accessLoaded = ref(false)
 
-const tabs = computed(() => [
+const allTabs = computed(() => [
   {
     label: t('setup.generalTab', 'General'),
     to: '/setup/general',
+    adminOnly: true,
   },
   {
     label: t('setup.schemaSyncTab', 'Schema sync'),
     to: '/setup/schema-sync',
+    adminOnly: true,
   },
   {
     label: t('setup.objectManagerTab', 'Object Manager'),
     to: '/setup/objects',
+    adminOnly: true,
   },
   {
     label: t('setup.documentsTab', 'Document Templates'),
     to: '/setup/documents',
+    adminOnly: true,
   },
   {
     label: t('setup.reportsTab', 'Reports'),
     to: '/setup/reports',
+    adminOnly: false,
+    reportsAuthor: true,
   },
   {
     label: t('setup.dashboardsTab', 'Dashboards'),
     to: '/setup/dashboards',
+    adminOnly: true,
   },
   ...(projectTemplateExists.value
     ? [
         {
           label: t('setup.projectsTab', 'Project Templates'),
           to: projectTemplatesPath,
+          adminOnly: true,
         },
       ]
     : []),
   {
     label: t('setup.usersTab', 'Users'),
     to: '/setup/users',
+    adminOnly: true,
   },
   {
     label: t('setup.rolesTab', 'Roles'),
     to: '/setup/roles',
+    adminOnly: true,
   },
   {
     label: t('setup.navigationTab', 'Navigation'),
     to: '/setup/navigation',
+    adminOnly: true,
   },
   {
     label: t('setup.tasksTab', 'Tasks'),
     to: '/setup/tasks',
+    adminOnly: true,
   },
   {
     label: t('setup.flowsTab', 'Flows'),
     to: '/setup/flows',
+    adminOnly: true,
   },
   {
     label: t('setup.archivedTab', 'Archived records'),
     to: '/setup/archived',
+    adminOnly: true,
   },
 ])
 
+const tabs = computed(() => {
+  if (!accessLoaded.value || !canOpenSetup.value) return []
+  if (isFullSetupAdmin.value) return allTabs.value
+  if (canAuthorReports.value) {
+    return allTabs.value.filter((tab) => tab.reportsAuthor)
+  }
+  return []
+})
+
+function isReportsPath(path: string): boolean {
+  return path === '/setup/reports' || path.startsWith('/setup/reports/')
+}
+
+async function loadAccess(): Promise<void> {
+  const access = await getEffectiveSetupAccess()
+  isFullSetupAdmin.value = access.isFullSetupAdmin
+  canAuthorReports.value = access.canAuthorReports
+  canOpenSetup.value = access.canOpenSetup
+  accessLoaded.value = true
+  enforceSetupAccess()
+}
+
+function enforceSetupAccess(): void {
+  if (!accessLoaded.value) return
+  if (!canOpenSetup.value) {
+    void router.replace({ name: 'home' })
+    return
+  }
+  if (isFullSetupAdmin.value) return
+  if (canAuthorReports.value && !isReportsPath(route.path)) {
+    void router.replace('/setup/reports')
+  }
+}
+
 onMounted(() => {
+  void loadAccess()
   void collectionExistsInRegistry(PM_PROJECT_TEMPLATE_COLLECTION).then(
     (exists) => {
       projectTemplateExists.value = exists
     },
   )
 })
+
+watch(
+  () => route.path,
+  () => {
+    enforceSetupAccess()
+  },
+)
 
 function isTabActive(path: string): boolean {
   if (path === '/setup/general') {
@@ -160,6 +222,6 @@ function isTabActive(path: string): boolean {
       </RouterLink>
     </nav>
 
-    <RouterView />
+    <RouterView v-if="accessLoaded && canOpenSetup" />
   </main>
 </template>

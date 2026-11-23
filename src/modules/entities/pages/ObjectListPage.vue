@@ -286,8 +286,8 @@ watchEffect(() => {
   const collection = collectionName.value
   if (!collection) return
   const filter = selectedListFilter.value
-  // Recently Viewed is the default landing; favorites omit it so the link opens the collection.
-  const viewId = filter && !isRecentlyViewedFilter.value ? filter.id : null
+  // All records is the default landing; favorites omit it so the link opens the collection.
+  const viewId = filter && filter.id !== ALL_RECORDS_FILTER_ID ? filter.id : null
   const viewName = viewId ? filter?.name ?? null : null
   const label = viewName
     ? `${collectionLabel.value} · ${viewName}`
@@ -978,12 +978,12 @@ async function resolveSelectedListView(
     })
   } else if (resolvedPin) {
     const found = views.find((view) => view.id === resolvedPin)
-    selectedListFilter.value = found ?? RECENTLY_VIEWED_FILTER
+    selectedListFilter.value = found ?? ALL_RECORDS_FILTER
     tableSettings.value = found
       ? listViewToTableSettings(found, meta)
       : await resolvePredefinedViewTableSettings(
         collection,
-        RECENTLY_VIEWED_FILTER_ID,
+        ALL_RECORDS_FILTER_ID,
         meta,
         roleId,
       )
@@ -994,10 +994,10 @@ async function resolveSelectedListView(
       })
     }
   } else {
-    selectedListFilter.value = RECENTLY_VIEWED_FILTER
+    selectedListFilter.value = ALL_RECORDS_FILTER
     tableSettings.value = await resolvePredefinedViewTableSettings(
       collection,
-      RECENTLY_VIEWED_FILTER_ID,
+      ALL_RECORDS_FILTER_ID,
       meta,
       roleId,
     )

@@ -10,6 +10,9 @@ export interface CurrentUserGql {
   roleId: string | null
   roleName: string | null
   roleAdminAccess: boolean
+  canAuthorReports: boolean
+  /** Effective Owner-RLS / $CURRENT_USER actor while View-as-role is active. */
+  rolePreviewActorId?: string | null
 }
 
 const ME_QUERY = /* GraphQL */ `
@@ -23,6 +26,8 @@ const ME_QUERY = /* GraphQL */ `
       roleId
       roleName
       roleAdminAccess
+      canAuthorReports
+      rolePreviewActorId
     }
   }
 `

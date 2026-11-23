@@ -26,6 +26,10 @@ import type { CrmDataTableEditRequest } from '@/core/ui-kit/CrmDataTableGrid.vue
 import CrmInlineCellEditor from '@/core/ui-kit/CrmInlineCellEditor.vue'
 import FormRenderer from '@/modules/entities/components/FormRenderer.vue'
 import RecordCreateDialog from '@/modules/entities/components/RecordCreateDialog.vue'
+import {
+  messageRelatedCreateInitialValues,
+  messageRelatedCreateParentField,
+} from '@/core/messageCreateDefaults'
 import { useToast } from 'openvue/usetoast'
 import { bridgeUpdateItem } from '@/core/graphql/itemsBridge'
 import {
@@ -293,6 +297,7 @@ const panelHeight = ref(initialPanelHeight())
 const dynamicPageSize = ref(props.rowsPerPage)
 const compactTooltip = useCompactTooltip()
 const m2oCellLabels = reactive<Record<string, string>>({})
+const m2oCellRestricted = reactive<Record<string, boolean>>({})
 const m2oCellLabelRequests = new Set<string>()
 const choiceCellLabels = reactive<Record<string, Record<string, string>>>({})
 const choiceCellLabelRequests = new Set<string>()
@@ -1875,11 +1880,24 @@ const createDialogCollection = computed(
     managedCollection.value ||
     '',
 )
-const createDialogParentField = computed(() => {
+const createDialogRawParentField = computed(() => {
   const target = relatedCreateTarget.value
   if (target?.junction) return undefined
-  return target?.parentField || props.parentName
+  return target?.parentField || props.parentName || undefined
 })
+const createDialogParentField = computed(() =>
+  messageRelatedCreateParentField(
+    createDialogCollection.value,
+    createDialogRawParentField.value,
+  ),
+)
+const createDialogInitialValues = computed(() =>
+  messageRelatedCreateInitialValues(
+    createDialogCollection.value,
+    createDialogRawParentField.value,
+    props.parentId,
+  ),
+)
 
 defineExpose({ handleNewRecord })
 
@@ -2380,6 +2398,12 @@ async function loadM2OCellLabel(
       id,
       templateForFetch,
     )
+    if (option?.restricted) {
+      m2oCellRestricted[key] = true
+      m2oCellLabels[key] = t('common.relatedRecordRestricted', 'Restricted')
+      return
+    }
+    m2oCellRestricted[key] = false
     if (option?.label && option.label !== String(id)) {
       m2oCellLabels[key] = option.label
     }
@@ -2591,6 +2615,19 @@ function canShowM2OTooltip(
 
 function canLinkM2OCell(column: CrmDataTableColumn, value: unknown): boolean {
   if (!props.recordLinksEnabled) return false
+  const cell = m2oCellValue(value)
+  const id = cell?.id ?? m2oId(value)
+  if (id !== null) {
+    const relatedCollection =
+      column.relatedCollection?.trim() || cell?.relatedCollection?.trim() || ''
+    if (relatedCollection) {
+      const key = m2oCellLabelKey(
+        { ...column, relatedCollection },
+        id,
+      )
+      if (m2oCellRestricted[key]) return false
+    }
+  }
   return canShowM2OTooltip(column, value)
 }
 
@@ -2936,6 +2973,7 @@ function compareRowsByField(
       :parent-id="createDialogParentField ? parentId : undefined"
       :parent-collection="parentCollection"
       :parent-record="parentRecord"
+      :initial-values="createDialogInitialValues"
       @update:visible="createDialogVisible = $event"
       @created="handleRecordCreated"
     />

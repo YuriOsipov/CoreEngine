@@ -15,7 +15,10 @@ import {
   type RegistryFieldListRow,
 } from '@/core/graphql/fieldsApi'
 import { normalizeFieldInterface } from '@/core/graphql/schemaMapper'
-import { parseDynamicPicklistSource } from '@/core/dynamicPicklist'
+import {
+  isRelatedPicklistSource,
+  parseDynamicPicklistSource,
+} from '@/core/dynamicPicklist'
 import {
   defaultSensitivitySource,
   parseSensitivitySource,
@@ -578,6 +581,7 @@ interface DynamicJsonFieldOption {
   label: string
   value: string
   columns: string[]
+  kind: 'json-list' | 'related-picklist'
 }
 
 const dynamicRelationOptions = ref<DynamicRelationOption[]>([])
@@ -606,12 +610,18 @@ const picklistModeOptions = computed(() => [
   },
 ])
 
-const dynamicPicklistReady = computed(
-  () =>
-    Boolean(form.dynamicRelationField.trim()) &&
-    Boolean(form.dynamicJsonField.trim()) &&
-    Boolean(form.dynamicValueColumn.trim()),
-)
+const selectedDynamicSourceKind = computed((): 'json-list' | 'related-picklist' | null => {
+  const selected = dynamicJsonFieldOptions.value.find(
+    (option) => option.value === form.dynamicJsonField,
+  )
+  return selected?.kind ?? null
+})
+
+const dynamicPicklistReady = computed(() => {
+  if (!form.dynamicRelationField.trim() || !form.dynamicJsonField.trim()) return false
+  if (selectedDynamicSourceKind.value === 'related-picklist') return true
+  return Boolean(form.dynamicValueColumn.trim())
+})
 
 function jsonListColumns(options: Record<string, unknown> | null | undefined): string[] {
   const raw = options?.columns
@@ -687,22 +697,40 @@ async function loadDynamicJsonFields(): Promise<void> {
   }
 
   const { fields } = await fetchEntityFieldsAndRelations(related)
-  const options = fields
-    .filter((field) => normalizeFieldInterface(field.interface || '') === 'json-list')
-    .map((field) => ({
+  const options: DynamicJsonFieldOption[] = []
+  for (const field of fields) {
+    const iface = normalizeFieldInterface(field.interface || '')
+    if (iface === 'json-list') {
+      options.push({
+        label: `${field.label} (${field.apiName})`,
+        value: field.apiName,
+        columns: jsonListColumns(field.options),
+        kind: 'json-list',
+      })
+      continue
+    }
+    if (iface !== 'select-dropdown') continue
+    // Nested dynamic sources are not reusable as a static choice catalog.
+    if (parseDynamicPicklistSource(field.options?.choiceSource)) continue
+    options.push({
       label: `${field.label} (${field.apiName})`,
       value: field.apiName,
-      columns: jsonListColumns(field.options),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+      columns: [],
+      kind: 'related-picklist',
+    })
+  }
+  options.sort((a, b) => a.label.localeCompare(b.label))
   if (
     form.dynamicJsonField &&
     !options.some((option) => option.value === form.dynamicJsonField)
   ) {
+    const fallbackKind =
+      form.dynamicValueColumn.trim() ? 'json-list' : 'related-picklist'
     options.unshift({
       label: form.dynamicJsonField,
       value: form.dynamicJsonField,
       columns: form.dynamicValueColumn ? [form.dynamicValueColumn] : [],
+      kind: fallbackKind,
     })
   }
   dynamicJsonFieldOptions.value = options
@@ -833,6 +861,11 @@ function onDynamicJsonField(value: string | null): void {
   const selected = dynamicJsonFieldOptions.value.find(
     (option) => option.value === form.dynamicJsonField,
   )
+  if (selected?.kind === 'related-picklist') {
+    form.dynamicValueColumn = ''
+    syncDynamicValueColumns()
+    return
+  }
   const names = selected?.columns ?? []
   form.dynamicValueColumn = names.includes('value') ? 'value' : names[0] ?? ''
   syncDynamicValueColumns()
@@ -1453,7 +1486,10 @@ function resetFromProps(): void {
     form.picklistMode = choiceSource ? 'dynamic' : 'static'
     form.dynamicRelationField = choiceSource?.relationField ?? ''
     form.dynamicJsonField = choiceSource?.jsonField ?? ''
-    form.dynamicValueColumn = choiceSource?.valueColumn ?? ''
+    form.dynamicValueColumn =
+      choiceSource && isRelatedPicklistSource(choiceSource)
+        ? ''
+        : (choiceSource?.valueColumn ?? '')
     const sensitivitySource =
       parseSensitivitySource(options.sensitivitySource) ?? defaultSensitivitySource()
     form.sensitivityRelationField = sensitivitySource.relationField
@@ -1681,10 +1717,19 @@ function buildOptionsAndDisplay(): {
 
   if (isPicklist.value) {
     if (form.picklistMode === 'dynamic' && dynamicPicklistReady.value) {
-      options.choiceSource = {
-        relationField: form.dynamicRelationField.trim(),
-        jsonField: form.dynamicJsonField.trim(),
-        valueColumn: form.dynamicValueColumn.trim(),
+      if (selectedDynamicSourceKind.value === 'related-picklist') {
+        options.choiceSource = {
+          mode: 'related-picklist',
+          relationField: form.dynamicRelationField.trim(),
+          jsonField: form.dynamicJsonField.trim(),
+        }
+      } else {
+        options.choiceSource = {
+          mode: 'json-list',
+          relationField: form.dynamicRelationField.trim(),
+          jsonField: form.dynamicJsonField.trim(),
+          valueColumn: form.dynamicValueColumn.trim(),
+        }
       }
     } else {
       options.choices = form.choices
@@ -2612,7 +2657,10 @@ function submit(): void {
               @update:model-value="onDynamicJsonField"
             />
           </div>
-          <div class="flex flex-col gap-1">
+          <div
+            v-if="selectedDynamicSourceKind !== 'related-picklist'"
+            class="flex flex-col gap-1"
+          >
             <label>{{ t('setup.fields.picklistValueColumn', 'Value column') }}</label>
             <Select
               v-model="form.dynamicValueColumn"
@@ -2628,10 +2676,15 @@ function submit(): void {
           </div>
           <small class="text-muted-color">
             {{
-              t(
-                'setup.fields.picklistDynamicHint',
-                'Options come from the related record. Example: Item → options → value.',
-              )
+              selectedDynamicSourceKind === 'related-picklist'
+                ? t(
+                    'setup.fields.picklistRelatedPicklistHint',
+                    'Options come from the related object’s picklist values (e.g. Contact → Messenger).',
+                  )
+                : t(
+                    'setup.fields.picklistDynamicHint',
+                    'Options come from the related record. Example: Item → options → value.',
+                  )
             }}
           </small>
         </template>

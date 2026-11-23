@@ -21,6 +21,10 @@ import {
   buildPaletteFromFields,
   isFieldReadonly,
 } from '../utils/fieldMapper'
+import {
+  bestParentRelation,
+  parentFkFromRelation,
+} from '../utils/parentRelation'
 import { isChoiceOption, filesSettings } from '@/core/fieldHelpers'
 import {
   choiceLabel,
@@ -829,11 +833,29 @@ export async function searchRelatedCollectionOptions(
   }
 }
 
+/** Related-record picker / display label. `restricted` = caller cannot read the row. */
+export type RelatedCollectionOption = {
+  label: string
+  value: string | number
+  restricted?: boolean
+}
+
+export function isPermissionDeniedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  return /permission denied/i.test(message)
+}
+
+function relatedOptionDenied(
+  id: string | number,
+): RelatedCollectionOption {
+  return { value: id, label: '', restricted: true }
+}
+
 export async function fetchRelatedCollectionOptionById(
   relatedCollection: string,
   id: string | number,
   template?: string,
-): Promise<{ label: string; value: string | number } | null> {
+): Promise<RelatedCollectionOption | null> {
   if (isUsersAssetCollection(relatedCollection)) {
     try {
       return await fetchAppUserOptionById(id, template)
@@ -843,7 +865,7 @@ export async function fetchRelatedCollectionOptionById(
         `[collectionSchema] Failed to fetch users/${id}: ${message}`,
         error,
       )
-      return null
+      return isPermissionDeniedError(error) ? relatedOptionDenied(id) : null
     }
   }
 
@@ -863,7 +885,7 @@ export async function fetchRelatedCollectionOptionById(
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       console.warn(`[collectionSchema] Failed to fetch roles/${id}: ${message}`, error)
-      return null
+      return isPermissionDeniedError(error) ? relatedOptionDenied(id) : null
     }
   }
 
@@ -909,7 +931,7 @@ export async function fetchRelatedCollectionOptionById(
       `[collectionSchema] Failed to fetch ${relatedCollection}/${id}: ${message}`,
       error,
     )
-    return null
+    return isPermissionDeniedError(error) ? relatedOptionDenied(id) : null
   }
 }
 
@@ -1146,6 +1168,7 @@ export async function fetchDataTableRuntimeMetadata(
   tableSettings?: DataTableSettings | null,
   relatedOffset = 0,
   listFilter?: Record<string, unknown> | null,
+  parentRelationField?: string | null,
 ): Promise<DataTableRuntime> {
   return fetchDataTableRuntime({
     collection: relatedCollection,
@@ -1154,6 +1177,7 @@ export async function fetchDataTableRuntimeMetadata(
     offset: relatedOffset,
     parentCollection: parentName,
     parentId,
+    parentRelationField,
     listFilter,
     defaultColumnLimit: 6,
     previewLimitWithoutParent: 5,
@@ -1165,12 +1189,10 @@ export async function fetchDataTableRuntimeMetadata(
 export async function findParentFkField(
   junctionCollection: string,
   parentCollection: string,
+  bindingKey?: string | null,
 ): Promise<string | null> {
   const relations = (await getCachedRelations()) as RelationDefinition[]
-  const rel = relations.find(
-    (r) =>
-      (r.meta?.many_collection === junctionCollection || r.collection === junctionCollection) &&
-      (r.related_collection === parentCollection || r.meta?.one_collection === parentCollection),
+  return parentFkFromRelation(
+    bestParentRelation(relations, junctionCollection, parentCollection, bindingKey),
   )
-  return rel?.meta?.many_field ?? rel?.field ?? null
 }

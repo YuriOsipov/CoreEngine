@@ -117,6 +117,7 @@ export type PrimeVueComponentType =
   | 'Files'
   | 'ChildLookup'
   | 'CrmActivityLog'
+  | 'CrmMessageTimeline'
   | 'CrmDocEngine'
   | 'M2ABuilder'
   | 'M2MMultiSelect'
@@ -155,6 +156,100 @@ export function normalizeActivityLogSettings(
         ? settings.actions
         : DEFAULT_ACTIVITY_LOG_SETTINGS.actions,
     showDeltas: settings?.showDeltas ?? DEFAULT_ACTIVITY_LOG_SETTINGS.showDeltas,
+  }
+}
+
+/** Merged chronological thread of two related collections (configured in Setup). */
+export interface MessageTimelineSettings {
+  /** Outgoing collection apiName (configured in Record Page Builder). */
+  outgoingCollection?: string
+  /** Incoming collection apiName (configured in Record Page Builder). */
+  incomingCollection?: string
+  /** FK on the outgoing collection that equals the parent record id. */
+  outgoingParentField?: string
+  /** FK on the incoming collection that equals the parent record id. */
+  incomingParentField?: string
+  /**
+   * Optional M2O on the outgoing collection for the header peer filter
+   * (e.g. to_user). Empty = no peer filter on outgoing.
+   */
+  outgoingPeerField?: string
+  /**
+   * Optional M2O on the incoming collection for the header peer filter
+   * (e.g. from_user). Empty = no peer filter on incoming.
+   */
+  incomingPeerField?: string
+  /**
+   * Optional boolean field on the outgoing collection for draft filtering
+   * (e.g. is_draft). Empty = hideDrafts has no effect.
+   */
+  outgoingDraftField?: string
+  /** Compact Layout Setting id for outgoing bubbles. */
+  outgoingCompactLayoutId?: string | null
+  /** Compact Layout Setting id for incoming bubbles. */
+  incomingCompactLayoutId?: string | null
+  /** Visible rows on the record page widget. */
+  maxItems?: number
+  /** When true and {@link outgoingDraftField} is set, omit draft rows. */
+  hideDrafts?: boolean
+}
+
+export const DEFAULT_MESSAGE_TIMELINE_SETTINGS: Required<
+  Pick<MessageTimelineSettings, 'maxItems' | 'hideDrafts'>
+> &
+  MessageTimelineSettings = {
+  outgoingCollection: '',
+  incomingCollection: '',
+  outgoingParentField: '',
+  incomingParentField: '',
+  outgoingPeerField: '',
+  incomingPeerField: '',
+  outgoingDraftField: '',
+  outgoingCompactLayoutId: null,
+  incomingCompactLayoutId: null,
+  maxItems: 10,
+  hideDrafts: true,
+}
+
+function trimSetting(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function trimSettingOrNull(value: unknown): string | null {
+  const trimmed = trimSetting(value)
+  return trimmed || null
+}
+
+export function normalizeMessageTimelineSettings(
+  settings?: MessageTimelineSettings | null,
+): Required<Pick<MessageTimelineSettings, 'maxItems' | 'hideDrafts'>> & {
+  outgoingCollection: string
+  incomingCollection: string
+  outgoingParentField: string
+  incomingParentField: string
+  outgoingPeerField: string
+  incomingPeerField: string
+  outgoingDraftField: string
+  outgoingCompactLayoutId: string | null
+  incomingCompactLayoutId: string | null
+} {
+  const maxRaw = settings?.maxItems
+  const maxItems =
+    typeof maxRaw === 'number' && Number.isFinite(maxRaw)
+      ? Math.min(100, Math.max(1, Math.round(maxRaw)))
+      : DEFAULT_MESSAGE_TIMELINE_SETTINGS.maxItems
+  return {
+    outgoingCollection: trimSetting(settings?.outgoingCollection),
+    incomingCollection: trimSetting(settings?.incomingCollection),
+    outgoingParentField: trimSetting(settings?.outgoingParentField),
+    incomingParentField: trimSetting(settings?.incomingParentField),
+    outgoingPeerField: trimSetting(settings?.outgoingPeerField),
+    incomingPeerField: trimSetting(settings?.incomingPeerField),
+    outgoingDraftField: trimSetting(settings?.outgoingDraftField),
+    outgoingCompactLayoutId: trimSettingOrNull(settings?.outgoingCompactLayoutId),
+    incomingCompactLayoutId: trimSettingOrNull(settings?.incomingCompactLayoutId),
+    maxItems,
+    hideDrafts: settings?.hideDrafts !== false,
   }
 }
 

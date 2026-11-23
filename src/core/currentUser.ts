@@ -6,9 +6,17 @@ import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
 export interface CurrentUser {
   id: string | null
   label: string
+  email: string | null
   roleId: string | null
   roleName: string | null
   isAdmin: boolean
+  /** Admin or role.can_author_reports — may author own-role reports. */
+  canAuthorReports: boolean
+  /**
+   * When View-as-role is active: sample user id used for Owner RLS / $CURRENT_USER.
+   * Null when not previewing.
+   */
+  rolePreviewActorId: string | null
 }
 
 let cachedUser: CurrentUser | null = null
@@ -29,6 +37,11 @@ export async function currentUser(): Promise<CurrentUser> {
     // marked every user as admin and broke "View as role" permission loading.
     const isAdmin = Boolean(me.adminAccess || me.roleAdminAccess)
 
+    const previewActor =
+      typeof me.rolePreviewActorId === 'string' && me.rolePreviewActorId.trim()
+        ? me.rolePreviewActorId.trim()
+        : null
+
     cachedUser = {
       id: me.id,
       label:
@@ -41,9 +54,12 @@ export async function currentUser(): Promise<CurrentUser> {
         me.email ||
         me.id ||
         '',
+      email: typeof me.email === 'string' && me.email.trim() ? me.email.trim() : null,
       roleId: me.roleId,
       roleName,
       isAdmin,
+      canAuthorReports: Boolean(isAdmin || me.canAuthorReports),
+      rolePreviewActorId: previewActor,
     }
     return cachedUser
   })()
@@ -55,8 +71,19 @@ export async function currentUser(): Promise<CurrentUser> {
   }
 }
 
+/**
+ * Effective user id for filters / Owner-RLS-facing UI.
+ * Under View-as-role, returns the sample actor of that role.
+ */
 export async function currentUserId(): Promise<string | null> {
-  return (await currentUser()).id
+  const user = await currentUser()
+  if (user.isAdmin) {
+    const preview = getRolePreviewOverride()
+    if (preview !== undefined) {
+      return user.rolePreviewActorId ?? user.id
+    }
+  }
+  return user.id
 }
 
 export async function currentUserRole(): Promise<string | null> {
@@ -78,9 +105,18 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
   return (await currentUser()).isAdmin
 }
 
+export async function canCurrentUserAuthorReports(): Promise<boolean> {
+  return (await currentUser()).canAuthorReports
+}
+
 /** Sync peek for list-filter `$CURRENT_USER` after `currentUser()` has warmed the cache. */
 export function peekCachedCurrentUserId(): string | null {
-  const id = cachedUser?.id
+  if (!cachedUser) return null
+  if (cachedUser.isAdmin && getRolePreviewOverride() !== undefined) {
+    const preview = cachedUser.rolePreviewActorId?.trim()
+    if (preview) return preview
+  }
+  const id = cachedUser.id
   return typeof id === 'string' && id.trim() ? id.trim() : null
 }
 

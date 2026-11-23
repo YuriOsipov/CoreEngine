@@ -70,6 +70,40 @@ const RESTORE_RECORD = /* GraphQL */ `
   }
 `
 
+const RUN_OPEN_RECORD_AUTOMATIONS = /* GraphQL */ `
+  mutation RunOpenRecordAutomations(
+    $entity: String!
+    $id: ID!
+    $fields: [String!]
+  ) {
+    runOpenRecordAutomations(entity: $entity, id: $id, fields: $fields)
+  }
+`
+
+export const OPEN_AUTOMATIONS_APPLIED_KEY = '__openAutomationsApplied'
+
+export async function runOpenRecordAutomationsViaGraphQL(
+  entity: string,
+  id: string,
+  fields?: string[] | null,
+): Promise<{ record: Record<string, unknown>; applied: boolean }> {
+  const data = await graphqlRequest<{
+    runOpenRecordAutomations: Record<string, unknown>
+  }>(RUN_OPEN_RECORD_AUTOMATIONS, {
+    entity,
+    id,
+    fields: fields ?? null,
+  })
+  const raw = data.runOpenRecordAutomations ?? {}
+  const applied = raw[OPEN_AUTOMATIONS_APPLIED_KEY] === true
+  const withoutFlag = { ...raw }
+  delete withoutFlag[OPEN_AUTOMATIONS_APPLIED_KEY]
+  return {
+    record: consumeAutomationToastsFromRecord(withoutFlag),
+    applied,
+  }
+}
+
 export async function fetchRecordFromGraphQL(
   entity: string,
   id: string,

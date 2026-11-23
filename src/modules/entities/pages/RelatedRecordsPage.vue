@@ -5,7 +5,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
@@ -18,7 +18,10 @@ import DataTableSettingsDesigner from '@/modules/config/components/DataTableSett
 import DocListReportDialog from '@/modules/documents/components/DocListReportDialog.vue'
 import { DOC_LIST_REPORT_MAX_RECORDS } from '@/modules/documents/services/docPopulation'
 import { useDataTableLazy } from '../composables/useDataTableLazy'
-import { fetchDataTableRuntimeMetadata } from '../services/collectionSchema'
+import {
+  fetchDataTableRuntimeMetadata,
+  fetchRelatedCollectionOptionById,
+} from '../services/collectionSchema'
 import {
   buildDefaultTableSettings,
   loadTableSettings,
@@ -53,8 +56,6 @@ import {
   useTranslatedCollection,
 } from '@/core/translation'
 import { useEntityPermissions } from '@/core/entityPermissions'
-import { renderTemplateLabel } from '../utils/recordDisplay'
-import { fetchCollectionDisplayTemplate } from '../services/collectionSchema'
 import { useFavoriteContext } from '@/core/navigation/useFavoriteContext'
 
 const route = useRoute()
@@ -73,6 +74,8 @@ const {
   canRead: canReadRelated,
 } = useEntityPermissions(() => relatedCollectionName.value)
 const tableSettings = ref<DataTableSettings | null>(null)
+/** Layout binding key for the related list (e.g. message_user_created). */
+const relatedListBindingKey = ref<string | null>(null)
 const hasParentEntityConfig = ref(false)
 const showTableSettings = ref(false)
 const tableSettingsSaving = ref(false)
@@ -131,33 +134,38 @@ const {
 
 const { setFavoriteContext, clearFavoriteContext } = useFavoriteContext()
 
-watchEffect(() => {
-  const collection = collectionName.value
-  const id = recordId.value
-  const related = relatedCollectionName.value
-  const record = parentRecord.value
-  if (!collection || !id || !Object.keys(record).length) {
+watch(
+  () =>
+    [collectionName.value, recordId.value, relatedCollectionName.value] as const,
+  ([collection, id, related]) => {
     parentDisplayLabel.value = ''
-    return
-  }
+    if (!collection || !id) {
+      clearFavoriteContext()
+      return
+    }
 
-  void fetchCollectionDisplayTemplate(collection).then((template) => {
-    const parentName = template
-      ? renderTemplateLabel(template, record)
-      : String(record.id ?? id)
-    parentDisplayLabel.value = parentName || String(id)
+    void fetchRelatedCollectionOptionById(collection, id).then((option) => {
+      if (collectionName.value !== collection || recordId.value !== id) return
+      if (option?.restricted) {
+        parentDisplayLabel.value = t('common.relatedRecordRestricted', 'Restricted')
+      } else {
+        const label = option?.label != null ? String(option.label).trim() : ''
+        parentDisplayLabel.value = label && label !== id ? label : id
+      }
 
-    if (!related) return
-    setFavoriteContext({
-      defaultLabel: `${collectionLabel.value} · ${parentDisplayLabel.value} · ${relatedCollectionLabel.value}`,
-      target: {
-        kind: 'url',
-        href: `/object/${collection}/${id}/${related}`,
-        external: false,
-      },
+      if (!related) return
+      setFavoriteContext({
+        defaultLabel: `${collectionLabel.value} · ${parentDisplayLabel.value} · ${relatedCollectionLabel.value}`,
+        target: {
+          kind: 'url',
+          href: `/object/${collection}/${id}/${related}`,
+          external: false,
+        },
+      })
     })
-  })
-})
+  },
+  { immediate: true },
+)
 onUnmounted(clearFavoriteContext)
 
 const backLinkLabel = computed(() => {
@@ -191,6 +199,8 @@ const {
       limit,
       settings,
       offset,
+      null,
+      relatedListBindingKey.value,
     ),
 })
 
@@ -374,6 +384,7 @@ async function loadRelatedRecords(
   recordMissing.value = false
   relatedRuntime.value = null
   selectedMasterRow.value = null
+  relatedListBindingKey.value = null
   pageListDetailPanel.value = null
   listDetailRelatedFields.value = []
   listDetailActions.value = []
@@ -408,6 +419,7 @@ async function loadRelatedRecords(
     const settings = parentDataTable ?? collectionSettings
     if (!settings) return
     tableSettings.value = settings
+    relatedListBindingKey.value = dataTableField?.field?.trim() || null
     hasParentEntityConfig.value = Boolean(parentDataTable)
     batchInsertSettings.value = parentDataTable?.relatedTransfer ?? null
     batchInsertLabel.value = dataTableField?.label ?? relatedCollectionLabel.value
@@ -420,6 +432,8 @@ async function loadRelatedRecords(
       pageSize.value,
       settings,
       0,
+      null,
+      relatedListBindingKey.value,
     )
     if (isStaleToken(token)) return
     relatedRuntime.value = result
@@ -493,6 +507,8 @@ async function resolveListActionRecordIds(action: ListViewAction): Promise<strin
     DOC_LIST_REPORT_MAX_RECORDS,
     tableSettings.value,
     0,
+    null,
+    relatedListBindingKey.value,
   )
   return result.rows
     .map((row) => row[result.primaryKey ?? pk])

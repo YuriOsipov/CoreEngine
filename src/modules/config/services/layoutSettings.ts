@@ -1,6 +1,7 @@
 import type {
   CloneRelatedChildPair,
   EntityAction,
+  EntityActionCreateRecordFieldMapping,
   EntityFormSaveOptions,
   EntityLayoutSchema,
   EntityRoleOption,
@@ -53,6 +54,8 @@ export interface CompactRecordField {
   field: string
   label: string
   component: LayoutFieldMetadata['component']
+  /** Grid column span (1–12), preserved from Compact Layout canvas. */
+  span?: number
   format?: string
   relatedCollection?: string
 }
@@ -346,11 +349,16 @@ export async function buildCompactDetailsSchema(
 
     if (seenFields.has(field.field)) return
     seenFields.add(field.field)
+    const span =
+      typeof field.span === 'number' && Number.isFinite(field.span)
+        ? Math.min(12, Math.max(1, Math.round(field.span)))
+        : undefined
     fields.push({
       id: field.id,
       field: field.field,
       label: field.label,
       component: field.component,
+      span,
       format: field.format,
       relatedCollection: field.relatedCollection,
     })
@@ -861,6 +869,45 @@ function normalizeBulkUpdateFormula(raw: unknown): string {
   return trimmed
 }
 
+function normalizeCreateRecordFieldMappings(
+  raw: EntityActionCreateRecordFieldMapping[] | null | undefined,
+): EntityActionCreateRecordFieldMapping[] {
+  if (!Array.isArray(raw)) return []
+  const out: EntityActionCreateRecordFieldMapping[] = []
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const targetField =
+      typeof row.targetField === 'string' ? row.targetField.trim() : ''
+    if (!targetField) continue
+    const source = row.source === 'static' ? 'static' : 'field'
+    const sourceField =
+      typeof row.sourceField === 'string' ? row.sourceField.trim() : ''
+    const sourceFields = Array.isArray(row.sourceFields)
+      ? row.sourceFields
+          .map((field) => String(field ?? '').trim())
+          .filter(Boolean)
+      : undefined
+    const transform =
+      row.transform === 'quoteLines' || row.transform === 'subjectPrefix'
+        ? row.transform
+        : 'none'
+    const prefix =
+      typeof row.prefix === 'string' && row.prefix.trim()
+        ? row.prefix.trim()
+        : undefined
+    out.push({
+      targetField,
+      source,
+      ...(source === 'field' && sourceField ? { sourceField } : {}),
+      ...(source === 'field' && sourceFields?.length ? { sourceFields } : {}),
+      ...(source === 'static' ? { value: row.value } : {}),
+      transform,
+      ...(transform === 'subjectPrefix' && prefix ? { prefix } : {}),
+    })
+  }
+  return out
+}
+
 function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityAction[] {
   if (!Array.isArray(actions)) return []
 
@@ -952,6 +999,26 @@ function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityA
             successMessage:
               bulk?.successMessage ?? 'Related records updated.',
             refreshRecordAfterRun: bulk?.refreshRecordAfterRun ?? true,
+          },
+        }
+      }
+
+      if (action.behavior === 'createRecord') {
+        const create = action.createRecord
+        return {
+          id: action.id || `action_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`,
+          name: action.name || action.label || 'create_record',
+          label: action.label || action.name || 'Create record',
+          displayType: action.displayType === 'detailLink' ? 'detailLink' : 'detailButton',
+          behavior: 'createRecord' as const,
+          createRecord: {
+            targetCollection:
+              typeof create?.targetCollection === 'string'
+                ? create.targetCollection.trim()
+                : '',
+            openAfterCreate: create?.openAfterCreate !== false,
+            whenSourceNotWritable: create?.whenSourceNotWritable === true,
+            fieldMappings: normalizeCreateRecordFieldMappings(create?.fieldMappings),
           },
         }
       }
@@ -1091,6 +1158,7 @@ function layoutSchemaFromCompactDetails(
       field: field.field,
       label: field.label,
       component: field.component,
+      span: field.span,
       format: field.format,
       relatedCollection: field.relatedCollection,
     })),

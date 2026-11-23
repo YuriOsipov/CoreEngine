@@ -6,8 +6,11 @@
 #
 # CoreEngine patches vs upstream (re-apply after re-vendor):
 # - `volumes/db/coreengine-app-role.sh` + db volume/env mount for supabase-safe `coreengine_app`
-# - Supavisor host ports bound to `127.0.0.1` only
+# - Host Postgres on `db` (`127.0.0.1:${POSTGRES_PORT}`); Supavisor optional (`--profile pooler`, 6543 only)
 # - `.env.example` keys `POSTGRES_APP_USER` / `POSTGRES_APP_PASSWORD`
+# - Optional services behind Compose profiles (`studio`, `realtime`, `auth`, `meta`, `functions`, `pooler`, `imgproxy`);
+#   `meta` also starts with `--profile studio`; `api-gw` no longer depends_on studio;
+#   storage image transforms off by default (`ENABLE_IMAGE_TRANSFORMATION`, default false)
 #
 # Secrets: copy `.env.example` → `.env` here. Keep Supabase `JWT_SECRET` separate from
 # CoreEngine `AUTH_JWT_SECRET` in the repo-root `.env`.

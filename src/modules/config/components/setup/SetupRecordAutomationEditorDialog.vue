@@ -94,6 +94,7 @@ const triggerOptions = computed(() => [
   { label: t('setup.automations.triggerCreate', 'On create'), value: 'create' },
   { label: t('setup.automations.triggerUpdate', 'On update'), value: 'update' },
   { label: t('setup.automations.triggerDelete', 'On delete'), value: 'delete' },
+  { label: t('setup.automations.triggerOpen', 'On open'), value: 'open' },
 ])
 
 const notifySeverityOptions = computed(() => [

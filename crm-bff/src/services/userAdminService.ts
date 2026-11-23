@@ -11,6 +11,7 @@ export interface AppRoleAdmin {
   id: string
   name: string
   isAdmin: boolean
+  canAuthorReports: boolean
   backendRoleId: string | null
   userCount: number
 }
@@ -30,11 +31,13 @@ export interface AppUserAdmin {
 export interface CreateAppRoleInput {
   name: string
   isAdmin?: boolean | null
+  canAuthorReports?: boolean | null
 }
 
 export interface UpdateAppRoleInput {
   name?: string | null
   isAdmin?: boolean | null
+  canAuthorReports?: boolean | null
 }
 
 export interface CreateAppUserInput {
@@ -69,6 +72,7 @@ export async function listAppRolesAdmin(): Promise<AppRoleAdmin[]> {
     id: string
     name: string
     is_admin: boolean
+    can_author_reports: boolean
     backend_role_id: string | null
     user_count: string
   }>(
@@ -76,6 +80,7 @@ export async function listAppRolesAdmin(): Promise<AppRoleAdmin[]> {
        r.id::text AS id,
        r.name,
        COALESCE(r.is_admin, false) AS is_admin,
+       COALESCE(r.can_author_reports, false) AS can_author_reports,
        r.backend_role_id,
        COUNT(u.id)::text AS user_count
      FROM public.app_roles r
@@ -87,6 +92,7 @@ export async function listAppRolesAdmin(): Promise<AppRoleAdmin[]> {
     id: row.id,
     name: row.name,
     isAdmin: Boolean(row.is_admin),
+    canAuthorReports: Boolean(row.is_admin || row.can_author_reports),
     backendRoleId: row.backend_role_id,
     userCount: Number(row.user_count || 0),
   }))
@@ -96,12 +102,13 @@ export async function createAppRole(input: CreateAppRoleInput): Promise<AppRoleA
   const name = String(input.name || '').trim()
   if (!name) throw new Error('Role name is required')
   const isAdmin = Boolean(input.isAdmin)
+  const canAuthorReports = isAdmin ? false : Boolean(input.canAuthorReports)
   const id = randomUUID()
 
   await query(
-    `INSERT INTO public.app_roles (id, name, is_admin, backend_role_id)
-     VALUES ($1::uuid, $2, $3, $4)`,
-    [id, name, isAdmin, id],
+    `INSERT INTO public.app_roles (id, name, is_admin, can_author_reports, backend_role_id)
+     VALUES ($1::uuid, $2, $3, $4, $5)`,
+    [id, name, isAdmin, canAuthorReports, id],
   )
   await seedFullPermissionsForRole(id)
 
@@ -118,8 +125,16 @@ export async function updateAppRole(
   const roleId = String(id || '').trim()
   if (!roleId) throw new Error('Role id is required')
 
-  const existing = await query<{ id: string; name: string; is_admin: boolean }>(
-    `SELECT id::text AS id, name, COALESCE(is_admin, false) AS is_admin
+  const existing = await query<{
+    id: string
+    name: string
+    is_admin: boolean
+    can_author_reports: boolean
+  }>(
+    `SELECT id::text AS id,
+            name,
+            COALESCE(is_admin, false) AS is_admin,
+            COALESCE(can_author_reports, false) AS can_author_reports
      FROM public.app_roles WHERE id = $1::uuid LIMIT 1`,
     [roleId],
   )
@@ -134,15 +149,22 @@ export async function updateAppRole(
     input.isAdmin !== undefined && input.isAdmin !== null
       ? Boolean(input.isAdmin)
       : Boolean(existing[0].is_admin)
+  const nextCanAuthor =
+    nextAdmin
+      ? false
+      : input.canAuthorReports !== undefined && input.canAuthorReports !== null
+        ? Boolean(input.canAuthorReports)
+        : Boolean(existing[0].can_author_reports)
 
   await query(
     `UPDATE public.app_roles
      SET name = $2,
          is_admin = $3,
+         can_author_reports = $4,
          backend_role_id = COALESCE(backend_role_id, id::text),
          updated_at = now()
      WHERE id = $1::uuid`,
-    [roleId, nextName, nextAdmin],
+    [roleId, nextName, nextAdmin, nextCanAuthor],
   )
 
   const roles = await listAppRolesAdmin()

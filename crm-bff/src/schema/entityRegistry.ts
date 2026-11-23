@@ -11,6 +11,7 @@ import {
   quoteIdent,
   resolveCrmStorageConfig,
 } from './crmStorage.js'
+import { clearRecordRelationsCache } from '../adapters/records/relations.js'
 import { applyDdlActions, planEntityDdlSync } from './ddlSync.js'
 import {
   applyUniqueIndexActions,
@@ -277,6 +278,84 @@ function mapEntityRow(row: Record<string, unknown>): RegistryEntityRow {
   }
 }
 
+/**
+ * User FKs that behave as Lookup (M2O → users): audit actors + sharing owner.
+ * Needed for reverse related lists and Display Template labels (Activity log,
+ * grids, System block).
+ */
+const USER_LOOKUP_FIELDS = [
+  'user_created',
+  'user_updated',
+  'owner_id',
+] as const
+
+/**
+ * Ensure `user_created` / `user_updated` / `owner_id` have real M2O relation
+ * rows → `users` so reverse related lists and M2O labels resolve correctly.
+ */
+async function ensureAuditUserLookupRelations(entityId: string): Promise<void> {
+  const usersEntity = await query<{ id: string }>(
+    `SELECT id::text AS id
+     FROM public.entities
+     WHERE api_name = 'users' AND deleted_at IS NULL
+     LIMIT 1`,
+  )
+  const usersId = usersEntity[0]?.id
+  if (!usersId) return
+
+  for (const fieldApiName of USER_LOOKUP_FIELDS) {
+    const fieldRows = await query<{ id: string }>(
+      `SELECT id::text AS id
+       FROM public.fields
+       WHERE entity_id = $1::uuid AND api_name = $2
+       LIMIT 1`,
+      [entityId, fieldApiName],
+    )
+    const fieldId = fieldRows[0]?.id
+    if (!fieldId) continue
+
+    const existing = await query<{ id: string; meta: unknown }>(
+      `SELECT id::text AS id, meta
+       FROM public.relations
+       WHERE field_id = $1::uuid
+       LIMIT 1`,
+      [fieldId],
+    )
+    const meta = {
+      ...(existing[0]?.meta && typeof existing[0].meta === 'object'
+        ? (existing[0].meta as Record<string, unknown>)
+        : {}),
+      one_collection: 'users',
+      on_delete: 'SET NULL',
+    }
+
+    if (existing[0]) {
+      await query(
+        `UPDATE public.relations
+         SET kind = 'M2O',
+             related_entity_id = $2::uuid,
+             junction_entity_id = NULL,
+             meta = $3::jsonb,
+             updated_at = now()
+         WHERE id = $1::uuid`,
+        [existing[0].id, usersId, JSON.stringify(meta)],
+      )
+      continue
+    }
+
+    await query(
+      `INSERT INTO public.relations (
+         entity_id, field_id, kind, related_entity_id, junction_entity_id, meta
+       ) VALUES (
+         $1::uuid, $2::uuid, 'M2O', $3::uuid, NULL, $4::jsonb
+       )`,
+      [entityId, fieldId, usersId, JSON.stringify(meta)],
+    )
+  }
+
+  clearRecordRelationsCache()
+}
+
 async function seedSystemFields(
   entityId: string,
   apiName: string,
@@ -376,6 +455,10 @@ async function seedSystemFields(
         await ensureAutoNumberCounter(fieldId, 1)
       }
     }
+  }
+
+  if (profile === 'full') {
+    await ensureAuditUserLookupRelations(entityId)
   }
 }
 

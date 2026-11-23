@@ -526,12 +526,19 @@
       "label": "Message",
       "icon": "pi pi-at",
       "displayTemplate": "{{name}}",
+      "retireFields": ["result", "is_active"],
       "fields": [
+        {
+          "apiName": "subject",
+          "label": "Subject",
+          "type": "STRING",
+          "interface": "input"
+        },
         {
           "apiName": "body",
           "label": "Body",
           "type": "STRING",
-          "interface": "input"
+          "interface": "input-multiline"
         },
         {
           "apiName": "contact",
@@ -583,29 +590,43 @@
           }
         },
         {
+          "apiName": "from_user",
+          "label": "From user",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "users",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "users"
+          }
+        },
+        {
+          "apiName": "from_email",
+          "label": "From email",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "source_message",
+          "label": "Source message",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "incoming_message",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "incoming_message"
+          }
+        },
+        {
           "apiName": "scheduled_send_at",
           "label": "Scheduled send at",
           "type": "DATETIME",
           "interface": "datetime",
           "isIndexed": true
-        },
-        {
-          "apiName": "result",
-          "label": "Result",
-          "type": "INTEGER",
-          "interface": "select-dropdown",
-          "options": {
-            "choices": [
-              {
-                "text": "Success",
-                "value": 1
-              },
-              {
-                "text": "Failed",
-                "value": 2
-              }
-            ]
-          }
         },
         {
           "apiName": "delivery_status",
@@ -639,30 +660,39 @@
           }
         },
         {
+          "apiName": "is_draft",
+          "label": "Is Draft",
+          "type": "BOOLEAN",
+          "interface": "boolean",
+          "options": {
+            "default": false
+          }
+        },
+        {
           "apiName": "type",
           "label": "Type",
-          "type": "INTEGER",
+          "type": "STRING",
           "interface": "select-dropdown",
           "options": {
             "choices": [
               {
                 "text": "Email",
-                "value": 1
+                "value": "email"
               },
               {
                 "text": "WhatsApp",
-                "value": 2
+                "value": "whatsapp"
               },
               {
                 "text": "Telegram",
-                "value": 3
+                "value": "telegram"
               },
               {
                 "text": "Internal",
-                "value": 4
+                "value": "internal"
               }
             ],
-            "default": 1
+            "default": "email"
           }
         }
       ],
@@ -675,13 +705,12 @@
             "name": "Queue outbound message",
             "enabled": true,
             "sort": 10,
-            "triggers": ["create"],
+            "triggers": ["create", "update"],
             "logic": "and",
             "conditions": [
-              { "field": "result", "operator": "empty" },
-              { "field": "is_active", "operator": "_eq", "value": true }
+              { "field": "is_draft", "operator": "_neq", "value": true }
             ],
-            "requireChanged": [],
+            "requireChanged": ["is_draft"],
             "setFields": {
               "delivery_status": "queued"
             },
@@ -692,14 +721,13 @@
             "name": "Dispatch outbound message",
             "enabled": true,
             "sort": 20,
-            "triggers": ["create"],
+            "triggers": ["create", "update"],
             "logic": "and",
             "conditions": [
-              { "field": "result", "operator": "empty" },
-              { "field": "is_active", "operator": "_eq", "value": true },
+              { "field": "is_draft", "operator": "_neq", "value": true },
               { "field": "scheduled_send_at", "operator": "empty" }
             ],
-            "requireChanged": [],
+            "requireChanged": ["is_draft"],
             "setFields": {},
             "actions": [
               {
@@ -707,6 +735,150 @@
                 "flowKey": "dispatch_outbound_message"
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "apiName": "incoming_message",
+      "label": "Incoming message",
+      "icon": "pi pi-inbox",
+      "group": "Sales",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "subject",
+          "label": "Subject",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "body",
+          "label": "Body",
+          "type": "STRING",
+          "interface": "input-multiline"
+        },
+        {
+          "apiName": "status",
+          "label": "Status",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "New",
+                "value": "new"
+              },
+              {
+                "text": "Read",
+                "value": "read"
+              }
+            ],
+            "default": "new"
+          }
+        },
+        {
+          "apiName": "type",
+          "label": "Type",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Email",
+                "value": "email"
+              },
+              {
+                "text": "WhatsApp",
+                "value": "whatsapp"
+              },
+              {
+                "text": "Telegram",
+                "value": "telegram"
+              },
+              {
+                "text": "Internal",
+                "value": "internal"
+              }
+            ],
+            "default": "internal"
+          }
+        },
+        {
+          "apiName": "from_user",
+          "label": "From user",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "users",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "users"
+          }
+        },
+        {
+          "apiName": "from_email",
+          "label": "From email",
+          "type": "STRING",
+          "interface": "input"
+        },
+        {
+          "apiName": "contact",
+          "label": "Contact",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "contact",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "contact"
+          }
+        },
+        {
+          "apiName": "opportunity",
+          "label": "Opportunity",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "opportunity",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "opportunity"
+          }
+        },
+        {
+          "apiName": "source_message",
+          "label": "Source message",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "message",
+          "isIndexed": true,
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "message"
+          }
+        }
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner",
+        "automations": [
+          {
+            "id": "incoming_message_mark_read_on_open",
+            "name": "Mark read on open",
+            "enabled": true,
+            "sort": 10,
+            "triggers": ["open"],
+            "logic": "and",
+            "conditions": [
+              { "field": "status", "operator": "_eq", "value": "new" }
+            ],
+            "requireChanged": [],
+            "setFields": {
+              "status": "read"
+            },
+            "actions": []
           }
         ]
       }

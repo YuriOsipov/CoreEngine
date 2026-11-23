@@ -91,9 +91,28 @@ const objectCollection = computed<string>({
   set: (value) => {
     if (draft.value?.type === 'link' && draft.value.target.kind === 'object') {
       draft.value.target.collection = value
+      void applyCollectionIcon(value)
     }
   },
 })
+
+/** Copy the object's configured icon onto the menu link when a collection is chosen. */
+async function applyCollectionIcon(collection: string): Promise<void> {
+  if (!draft.value || !collection) return
+  await ensureOptions()
+  if (
+    draft.value?.type !== 'link' ||
+    draft.value.target.kind !== 'object' ||
+    draft.value.target.collection !== collection
+  ) {
+    return
+  }
+  const icon = collections.value
+    .find((option) => option.value === collection)
+    ?.icon
+    ?.trim()
+  draft.value.icon = icon || undefined
+}
 
 const objectViewId = computed<string>({
   get: () =>

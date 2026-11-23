@@ -5,11 +5,14 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import RecordPageRenderer from '@/modules/entities/components/RecordPageRenderer.vue'
 import RecordEditDialog from '@/modules/entities/components/RecordEditDialog.vue'
+import RecordCreateDialog from '@/modules/entities/components/RecordCreateDialog.vue'
+import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
+import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
 import DocTemplatePickerDialog from '@/modules/documents/components/DocTemplatePickerDialog.vue'
 import DocValueListDialog from '@/modules/documents/components/DocValueListDialog.vue'
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
@@ -30,6 +33,7 @@ import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { useTranslation } from '@/core/translation'
 import {
   archiveObjectRecord,
+  applyOpenRecordAutomations,
   fetchObjectRecordForEdit,
   isRecordArchived,
   restoreObjectRecord,
@@ -84,7 +88,26 @@ const showRenderer = computed(
     && Boolean(layoutSchema.value)
     && Object.keys(recordData.value).length > 0,
 )
+const effectiveUserId = ref<string | null>(peekCachedCurrentUserId())
+onMounted(() => {
+  void currentUserId().then((id) => {
+    effectiveUserId.value = id
+  })
+})
+watch(
+  () => [props.collection, props.parentId, recordData.value] as const,
+  () => {
+    const peeked = peekCachedCurrentUserId()
+    if (peeked) effectiveUserId.value = peeked
+    else void currentUserId().then((id) => { effectiveUserId.value = id })
+  },
+)
 
+const showEditRecord = computed(
+  () =>
+    canUpdateRecord.value
+    && canWriteOwnedRecord(recordData.value, effectiveUserId.value),
+)
 const {
   actionRunning,
   actionMessage,
@@ -109,8 +132,12 @@ const {
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
+  createDialogVisible,
+  createTargetCollection,
+  createInitialValues,
   runEntityAction,
   onNumberPromptConfirm,
+  onCreateRecordCreated,
   onExistingDocumentSelected,
   onNewDocumentFromList,
   onRuntimeTemplateSelected,
@@ -119,6 +146,7 @@ const {
   recordId: () => recordId.value,
   record: () => recordData.value,
   onRefresh: () => refreshRecord(),
+  sourceWritable: () => showEditRecord.value,
 })
 
 watch(
@@ -151,6 +179,7 @@ function resetState(): void {
   recordData.value = {}
   detailActions.value = []
   editDialogVisible.value = false
+  composeDialogVisible.value = false
   actionMessage.value = null
   actionError.value = null
 }
@@ -229,6 +258,7 @@ async function loadFullPageDetail(collection: string, id: string): Promise<void>
   recordData.value = {}
   detailActions.value = []
   editDialogVisible.value = false
+  composeDialogVisible.value = false
 
   try {
     const { pageLayout, blockLayout: schema } = await resolvePreferredBlockLayoutForCurrentUser(
@@ -263,6 +293,13 @@ async function loadFullPageDetail(collection: string, id: string): Promise<void>
     layoutSchema.value = schema
     recordData.value = record
     detailActions.value = await resolveDetailActions(pageLayout, schema)
+
+    const afterOpen = await applyOpenRecordAutomations(collection, id, record)
+    if (token !== loadToken) return
+    if (afterOpen) {
+      recordData.value = afterOpen
+      emit('record-updated', afterOpen)
+    }
   } catch (err) {
     if (token !== loadToken) return
     loadError.value =
@@ -562,6 +599,14 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
         />
       </div>
     </template>
+
+    <RecordCreateDialog
+      :visible="createDialogVisible"
+      :collection="createTargetCollection"
+      :initial-values="createInitialValues"
+      @update:visible="createDialogVisible = $event"
+      @created="onCreateRecordCreated"
+    />
 
     <RecordEditDialog
       v-model:visible="editDialogVisible"

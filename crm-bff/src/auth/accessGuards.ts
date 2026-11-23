@@ -19,8 +19,9 @@ export type AuthGuardOptions = {
   allowPasswordChange?: boolean
   /**
    * When true (default), admins with `X-Role-Preview` are treated as that role
-   * for ACL / field security. Keep false for GraphQL `me` so the UI still
-   * knows the session is admin.
+   * for ACL, field security, and Owner RLS (sample user of the role). Keep
+   * false for GraphQL `me` so the UI still knows the session is admin
+   * (`rolePreviewActorId` exposes the effective RLS actor separately).
    */
   applyRolePreview?: boolean
 }

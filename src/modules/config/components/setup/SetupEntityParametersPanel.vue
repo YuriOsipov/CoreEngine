@@ -16,6 +16,7 @@ import {
   type EntityAccountability,
 } from '@/core/graphql/entityMetaApi'
 import { clampSensitivity, sensitivityOptions } from '@/core/fieldSensitivity'
+import { isUsersAssetCollection } from '@/core/usersField'
 import CrmIconPicker from '@/core/ui-kit/CrmIconPicker.vue'
 import { clearMetadataCache } from '@/modules/entities/services/collectionSchema'
 import SetupUniqueGroupsPanel from './SetupUniqueGroupsPanel.vue'
@@ -51,10 +52,15 @@ const form = reactive({
   ownerRowSecurity: false,
   /** Maps to backend_config.inheritOwnerFrom (M2O field api_name). */
   inheritOwnerFrom: null as string | null,
+  /** Maps to backend_config.rowLevelReadAlsoIf. */
+  rowLevelReadAlsoIf: [] as string[],
+  /** Maps to backend_config.rowLevelReadAlsoIfSameRole. */
+  rowLevelReadAlsoIfSameRole: false,
 })
 
 const fieldOptions = ref<Array<{ label: string; value: string }>>([])
 const m2oFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const readAlsoIfFieldOptions = ref<Array<{ label: string; value: string }>>([])
 const inheritOwnerOptions = computed(() => [
   {
     label: t(
@@ -118,6 +124,7 @@ async function load(): Promise<void> {
     form.defaultFieldSensitivity = clampSensitivity(data.defaultFieldSensitivity)
     form.ownerRowSecurity = data.rowLevelSecurity === 'owner'
     form.inheritOwnerFrom = data.inheritOwnerFrom
+    form.rowLevelReadAlsoIfSameRole = Boolean(data.rowLevelReadAlsoIfSameRole)
     fieldOptions.value = data.fields
       .filter((f) => f.apiName !== 'id' && f.type.toUpperCase() !== 'ALIAS')
       .map((f) => ({
@@ -136,6 +143,24 @@ async function load(): Promise<void> {
         label: `${f.label} (${f.apiName})`,
         value: f.apiName,
       }))
+    const excludedShare = new Set(['id', 'owner_id', 'user_created', 'user_updated'])
+    // readAlsoIf compares field value to me.id — only users M2O fields are valid.
+    readAlsoIfFieldOptions.value = data.fields
+      .filter((f) => {
+        const api = String(f.apiName || '').trim()
+        if (!api || excludedShare.has(api)) return false
+        const kind = String(f.relationKind || '').toUpperCase()
+        if (!kind.includes('M2O')) return false
+        return isUsersAssetCollection(String(f.relatedEntityApiName || '').trim())
+      })
+      .map((f) => ({
+        label: `${f.label} (${f.apiName})`,
+        value: f.apiName,
+      }))
+    const allowedShare = new Set(readAlsoIfFieldOptions.value.map((o) => o.value))
+    form.rowLevelReadAlsoIf = data.rowLevelReadAlsoIf.filter((field) =>
+      allowedShare.has(field),
+    )
   } catch (err) {
     showError(
       err,
@@ -162,6 +187,12 @@ async function save(): Promise<void> {
       inheritOwnerFrom: form.ownerRowSecurity
         ? form.inheritOwnerFrom?.trim() || null
         : null,
+      rowLevelReadAlsoIf: form.ownerRowSecurity
+        ? [...form.rowLevelReadAlsoIf]
+        : [],
+      rowLevelReadAlsoIfSameRole: form.ownerRowSecurity
+        ? form.rowLevelReadAlsoIfSameRole
+        : false,
     })
     clearMetadataCache()
     toast.add({
@@ -184,6 +215,17 @@ watch(
   () => props.collection,
   () => {
     void load()
+  },
+)
+
+watch(
+  () => form.ownerRowSecurity,
+  (enabled) => {
+    if (!enabled) {
+      form.rowLevelReadAlsoIf = []
+      form.rowLevelReadAlsoIfSameRole = false
+      form.inheritOwnerFrom = null
+    }
   },
 )
 
@@ -460,6 +502,89 @@ onMounted(() => {
             }
           "
         />
+      </div>
+
+      <div
+        v-if="form.ownerRowSecurity"
+        class="flex flex-col gap-1"
+      >
+        <label class="inline-flex items-center gap-1">
+          {{
+            t(
+              'setup.entityParameters.rowLevelReadAlsoIf',
+              'Also grant read if',
+            )
+          }}
+          <button
+            type="button"
+            class="setup-entity-parameters__hint"
+            v-tooltip.bottom="
+              hintTooltip(
+                t(
+                  'setup.entityParameters.rowLevelReadAlsoIfHint',
+                  'Users matching any selected field (for example To user) can read the row in addition to the owner. Update and delete stay owner-only. Typical use: Message inbox.',
+                ),
+              )
+            "
+            :aria-label="t('common.moreInfo', 'More information')"
+          >
+            i
+          </button>
+        </label>
+        <MultiSelect
+          v-model="form.rowLevelReadAlsoIf"
+          :options="readAlsoIfFieldOptions"
+          option-label="label"
+          option-value="value"
+          display="chip"
+          filter
+          :show-toggle-all="false"
+          class="w-full"
+          :placeholder="
+            t(
+              'setup.entityParameters.rowLevelReadAlsoIfPlaceholder',
+              'Select user fields…',
+            )
+          "
+          :empty-message="
+            t(
+              'setup.entityParameters.rowLevelReadAlsoIfEmpty',
+              'No M2O or UUID fields available for read-share.',
+            )
+          "
+        />
+      </div>
+
+      <div
+        v-if="form.ownerRowSecurity"
+        class="flex flex-col gap-1"
+      >
+        <div class="flex align-items-center justify-content-between gap-2">
+          <label class="inline-flex items-center gap-1 m-0">
+            {{
+              t(
+                'setup.entityParameters.rowLevelReadAlsoIfSameRole',
+                'Also grant read if same role as owner',
+              )
+            }}
+            <button
+              type="button"
+              class="setup-entity-parameters__hint"
+              v-tooltip.bottom="
+                hintTooltip(
+                  t(
+                    'setup.entityParameters.rowLevelReadAlsoIfSameRoleHint',
+                    'When on, every user with the same Role as the record Owner can read the row (list and open). Update and delete stay owner-only. Coarser than a future Teams object — e.g. all Sales Reps see each other’s rows on this object.',
+                  ),
+                )
+              "
+              :aria-label="t('common.moreInfo', 'More information')"
+            >
+              i
+            </button>
+          </label>
+          <ToggleSwitch v-model="form.rowLevelReadAlsoIfSameRole" />
+        </div>
       </div>
     </div>
 

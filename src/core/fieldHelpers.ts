@@ -139,6 +139,10 @@ export function isHtmlEditorField(field: LayoutFieldMetadata): boolean {
   return isHtmlEditorComponent(field.component)
 }
 
+export function isTextareaField(field: LayoutFieldMetadata): boolean {
+  return field.component === 'Textarea'
+}
+
 /** Full-width complex fields always keep stacked labels (ignore group.inlineLabels). */
 export function isFullWidthLayoutField(field: LayoutFieldMetadata): boolean {
   const extension = getCustomBlock(field.component)

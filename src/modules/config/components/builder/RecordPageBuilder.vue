@@ -22,12 +22,15 @@ import type {
 } from '@/interfaces'
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
+  DEFAULT_MESSAGE_TIMELINE_SETTINGS,
   DEFAULT_VISIBLE_ACTION_BUTTONS,
   normalizeActivityLogSettings,
+  normalizeMessageTimelineSettings,
 } from '@/interfaces'
 import type { PaletteItem } from '@/modules/entities/utils/fieldPalette'
 import {
   buildLivePalette,
+  listUserCollections,
   fetchFieldRuntimeMetadata,
 } from '@/modules/entities/services/collectionSchema'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
@@ -76,6 +79,7 @@ const PALETTE_ICONS: Record<string, string> = {
   relatedList: 'RL',
   files: 'FL',
   activityLog: 'AL',
+  messageTimeline: 'MT',
   tabs: '☰',
   actions: '⚡',
   fieldGroup: '§',
@@ -107,6 +111,9 @@ const paletteTab = ref<'pageLayouts' | 'fields' | 'components'>('pageLayouts')
 const selectedComponentId = ref<string | null>(null)
 const pageLayouts = ref<SavedRoleScopedLayout[]>([])
 const compactLayouts = ref<SavedRoleScopedLayout[]>([])
+/** Compact Layouts for Message / Incoming message bubbles. */
+const messageCompactLayouts = ref<SavedRoleScopedLayout[]>([])
+const incomingMessageCompactLayouts = ref<SavedRoleScopedLayout[]>([])
 const fieldPaletteItems = ref<PaletteItem[]>([])
 const paletteLoading = ref(false)
 const paletteError = ref<string | null>(null)
@@ -536,6 +543,13 @@ const structuralComponentItems = computed<RecordPagePaletteItem[]>(() => [
     componentType: 'activityLog',
   },
   {
+    id: 'cmp-messageTimeline',
+    kind: 'component',
+    label: t('recordPage.component.messageTimeline', 'Message timeline'),
+    icon: PALETTE_ICONS.messageTimeline,
+    componentType: 'messageTimeline',
+  },
+  {
     id: 'cmp-tabs',
     kind: 'component',
     label: t('recordPage.component.tabs', 'Tabs'),
@@ -605,6 +619,20 @@ const pageLayoutOptions = computed(() =>
 
 const compactLayoutOptions = computed(() =>
   compactLayouts.value.map((layout) => ({
+    label: layout.name,
+    value: layout.id,
+  })),
+)
+
+const messageCompactLayoutOptions = computed(() =>
+  messageCompactLayouts.value.map((layout) => ({
+    label: layout.name,
+    value: layout.id,
+  })),
+)
+
+const incomingMessageCompactLayoutOptions = computed(() =>
+  incomingMessageCompactLayouts.value.map((layout) => ({
     label: layout.name,
     value: layout.id,
   })),
@@ -806,6 +834,139 @@ function updateActivityLogSettings(
   })
 }
 
+const selectedMessageTimelineSettings = computed(() =>
+  normalizeMessageTimelineSettings(selectedComponent.value?.messageTimeline),
+)
+
+const messageTimelineCollectionOptions = ref<Array<{ label: string; value: string }>>([])
+const messageTimelineOutgoingFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const messageTimelineIncomingFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const messageTimelineOutgoingPeerFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const messageTimelineIncomingPeerFieldOptions = ref<Array<{ label: string; value: string }>>([])
+const messageTimelineOutgoingDraftFieldOptions = ref<Array<{ label: string; value: string }>>([])
+
+function relationFieldOptions(items: PaletteItem[]): Array<{ label: string; value: string }> {
+  return items
+    .filter(
+      (item) =>
+        Boolean(item.fieldKey)
+        && Boolean(item.relatedCollection)
+        && (item.component === 'AutoComplete'
+          || item.component === 'Select'
+          || item.component === 'Dropdown'),
+    )
+    .map((item) => ({
+      label: item.label || item.fieldKey,
+      value: item.fieldKey,
+    }))
+}
+
+function booleanFieldOptions(items: PaletteItem[]): Array<{ label: string; value: string }> {
+  return items
+    .filter(
+      (item) =>
+        Boolean(item.fieldKey)
+        && (item.component === 'Checkbox' || item.fieldType?.toLowerCase() === 'boolean'),
+    )
+    .map((item) => ({
+      label: item.label || item.fieldKey,
+      value: item.fieldKey,
+    }))
+}
+
+async function loadMessageTimelineCollectionOptions(): Promise<void> {
+  try {
+    const cols = await listUserCollections()
+    messageTimelineCollectionOptions.value = cols.map((col) => ({
+      label: col.label || col.value,
+      value: col.value,
+    }))
+  } catch {
+    messageTimelineCollectionOptions.value = []
+  }
+}
+
+async function loadMessageTimelineSideMeta(
+  collection: string,
+  side: 'outgoing' | 'incoming',
+): Promise<void> {
+  if (!collection) {
+    if (side === 'outgoing') {
+      messageTimelineOutgoingFieldOptions.value = []
+      messageTimelineOutgoingPeerFieldOptions.value = []
+      messageTimelineOutgoingDraftFieldOptions.value = []
+      messageCompactLayouts.value = []
+    } else {
+      messageTimelineIncomingFieldOptions.value = []
+      messageTimelineIncomingPeerFieldOptions.value = []
+      incomingMessageCompactLayouts.value = []
+    }
+    return
+  }
+  try {
+    const [palette, compact] = await Promise.all([
+      buildLivePalette(collection),
+      loadCompactLayouts(collection),
+    ])
+    const relationOptions = relationFieldOptions(palette)
+    if (side === 'outgoing') {
+      messageTimelineOutgoingFieldOptions.value = relationOptions
+      messageTimelineOutgoingPeerFieldOptions.value = relationOptions
+      messageTimelineOutgoingDraftFieldOptions.value = booleanFieldOptions(palette)
+      messageCompactLayouts.value = compact
+    } else {
+      messageTimelineIncomingFieldOptions.value = relationOptions
+      messageTimelineIncomingPeerFieldOptions.value = relationOptions
+      incomingMessageCompactLayouts.value = compact
+    }
+  } catch {
+    if (side === 'outgoing') {
+      messageTimelineOutgoingFieldOptions.value = []
+      messageTimelineOutgoingPeerFieldOptions.value = []
+      messageTimelineOutgoingDraftFieldOptions.value = []
+      messageCompactLayouts.value = []
+    } else {
+      messageTimelineIncomingFieldOptions.value = []
+      messageTimelineIncomingPeerFieldOptions.value = []
+      incomingMessageCompactLayouts.value = []
+    }
+  }
+}
+
+function updateMessageTimelineSettings(
+  patch: Partial<ReturnType<typeof normalizeMessageTimelineSettings>>,
+): void {
+  if (selectedComponent.value?.type !== 'messageTimeline') return
+  const next = {
+    ...selectedMessageTimelineSettings.value,
+    ...patch,
+  }
+  updateSelected({ messageTimeline: next })
+  if (Object.prototype.hasOwnProperty.call(patch, 'outgoingCollection')) {
+    void loadMessageTimelineSideMeta(next.outgoingCollection, 'outgoing')
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'incomingCollection')) {
+    void loadMessageTimelineSideMeta(next.incomingCollection, 'incoming')
+  }
+}
+
+watch(
+  () =>
+    selectedComponent.value?.type === 'messageTimeline'
+      ? [
+          selectedMessageTimelineSettings.value.outgoingCollection,
+          selectedMessageTimelineSettings.value.incomingCollection,
+        ]
+      : null,
+  (key) => {
+    if (!key) return
+    void loadMessageTimelineCollectionOptions()
+    void loadMessageTimelineSideMeta(key[0] || '', 'outgoing')
+    void loadMessageTimelineSideMeta(key[1] || '', 'incoming')
+  },
+  { immediate: true },
+)
+
 const selectedFieldParentGroup = computed(() => {
   if (!selectedComponent.value || selectedComponent.value.type !== 'field') return null
   return findParentFieldGroup(selectedComponent.value.id)
@@ -871,6 +1032,8 @@ function componentTypeLabel(type: RecordPageComponentType): string {
       return t('recordPage.component.files', 'Files')
     case 'activityLog':
       return t('recordPage.component.activityLog', 'Activity log')
+    case 'messageTimeline':
+      return t('recordPage.component.messageTimeline', 'Message timeline')
     case 'tabs':
       return t('recordPage.component.tabs', 'Tabs')
     case 'actions':
@@ -965,6 +1128,15 @@ function clonePaletteItem(item: RecordPagePaletteItem): RecordPageComponent {
     }
   }
 
+  if (type === 'messageTimeline') {
+    return {
+      id: newId('cmp'),
+      type,
+      label: item.label,
+      messageTimeline: { ...DEFAULT_MESSAGE_TIMELINE_SETTINGS },
+    }
+  }
+
   if (type === 'path') {
     return {
       id: newId('cmp'),
@@ -980,6 +1152,7 @@ function clonePaletteItem(item: RecordPagePaletteItem): RecordPageComponent {
     label: item.label,
     pageLayoutId: null,
     compactLayoutId: type === 'highlights' ? null : undefined,
+    compactView: type === 'highlights' ? 'inline' : undefined,
     actionLayoutId: type === 'highlights' ? null : undefined,
     visibleActionButtons: type === 'highlights' ? DEFAULT_VISIBLE_ACTION_BUTTONS : undefined,
   }
@@ -1068,6 +1241,8 @@ function compactLayoutName(compactLayoutId: string | null | undefined): string {
     return t('recordPage.useRoleCompactLayout', 'Use role default')
   }
   return compactLayouts.value.find((layout) => layout.id === compactLayoutId)?.name
+    ?? messageCompactLayouts.value.find((layout) => layout.id === compactLayoutId)?.name
+    ?? incomingMessageCompactLayouts.value.find((layout) => layout.id === compactLayoutId)?.name
     ?? compactLayoutId
 }
 
@@ -1183,6 +1358,7 @@ async function loadPalette(): Promise<void> {
       loadEntityForms(props.collection),
       loadCompactLayouts(props.collection),
       buildLivePalette(props.collection),
+      loadMessageTimelineCollectionOptions(),
     ])
     pageLayouts.value = forms
     compactLayouts.value = compact
@@ -1858,6 +2034,34 @@ watch(
 
           <div class="flex flex-col gap-[0.35rem]">
             <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+              {{ t('recordPage.compactView', 'Compact view') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'recordPage.compactViewHint',
+                  'Inline = single-line header strip. Panel = multi-row grid using Compact Layout field widths.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </label>
+            <Select
+              :model-value="selectedComponent.compactView ?? 'inline'"
+              :options="[
+                { label: t('recordPage.compactViewInline', 'Inline (single line)'), value: 'inline' },
+                { label: t('recordPage.compactViewPanel', 'Panel (grid)'), value: 'panel' },
+              ]"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              @update:model-value="updateSelected({
+                compactView: $event === 'panel' ? 'panel' : 'inline',
+              })"
+            />
+          </div>
+
+          <div class="flex flex-col gap-[0.35rem]">
+            <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
               {{ t('recordPage.actionLayout', 'Actions from Block Layout') }}
               <button
                 type="button"
@@ -2309,6 +2513,316 @@ watch(
             <ToggleSwitch
               :model-value="selectedActivityLogSettings.showDeltas"
               @update:model-value="updateActivityLogSettings({ showDeltas: Boolean($event) })"
+            />
+          </label>
+        </div>
+
+        <div
+          v-if="selectedComponent.type === 'messageTimeline'"
+          class="flex flex-col gap-3"
+        >
+          <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+            {{ t('recordPage.component.messageTimeline', 'Message timeline') }}
+            <button
+              type="button"
+              class="record-page-hint"
+              v-tooltip.bottom="hintTooltip(t(
+                'messageTimeline.builderDescription',
+                'Merges two related collections into one chronological thread. Choose the outgoing and incoming objects, then their link fields and Compact Layouts.',
+              ))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.outgoingCollection', 'Outgoing object') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.outgoingCollectionHint',
+                  'Collection for outgoing rows (right side of the thread).',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.outgoingCollection || null"
+              :options="messageTimelineCollectionOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectCollection', 'Select an object')"
+              filter
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                outgoingCollection: ($event as string | null) ?? '',
+                outgoingParentField: '',
+                outgoingPeerField: '',
+                outgoingDraftField: '',
+                outgoingCompactLayoutId: null,
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.incomingCollection', 'Incoming object') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.incomingCollectionHint',
+                  'Collection for incoming rows (left side of the thread).',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.incomingCollection || null"
+              :options="messageTimelineCollectionOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectCollection', 'Select an object')"
+              filter
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                incomingCollection: ($event as string | null) ?? '',
+                incomingParentField: '',
+                incomingPeerField: '',
+                incomingCompactLayoutId: null,
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.outgoingParentField', 'Outgoing link field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.outgoingParentFieldHint',
+                  'M2O on the outgoing object that equals this record id.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.outgoingParentField || null"
+              :options="messageTimelineOutgoingFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectParentField', 'Select a field')"
+              :disabled="!selectedMessageTimelineSettings.outgoingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                outgoingParentField: ($event as string | null) ?? '',
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.incomingParentField', 'Incoming link field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.incomingParentFieldHint',
+                  'M2O on the incoming object that equals this record id.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.incomingParentField || null"
+              :options="messageTimelineIncomingFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectParentField', 'Select a field')"
+              :disabled="!selectedMessageTimelineSettings.incomingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                incomingParentField: ($event as string | null) ?? '',
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.outgoingPeerField', 'Outgoing peer filter field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.outgoingPeerFieldHint',
+                  'Optional M2O on the outgoing object used by the header filter (for example To user).',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.outgoingPeerField || null"
+              :options="messageTimelineOutgoingPeerFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectParentField', 'Select a field')"
+              :disabled="!selectedMessageTimelineSettings.outgoingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                outgoingPeerField: ($event as string | null) ?? '',
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.incomingPeerField', 'Incoming peer filter field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.incomingPeerFieldHint',
+                  'Optional M2O on the incoming object used by the header filter (for example From user).',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.incomingPeerField || null"
+              :options="messageTimelineIncomingPeerFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectParentField', 'Select a field')"
+              :disabled="!selectedMessageTimelineSettings.incomingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                incomingPeerField: ($event as string | null) ?? '',
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.outgoingCompactLayout', 'Outgoing Compact Layout') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.outgoingCompactLayoutHint',
+                  'Compact Layout for outgoing bubbles. Leave empty for the role default on that object.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.outgoingCompactLayoutId"
+              :options="messageCompactLayoutOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('recordPage.useRoleCompactLayout', 'Use role default')"
+              :disabled="!selectedMessageTimelineSettings.outgoingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                outgoingCompactLayoutId: ($event as string | null) ?? null,
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.incomingCompactLayout', 'Incoming Compact Layout') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.incomingCompactLayoutHint',
+                  'Compact Layout for incoming bubbles. Leave empty for the role default on that object.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.incomingCompactLayoutId"
+              :options="incomingMessageCompactLayoutOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('recordPage.useRoleCompactLayout', 'Use role default')"
+              :disabled="!selectedMessageTimelineSettings.incomingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                incomingCompactLayoutId: ($event as string | null) ?? null,
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.outgoingDraftField', 'Outgoing draft field') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.outgoingDraftFieldHint',
+                  'Optional boolean field on the outgoing object. Used only when Hide drafts is on.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <Select
+              :model-value="selectedMessageTimelineSettings.outgoingDraftField || null"
+              :options="messageTimelineOutgoingDraftFieldOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('messageTimeline.selectParentField', 'Select a field')"
+              :disabled="!selectedMessageTimelineSettings.outgoingCollection"
+              show-clear
+              class="w-full"
+              @update:model-value="updateMessageTimelineSettings({
+                outgoingDraftField: ($event as string | null) ?? '',
+              })"
+            />
+          </label>
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.maxItems', 'Messages per page') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.maxItemsHint',
+                  'Newest messages shown first. Load more appends the next page (default {count}).',
+                  { count: DEFAULT_MESSAGE_TIMELINE_SETTINGS.maxItems },
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <InputNumber
+              :model-value="selectedMessageTimelineSettings.maxItems"
+              :min="1"
+              :max="100"
+              fluid
+              @update:model-value="updateMessageTimelineSettings({
+                maxItems: Number($event ?? DEFAULT_MESSAGE_TIMELINE_SETTINGS.maxItems),
+              })"
+            />
+          </label>
+          <label class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-surface-700">
+            <span class="inline-flex items-center gap-1">
+              {{ t('messageTimeline.hideDrafts', 'Hide drafts') }}
+              <button
+                type="button"
+                class="record-page-hint"
+                v-tooltip.bottom="hintTooltip(t(
+                  'messageTimeline.hideDraftsHint',
+                  'When on, and a draft field is set, outgoing draft rows are omitted.',
+                ))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <ToggleSwitch
+              :model-value="selectedMessageTimelineSettings.hideDrafts"
+              @update:model-value="updateMessageTimelineSettings({ hideDrafts: Boolean($event) })"
             />
           </label>
         </div>

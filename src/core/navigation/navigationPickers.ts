@@ -5,11 +5,18 @@ import { loadListViews } from '@/modules/config/services/listViewSettings'
 export interface NavPickerOption {
   label: string
   value: string
+  /** Icon from object config. Present on collection options. */
+  icon?: string | null
 }
 
 /** User (non-system, non-hidden) collections available as object nav targets. */
 export async function listNavCollections(): Promise<NavPickerOption[]> {
-  return listUserCollections()
+  const rows = await listUserCollections()
+  return rows.map((row) => ({
+    label: row.label,
+    value: row.value,
+    icon: row.icon,
+  }))
 }
 
 export async function listNavDashboards(): Promise<NavPickerOption[]> {

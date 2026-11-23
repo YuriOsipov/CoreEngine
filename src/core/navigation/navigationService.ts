@@ -309,6 +309,10 @@ export async function deleteNavigationApp(recordId: string): Promise<void> {
   await writeSettingDelete(String(existing.id))
 }
 
+function recordRoleRef(record: NavSettingRecord): string | null {
+  return parseSettingRoleId(record.role)
+}
+
 /**
  * Resolves the navigation app to show for a role: role-scoped default →
  * role-scoped first → global (null role) default → global first.
@@ -324,7 +328,17 @@ export async function resolveNavigationForRole(
     return withDefault ?? records[0]
   }
 
-  let record = roleId ? pick(await readAppRecords(roleId)) : null
+  let record: NavSettingRecord | null = null
+  if (roleId) {
+    // Prefer exact roleId match; also accept any app whose stored role equals
+    // the caller's role string (backend_role_id and app_roles.id are usually equal).
+    record = pick(await readAppRecords(roleId))
+    if (!record) {
+      const all = await readAppRecords(undefined)
+      const matched = all.filter((row) => recordRoleRef(row) === String(roleId))
+      record = pick(matched)
+    }
+  }
   if (!record) {
     record = pick(await readAppRecords(null))
   }

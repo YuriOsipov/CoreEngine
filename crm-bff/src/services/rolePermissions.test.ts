@@ -27,6 +27,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: null,
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -40,6 +41,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     query.mockResolvedValueOnce([]) // joined role + flags → deny
@@ -54,6 +56,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -70,6 +73,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -88,6 +92,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     query.mockResolvedValueOnce([]) // userRecordMatchesMe miss
@@ -107,6 +112,7 @@ describe('assertEntityPermission', () => {
       adminAccess: true,
       roleId: 'role-admin',
       roleAdminAccess: true,
+      canAuthorReports: true,
       mustChangePassword: true,
     })
     await expect(
@@ -120,6 +126,7 @@ describe('assertEntityPermission', () => {
       adminAccess: false,
       roleId: 'role-1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(

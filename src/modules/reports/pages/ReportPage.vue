@@ -41,7 +41,9 @@ import {
   exportReportDetailsOnly,
   type ReportExportFormat,
 } from '../services/reportExcelExport'
+import { currentUserRole } from '@/core/currentUser'
 import { canReadEntity, ensureEntityPermissions } from '@/core/entityPermissions'
+import { getEffectiveSetupAccess } from '@/core/setupAccess'
 
 const { t } = useTranslation()
 const route = useRoute()
@@ -59,6 +61,7 @@ const running = ref(false)
 const exporting = ref(false)
 const drillDownVisible = ref(false)
 const drillDown = ref<ReportPivotDrillDown | null>(null)
+const canEditInSetup = ref(false)
 
 const reportOptions = computed(() =>
   reports.value.map((report) => ({
@@ -104,12 +107,30 @@ const hasRuntimeFilters = computed(
   () => listRuntimeVisibleFilters(draft.value).length > 0,
 )
 const editInSetupRoute = computed(() => {
-  if (!draftSettingId.value) return null
+  if (!draftSettingId.value || !canEditInSetup.value) return null
   return {
     name: 'setup-report-edit' as const,
     params: { settingId: String(draftSettingId.value) },
   }
 })
+
+async function refreshEditAccess(
+  report: Pick<ReportWithSetting, 'roleId'> | null,
+): Promise<void> {
+  const access = await getEffectiveSetupAccess()
+  if (access.isFullSetupAdmin) {
+    canEditInSetup.value = true
+    return
+  }
+  const roleId = await currentUserRole()
+  canEditInSetup.value = Boolean(
+    access.canAuthorReports &&
+      roleId &&
+      report?.roleId != null &&
+      report.roleId !== '' &&
+      String(report.roleId) === String(roleId),
+  )
+}
 const previewTitle = computed(() => {
   if (!draft.value) return t('reports.title', 'Reports')
   return draft.value.title || t('reports.tabularReport', 'Tabular report')
@@ -191,6 +212,7 @@ async function selectReport(settingId: string): Promise<void> {
   draftSettingId.value = report.settingId
   draftRoleId.value = report.roleId ?? null
   draft.value = await resolveReportDateGrains(normalizeReportDefinition(report.config))
+  await refreshEditAccess(report)
   runtimeFilterValues.value = Object.fromEntries(
     listRuntimeVisibleFilters(draft.value).map((condition) => [
       condition.id,

@@ -1021,10 +1021,13 @@ export async function updateRegistryField(
   return row
 }
 
+/** System envelope fields packs may retire (e.g. Message drops is_active; draft replaces it). */
+const RETIRABLE_SYSTEM_FIELDS = new Set(['is_active'])
+
 export async function deleteRegistryField(
   entityApiName: string,
   fieldApiName: string,
-  options?: { applyDdl?: boolean },
+  options?: { applyDdl?: boolean; allowSystem?: boolean },
 ): Promise<boolean> {
   const entityId = await resolveEntityId(entityApiName)
   const rows = await query<{ id: string; is_system: boolean }>(
@@ -1037,7 +1040,11 @@ export async function deleteRegistryField(
   const field = rows[0]
   if (!field) return false
   if (field.is_system) {
-    throw new Error(`Refusing to delete system field: ${fieldApiName}`)
+    const allow =
+      options?.allowSystem === true && RETIRABLE_SYSTEM_FIELDS.has(fieldApiName)
+    if (!allow) {
+      throw new Error(`Refusing to delete system field: ${fieldApiName}`)
+    }
   }
 
   await query(`DELETE FROM public.fields WHERE id = $1::uuid`, [field.id])

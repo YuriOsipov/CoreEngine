@@ -225,6 +225,7 @@ const {
       settings,
       offset,
       barcodeListFilter.value,
+      props.field.field,
     )
   },
 })
@@ -364,11 +365,15 @@ watch(
 
 watch(
   () =>
-    [props.field.relatedCollection ?? '', props.parentName ?? ''] as const,
-  ([related, parent]) => {
+    [
+      props.field.relatedCollection ?? '',
+      props.parentName ?? '',
+      props.field.field ?? '',
+    ] as const,
+  ([related, parent, bindingKey]) => {
     parentFkField.value = null
     if (!related || !parent) return
-    void findParentFkField(related, parent).then((field) => {
+    void findParentFkField(related, parent, bindingKey).then((field) => {
       parentFkField.value = field
     })
   },
@@ -547,6 +552,8 @@ async function resolveListActionRecordIds(action: ListViewAction): Promise<strin
     DOC_LIST_REPORT_MAX_RECORDS,
     props.field.dataTable ?? null,
     0,
+    null,
+    props.field.field,
   )
   return result.rows
     .map((row) => row[result.primaryKey ?? pk])

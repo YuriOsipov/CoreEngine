@@ -12,6 +12,7 @@ import type { MenuItem } from 'openvue/menuitem'
 import type Menu from 'openvue/menu'
 import { useTranslation } from '@/core/translation'
 import { useNavigationMenu } from '@/core/navigation/useNavigationMenu'
+import CrmRegistryIcon from './CrmRegistryIcon.vue'
 
 const COLLAPSE_STORAGE_KEY = 'crm.nav.sidebarCollapsed'
 
@@ -210,7 +211,11 @@ defineExpose({ reload, toggleCollapsed, collapsed })
               :class="{ 'app-sidebar__item--active': isItemActive(item) }"
               @click="handleMenuItemActivate(item, $event)"
             >
-              <i v-if="item.icon" :class="item.icon" class="app-sidebar__item-icon" />
+              <CrmRegistryIcon
+                v-if="item.icon"
+                :icon="item.icon"
+                icon-class="app-sidebar__item-icon"
+              />
               <span class="app-sidebar__item-label">{{ item.label }}</span>
               <i
                 v-if="hasSubmenu"
@@ -233,7 +238,11 @@ defineExpose({ reload, toggleCollapsed, collapsed })
               :class="{ 'app-sidebar__item--active': isItemActive(item) }"
               @click="handleMenuItemActivate(item, $event)"
             >
-              <i v-if="item.icon" :class="item.icon" class="app-sidebar__item-icon" />
+              <CrmRegistryIcon
+                v-if="item.icon"
+                :icon="item.icon"
+                icon-class="app-sidebar__item-icon"
+              />
               <span class="app-sidebar__item-label">{{ item.label }}</span>
               <i
                 v-if="hasSubmenu"
@@ -257,7 +266,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
         :class="{ 'app-sidebar__rail-item--active': isItemActive(item) }"
         @click="handleRailActivate(item, $event)"
       >
-        <i :class="item.icon || 'pi pi-circle'" />
+        <CrmRegistryIcon :icon="item.icon || 'pi pi-circle'" />
       </button>
       <Menu ref="railMenu" :model="railItems" popup />
     </div>
@@ -433,6 +442,17 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 
 .app-sidebar__item--active .app-sidebar__item-icon {
   color: var(--p-highlight-color, var(--p-primary-color, #10b981));
+}
+
+.app-sidebar__item-icon.material-icons {
+  font-family: 'Material Icons';
+  font-size: 1rem;
+  font-style: normal;
+  font-weight: normal;
+  letter-spacing: normal;
+  line-height: 1;
+  text-transform: none;
+  width: 1em;
 }
 
 .app-sidebar__item-label {

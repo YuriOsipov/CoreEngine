@@ -1,4 +1,5 @@
 import type {
+  CompactRecordView,
   EntityRecordAutomationCondition,
   RecordPageComponent,
   RecordPageLayoutSchema,
@@ -7,7 +8,11 @@ import type {
   RoleLayoutSaveOptions,
   SavedRoleScopedLayout,
 } from '@/interfaces'
-import { DEFAULT_VISIBLE_ACTION_BUTTONS, normalizeActivityLogSettings } from '@/interfaces'
+import {
+  DEFAULT_VISIBLE_ACTION_BUTTONS,
+  normalizeActivityLogSettings,
+  normalizeMessageTimelineSettings,
+} from '@/interfaces'
 import {
   readSettingRecord,
   readSettingRecords,
@@ -67,6 +72,7 @@ export function createDefaultRecordPageLayout(collection: string): RecordPageLay
             id: newId('cmp'),
             type: 'highlights',
             label: 'Highlights',
+            compactView: 'inline',
             visibleActionButtons: DEFAULT_VISIBLE_ACTION_BUTTONS,
             actionLayoutId: null,
           },
@@ -185,6 +191,11 @@ function normalizeVisibleActionButtons(value: unknown): number {
   return Math.min(20, Math.max(1, Math.floor(value)))
 }
 
+/** Highlights default to single-line header strip; `panel` keeps the grid. */
+function normalizeCompactView(value: unknown): CompactRecordView {
+  return value === 'panel' ? 'panel' : 'inline'
+}
+
 function normalizeReadonlyIfConditions(
   value: unknown,
 ): EntityRecordAutomationCondition[] | undefined {
@@ -229,6 +240,7 @@ function normalizeComponent(
     && type !== 'relatedList'
     && type !== 'files'
     && type !== 'activityLog'
+    && type !== 'messageTimeline'
     && type !== 'tabs'
     && type !== 'actions'
     && type !== 'field'
@@ -247,6 +259,8 @@ function normalizeComponent(
     type === 'highlights'
       ? normalizeVisibleActionButtons(component.visibleActionButtons)
       : undefined
+  const compactView =
+    type === 'highlights' ? normalizeCompactView(component.compactView) : undefined
 
   return {
     id: typeof component.id === 'string' && component.id ? component.id : newId('cmp'),
@@ -254,6 +268,7 @@ function normalizeComponent(
     label: typeof component.label === 'string' ? component.label : undefined,
     pageLayoutId: component.pageLayoutId ?? null,
     compactLayoutId: component.compactLayoutId ?? null,
+    compactView,
     actionLayoutId: component.actionLayoutId ?? null,
     visibleActionButtons,
     sectionIds: Array.isArray(component.sectionIds)
@@ -293,6 +308,10 @@ function normalizeComponent(
     activityLog:
       type === 'activityLog'
         ? normalizeActivityLogSettings(component.activityLog)
+        : undefined,
+    messageTimeline:
+      type === 'messageTimeline'
+        ? normalizeMessageTimelineSettings(component.messageTimeline)
         : undefined,
     components:
       type === 'fieldGroup' && Array.isArray(component.components)

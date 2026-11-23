@@ -1,14 +1,22 @@
 import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
 
-/** Picklist options taken from a JSON list column on a related record. */
+export type DynamicPicklistSourceMode = 'json-list' | 'related-picklist'
+
+/**
+ * Picklist options from either:
+ * - a JSON list column on a related record (`json-list`), or
+ * - another entity’s static picklist field choices (`related-picklist`).
+ */
 export interface DynamicPicklistSource {
-  /** M2O field on the current record, e.g. `item` on visit_item. */
+  /** M2O field on the current record, e.g. `contact` on message. */
   relationField: string
-  /** JSON list field on the related record, e.g. `options` on item. */
+  /** Field on the related entity: JSON list or picklist api name. */
   jsonField: string
-  /** Column inside each JSON row, e.g. `value`. */
+  /** Column inside each JSON row (json-list only). */
   valueColumn: string
+  /** Defaults to json-list when valueColumn is set. */
+  mode: DynamicPicklistSourceMode
 }
 
 export interface DynamicPicklistOption {
@@ -20,14 +28,30 @@ export function isDynamicPicklistSource(value: unknown): value is DynamicPicklis
   return parseDynamicPicklistSource(value) !== null
 }
 
+export function isRelatedPicklistSource(source: DynamicPicklistSource): boolean {
+  return source.mode === 'related-picklist'
+}
+
 export function parseDynamicPicklistSource(value: unknown): DynamicPicklistSource | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const row = value as Record<string, unknown>
   const relationField = String(row.relationField ?? row.relation_field ?? '').trim()
-  const jsonField = String(row.jsonField ?? row.json_field ?? '').trim()
+  const jsonField = String(row.jsonField ?? row.json_field ?? row.picklistField ?? row.picklist_field ?? '').trim()
   const valueColumn = String(row.valueColumn ?? row.value_column ?? '').trim()
-  if (!relationField || !jsonField || !valueColumn) return null
-  return { relationField, jsonField, valueColumn }
+  const rawMode = String(row.mode ?? '').trim().toLowerCase()
+  const mode: DynamicPicklistSourceMode =
+    rawMode === 'related-picklist' || rawMode === 'picklist'
+      ? 'related-picklist'
+      : 'json-list'
+
+  if (!relationField || !jsonField) return null
+  if (mode === 'json-list' && !valueColumn) return null
+  return {
+    relationField,
+    jsonField,
+    valueColumn: mode === 'related-picklist' ? '' : valueColumn,
+    mode,
+  }
 }
 
 function coerceJsonRows(value: unknown): Record<string, unknown>[] {
@@ -69,10 +93,32 @@ export function optionsFromJsonListColumn(
   return options
 }
 
+export function optionsFromPicklistChoices(choices: unknown): DynamicPicklistOption[] {
+  if (!Array.isArray(choices)) return []
+  const seen = new Set<string>()
+  const options: DynamicPicklistOption[] = []
+  for (const item of choices) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const row = item as Record<string, unknown>
+    if (row.value === null || row.value === undefined || row.value === '') continue
+    const value = String(row.value).trim()
+    if (!value || seen.has(value)) continue
+    const text = row.text ?? row.label
+    const label =
+      text === null || text === undefined || text === ''
+        ? value
+        : String(text).trim() || value
+    seen.add(value)
+    options.push({ label, value })
+  }
+  return options
+}
+
 function readEmbeddedJsonList(
   record: Record<string, unknown>,
   source: DynamicPicklistSource,
 ): { hit: boolean; value: unknown } {
+  if (isRelatedPicklistSource(source)) return { hit: false, value: undefined }
   const raw = record[source.relationField]
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { hit: false, value: undefined }
@@ -84,11 +130,46 @@ function readEmbeddedJsonList(
   return { hit: true, value: related[source.jsonField] }
 }
 
+async function resolveRelatedCollection(
+  entityCollection: string,
+  relationField: string,
+): Promise<string | null> {
+  const { getCachedRelations } = await import('@/modules/entities/services/collectionSchema')
+  return relatedCollectionForCollectionField(
+    await getCachedRelations(),
+    entityCollection,
+    relationField,
+  )
+}
+
+async function loadRelatedPicklistChoices(
+  entityCollection: string,
+  source: DynamicPicklistSource,
+): Promise<DynamicPicklistOption[]> {
+  if (!entityCollection.trim()) return []
+  const relatedCollection = await resolveRelatedCollection(
+    entityCollection,
+    source.relationField,
+  )
+  if (!relatedCollection) return []
+
+  const { getCachedFields } = await import('@/modules/entities/services/collectionSchema')
+  const fields = await getCachedFields()
+  const definition = fields.find(
+    (field) => field.collection === relatedCollection && field.field === source.jsonField,
+  )
+  return optionsFromPicklistChoices(definition?.meta?.options?.choices)
+}
+
 export async function loadDynamicPicklistOptions(
   entityCollection: string,
   source: DynamicPicklistSource,
   record: Record<string, unknown>,
 ): Promise<DynamicPicklistOption[]> {
+  if (isRelatedPicklistSource(source)) {
+    return loadRelatedPicklistChoices(entityCollection, source)
+  }
+
   const embedded = readEmbeddedJsonList(record, source)
   if (embedded.hit) {
     return optionsFromJsonListColumn(embedded.value, source.valueColumn)

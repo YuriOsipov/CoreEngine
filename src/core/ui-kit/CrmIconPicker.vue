@@ -13,6 +13,7 @@ import {
   primeIconNameFromClass,
   toPrimeIconClass,
 } from '@/core/primeIcons'
+import CrmRegistryIcon from './CrmRegistryIcon.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -87,11 +88,10 @@ function clearIcon(event: Event): void {
         :aria-label="t('iconPicker.open', 'Open icon list')"
         @click="openPicker"
       >
-        <i
+        <CrmRegistryIcon
           v-if="selectedClass"
-          :class="selectedClass"
-          class="crm-icon-picker__preview"
-          aria-hidden="true"
+          :icon="selectedClass"
+          icon-class="crm-icon-picker__preview"
         />
         <i
           v-else
@@ -182,6 +182,17 @@ function clearIcon(event: Event): void {
   font-size: 1.1rem;
   width: 1.25rem;
   text-align: center;
+}
+
+.crm-icon-picker__preview.material-icons {
+  font-family: 'Material Icons';
+  font-size: 1.25rem;
+  font-style: normal;
+  font-weight: normal;
+  letter-spacing: normal;
+  line-height: 1;
+  text-transform: none;
+  width: 1.25rem;
 }
 
 .crm-icon-picker__preview--empty {

@@ -1,4 +1,5 @@
 import { currentUserRole } from '@/core/currentUser'
+import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import { formatLocalDate, toDate } from '@/core/dateFormatting'
 import { canReadEntity, ensureEntityPermissions } from '@/core/entityPermissions'
 import {
@@ -266,6 +267,20 @@ export async function listReportsForCurrentRole(): Promise<ReportWithSetting[]> 
       isReportVisibleToRole(report, roleId) &&
       (!report.collection || canReadEntity(report.collection)),
   )
+}
+
+/**
+ * Setup list for report authors: admins see all; non-admin authors see only
+ * reports locked to their own role (not global / other roles).
+ */
+export async function listReportsForAuthoring(): Promise<ReportWithSetting[]> {
+  const access = await getEffectiveSetupAccess()
+  const reports = await listReports()
+  if (access.isFullSetupAdmin) return reports
+  if (!access.canAuthorReports) return []
+  const roleId = await currentUserRole()
+  if (!roleId) return []
+  return reports.filter((report) => String(report.roleId ?? '') === String(roleId))
 }
 
 export function isReportVisibleToRole(

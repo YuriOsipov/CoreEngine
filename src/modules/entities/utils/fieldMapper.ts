@@ -68,7 +68,8 @@ function mapInterfaceToComponent(
       : null
   }
 
-  if (i.includes('textarea')) {
+  // Canonical Setup value is `input-multiline` (textarea normalizes to that).
+  if (i.includes('multiline') || i.includes('textarea')) {
     return typeComponent === 'InputText' || typeComponent === 'Textarea'
       ? 'Textarea'
       : null

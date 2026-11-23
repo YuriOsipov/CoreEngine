@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import type { EntityAction } from '@/interfaces'
@@ -12,15 +13,27 @@ import {
 import { loadDocValueListItems } from '@/modules/documents/services/docValueService'
 import type { DocEngineExportMode, DocTemplateOption, DocValueListItem } from '@/interfaces'
 import { useTranslation } from '@/core/translation'
+import {
+  buildCreateRecordInitialValues,
+  canShowCreateRecordAction,
+} from '@/core/createRecordAction'
+import { canCreateEntity } from '@/core/entityPermissions'
+import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
+import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
+import { resolveMessageComposeFromEmail } from '@/core/messageCreateDefaults'
+import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 
 export function useEntityRecordActions(options: {
   collection: () => string
   recordId: () => string
   record: () => Record<string, unknown>
   onRefresh?: () => void | Promise<void>
+  /** When false, source row is treated as not writable (owner RLS). Default: derive from record. */
+  sourceWritable?: () => boolean
 }) {
   const confirm = useConfirm()
   const toast = useToast()
+  const router = useRouter()
   const { t } = useTranslation()
 
   const actionRunning = ref<Record<string, boolean>>({})
@@ -53,8 +66,19 @@ export function useEntityRecordActions(options: {
   const numberPromptHeader = ref('')
   const pendingBulkAction = ref<EntityAction | null>(null)
 
+  const createDialogVisible = ref(false)
+  const createTargetCollection = ref('')
+  const createInitialValues = ref<Record<string, unknown>>({})
+  const createOpenAfterCreate = ref(true)
+
   const collection = computed(() => options.collection())
   const recordId = computed(() => options.recordId())
+
+  function isSourceWritable(): boolean {
+    if (options.sourceWritable) return options.sourceWritable()
+    const me = peekCachedCurrentUserId()
+    return canWriteOwnedRecord(options.record(), me)
+  }
 
   function confirmBeforeRunForAction(action: EntityAction): boolean {
     if (action.behavior === 'cloneRelated') {
@@ -63,7 +87,64 @@ export function useEntityRecordActions(options: {
     if (action.behavior === 'bulkUpdateRelated') {
       return action.bulkUpdateRelated?.confirmBeforeRun !== false
     }
+    if (action.behavior === 'createRecord') return false
     return action.flow?.confirmBeforeRun !== false
+  }
+
+  async function openCreateRecordAction(action: EntityAction): Promise<void> {
+    const settings = action.createRecord
+    const target = String(settings?.targetCollection ?? '').trim()
+    if (!target) {
+      toast.add({
+        severity: 'warn',
+        summary: t('common.warning', 'Warning'),
+        detail: t('formBuilder.createRecordMissingTarget', 'Select a target object for this action.'),
+        life: 4000,
+      })
+      return
+    }
+    if (
+      !canShowCreateRecordAction({
+        settings,
+        canCreateTarget: canCreateEntity(target),
+        sourceWritable: isSourceWritable(),
+      })
+    ) {
+      toast.add({
+        severity: 'warn',
+        summary: t('common.warning', 'Warning'),
+        detail: t(
+          'formBuilder.createRecordRequiresCreate',
+          'You do not have permission to create that object.',
+        ),
+        life: 4000,
+      })
+      return
+    }
+    const fromUserId = peekCachedCurrentUserId() ?? (await currentUserId())
+    const fromEmail = await resolveMessageComposeFromEmail(fromUserId)
+    createTargetCollection.value = target
+    createOpenAfterCreate.value = settings?.openAfterCreate !== false
+    createInitialValues.value = buildCreateRecordInitialValues(settings, options.record(), {
+      userId: fromUserId,
+      email: fromEmail,
+    })
+    createDialogVisible.value = true
+  }
+
+  function onCreateRecordCreated(record: Record<string, unknown>): void {
+    createDialogVisible.value = false
+    if (!createOpenAfterCreate.value) {
+      void options.onRefresh?.()
+      return
+    }
+    const id =
+      extractRelationFieldId(record.id) ??
+      (record.id != null && record.id !== '' ? String(record.id) : null)
+    if (!id || !createTargetCollection.value) return
+    void router.push(
+      `/object/${encodeURIComponent(createTargetCollection.value)}/${encodeURIComponent(id)}`,
+    )
   }
 
   function openBulkUpdatePrompt(action: EntityAction): void {
@@ -118,6 +199,11 @@ export function useEntityRecordActions(options: {
 
     if (action.behavior === 'openDocument' || action.displayType === 'document') {
       void openDocumentAction(action)
+      return
+    }
+
+    if (action.behavior === 'createRecord') {
+      void openCreateRecordAction(action)
       return
     }
 
@@ -419,8 +505,12 @@ export function useEntityRecordActions(options: {
     numberPromptVisible,
     numberPromptLabel,
     numberPromptHeader,
+    createDialogVisible,
+    createTargetCollection,
+    createInitialValues,
     runEntityAction,
     onNumberPromptConfirm,
+    onCreateRecordCreated,
     onExistingDocumentSelected,
     onNewDocumentFromList,
     onRuntimeTemplateSelected,

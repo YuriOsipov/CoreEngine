@@ -213,6 +213,9 @@ for (const entity of entityRows) {
   ) {
     packBackend.rowLevelReadAlsoIf = backendConfig.rowLevelReadAlsoIf
   }
+  if (backendConfig.rowLevelReadAlsoIfSameRole === true) {
+    packBackend.rowLevelReadAlsoIfSameRole = true
+  }
   if (Array.isArray(backendConfig.automations) && backendConfig.automations.length) {
     packBackend.automations = backendConfig.automations
   }

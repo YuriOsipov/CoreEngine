@@ -11,6 +11,7 @@ import type {
   FilesSettings,
   M2ASettings,
   EntityAction,
+  EntityActionCreateRecordFieldMapping,
   EntityLayoutSchema,
   EntityRecordAutomationCondition,
   FieldDefinition,
@@ -29,6 +30,7 @@ import RelatedFieldSettingsDialog, {
   type RelatedFieldSettingsApplyPayload,
 } from './RelatedFieldSettingsDialog.vue'
 import CloneRelatedFromSettingsDialog from './CloneRelatedFromSettingsDialog.vue'
+import CreateRecordMappingsDialog from './CreateRecordMappingsDialog.vue'
 import { normalizeSchedulerSettings } from '../services/schedulerSettings'
 import { loadEntityForms } from '../services/layoutSettings'
 import type { SavedRoleScopedLayout } from '@/interfaces'
@@ -237,6 +239,10 @@ const ACTION_BEHAVIOR_OPTIONS = computed(() => [
     label: t('formBuilder.actionBehaviorBulkUpdateRelated', 'Bulk update related'),
     value: 'bulkUpdateRelated',
   },
+  {
+    label: t('formBuilder.actionBehaviorCreateRecord', 'Create record'),
+    value: 'createRecord',
+  },
 ])
 const DOCUMENT_VIEW_MODE_OPTIONS = computed(() => [
   { label: t('formBuilder.documentViewHtml', 'HTML preview'), value: 'html' },
@@ -244,6 +250,7 @@ const DOCUMENT_VIEW_MODE_OPTIONS = computed(() => [
 ])
 const docTemplateOptions = ref<Array<{ label: string; value: string }>>([])
 const actionCloneRelatedDialogVisible = ref(false)
+const actionCreateRecordMappingsDialogVisible = ref(false)
 
 function createLayoutTab(title = t('formBuilder.newTab', 'New Tab')): LayoutSection {
   return {
@@ -512,6 +519,48 @@ const isCloneRelatedAction = computed(
 const isBulkUpdateRelatedAction = computed(
   () => selectedAction.value?.behavior === 'bulkUpdateRelated',
 )
+const isCreateRecordAction = computed(
+  () => selectedAction.value?.behavior === 'createRecord',
+)
+
+function updateSelectedActionCreateRecord(
+  patch: Partial<NonNullable<EntityAction['createRecord']>>,
+): void {
+  if (!selectedAction.value || selectedAction.value.behavior !== 'createRecord') return
+  updateSelectedAction({
+    behavior: 'createRecord',
+    createRecord: {
+      targetCollection: selectedAction.value.createRecord?.targetCollection ?? '',
+      openAfterCreate: selectedAction.value.createRecord?.openAfterCreate !== false,
+      whenSourceNotWritable:
+        selectedAction.value.createRecord?.whenSourceNotWritable === true,
+      fieldMappings: selectedAction.value.createRecord?.fieldMappings ?? [],
+      ...patch,
+    },
+    flow: undefined,
+    payload: undefined,
+    document: undefined,
+    cloneRelated: undefined,
+    bulkUpdateRelated: undefined,
+  })
+}
+
+const actionCreateRecordMappings = computed(
+  (): EntityActionCreateRecordFieldMapping[] =>
+    selectedAction.value?.createRecord?.fieldMappings ?? [],
+)
+
+const actionCreateRecordMappingsSummary = computed(() => {
+  const count = actionCreateRecordMappings.value.length
+  if (!count) return ''
+  return t('formBuilder.createRecordMappingsSummary', '{count} mapping(s)', { count })
+})
+
+function saveActionCreateRecordMappings(
+  mappings: EntityActionCreateRecordFieldMapping[],
+): void {
+  updateSelectedActionCreateRecord({ fieldMappings: mappings })
+}
 const actionCloneRelatedSettings = computed<CloneRelatedFromSettings>(() => ({
   children: selectedAction.value?.cloneRelated?.children ?? [],
 }))
@@ -793,10 +842,13 @@ async function loadDocTemplateOptionsForBuilder(): Promise<void> {
 }
 
 watch(
-  [collectionName, selectedActionId, isDocumentAction],
+  [collectionName, selectedActionId, isDocumentAction, isCreateRecordAction],
   () => {
     if (isDocumentAction.value) {
       void loadDocTemplateOptionsForBuilder()
+    }
+    if (isCreateRecordAction.value) {
+      void ensureBulkUserCollectionsLoaded()
     }
   },
 )
@@ -1048,6 +1100,7 @@ const configActionDisplayType = computed({
         payload: undefined,
         cloneRelated: undefined,
         bulkUpdateRelated: undefined,
+        createRecord: undefined,
       })
       void loadDocTemplateOptionsForBuilder()
       return
@@ -1068,6 +1121,7 @@ const configActionDisplayType = computed({
         payload: undefined,
         document: undefined,
         bulkUpdateRelated: undefined,
+        createRecord: undefined,
       })
       return
     }
@@ -1096,6 +1150,26 @@ const configActionDisplayType = computed({
         payload: undefined,
         document: undefined,
         cloneRelated: undefined,
+        createRecord: undefined,
+      })
+      return
+    }
+
+    if (selectedAction.value?.behavior === 'createRecord') {
+      updateSelectedAction({
+        displayType,
+        behavior: 'createRecord',
+        createRecord: selectedAction.value.createRecord ?? {
+          targetCollection: '',
+          openAfterCreate: true,
+          whenSourceNotWritable: false,
+          fieldMappings: [],
+        },
+        flow: undefined,
+        payload: undefined,
+        document: undefined,
+        cloneRelated: undefined,
+        bulkUpdateRelated: undefined,
       })
       return
     }
@@ -1120,16 +1194,25 @@ const configActionDisplayType = computed({
       document: undefined,
       cloneRelated: undefined,
       bulkUpdateRelated: undefined,
+      createRecord: undefined,
     })
   },
 })
 const configActionBehavior = computed({
   get: () => {
     const behavior = selectedAction.value?.behavior
-    if (behavior === 'cloneRelated' || behavior === 'bulkUpdateRelated') return behavior
+    if (
+      behavior === 'cloneRelated'
+      || behavior === 'bulkUpdateRelated'
+      || behavior === 'createRecord'
+    ) {
+      return behavior
+    }
     return 'flow'
   },
-  set: (behavior: 'flow' | 'cloneRelated' | 'bulkUpdateRelated') => {
+  set: (
+    behavior: 'flow' | 'cloneRelated' | 'bulkUpdateRelated' | 'createRecord',
+  ) => {
     const displayType =
       selectedAction.value?.displayType === 'detailLink' ? 'detailLink' : 'detailButton'
     if (behavior === 'cloneRelated') {
@@ -1147,6 +1230,7 @@ const configActionBehavior = computed({
         payload: undefined,
         document: undefined,
         bulkUpdateRelated: undefined,
+        createRecord: undefined,
       })
       return
     }
@@ -1174,10 +1258,30 @@ const configActionBehavior = computed({
         payload: undefined,
         document: undefined,
         cloneRelated: undefined,
+        createRecord: undefined,
       })
       void loadBulkRelatedFields(
         selectedAction.value?.bulkUpdateRelated?.relatedCollection ?? '',
       )
+      return
+    }
+    if (behavior === 'createRecord') {
+      updateSelectedAction({
+        displayType,
+        behavior: 'createRecord',
+        createRecord: selectedAction.value?.createRecord ?? {
+          targetCollection: '',
+          openAfterCreate: true,
+          whenSourceNotWritable: false,
+          fieldMappings: [],
+        },
+        flow: undefined,
+        payload: undefined,
+        document: undefined,
+        cloneRelated: undefined,
+        bulkUpdateRelated: undefined,
+      })
+      void ensureBulkUserCollectionsLoaded()
       return
     }
     updateSelectedAction({
@@ -1206,8 +1310,28 @@ const configActionBehavior = computed({
       },
       cloneRelated: undefined,
       bulkUpdateRelated: undefined,
+      createRecord: undefined,
       document: undefined,
     })
+  },
+})
+
+const configActionCreateTargetCollection = computed({
+  get: () => selectedAction.value?.createRecord?.targetCollection ?? '',
+  set: (targetCollection: string) => {
+    updateSelectedActionCreateRecord({ targetCollection })
+  },
+})
+const configActionCreateOpenAfter = computed({
+  get: () => selectedAction.value?.createRecord?.openAfterCreate !== false,
+  set: (openAfterCreate: boolean) => {
+    updateSelectedActionCreateRecord({ openAfterCreate })
+  },
+})
+const configActionCreateWhenNotWritable = computed({
+  get: () => selectedAction.value?.createRecord?.whenSourceNotWritable === true,
+  set: (whenSourceNotWritable: boolean) => {
+    updateSelectedActionCreateRecord({ whenSourceNotWritable })
   },
 })
 const configActionCloneConfirm = computed({
@@ -3266,6 +3390,84 @@ function hintTooltip(value: string) {
           </div>
         </template>
 
+        <template v-else-if="isCreateRecordAction">
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-behavior-create" class="text-[0.85rem] font-medium">
+              {{ t('formBuilder.actionBehavior', 'Behavior') }}
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-behavior-create"
+              v-model="configActionBehavior"
+              :options="ACTION_BEHAVIOR_OPTIONS"
+              option-label="label"
+              option-value="value"
+              fluid
+            />
+          </div>
+          <label class="inline-flex items-center gap-1 text-[0.85rem] font-medium">
+            {{ t('formBuilder.createRecord', 'Create record') }}
+            <button
+              type="button"
+              class="property-hint"
+              v-tooltip.bottom="hintTooltip(t('formBuilder.createRecordHint', 'Open a create form for another object and prefill fields from this record or static values. Tokens: $ME, $ME_EMAIL, $NOW, $NULL.'))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </label>
+          <div class="flex flex-col gap-[0.35rem]">
+            <label for="action-create-target" class="text-[0.85rem] font-medium">
+              {{ t('formBuilder.createRecordTarget', 'Target object') }}
+            </label>
+            <Select
+              overlay-class="property-select-overlay"
+              id="action-create-target"
+              v-model="configActionCreateTargetCollection"
+              :options="bulkUserCollectionOptions"
+              option-label="label"
+              option-value="value"
+              :placeholder="t('formBuilder.createRecordTargetPlaceholder', 'Select object…')"
+              filter
+              show-clear
+              fluid
+            />
+          </div>
+          <div class="properties-switch">
+            <span>{{ t('formBuilder.createRecordOpenAfter', 'Open new record after create') }}</span>
+            <ToggleSwitch v-model="configActionCreateOpenAfter" />
+          </div>
+          <div class="properties-switch">
+            <span class="inline-flex items-center gap-1">
+              {{ t('formBuilder.createRecordWhenNotWritable', 'Only when source is not writable') }}
+              <button
+                type="button"
+                class="property-hint"
+                v-tooltip.bottom="hintTooltip(t('formBuilder.createRecordWhenNotWritableHint', 'Hide this action when the current user can edit the source record (e.g. Message Reply for recipients).'))"
+                :aria-label="t('common.moreInfo', 'More information')"
+              />
+            </span>
+            <ToggleSwitch v-model="configActionCreateWhenNotWritable" />
+          </div>
+          <Tag
+            v-if="actionCreateRecordMappingsSummary"
+            severity="secondary"
+            :value="actionCreateRecordMappingsSummary"
+          />
+          <Button
+            :label="t('formBuilder.createRecordConfigureMappings', 'Configure field mappings')"
+            icon="pi pi-list"
+            size="small"
+            outlined
+            :disabled="!configActionCreateTargetCollection"
+            @click="actionCreateRecordMappingsDialogVisible = true"
+          />
+          <p
+            v-if="!actionCreateRecordMappings.length"
+            class="m-0 text-muted-color text-[0.75rem]"
+          >
+            {{ t('formBuilder.createRecordNoMappings', 'No field mappings yet.') }}
+          </p>
+        </template>
+
         <template v-else>
         <div class="flex flex-col gap-[0.35rem]">
           <label for="action-behavior-flow" class="text-[0.85rem] font-medium">
@@ -3747,6 +3949,14 @@ function hintTooltip(value: string) {
       :target-collection="collectionName"
       :settings="actionCloneRelatedSettings"
       @save="saveActionCloneRelatedSettings"
+    />
+    <CreateRecordMappingsDialog
+      v-model:visible="actionCreateRecordMappingsDialogVisible"
+      :action-label="selectedAction?.label"
+      :source-collection="collectionName"
+      :target-collection="configActionCreateTargetCollection"
+      :mappings="actionCreateRecordMappings"
+      @save="saveActionCreateRecordMappings"
     />
   </div>
 </template>

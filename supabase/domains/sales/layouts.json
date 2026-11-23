@@ -1544,19 +1544,13 @@
                           "field": "body",
                           "header": "Body",
                           "enabled": true,
-                          "component": "InputText"
+                          "component": "Textarea"
                         },
                         {
-                          "field": "is_active",
-                          "header": "Is Active",
+                          "field": "is_draft",
+                          "header": "Is Draft",
                           "enabled": true,
                           "component": "Checkbox"
-                        },
-                        {
-                          "field": "result",
-                          "header": "Result",
-                          "enabled": true,
-                          "component": "Select"
                         },
                         {
                           "field": "delivery_status",
@@ -3345,10 +3339,16 @@
         "entity": "message",
         "fields": [
           {
+            "id": "fld_message_subject_compact",
+            "field": "subject",
+            "label": "Subject",
+            "component": "InputText"
+          },
+          {
             "id": "fld_52ca11051532",
             "field": "body",
             "label": "Body",
-            "component": "InputText"
+            "component": "Textarea"
           },
           {
             "id": "fld_835be3aa65eb",
@@ -3364,6 +3364,19 @@
             "relatedCollection": "users"
           },
           {
+            "id": "fld_message_from_user",
+            "field": "from_user",
+            "label": "From user",
+            "component": "Select",
+            "relatedCollection": "users"
+          },
+          {
+            "id": "fld_message_from_email",
+            "field": "from_email",
+            "label": "From email",
+            "component": "InputText"
+          },
+          {
             "id": "fld_63ee73fd9c97",
             "field": "email",
             "label": "Email",
@@ -3376,10 +3389,10 @@
             "component": "InputText"
           },
           {
-            "id": "fld_d85b34bdc7fc",
-            "field": "result",
-            "label": "Result",
-            "component": "Select"
+            "id": "fld_message_is_draft_compact",
+            "field": "is_draft",
+            "label": "Is Draft",
+            "component": "Checkbox"
           },
           {
             "id": "fld_delivery_status_list",
@@ -3400,11 +3413,27 @@
                 "title": "General",
                 "fields": [
                   {
+                    "id": "fld_message_subject_compact",
+                    "span": 12,
+                    "field": "subject",
+                    "label": "Subject",
+                    "component": "InputText",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "operator": "_neq",
+                        "value": "email",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
+                  },
+                  {
                     "id": "fld_52ca11051532",
                     "span": 6,
                     "field": "body",
                     "label": "Body",
-                    "component": "InputText"
+                    "component": "Textarea"
                   },
                   {
                     "id": "fld_835be3aa65eb",
@@ -3418,21 +3447,39 @@
                     "span": 6,
                     "field": "email",
                     "label": "Email",
-                    "component": "InputText"
+                    "component": "InputText",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "operator": "_eq",
+                        "value": "internal",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
                   },
                   {
                     "id": "fld_13276ecf86bb",
                     "span": 6,
                     "field": "phone",
                     "label": "Phone",
-                    "component": "InputText"
+                    "component": "InputText",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "operator": "_eq",
+                        "value": "internal",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
                   },
                   {
-                    "id": "fld_d85b34bdc7fc",
+                    "id": "fld_message_is_draft_compact",
                     "span": 6,
-                    "field": "result",
-                    "label": "Result",
-                    "component": "Select"
+                    "field": "is_draft",
+                    "label": "Is Draft",
+                    "component": "Checkbox"
                   },
                   {
                     "id": "fld_delivery_status_form",
@@ -3499,6 +3546,58 @@
               "includeRecordId": true,
               "includeRecord": true
             }
+          },
+          {
+            "id": "act_message_reply",
+            "name": "reply_message",
+            "label": "Reply",
+            "behavior": "createRecord",
+            "displayType": "detailButton",
+            "createRecord": {
+              "targetCollection": "message",
+              "openAfterCreate": true,
+              "whenSourceNotWritable": true,
+              "fieldMappings": [
+                { "targetField": "is_draft", "source": "static", "value": true, "transform": "none" },
+                { "targetField": "type", "source": "static", "value": "internal", "transform": "none" },
+                { "targetField": "type", "source": "field", "sourceField": "type", "transform": "none" },
+                { "targetField": "contact", "source": "field", "sourceField": "contact", "transform": "none" },
+                { "targetField": "opportunity", "source": "field", "sourceField": "opportunity", "transform": "none" },
+                { "targetField": "email", "source": "field", "sourceField": "email", "transform": "none" },
+                { "targetField": "phone", "source": "field", "sourceField": "phone", "transform": "none" },
+                { "targetField": "subject", "source": "field", "sourceField": "subject", "transform": "subjectPrefix", "prefix": "Re:" },
+                { "targetField": "body", "source": "field", "sourceField": "body", "transform": "quoteLines" },
+                { "targetField": "to_user", "source": "field", "sourceFields": ["from_user", "owner_id", "user_created"], "transform": "none" },
+                { "targetField": "from_user", "source": "static", "value": "$ME", "transform": "none" },
+                { "targetField": "from_email", "source": "static", "value": "$ME_EMAIL", "transform": "none" }
+              ]
+            }
+          },
+          {
+            "id": "act_message_forward",
+            "name": "forward_message",
+            "label": "Forward",
+            "behavior": "createRecord",
+            "displayType": "detailButton",
+            "createRecord": {
+              "targetCollection": "message",
+              "openAfterCreate": true,
+              "whenSourceNotWritable": true,
+              "fieldMappings": [
+                { "targetField": "is_draft", "source": "static", "value": true, "transform": "none" },
+                { "targetField": "type", "source": "static", "value": "internal", "transform": "none" },
+                { "targetField": "type", "source": "field", "sourceField": "type", "transform": "none" },
+                { "targetField": "contact", "source": "field", "sourceField": "contact", "transform": "none" },
+                { "targetField": "opportunity", "source": "field", "sourceField": "opportunity", "transform": "none" },
+                { "targetField": "email", "source": "field", "sourceField": "email", "transform": "none" },
+                { "targetField": "phone", "source": "field", "sourceField": "phone", "transform": "none" },
+                { "targetField": "subject", "source": "field", "sourceField": "subject", "transform": "subjectPrefix", "prefix": "Fwd:" },
+                { "targetField": "body", "source": "field", "sourceField": "body", "transform": "quoteLines" },
+                { "targetField": "to_user", "source": "static", "value": "$NULL", "transform": "none" },
+                { "targetField": "from_user", "source": "static", "value": "$ME", "transform": "none" },
+                { "targetField": "from_email", "source": "static", "value": "$ME_EMAIL", "transform": "none" }
+              ]
+            }
           }
         ],
         "version": 1,
@@ -3535,6 +3634,21 @@
                     "relatedCollection": "users"
                   },
                   {
+                    "id": "fld_message_from_user_form",
+                    "span": 6,
+                    "field": "from_user",
+                    "label": "From user",
+                    "component": "Select",
+                    "relatedCollection": "users"
+                  },
+                  {
+                    "id": "fld_message_from_email_form",
+                    "span": 6,
+                    "field": "from_email",
+                    "label": "From email",
+                    "component": "InputText"
+                  },
+                  {
                     "id": "fld_message_scheduled_send_at",
                     "span": 6,
                     "field": "scheduled_send_at",
@@ -3542,32 +3656,66 @@
                     "component": "DatePicker"
                   },
                   {
+                    "id": "fld_message_subject",
+                    "span": 12,
+                    "field": "subject",
+                    "label": "Subject",
+                    "component": "InputText",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "operator": "_neq",
+                        "value": "email",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
+                  },
+                  {
                     "id": "fld_65d25f99de64",
                     "span": 12,
                     "field": "body",
                     "label": "Body",
-                    "component": "InputText"
+                    "component": "Textarea"
                   },
                   {
                     "id": "fld_23300416654b",
                     "span": 6,
                     "field": "email",
                     "label": "Email",
-                    "component": "InputText"
+                    "component": "InputText",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "operator": "_eq",
+                        "value": "internal",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
                   },
                   {
                     "id": "fld_cfa91299857c",
                     "span": 6,
                     "field": "phone",
                     "label": "Phone",
-                    "component": "InputText"
+                    "component": "InputText",
+                    "readonlyIf": [
+                      {
+                        "field": "type",
+                        "operator": "_eq",
+                        "value": "internal",
+                        "valueSource": "literal",
+                        "compareField": null
+                      }
+                    ]
                   },
                   {
-                    "id": "fld_122401fcbf91",
+                    "id": "fld_message_is_draft",
                     "span": 6,
-                    "field": "result",
-                    "label": "Result",
-                    "component": "Select"
+                    "field": "is_draft",
+                    "label": "Is Draft",
+                    "component": "Checkbox"
                   },
                   {
                     "id": "fld_delivery_status_view",
@@ -3575,6 +3723,15 @@
                     "field": "delivery_status",
                     "label": "Delivery status",
                     "component": "Select"
+                  },
+                  {
+                    "id": "fld_message_source_message",
+                    "span": 12,
+                    "field": "source_message",
+                    "label": "Source message",
+                    "readonly": true,
+                    "component": "AutoComplete",
+                    "relatedCollection": "incoming_message"
                   },
                   {
                     "id": "fld_2f1bc6ba1dbe",
@@ -3675,16 +3832,21 @@
       "groupKey": "list",
       "settingId": "a1b2c3d4-e5f6-7890-abcd-message-list-def",
       "payload": {
-        "sort": ["-date_created"],
+        "sort": [
+          "-date_created"
+        ],
         "columns": [
           "name",
+          "subject",
           "type",
+          "from_user",
+          "from_email",
           "to_user",
           "contact",
           "body",
           "scheduled_send_at",
           "delivery_status",
-          "result",
+          "is_draft",
           "owner_id"
         ]
       },
@@ -3715,6 +3877,12 @@
             "component": "InputText"
           },
           {
+            "field": "subject",
+            "header": "Subject",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
             "field": "type",
             "header": "Type",
             "enabled": true,
@@ -3724,7 +3892,14 @@
             "field": "body",
             "header": "Body",
             "enabled": true,
-            "component": "InputText"
+            "component": "Textarea"
+          },
+          {
+            "field": "from_user",
+            "header": "From user",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "users"
           },
           {
             "field": "to_user",
@@ -3740,10 +3915,10 @@
             "component": "Select"
           },
           {
-            "field": "result",
-            "header": "Result",
+            "field": "is_draft",
+            "header": "Is Draft",
             "enabled": true,
-            "component": "Select"
+            "component": "Checkbox"
           },
           {
             "field": "owner_id",
@@ -3864,6 +4039,458 @@
         "version": 1,
         "mainSize": 50,
         "pageLayoutId": "f2530d70-265e-4740-9b90-1655b8e16193",
+        "sidebarEnabled": true,
+        "listDetailPanel": null
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "incoming_message",
+      "groupKey": "entity",
+      "settingId": "c0ffee01-1111-4abc-8def-000000000001",
+      "payload": {
+        "name": "Incoming message",
+        "__meta": {
+          "name": "Incoming message",
+          "role": null,
+          "status": "published",
+          "settingId": "c0ffee01-1111-4abc-8def-000000000001"
+        },
+        "entity": "incoming_message",
+        "fields": [
+          {
+            "id": "fld_incoming_subject_compact",
+            "field": "subject",
+            "label": "Subject",
+            "component": "InputText"
+          },
+          {
+            "id": "fld_incoming_status_compact",
+            "field": "status",
+            "label": "Status",
+            "component": "Select"
+          },
+          {
+            "id": "fld_incoming_from_user_compact",
+            "field": "from_user",
+            "label": "From user",
+            "component": "Select",
+            "relatedCollection": "users"
+          },
+          {
+            "id": "fld_incoming_type_compact",
+            "field": "type",
+            "label": "Type",
+            "component": "Select"
+          }
+        ],
+        "actions": [],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Incoming message",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_incoming_status_compact",
+                    "span": 6,
+                    "field": "status",
+                    "label": "Status",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_incoming_type_compact",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select",
+                    "readonly": true
+                  },
+                  {
+                    "id": "fld_incoming_subject_compact",
+                    "span": 12,
+                    "field": "subject",
+                    "label": "Subject",
+                    "component": "InputText",
+                    "readonly": true
+                  },
+                  {
+                    "id": "fld_incoming_from_user_compact",
+                    "span": 6,
+                    "field": "from_user",
+                    "label": "From user",
+                    "component": "Select",
+                    "readonly": true,
+                    "relatedCollection": "users"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "relatedCounts": []
+      },
+      "subGroup": "compact"
+    },
+    {
+      "entityApiName": "incoming_message",
+      "groupKey": "entity",
+      "settingId": "c0ffee01-1111-4abc-8def-000000000002",
+      "payload": {
+        "name": "Incoming message",
+        "__meta": {
+          "name": "Incoming message",
+          "role": null,
+          "status": "published",
+          "settingId": "c0ffee01-1111-4abc-8def-000000000002"
+        },
+        "entity": "incoming_message",
+        "actions": [
+          {
+            "id": "act_incoming_reply",
+            "name": "reply_message",
+            "label": "Reply",
+            "behavior": "createRecord",
+            "displayType": "detailButton",
+            "createRecord": {
+              "targetCollection": "message",
+              "openAfterCreate": true,
+              "whenSourceNotWritable": false,
+              "fieldMappings": [
+                { "targetField": "is_draft", "source": "static", "value": true, "transform": "none" },
+                { "targetField": "type", "source": "static", "value": "internal", "transform": "none" },
+                { "targetField": "type", "source": "field", "sourceField": "type", "transform": "none" },
+                { "targetField": "contact", "source": "field", "sourceField": "contact", "transform": "none" },
+                { "targetField": "opportunity", "source": "field", "sourceField": "opportunity", "transform": "none" },
+                { "targetField": "subject", "source": "field", "sourceField": "subject", "transform": "subjectPrefix", "prefix": "Re:" },
+                { "targetField": "body", "source": "field", "sourceField": "body", "transform": "quoteLines" },
+                { "targetField": "to_user", "source": "field", "sourceFields": ["from_user", "owner_id", "user_created"], "transform": "none" },
+                { "targetField": "from_user", "source": "static", "value": "$ME", "transform": "none" },
+                { "targetField": "from_email", "source": "static", "value": "$ME_EMAIL", "transform": "none" }
+              ]
+            }
+          },
+          {
+            "id": "act_incoming_forward",
+            "name": "forward_message",
+            "label": "Forward",
+            "behavior": "createRecord",
+            "displayType": "detailButton",
+            "createRecord": {
+              "targetCollection": "message",
+              "openAfterCreate": true,
+              "whenSourceNotWritable": false,
+              "fieldMappings": [
+                { "targetField": "is_draft", "source": "static", "value": true, "transform": "none" },
+                { "targetField": "type", "source": "static", "value": "internal", "transform": "none" },
+                { "targetField": "type", "source": "field", "sourceField": "type", "transform": "none" },
+                { "targetField": "contact", "source": "field", "sourceField": "contact", "transform": "none" },
+                { "targetField": "opportunity", "source": "field", "sourceField": "opportunity", "transform": "none" },
+                { "targetField": "subject", "source": "field", "sourceField": "subject", "transform": "subjectPrefix", "prefix": "Fwd:" },
+                { "targetField": "body", "source": "field", "sourceField": "body", "transform": "quoteLines" },
+                { "targetField": "to_user", "source": "static", "value": "$NULL", "transform": "none" },
+                { "targetField": "from_user", "source": "static", "value": "$ME", "transform": "none" },
+                { "targetField": "from_email", "source": "static", "value": "$ME_EMAIL", "transform": "none" }
+              ]
+            }
+          }
+        ],
+        "version": 1,
+        "sections": [
+          {
+            "id": "main",
+            "title": "Incoming message",
+            "groups": [
+              {
+                "id": "group_general",
+                "title": "General",
+                "fields": [
+                  {
+                    "id": "fld_incoming_status",
+                    "span": 6,
+                    "field": "status",
+                    "label": "Status",
+                    "component": "Select"
+                  },
+                  {
+                    "id": "fld_incoming_type",
+                    "span": 6,
+                    "field": "type",
+                    "label": "Type",
+                    "component": "Select",
+                    "readonly": true
+                  },
+                  {
+                    "id": "fld_incoming_from_user",
+                    "span": 6,
+                    "field": "from_user",
+                    "label": "From user",
+                    "component": "Select",
+                    "readonly": true,
+                    "relatedCollection": "users"
+                  },
+                  {
+                    "id": "fld_incoming_from_email",
+                    "span": 6,
+                    "field": "from_email",
+                    "label": "From email",
+                    "component": "InputText",
+                    "readonly": true
+                  },
+                  {
+                    "id": "fld_incoming_subject",
+                    "span": 12,
+                    "field": "subject",
+                    "label": "Subject",
+                    "component": "InputText",
+                    "readonly": true
+                  },
+                  {
+                    "id": "fld_incoming_body",
+                    "span": 12,
+                    "field": "body",
+                    "label": "Body",
+                    "component": "Textarea",
+                    "readonly": true
+                  },
+                  {
+                    "id": "fld_incoming_contact",
+                    "span": 6,
+                    "field": "contact",
+                    "label": "Contact",
+                    "component": "Select",
+                    "readonly": true,
+                    "relatedCollection": "contact"
+                  },
+                  {
+                    "id": "fld_incoming_opportunity",
+                    "span": 6,
+                    "field": "opportunity",
+                    "label": "Opportunity",
+                    "component": "Select",
+                    "readonly": true,
+                    "relatedCollection": "opportunity"
+                  },
+                  {
+                    "id": "fld_incoming_source_message",
+                    "span": 12,
+                    "field": "source_message",
+                    "label": "Source message",
+                    "component": "Select",
+                    "readonly": true,
+                    "relatedCollection": "message"
+                  }
+                ],
+                "collapsed": false,
+                "inlineLabels": true
+              }
+            ],
+            "columns": 12
+          }
+        ],
+        "systemInfo": {
+          "enabled": true,
+          "collapsed": false
+        }
+      },
+      "subGroup": "full"
+    },
+    {
+      "entityApiName": "incoming_message",
+      "groupKey": "list",
+      "settingId": "c0ffee01-1111-4abc-8def-000000000003",
+      "payload": {
+        "sort": [
+          "-date_created"
+        ],
+        "columns": [
+          "name",
+          "status",
+          "subject",
+          "type",
+          "from_user",
+          "from_email",
+          "contact",
+          "date_created",
+          "owner_id"
+        ]
+      },
+      "subGroup": "default"
+    },
+    {
+      "entityApiName": "incoming_message",
+      "groupKey": "list",
+      "settingId": "c0ffee01-1111-4abc-8def-000000000004",
+      "payload": {
+        "name": "Unread",
+        "sort": {
+          "field": "date_created",
+          "order": -1
+        },
+        "logic": "and",
+        "__meta": {
+          "name": "Unread",
+          "role": null,
+          "status": "published",
+          "settingId": "c0ffee01-1111-4abc-8def-000000000004"
+        },
+        "columns": [
+          {
+            "field": "name",
+            "header": "Name",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "status",
+            "header": "Status",
+            "enabled": true,
+            "component": "Select"
+          },
+          {
+            "field": "subject",
+            "header": "Subject",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "type",
+            "header": "Type",
+            "enabled": true,
+            "component": "Select"
+          },
+          {
+            "field": "from_user",
+            "header": "From user",
+            "enabled": true,
+            "component": "AutoComplete",
+            "relatedCollection": "users"
+          },
+          {
+            "field": "from_email",
+            "header": "From email",
+            "enabled": true,
+            "component": "InputText"
+          },
+          {
+            "field": "date_created",
+            "header": "Date Created",
+            "enabled": true,
+            "component": "DatePicker"
+          }
+        ],
+        "groupBy": null,
+        "conditions": [
+          {
+            "id": "flt_incoming_unread",
+            "type": "string",
+            "field": "status",
+            "value": "new",
+            "operator": "_eq",
+            "userVisible": false
+          }
+        ],
+        "recordLinkField": null
+      },
+      "subGroup": "table"
+    },
+    {
+      "entityApiName": "incoming_message",
+      "groupKey": "RecordPage",
+      "settingId": "c0ffee01-1111-4abc-8def-000000000005",
+      "payload": {
+        "name": "Incoming message",
+        "__meta": {
+          "name": "Incoming message",
+          "role": null,
+          "status": "published",
+          "settingId": "c0ffee01-1111-4abc-8def-000000000005"
+        },
+        "entity": "incoming_message",
+        "regions": [
+          {
+            "id": "region_incoming_header",
+            "key": "header",
+            "title": "Header",
+            "components": [
+              {
+                "id": "cmp_incoming_highlights",
+                "type": "highlights",
+                "label": "Highlights",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "visibleActionButtons": 5
+              }
+            ]
+          },
+          {
+            "id": "region_incoming_main",
+            "key": "main",
+            "title": "Main",
+            "components": [
+              {
+                "id": "cmp_incoming_detail",
+                "type": "detail",
+                "label": "Record Detail",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          },
+          {
+            "id": "region_incoming_sidebar",
+            "key": "sidebar",
+            "title": "Sidebar",
+            "components": [
+              {
+                "id": "cmp_incoming_files",
+                "type": "files",
+                "label": "Files",
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null,
+                "relatedCollection": "files"
+              },
+              {
+                "id": "cmp_incoming_activity",
+                "type": "activityLog",
+                "label": "Activity log",
+                "activityLog": {
+                  "actions": [
+                    "create",
+                    "update",
+                    "delete"
+                  ],
+                  "maxItems": 5,
+                  "showDeltas": true
+                },
+                "defaultTabId": null,
+                "pageLayoutId": null,
+                "actionLayoutId": null,
+                "relatedFieldId": null,
+                "compactLayoutId": null
+              }
+            ]
+          }
+        ],
+        "version": 1,
+        "mainSize": 50,
+        "pageLayoutId": "c0ffee01-1111-4abc-8def-000000000002",
         "sidebarEnabled": true,
         "listDetailPanel": null
       },
@@ -4110,13 +4737,13 @@
                           "field": "body",
                           "header": "Body",
                           "enabled": true,
-                          "component": "InputText"
+                          "component": "Textarea"
                         },
                         {
-                          "field": "result",
-                          "header": "Result",
+                          "field": "is_draft",
+                          "header": "Is Draft",
                           "enabled": true,
-                          "component": "Select"
+                          "component": "Checkbox"
                         },
                         {
                           "field": "delivery_status",
@@ -4832,7 +5459,9 @@
             {
               "field": "price",
               "sort": null,
-              "summaries": ["sum"]
+              "summaries": [
+                "sum"
+              ]
             }
           ],
           "groupRows": [

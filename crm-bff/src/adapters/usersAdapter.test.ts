@@ -71,6 +71,7 @@ describe('fetchMe JWT verification', () => {
       roleId: 'role-admin',
       roleName: 'Admin',
       roleAdminAccess: true,
+      canAuthorReports: true,
       mustChangePassword: false,
     })
 
@@ -94,6 +95,7 @@ describe('fetchMe JWT verification', () => {
       roleId: 'role-1',
       roleName: 'Sales',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
 
@@ -102,6 +104,7 @@ describe('fetchMe JWT verification', () => {
       id: 'user-1',
       adminAccess: false,
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     expect(postgresFetchMe).toHaveBeenCalledWith('user-1', {

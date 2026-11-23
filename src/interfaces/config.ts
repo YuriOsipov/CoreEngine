@@ -1,6 +1,7 @@
 import type {
   ActivityLogSettings,
   DataTableSettings,
+  MessageTimelineSettings,
   PrimeVueComponentType,
   SchedulerSettings,
   TreeTableSettings,
@@ -224,6 +225,8 @@ export interface LayoutFieldMetadata {
   m2a?: M2ASettings
   /** Optional configuration for read-only activity / revision audit trail. */
   activityLog?: ActivityLogSettings
+  /** Optional configuration for message outbox + inbox timeline. */
+  messageTimeline?: MessageTimelineSettings
   /** Optional configuration for DocEngine document list / fill panel. */
   docEngine?: DocEngineSettings
   /** When true, field is read-only in edit/create forms but still shown on detail view. */
@@ -258,6 +261,50 @@ export type EntityActionBehavior =
   | 'openDocument'
   | 'cloneRelated'
   | 'bulkUpdateRelated'
+  | 'createRecord'
+
+/** How a create-record mapping obtains its value. */
+export type EntityActionCreateRecordMappingSource = 'field' | 'static'
+
+/** Optional transform applied after resolving the mapping value. */
+export type EntityActionCreateRecordTransform =
+  | 'none'
+  | 'quoteLines'
+  | 'subjectPrefix'
+
+/**
+ * One field write for {@link EntityActionCreateRecordSettings}.
+ * Static `value` may use tokens `$ME`, `$NOW`, `$NULL`.
+ */
+export interface EntityActionCreateRecordFieldMapping {
+  targetField: string
+  source: EntityActionCreateRecordMappingSource
+  /** Single source field on the current record (when `source` is `field`). */
+  sourceField?: string
+  /** First non-empty source field wins (e.g. Reply `to_user`). */
+  sourceFields?: string[]
+  /** Literal or token when `source` is `static`. */
+  value?: unknown
+  transform?: EntityActionCreateRecordTransform
+  /** Used when `transform` is `subjectPrefix` (e.g. `Re:` / `Fwd:`). */
+  prefix?: string
+}
+
+/**
+ * Open a create form for another (or the same) object and prefill fields from
+ * the current record or static values.
+ */
+export interface EntityActionCreateRecordSettings {
+  targetCollection: string
+  /** Navigate to the new record after create. Default true. */
+  openAfterCreate?: boolean
+  /**
+   * When true, only show/run if the source row is not writable for the actor
+   * (outbox Message Reply/Forward for recipients). Default false.
+   */
+  whenSourceNotWritable?: boolean
+  fieldMappings?: EntityActionCreateRecordFieldMapping[]
+}
 
 export interface EntityActionFlowSettings {
   /** Flow trigger key or `/flows/trigger/{key}` path (BFF local or proxied). */
@@ -356,9 +403,11 @@ export interface EntityAction {
   cloneRelated?: EntityActionCloneRelatedSettings
   /** Present when {@link behavior} is `bulkUpdateRelated`. */
   bulkUpdateRelated?: EntityActionBulkUpdateRelatedSettings
+  /** Present when {@link behavior} is `createRecord`. */
+  createRecord?: EntityActionCreateRecordSettings
 }
 
-/** Admin rule: on create/update/delete, when conditions match, set fields / actions (BFF). */
+/** Admin rule: on create/update/delete/open, when conditions match, set fields / actions (BFF). */
 export interface EntityRecordAutomationCondition {
   field: string
   operator: string
@@ -454,6 +503,7 @@ export type RecordPageComponentType =
   | 'relatedList'
   | 'files'
   | 'activityLog'
+  | 'messageTimeline'
   | 'tabs'
   /** @deprecated Actions live on Highlights; kept for legacy saved layouts. */
   | 'actions'
@@ -465,6 +515,9 @@ export type RecordPageComponentType =
 /** Default count of Highlights action buttons shown before the overflow menu. */
 export const DEFAULT_VISIBLE_ACTION_BUTTONS = 5
 
+/** How Compact Layout fields render in Highlights (and other compact surfaces). */
+export type CompactRecordView = 'panel' | 'inline'
+
 export interface RecordPageComponent {
   id: string
   type: RecordPageComponentType
@@ -473,6 +526,11 @@ export interface RecordPageComponent {
   pageLayoutId?: string | null
   /** Compact Layout Setting id used by `highlights` components. */
   compactLayoutId?: string | null
+  /**
+   * Highlights only: Compact Layout output view.
+   * `inline` = single-line header strip; `panel` = multi-row grid (field spans).
+   */
+  compactView?: CompactRecordView
   /**
    * Block Layout Setting id whose `actions[]` supply custom Highlights buttons.
    * Also used by legacy `actions` components.
@@ -538,6 +596,8 @@ export interface RecordPageComponent {
   collapsed?: boolean
   /** Settings for `activityLog` components. */
   activityLog?: ActivityLogSettings
+  /** Settings for `messageTimeline` components. */
+  messageTimeline?: MessageTimelineSettings
 }
 
 export type RecordPageRegionKey = 'header' | 'main' | 'sidebar'

@@ -54,6 +54,15 @@
                   "kind": "object",
                   "collection": "opportunity"
                 }
+              },
+              {
+                "id": "navitem_incoming_messages",
+                "type": "link",
+                "label": "Incoming messages",
+                "target": {
+                  "kind": "object",
+                  "collection": "incoming_message"
+                }
               }
             ],
             "collapsed": false

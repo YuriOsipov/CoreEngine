@@ -4,7 +4,9 @@ import {
   findManyRecords,
   findOneRecord,
   hardDeleteRecord,
+  OPEN_AUTOMATIONS_APPLIED_KEY,
   restoreRecord,
+  runOpenRecordAutomations,
   softDeleteRecord,
   updateRecord,
 } from '../adapters/recordsAdapter.js'
@@ -36,6 +38,7 @@ import {
   requireAuthenticatedUser,
   requireSelfOrAdmin,
 } from '../auth/accessGuards.js'
+import { actorIdFromMe, applyRolePreview } from '../auth/rolePreview.js'
 // Re-export for existing tests / callers.
 export {
   requireAdminAccess,
@@ -57,6 +60,10 @@ import {
   upsertPanel,
 } from '../adapters/dashboardsAdapter.js'
 import { query } from '../db/pool.js'
+import {
+  authorizeLayoutSettingDelete,
+  authorizeLayoutSettingUpsert,
+} from '../auth/layoutSettingAccess.js'
 import { upsertLayoutSettingRow } from '../schema/layoutSettings.js'
 import {
   applyUniqueIndexActions,
@@ -111,8 +118,12 @@ import {
 import {
   assertOwnerAccessIfNeeded,
   parseInheritOwnerFrom,
+  parseReadAlsoIf,
+  parseReadAlsoIfSameRole,
   parseRowLevelSecurity,
   readInheritOwnerFrom,
+  readReadAlsoIf,
+  readReadAlsoIfSameRole,
   readRowLevelSecurity,
 } from '../services/rowLevelSecurity.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
@@ -170,10 +181,6 @@ function publicRateLimit(ctx: GraphQlAuthContext | undefined, bucket: string, li
 const USER_READABLE_ORG_SETTING_KEYS = new Set(['company_profile', 'files_upload'])
 const NON_ADMIN_USER_LIST_LIMIT = 50
 
-function actorIdFromMe(me: { id?: string | null } | null | undefined): string | null {
-  return me?.id ? String(me.id) : null
-}
-
 type LabelTranslation = { language?: string; label?: string }
 
 function toIsoTimestamp(value: unknown): string | null {
@@ -227,15 +234,21 @@ function mapField(row: Record<string, unknown>, language?: string | null) {
     restricted: false,
     writeRestricted: false,
     relationKind: row.relation_kind ? String(row.relation_kind) : null,
+    relatedEntityApiName: row.related_entity_api_name
+      ? String(row.related_entity_api_name)
+      : null,
   }
 }
 
 async function loadFields(entityId: string, language?: string | null) {
   const rows = await query(
     `SELECT f.*,
-            r.kind AS relation_kind
+            r.kind AS relation_kind,
+            related.api_name AS related_entity_api_name
      FROM public.fields f
      LEFT JOIN public.relations r ON r.field_id = f.id
+     LEFT JOIN public.entities related
+       ON related.id = r.related_entity_id AND related.deleted_at IS NULL
      WHERE f.entity_id = $1
      ORDER BY f.sort ASC, f.api_name ASC`,
     [entityId],
@@ -328,6 +341,8 @@ function mapEntityBase(row: Record<string, unknown>, language?: string | null) {
     defaultFieldSensitivity: readDefaultFieldSensitivity(backendConfig),
     rowLevelSecurity: readRowLevelSecurity(backendConfig),
     inheritOwnerFrom: readInheritOwnerFrom(backendConfig),
+    rowLevelReadAlsoIf: readReadAlsoIf(backendConfig),
+    rowLevelReadAlsoIfSameRole: readReadAlsoIfSameRole(backendConfig),
     internal: readInternal(backendConfig),
     __language: language ?? null,
     __apiName: String(row.api_name),
@@ -602,12 +617,23 @@ export const resolvers = {
       const params: unknown[] = []
       const filters: string[] = []
       if (args.entity) {
-        if (visible && !visible.has(String(args.entity))) return []
-        params.push(args.entity)
+        const entity = String(args.entity)
+        // Navigation / report-folder namespaces are not registry entities.
+        const isMetaNamespace =
+          entity === 'crm_navigation' || entity === '_report_folder'
+        if (visible && !visible.has(entity) && !isMetaNamespace) return []
+        params.push(entity)
         filters.push(`entity_api_name = $${params.length}`)
       } else if (visible) {
+        // Business layouts must be for a readable entity. App meta rows
+        // (navigation, report folders) use synthetic api names — keep them.
         params.push([...visible])
-        filters.push(`entity_api_name = ANY($${params.length}::text[])`)
+        const visibleIdx = params.length
+        params.push(['crm_navigation', '_report_folder'])
+        const metaIdx = params.length
+        filters.push(
+          `(entity_api_name = ANY($${visibleIdx}::text[]) OR group_key = 'app' OR entity_api_name = ANY($${metaIdx}::text[]))`,
+        )
       }
       if (args.groupKey) {
         params.push(args.groupKey)
@@ -914,16 +940,27 @@ export const resolvers = {
       return listRolePermissions(String(me.roleId))
     },
 
-    me: async (
-      _: unknown,
-      __: unknown,
-      ctx: GraphQlAuthContext,
-    ) =>
-      requireAuthenticatedUser(ctx, {
+    me: async (_: unknown, __: unknown, ctx: GraphQlAuthContext) => {
+      const me = await requireAuthenticatedUser(ctx, {
         allowPasswordChange: true,
         // Keep real admin flags so "View as role" UI stays available.
         applyRolePreview: false,
-      }),
+      })
+      const previewRaw =
+        typeof ctx.rolePreview === 'string' ? ctx.rolePreview.trim() : ''
+      if (!previewRaw || !(me.adminAccess || me.roleAdminAccess)) {
+        return { ...me, rolePreviewActorId: null }
+      }
+      try {
+        const previewed = await applyRolePreview(me, previewRaw)
+        return {
+          ...me,
+          rolePreviewActorId: previewed.id ?? null,
+        }
+      } catch {
+        return { ...me, rolePreviewActorId: null }
+      }
+    },
 
     users: async (
       _: unknown,
@@ -1210,8 +1247,9 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      return upsertLayoutSettingRow(args.input)
+      const me = await requireAuthenticatedUser(ctx)
+      const input = await authorizeLayoutSettingUpsert(me, args.input)
+      return upsertLayoutSettingRow(input)
     },
 
     deleteLayoutSetting: async (
@@ -1219,27 +1257,18 @@ export const resolvers = {
       args: { settingId: string },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
+      const me = await requireAuthenticatedUser(ctx)
       const settingKey = String(args.settingId)
-      const mapped = await query(
-        `SELECT layout_setting_id::text AS layout_setting_id
-         FROM public.layout_settings_id_map
-         WHERE setting_id = $1`,
-        [settingKey],
-      )
-      const layoutId =
-        (mapped[0]?.layout_setting_id as string | undefined) ??
-        (
-          await query<{ id: string }>(
-            `SELECT id::text AS id
-             FROM public.layout_settings
-             WHERE id::text = $1
-             LIMIT 1`,
-            [settingKey],
-          )
-        )[0]?.id
-
-      if (!layoutId) return false
+      let layoutId: string
+      try {
+        const existing = await authorizeLayoutSettingDelete(me, settingKey)
+        layoutId = existing.id
+      } catch (err) {
+        if (err instanceof Error && err.message === 'Layout setting not found') {
+          return false
+        }
+        throw err
+      }
       await query(`DELETE FROM public.layout_settings WHERE id = $1::uuid`, [
         layoutId,
       ])
@@ -1340,6 +1369,54 @@ export const resolvers = {
           : undefined,
       })
       return redactRecordForMe(me, args.entity, updated)
+    },
+
+    runOpenRecordAutomations: async (
+      _: unknown,
+      args: {
+        entity: string
+        id: string
+        fields?: string[] | null
+      },
+      ctx: GraphQlAuthContext,
+    ) => {
+      const me = await assertEntityPermission(ctx, args.entity, 'read', {
+        recordId: args.id,
+      })
+      const actorUserId = actorIdFromMe(me)
+      let before: Record<string, unknown> | null = null
+      try {
+        before = await findOneRecord(
+          args.entity,
+          String(args.id),
+          null,
+          SYSTEM_RECORD_ACCESS,
+        )
+      } catch {
+        before = null
+      }
+      const result = await runOpenRecordAutomations(
+        args.entity,
+        String(args.id),
+        args.fields ?? null,
+        { actorUserId, access: { me } },
+      )
+      const applied = result[OPEN_AUTOMATIONS_APPLIED_KEY] === true
+      if (applied) {
+        await auditAfterMutation({
+          audit: async () => {
+            await writeEntityAudit({
+              entityApiName: args.entity,
+              recordId: String(args.id),
+              action: 'UPDATE',
+              before,
+              after: result,
+              userId: actorUserId,
+            })
+          },
+        })
+      }
+      return redactRecordForMe(me, args.entity, result)
     },
 
     softDeleteRecord: async (
@@ -1636,6 +1713,8 @@ export const resolvers = {
           defaultFieldSensitivity?: number | null
           rowLevelSecurity?: string | null
           inheritOwnerFrom?: string | null
+          rowLevelReadAlsoIf?: string[] | null
+          rowLevelReadAlsoIfSameRole?: boolean | null
         }
       },
       ctx: GraphQlAuthContext,
@@ -1662,6 +1741,14 @@ export const resolvers = {
         input.inheritOwnerFrom === undefined
           ? undefined
           : parseInheritOwnerFrom(input.inheritOwnerFrom)
+      const rowLevelReadAlsoIf =
+        input.rowLevelReadAlsoIf === undefined
+          ? undefined
+          : parseReadAlsoIf(input.rowLevelReadAlsoIf ?? [])
+      const rowLevelReadAlsoIfSameRole =
+        input.rowLevelReadAlsoIfSameRole === undefined
+          ? undefined
+          : parseReadAlsoIfSameRole(input.rowLevelReadAlsoIfSameRole)
 
       await updateEntityMeta(entityApiName, {
         label: input.label,
@@ -1675,6 +1762,8 @@ export const resolvers = {
         defaultFieldSensitivity,
         rowLevelSecurity,
         inheritOwnerFrom,
+        rowLevelReadAlsoIf,
+        rowLevelReadAlsoIfSameRole,
       })
       clearCrmStorageCache()
 
@@ -1745,13 +1834,20 @@ export const resolvers = {
 
     createAppRole: async (
       _: unknown,
-      args: { input: { name: string; isAdmin?: boolean | null } },
+      args: {
+        input: {
+          name: string
+          isAdmin?: boolean | null
+          canAuthorReports?: boolean | null
+        }
+      },
       ctx: GraphQlAuthContext,
     ) => {
       await requireAdminAccess(ctx)
       return createAppRole({
         name: args.input.name,
         isAdmin: args.input.isAdmin,
+        canAuthorReports: args.input.canAuthorReports,
       })
     },
 
@@ -1759,7 +1855,11 @@ export const resolvers = {
       _: unknown,
       args: {
         id: string
-        input: { name?: string | null; isAdmin?: boolean | null }
+        input: {
+          name?: string | null
+          isAdmin?: boolean | null
+          canAuthorReports?: boolean | null
+        }
       },
       ctx: GraphQlAuthContext,
     ) => {

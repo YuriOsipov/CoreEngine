@@ -10,6 +10,7 @@ import { RouterLink } from 'vue-router'
 import { Dropdown as FloatingDropdown } from 'floating-vue'
 import CompactRecordTooltip from '@/modules/entities/components/CompactRecordTooltip.vue'
 import CrmHtmlCell from '@/core/ui-kit/CrmHtmlCell.vue'
+import CrmTextareaCell from '@/core/ui-kit/CrmTextareaCell.vue'
 import ScheduleTemplateEditor from '@/core/ui-kit/ScheduleTemplateEditor.vue'
 import AttachedDataTableField from '@/modules/entities/components/AttachedDataTableField.vue'
 import ActivityLogField from '@/modules/entities/components/ActivityLogField.vue'
@@ -34,6 +35,7 @@ import {
   isFullWidthLayoutField,
   isGroupInlineLabels,
   isHtmlEditorField,
+  isTextareaField,
   isJsonCodeField,
   isJsonListField,
   isSensitivityMatrixField,
@@ -465,6 +467,26 @@ watch(
                 </div>
               </template>
 
+              <template v-else-if="isTextareaField(field)">
+                <div
+                  class="text-muted-color text-xs font-medium leading-tight"
+                  :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
+                >{{ fieldLabels.getLabel(field) }}</div>
+                <div
+                  class="layout-field__value min-w-0 break-words text-surface-900 text-[0.95rem] leading-[1.35]"
+                  :class="{
+                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                      !embedded && !isGroupInlineLabels(group),
+                    'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
+                  }"
+                >
+                  <CrmTextareaCell
+                    :value="modelValue[field.field] == null ? '' : String(modelValue[field.field])"
+                    :lines="3"
+                  />
+                </div>
+              </template>
+
               <template v-else-if="isBooleanColumn(field)">
                 <div
                   class="text-muted-color text-xs font-medium leading-tight"
@@ -506,8 +528,17 @@ watch(
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
                 >
+                  <span
+                    v-if="
+                      relatedFieldValue(field, props.modelValue[field.field]) !== null &&
+                      fieldDisplay.isRelatedRestricted(field)
+                    "
+                    class="text-muted-color"
+                  >
+                    {{ fieldDisplay.displayValue(field, props.modelValue[field.field]) }}
+                  </span>
                   <FloatingDropdown
-                    v-if="relatedFieldValue(field, props.modelValue[field.field]) !== null"
+                    v-else-if="relatedFieldValue(field, props.modelValue[field.field]) !== null"
                     theme="compact-record"
                     placement="top-start"
                     :distance="8"

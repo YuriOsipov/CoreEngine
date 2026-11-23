@@ -5,13 +5,14 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { MenuItem } from 'openvue/menuitem'
 import FormRendererLight from '@/modules/entities/components/FormRendererLight.vue'
 import CompactRecordTooltip from '@/modules/entities/components/CompactRecordTooltip.vue'
 import RelatedListFieldHost from '@/modules/entities/components/RelatedListFieldHost.vue'
 import AttachedDataTableField from '@/modules/entities/components/AttachedDataTableField.vue'
 import ActivityLogField from '@/modules/entities/components/ActivityLogField.vue'
+import MessageTimelineField from '@/modules/entities/components/MessageTimelineField.vue'
 import CrmStagePath, {
   type CrmStagePathChange,
   type CrmStagePathStep,
@@ -26,6 +27,7 @@ import { DEFAULT_VISIBLE_ACTION_BUTTONS } from '@/interfaces'
 import { buildFieldGroupSchema } from '@/modules/config/utils/recordPageFieldGroup'
 import { buildRecordPageFilesField } from '@/modules/config/utils/recordPageFiles'
 import { buildRecordPageActivityLogField } from '@/modules/config/utils/recordPageActivityLog'
+import { buildRecordPageMessageTimelineField } from '@/modules/config/utils/recordPageMessageTimeline'
 import type { CompactRecordDetailsRuntime } from '@/modules/entities/services/recordDetails'
 import {
   fetchCollectionDisplayTemplate,
@@ -39,10 +41,17 @@ import {
   type DynamicPicklistSource,
 } from '@/core/dynamicPicklist'
 import { useTranslation, useTranslatedCollection } from '@/core/translation'
-import { canReadEntity, useEntityPermissions } from '@/core/entityPermissions'
+import {
+  canCreateEntity,
+  canReadEntity,
+  useEntityPermissions,
+} from '@/core/entityPermissions'
 import { useRecordEditAccess } from '@/core/useRecordEditAccess'
+import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
 import { isRecordPagePathReadonly } from '@/core/layoutFieldRules'
 import { useNarrowViewport } from '@/core/useNarrowViewport'
+import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
+import { isCreateRecordActionVisible } from '@/core/createRecordAction'
 
 type HighlightsBarAction =
   | { key: string; kind: 'edit' | 'delete' | 'restore'; label: string }
@@ -83,6 +92,34 @@ const { canEdit: canUpdateRecord } = useRecordEditAccess(
   () => props.collection,
   () => props.recordId,
 )
+
+/** Reactive stand-in for peekCachedCurrentUserId (cache warm is async). */
+const effectiveUserId = ref<string | null>(peekCachedCurrentUserId())
+onMounted(() => {
+  void currentUserId().then((id) => {
+    effectiveUserId.value = id
+  })
+})
+watch(
+  () => [props.collection, props.recordId, props.modelValue] as const,
+  () => {
+    const peeked = peekCachedCurrentUserId()
+    if (peeked) effectiveUserId.value = peeked
+    else void currentUserId().then((id) => { effectiveUserId.value = id })
+  },
+)
+
+/** Hide Edit/Delete/Send when Owner RLS would deny writes (preview or real session). */
+const canWriteOwnedRow = computed(() =>
+  canWriteOwnedRecord(props.modelValue, effectiveUserId.value),
+)
+const showEditRecord = computed(
+  () => canUpdateRecord.value && canWriteOwnedRow.value,
+)
+const showDeleteRecord = computed(
+  () => canDeleteRecord.value && canWriteOwnedRow.value,
+)
+
 const collectionLabel = useTranslatedCollection(() => props.collection)
 const collectionIcon = ref<string | null>(null)
 const displayTemplate = ref<string | undefined>(undefined)
@@ -316,10 +353,10 @@ const tabPanelValue = computed({
 
 const highlightsBarActions = computed((): HighlightsBarAction[] => {
   const standard: HighlightsBarAction[] = []
-  if (canUpdateRecord.value) {
+  if (showEditRecord.value) {
     standard.push({ key: 'edit', kind: 'edit', label: t('common.edit', 'Edit') })
   }
-  if (canDeleteRecord.value) {
+  if (showDeleteRecord.value) {
     standard.push(
       props.recordArchived
         ? {
@@ -334,12 +371,29 @@ const highlightsBarActions = computed((): HighlightsBarAction[] => {
           },
     )
   }
-  const custom: HighlightsBarAction[] = (props.actions ?? []).map((action) => ({
-    key: action.id,
-    kind: 'custom',
-    label: action.label,
-    action,
-  }))
+  // Mutating layout actions (Send, clone, bulk update, …) follow the same
+  // owner/update gate as Edit. Document open + createRecord stay available
+  // when their own gates pass (create on target / optional read-only source).
+  const custom: HighlightsBarAction[] = (props.actions ?? [])
+    .filter((action) => {
+      if (action.behavior === 'createRecord') {
+        return isCreateRecordActionVisible(action, {
+          canCreateTarget: canCreateEntity,
+          sourceWritable: showEditRecord.value,
+        })
+      }
+      return (
+        showEditRecord.value
+        || action.behavior === 'openDocument'
+        || action.displayType === 'document'
+      )
+    })
+    .map((action) => ({
+      key: action.id,
+      kind: 'custom' as const,
+      label: action.label,
+      action,
+    }))
   return [...standard, ...custom]
 })
 
@@ -486,6 +540,13 @@ function activityLogFieldFor(component: RecordPageComponent): LayoutFieldMetadat
 
 const pageActivityLogField = computed(() => activityLogFieldFor(props.component))
 
+function messageTimelineFieldFor(component: RecordPageComponent): LayoutFieldMetadata | null {
+  if (component.type !== 'messageTimeline') return null
+  return buildRecordPageMessageTimelineField(props.collection, component)
+}
+
+const pageMessageTimelineField = computed(() => messageTimelineFieldFor(props.component))
+
 function fieldGroupSchema(component: RecordPageComponent): EntityLayoutSchema | null {
   return buildFieldGroupSchema(props.collection, component)
 }
@@ -570,7 +631,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
         </div>
       </div>
       <CompactRecordTooltip
-        variant="panel"
+        :variant="component.compactView === 'panel' ? 'panel' : 'inline'"
         :loading="highlightsLoading"
         :error="highlightsError"
         :runtime="highlightsByKey[highlightsKey(component)] ?? null"
@@ -632,6 +693,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
           show-actions
           show-view-all
           :m2a-editable="m2aEditable"
+          :files-readonly="!showEditRecord"
           @blocks-saved="emit('blocks-saved', $event)"
           @related-changed="emit('related-changed')"
         />
@@ -650,6 +712,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
         :model-value="modelValue"
         :parent-id="recordId"
         :parent-name="collection"
+        :readonly="!showEditRecord"
       />
     </div>
 
@@ -659,6 +722,17 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
     >
       <ActivityLogField
         :field="pageActivityLogField"
+        :collection="collection"
+        :record-id="recordId"
+      />
+    </div>
+
+    <div
+      v-else-if="component.type === 'messageTimeline' && pageMessageTimelineField"
+      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+    >
+      <MessageTimelineField
+        :field="pageMessageTimelineField"
         :collection="collection"
         :record-id="recordId"
       />

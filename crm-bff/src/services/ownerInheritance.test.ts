@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const resolveInheritOwnerFrom = vi.fn()
 const loadM2ORelations = vi.fn()
 const resolveRecordsStore = vi.fn()
+const resolveRoleOwnerBypass = vi.fn()
 
 vi.mock('./rowLevelSecurity.js', async () => {
   const actual = await vi.importActual<typeof import('./rowLevelSecurity.js')>(
@@ -12,6 +13,16 @@ vi.mock('./rowLevelSecurity.js', async () => {
     ...actual,
     resolveInheritOwnerFrom: (...args: unknown[]) =>
       resolveInheritOwnerFrom(...args),
+  }
+})
+vi.mock('./rolePermissions.js', async () => {
+  const actual = await vi.importActual<typeof import('./rolePermissions.js')>(
+    './rolePermissions.js',
+  )
+  return {
+    ...actual,
+    resolveRoleOwnerBypass: (...args: unknown[]) =>
+      resolveRoleOwnerBypass(...args),
   }
 })
 vi.mock('../adapters/records/relations.js', async () => {
@@ -27,7 +38,12 @@ vi.mock('../adapters/records/registry.js', () => ({
   resolveRecordsStore: (...args: unknown[]) => resolveRecordsStore(...args),
 }))
 
-import { resolveCreateOwnerId } from './ownerInheritance.js'
+import {
+  canAssignOwnerOnCreate,
+  resolveCreateOwnerId,
+  resolveEffectiveCreateOwnerId,
+} from './ownerInheritance.js'
+import { SYSTEM_RECORD_ACCESS } from '../adapters/records/types.js'
 
 describe('resolveCreateOwnerId (rep + manager add items)', () => {
   beforeEach(() => {
@@ -74,5 +90,64 @@ describe('resolveCreateOwnerId (rep + manager add items)', () => {
       resolveCreateOwnerId('opportunity_item', { opportunity: 'opp-1' }, 'mgr'),
     ).resolves.toBe('mgr')
     expect(loadM2ORelations).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveEffectiveCreateOwnerId (trusted owner assign)', () => {
+  beforeEach(() => {
+    resolveInheritOwnerFrom.mockReset()
+    loadM2ORelations.mockReset()
+    resolveRecordsStore.mockReset()
+    resolveRoleOwnerBypass.mockReset()
+  })
+
+  it('uses requested owner_id when caller has Modify all', async () => {
+    resolveInheritOwnerFrom.mockResolvedValue(null)
+    resolveRoleOwnerBypass.mockResolvedValue({
+      viewAll: true,
+      modifyAll: true,
+    })
+    const owner = await resolveEffectiveCreateOwnerId(
+      'incoming_message',
+      { subject: 'Hi' },
+      {
+        me: {
+          id: 'integration',
+          email: 'n8n@example.com',
+          isAdmin: false,
+        } as never,
+      },
+      'integration',
+      'recipient-user',
+    )
+    expect(owner).toBe('recipient-user')
+  })
+
+  it('ignores requested owner_id without Modify all', async () => {
+    resolveInheritOwnerFrom.mockResolvedValue(null)
+    resolveRoleOwnerBypass.mockResolvedValue({
+      viewAll: false,
+      modifyAll: false,
+    })
+    const owner = await resolveEffectiveCreateOwnerId(
+      'incoming_message',
+      { subject: 'Hi', owner_id: 'recipient-user' },
+      {
+        me: {
+          id: 'rep',
+          email: 'rep@example.com',
+          isAdmin: false,
+        } as never,
+      },
+      'rep',
+      'recipient-user',
+    )
+    expect(owner).toBe('rep')
+  })
+
+  it('allows system access to assign owner', async () => {
+    expect(await canAssignOwnerOnCreate(SYSTEM_RECORD_ACCESS, 'incoming_message')).toBe(
+      true,
+    )
   })
 })

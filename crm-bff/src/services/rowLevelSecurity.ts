@@ -17,7 +17,8 @@ import { bumpCacheEpoch, readCacheEpoch } from './cacheEpoch.js'
  * Legacy rows with null `owner_id` fall back to `user_created` for reads;
  * after migration backfill, filters use `owner_id` only.
  * Admins, `SYSTEM_RECORD_ACCESS`, and role **View All** / **Modify All** bypass
- * (read vs write). No share table / hierarchy yet.
+ * (read vs write). Optional **same-role read** (`rowLevelReadAlsoIfSameRole`) lets
+ * peers with the owner's app role read (not update/delete). No Teams object yet.
  *
  * Enforcement surface (keep in sync when adding loaders):
  * - Facade: `findManyRecords` / `findOneRecord` / update / delete / `aggregateRecords`
@@ -43,6 +44,16 @@ export type EntityOwnerSecurityConfig = {
    * (OR with owner). Used for Message inbox (`to_user`). Update/delete stay owner-only.
    */
   readAlsoIf: string[]
+  /**
+   * When true, any user with the same app role as the row owner may **read**
+   * (list/get). Update/delete stay owner-only. Coarser than a future Teams object.
+   */
+  readAlsoIfSameRole: boolean
+}
+
+export type OwnerShareFilterOptions = {
+  /** Backend user ids that share my role (includes me). Used for same-role read. */
+  sameRolePeerIds?: string[] | null
 }
 
 /** Row owner (sharing). Distinct from audit `user_created`. */
@@ -57,9 +68,16 @@ let modeCache: {
 } | null = null
 let modeLoad: Promise<Map<string, EntityOwnerSecurityConfig>> | null = null
 
+/** roleKey → peer backend_user_ids (short TTL). */
+let peerIdsCache: {
+  byRole: Map<string, { ids: string[]; expiresAt: number }>
+  epoch: number
+} | null = null
+
 export function clearRowLevelSecurityCache(): void {
   modeCache = null
   modeLoad = null
+  peerIdsCache = null
   void bumpCacheEpoch('row_level_security')
 }
 
@@ -110,6 +128,18 @@ export function readReadAlsoIf(config: Record<string, unknown>): string[] {
   )
 }
 
+export function parseReadAlsoIfSameRole(raw: unknown): boolean {
+  return raw === true || raw === 'true' || raw === 1 || raw === '1'
+}
+
+export function readReadAlsoIfSameRole(config: Record<string, unknown>): boolean {
+  return parseReadAlsoIfSameRole(
+    config.rowLevelReadAlsoIfSameRole ??
+      config.readAlsoIfSameRole ??
+      config.read_also_if_same_role,
+  )
+}
+
 function entityKey(entity: string): string {
   return String(entity || '')
     .trim()
@@ -145,6 +175,7 @@ async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig
           mode: readRowLevelSecurity(config),
           inheritOwnerFrom: readInheritOwnerFrom(config),
           readAlsoIf: readReadAlsoIf(config),
+          readAlsoIfSameRole: readReadAlsoIfSameRole(config),
         })
       }
     } catch (error) {
@@ -171,14 +202,87 @@ export async function resolveEntityOwnerSecurity(
       mode: null,
       inheritOwnerFrom: null,
       readAlsoIf: [],
+      readAlsoIfSameRole: false,
     }
   )
+}
+
+/**
+ * Backend user ids (`owner_id` values) for everyone on the given app role.
+ * `roleKey` is `me.roleId` (backend_role_id or app_roles.id text).
+ */
+export async function listBackendUserIdsForRole(
+  roleKey: string,
+): Promise<string[]> {
+  const key = String(roleKey || '').trim()
+  if (!key) return []
+  const epoch = await readCacheEpoch('row_level_security')
+  if (
+    peerIdsCache &&
+    peerIdsCache.epoch === epoch &&
+    peerIdsCache.byRole.has(key)
+  ) {
+    const hit = peerIdsCache.byRole.get(key)!
+    if (hit.expiresAt > Date.now()) return hit.ids
+  }
+  try {
+    const rows = await query<{ actor_id: string }>(
+      `SELECT DISTINCT COALESCE(NULLIF(TRIM(u.backend_user_id), ''), u.id::text) AS actor_id
+       FROM public.app_users u
+       INNER JOIN public.app_roles r ON r.id = u.role_id
+       WHERE r.backend_role_id = $1 OR r.id::text = $1`,
+      [key],
+    )
+    const ids = rows
+      .map((row) => String(row.actor_id || '').trim())
+      .filter(Boolean)
+    if (!peerIdsCache || peerIdsCache.epoch !== epoch) {
+      peerIdsCache = { byRole: new Map(), epoch }
+    }
+    peerIdsCache.byRole.set(key, {
+      ids,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    })
+    return ids
+  } catch (error) {
+    console.warn('[rowLevelSecurity] failed to load same-role peers', error)
+    return []
+  }
+}
+
+/** Peer owner ids for same-role read, or null when the feature does not apply. */
+export async function resolveSameRolePeerIds(
+  me: MeUser | null | undefined,
+  sameRoleEnabled: boolean,
+): Promise<string[] | null> {
+  if (!sameRoleEnabled || !me) return null
+  const roleId = typeof me.roleId === 'string' ? me.roleId.trim() : ''
+  if (!roleId) return null
+  const ids = await listBackendUserIdsForRole(roleId)
+  const myId = typeof me.id === 'string' ? me.id.trim() : ''
+  if (myId && !ids.includes(myId)) return [...ids, myId]
+  return ids
 }
 
 export async function resolveEntityRowLevelSecurity(
   entityApiName: string,
 ): Promise<RowLevelSecurityMode> {
   return (await resolveEntityOwnerSecurity(entityApiName)).mode
+}
+
+/**
+ * Fields required on a loaded row for {@link assertOwnerAccessIfNeeded}.
+ * Always fetch these for find-one even when the client omitted them (layout
+ * field lists often exclude `owner_id` / read-share FKs).
+ */
+export async function ownerAccessCheckFields(
+  entityApiName: string,
+): Promise<string[]> {
+  const config = await resolveEntityOwnerSecurity(entityApiName)
+  if (config.mode !== 'owner') return []
+  return Array.from(
+    new Set([ROW_OWNER_FIELD, 'user_created', ...config.readAlsoIf]),
+  )
 }
 
 /** Parent M2O field used to inherit `owner_id` on create, or null. */
@@ -207,14 +311,22 @@ export function ownerEqFilter(userId: string): Record<string, unknown> {
 export function ownerOrShareEqFilter(
   userId: string,
   readAlsoIf: string[] = [],
+  options: OwnerShareFilterOptions = {},
 ): Record<string, unknown> {
-  if (!readAlsoIf.length) return ownerEqFilter(userId)
-  return {
-    _or: [
-      ownerEqFilter(userId),
-      ...readAlsoIf.map((field) => ({ [field]: { _eq: userId } })),
-    ],
+  const peerIds = (options.sameRolePeerIds ?? [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+  const clauses: Record<string, unknown>[] = []
+  if (peerIds.length > 0) {
+    clauses.push({ [ROW_OWNER_FIELD]: { _in: peerIds } })
+  } else {
+    clauses.push(ownerEqFilter(userId))
   }
+  for (const field of readAlsoIf) {
+    clauses.push({ [field]: { _eq: userId } })
+  }
+  if (clauses.length === 1) return clauses[0]!
+  return { _or: clauses }
 }
 
 /**
@@ -225,8 +337,9 @@ export function mergeOwnerFilter(
   filter: Record<string, unknown> | null | undefined,
   userId: string,
   readAlsoIf: string[] = [],
+  options: OwnerShareFilterOptions = {},
 ): Record<string, unknown> {
-  const owner = ownerOrShareEqFilter(userId, readAlsoIf)
+  const owner = ownerOrShareEqFilter(userId, readAlsoIf, options)
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
     return owner
   }
@@ -268,10 +381,16 @@ export function recordMatchesReadShare(
   return false
 }
 
+export type AssertRecordOwnerOptions = {
+  /** When set, read is allowed if the row owner is in this set (same-role peers). */
+  sameRolePeerIds?: string[] | null
+}
+
 /**
  * Throw when a non-admin user does not own the row.
  * Missing / null `owner_id` (and no legacy `user_created`) → denied.
  * For **read**, `readAlsoIf` fields may also grant access (e.g. message.to_user).
+ * Optional `sameRolePeerIds` grants read when the owner is a role peer.
  */
 export function assertRecordOwner(
   me: MeUser,
@@ -279,6 +398,7 @@ export function assertRecordOwner(
   record: Record<string, unknown>,
   action: 'read' | 'update' | 'delete' = 'read',
   readAlsoIf: string[] = [],
+  options: AssertRecordOwnerOptions = {},
 ): void {
   if (isAdminMe(me)) return
   const myId = typeof me.id === 'string' ? me.id.trim() : ''
@@ -288,6 +408,14 @@ export function assertRecordOwner(
   const ownerId = readRecordOwnerId(record)
   if (ownerId && ownerId === myId) return
   if (action === 'read' && recordMatchesReadShare(record, myId, readAlsoIf)) {
+    return
+  }
+  if (
+    action === 'read' &&
+    ownerId &&
+    Array.isArray(options.sameRolePeerIds) &&
+    options.sameRolePeerIds.includes(ownerId)
+  ) {
     return
   }
   throw new Error(`Permission denied: ${action} on ${entityApiName}`)
@@ -324,8 +452,12 @@ export async function applyOwnerFilterIfNeeded(
   if (!myId) {
     throw new Error(`Permission denied: read on ${entityApiName}`)
   }
-  const readAlsoIf = (await resolveEntityOwnerSecurity(entityApiName)).readAlsoIf
-  return mergeOwnerFilter(filter, myId, readAlsoIf)
+  const config = await resolveEntityOwnerSecurity(entityApiName)
+  const sameRolePeerIds = await resolveSameRolePeerIds(
+    me,
+    config.readAlsoIfSameRole,
+  )
+  return mergeOwnerFilter(filter, myId, config.readAlsoIf, { sameRolePeerIds })
 }
 
 /**
@@ -349,11 +481,15 @@ export async function assertOwnerAccessIfNeeded(
   if (!me) {
     throw new Error(`Permission denied: ${action} on ${entityApiName}`)
   }
-  const readAlsoIf =
+  const config = await resolveEntityOwnerSecurity(entityApiName)
+  const readAlsoIf = action === 'read' ? config.readAlsoIf : []
+  const sameRolePeerIds =
     action === 'read'
-      ? (await resolveEntityOwnerSecurity(entityApiName)).readAlsoIf
-      : []
-  assertRecordOwner(me, entityApiName, record, action, readAlsoIf)
+      ? await resolveSameRolePeerIds(me, config.readAlsoIfSameRole)
+      : null
+  assertRecordOwner(me, entityApiName, record, action, readAlsoIf, {
+    sameRolePeerIds,
+  })
 }
 
 /**
@@ -374,14 +510,19 @@ export async function relatedOwnerFilterIfNeeded(
     // No actor id → match nothing (do not widen to all rows).
     return { [ROW_OWNER_FIELD]: { _eq: '__rls_deny__' } }
   }
-  const readAlsoIf = (await resolveEntityOwnerSecurity(entityApiName)).readAlsoIf
-  return ownerOrShareEqFilter(myId, readAlsoIf)
+  const config = await resolveEntityOwnerSecurity(entityApiName)
+  const sameRolePeerIds = await resolveSameRolePeerIds(
+    me,
+    config.readAlsoIfSameRole,
+  )
+  return ownerOrShareEqFilter(myId, config.readAlsoIf, { sameRolePeerIds })
 }
 
 /**
  * SQL AND-fragment for a related-table alias (`r.owner_id = $n`).
  * `ownerColumnExpr` must already be a safe identifier/expression (not user input).
  * When `readAlsoIf` is set, OR those columns on the same alias (`r.to_user = $n`).
+ * Same-role read ORs `owner_id = ANY(peerIds)`.
  */
 export async function relatedOwnerSqlIfNeeded(
   entityApiName: string,
@@ -396,12 +537,31 @@ export async function relatedOwnerSqlIfNeeded(
   if (await roleBypassesOwnerForAction(me, entityApiName, 'read')) return null
   const myId = typeof me.id === 'string' ? me.id.trim() : ''
   if (!myId) return { sql: 'FALSE', params: [] }
-  const parts = [`(${ownerColumnExpr}) = $${paramIndex}`]
+  const sameRolePeerIds = await resolveSameRolePeerIds(
+    me,
+    config.readAlsoIfSameRole,
+  )
+  const parts: string[] = []
+  const params: unknown[] = []
+  if (sameRolePeerIds && sameRolePeerIds.length > 0) {
+    parts.push(`(${ownerColumnExpr}) = ANY($${paramIndex}::text[])`)
+    params.push(sameRolePeerIds)
+  } else {
+    parts.push(`(${ownerColumnExpr}) = $${paramIndex}`)
+    params.push(myId)
+  }
+  const shareParam =
+    sameRolePeerIds && sameRolePeerIds.length > 0
+      ? paramIndex + 1
+      : paramIndex
+  if (config.readAlsoIf.length && shareParam !== paramIndex) {
+    params.push(myId)
+  }
   for (const field of config.readAlsoIf) {
-    parts.push(`(${tableAlias}.${field}) = $${paramIndex}`)
+    parts.push(`(${tableAlias}.${field}) = $${shareParam}`)
   }
   return {
     sql: parts.length === 1 ? parts[0]! : `(${parts.join(' OR ')})`,
-    params: [myId],
+    params,
   }
 }

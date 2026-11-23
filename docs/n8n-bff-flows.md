@@ -157,10 +157,10 @@ Prefer `http` flow handlers from automations. An `update_record` handler can re-
 Multichannel notifications and automations. n8n supplies the channel connectors. Each send is one Message row; there is no threaded conversation view.
 
 1. Rep creates a **Message** (Type / Body / Email or Phone / Contact / Opportunity, and/or **To user**, optional **Scheduled send at**).
-2. Pack automation **`queue_outbound_message`** (create; `result` empty + `is_active`) sets `delivery_status=queued`.
-3. If `scheduled_send_at` is empty, **`dispatch_outbound_message`** triggers immediately. If set, stay queued until Setup → Tasks **`dispatch_due_messages`** (params `{ "flowKey": "dispatch_outbound_message", "limit": 50 }`) finds `queued` + due rows, sets `sending`, and runs the same flow.
-4. n8n webhook `ce-dispatch_outbound_message` (`responseMode=lastNode`) routes on `record.type` (1 Email / 2 WhatsApp / 3 Telegram / **4 Internal**). Optional: if Opportunity + `OPPORTUNITY_QUOTE_TEMPLATE_ID` / `MESSAGE_DOC_TEMPLATE_ID`, `POST /api/v1/documents/generate` then `POST /files/{outputFileId}/link` onto the message. Then send and `PATCH` `{ "result": 1, "delivery_status": "sent" }`. On SMTP/channel error: **Mark failed** (`result: 2`, `delivery_status=failed`, error in `body`) then rethrow so Setup → Flows → **Failed runs** and the Error workflow alert both fire. For Internal / `to_user`, load `GET /api/v1/users/{to_user}` and email that address.
-5. Recipients see Message rows addressed to them via list view **For me** (`to_user = $CURRENT_USER`). RLS read-share: `owner_id = me OR to_user = me` (`rowLevelReadAlsoIf`).
+2. Pack automation **`queue_outbound_message`** (create; `is_draft` ≠ true) sets `delivery_status=queued`.
+3. If `scheduled_send_at` is empty, **`dispatch_outbound_message`** triggers immediately. If set, stay queued until Setup → Tasks **`dispatch_due_messages`** (params `{ "flowKey": "dispatch_outbound_message", "limit": 50 }`) finds `queued` + not-draft + due rows, sets `sending`, and runs the same flow. Drafts skip auto-send.
+4. n8n webhook `ce-dispatch_outbound_message` (`responseMode=lastNode`) owns all outbox rules (Message / Incoming are ordinary BFF objects). If `is_draft` → PATCH `is_draft=false` and stop (pack automations re-dispatch once). Else: optional PDF → route on `record.type` → send → Mark sent/failed. When `to_user` is set after Mark sent → POST `incoming_message` (owner=`to_user`) and link `message.source_message`. No BFF special-case for message/inbox.
+5. Recipients see owned **Incoming message** rows from n8n; outbox Message **For me** / read-share (`rowLevelReadAlsoIf`) remains available. Update/delete stay owner-only.
 6. Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales` (flows + Message automations + due-messages task). Template: [`n8n/dispatch-outbound-message.workflow.json`](./n8n/dispatch-outbound-message.workflow.json).
 
 ## Env (repo root `.env` and/or `crm-bff/.env`)

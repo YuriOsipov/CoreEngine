@@ -9,10 +9,12 @@
         "contact",
         "opportunity",
         "message",
+        "incoming_message",
         "opportunity_item"
       ],
       "canModifyAllOn": [
-        "message"
+        "message",
+        "incoming_message"
       ]
     },
     {
@@ -23,12 +25,14 @@
     {
       "name": "Sales Manager",
       "isAdmin": false,
+      "canAuthorReports": true,
       "permissions": "full_pack",
       "canViewAllOn": [
         "account",
         "contact",
         "opportunity",
         "message",
+        "incoming_message",
         "opportunity_item"
       ],
       "canModifyAllOn": [
@@ -36,6 +40,7 @@
         "contact",
         "opportunity",
         "message",
+        "incoming_message",
         "opportunity_item"
       ]
     },

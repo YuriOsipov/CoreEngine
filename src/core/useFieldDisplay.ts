@@ -75,5 +75,9 @@ export function useFieldDisplay(entity: () => string) {
     return formatFieldDisplayValue(rawValue)
   }
 
-  return { sync, displayValue }
+  function isRelatedRestricted(field: LayoutFieldMetadata): boolean {
+    return relatedDisplay.isRestricted(field)
+  }
+
+  return { sync, displayValue, isRelatedRestricted }
 }

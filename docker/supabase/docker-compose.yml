@@ -13,6 +13,8 @@ name: supabase
 services:
 
   studio:
+    # CoreEngine: off by default — enable with `--profile studio`
+    profiles: ["studio"]
     container_name: supabase-studio
     image: supabase/studio:2026.11.02-sha-a05e7ec
     restart: unless-stopped
@@ -84,9 +86,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-    depends_on:
-      studio:
-        condition: service_healthy
+    # CoreEngine: studio is optional (`--profile studio`); do not block the gateway on it.
     ports:
       - ${API_GW_HTTP_PORT:-${KONG_HTTP_PORT:-8000}}:8000/tcp
     volumes:
@@ -107,6 +107,8 @@ services:
     entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
 
   auth:
+    # CoreEngine: off by default — enable with `--profile auth`
+    profiles: ["auth"]
     container_name: supabase-auth
     image: supabase/gotrue:v2.197.0
     restart: unless-stopped
@@ -282,6 +284,8 @@ services:
       ]
 
   realtime:
+    # CoreEngine: off by default — enable with `--profile realtime`
+    profiles: ["realtime"]
     # This container name looks inconsistent but is correct because realtime constructs tenant id by parsing the subdomain
     container_name: realtime-dev.supabase-realtime
     image: supabase/realtime:v2.148.3
@@ -338,8 +342,7 @@ services:
         condition: service_healthy
       rest:
         condition: service_started
-      imgproxy:
-        condition: service_started
+      # CoreEngine: imgproxy is optional (`--profile imgproxy`)
     healthcheck:
       test:
         [
@@ -383,7 +386,8 @@ services:
       TENANT_ID: ${STORAGE_TENANT_ID}
       # TODO: https://github.com/supabase/storage-api/issues/55
       REGION: ${REGION}
-      ENABLE_IMAGE_TRANSFORMATION: "true"
+      # CoreEngine: off unless `--profile imgproxy` (+ set ENABLE_IMAGE_TRANSFORMATION=true)
+      ENABLE_IMAGE_TRANSFORMATION: ${ENABLE_IMAGE_TRANSFORMATION:-false}
       IMGPROXY_URL: http://imgproxy:5001
       # S3 protocol endpoint configuration
       S3_PROTOCOL_ACCESS_KEY_ID: ${S3_PROTOCOL_ACCESS_KEY_ID}
@@ -392,6 +396,8 @@ services:
       - ./volumes/storage:/var/lib/storage:z
 
   imgproxy:
+    # CoreEngine: off by default — enable with `--profile imgproxy`
+    profiles: ["imgproxy"]
     container_name: supabase-imgproxy
     image: darthsim/imgproxy:v4.0.21
     restart: unless-stopped
@@ -415,6 +421,8 @@ services:
       IMGPROXY_MAX_SRC_RESOLUTION: 16.8
 
   meta:
+    # CoreEngine: off by default; also starts with `--profile studio`
+    profiles: ["meta", "studio"]
     container_name: supabase-meta
     image: supabase/postgres-meta:v0.100.0
     restart: unless-stopped
@@ -432,6 +440,8 @@ services:
       CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
 
   functions:
+    # CoreEngine: off by default — enable with `--profile functions`
+    profiles: ["functions"]
     container_name: supabase-edge-functions
     image: supabase/edge-runtime:v1.77.9
     mem_limit: ${FUNCTIONS_MEMORY_LIMIT:-2g}
@@ -480,6 +490,9 @@ services:
     # To upgrade an existing Postgres 15 database in place, see utils/upgrade-pg17.sh.
     image: supabase/postgres:17.6.1.136
     restart: unless-stopped
+    ports:
+      # CoreEngine: host Postgres via db directly (pooler is optional; see `supavisor`)
+      - 127.0.0.1:${POSTGRES_PORT}:5432
     volumes:
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
       # Must be superuser to create event trigger
@@ -536,12 +549,13 @@ services:
 
   # Update the DATABASE_URL if you are using an external Postgres database
   supavisor:
+    # CoreEngine: off by default — enable with `--profile pooler` (transaction port 6543)
+    profiles: ["pooler"]
     container_name: supabase-pooler
     image: supabase/supavisor:2.9.13
     restart: unless-stopped
     ports:
-      # CoreEngine: loopback only (do not publish Postgres on all interfaces)
-      - 127.0.0.1:${POSTGRES_PORT}:5432
+      # CoreEngine: loopback only; session 5432 stays on `db` to avoid port clash
       - 127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION}:6543
     volumes:
       - ./volumes/pooler/pooler.exs:/etc/pooler/pooler.exs:ro,z

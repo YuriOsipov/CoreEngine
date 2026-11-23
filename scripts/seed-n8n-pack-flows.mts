@@ -33,7 +33,7 @@ const PACK_FLOWS: PackFlow[] = [
   {
     key: 'dispatch_outbound_message',
     description:
-      'Sales Message outbox: create → n8n channel switch → PATCH result/delivery_status',
+      'Sales Message outbox: create → n8n channel switch → PATCH delivery_status',
     packs: ['sales'],
   },
   {
@@ -62,13 +62,10 @@ const MESSAGE_OUTBOX_AUTOMATIONS: EntityRecordAutomation[] = [
     name: 'Queue outbound message',
     enabled: true,
     sort: 10,
-    triggers: ['create'],
+    triggers: ['create', 'update'],
     logic: 'and',
-    conditions: [
-      { field: 'result', operator: 'empty' },
-      { field: 'is_active', operator: '_eq', value: true },
-    ],
-    requireChanged: [],
+    conditions: [{ field: 'is_draft', operator: '_neq', value: true }],
+    requireChanged: ['is_draft'],
     setFields: { delivery_status: 'queued' },
     actions: [],
   },
@@ -77,14 +74,13 @@ const MESSAGE_OUTBOX_AUTOMATIONS: EntityRecordAutomation[] = [
     name: 'Dispatch outbound message',
     enabled: true,
     sort: 20,
-    triggers: ['create'],
+    triggers: ['create', 'update'],
     logic: 'and',
     conditions: [
-      { field: 'result', operator: 'empty' },
-      { field: 'is_active', operator: '_eq', value: true },
+      { field: 'is_draft', operator: '_neq', value: true },
       { field: 'scheduled_send_at', operator: 'empty' },
     ],
-    requireChanged: [],
+    requireChanged: ['is_draft'],
     setFields: {},
     actions: [{ type: 'trigger_flow', flowKey: 'dispatch_outbound_message' }],
   },

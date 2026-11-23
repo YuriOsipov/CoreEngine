@@ -32,6 +32,7 @@ const messages = {
     viewAll: 'Переглянути всі',
     moreInfo: 'Докладніше',
     hint: 'Підказка',
+    relatedRecordRestricted: 'Обмежено',
   },
   iconPicker: {
     choose: 'Обрати іконку',
@@ -53,7 +54,7 @@ const messages = {
     rolePreviewActual: 'Моя роль ({role})',
     rolePreviewUnknownRole: 'Невідома',
     rolePreviewBanner:
-      'Режим перегляду: макети, подання, доступ до обʼєктів і захист полів відповідають ролі "{role}". Дії адміністратора в Setup лишаються від вашого облікового запису. У журналі аудиту виконавцем лишаєтесь ви.',
+      'Режим перегляду: макети, подання, доступ до обʼєктів, захист полів, Owner row security і Created By відповідають ролі "{role}" (як зразок користувача цієї ролі). Дії адміністратора в Setup лишаються від вашого облікового запису.',
   },
   permissions: {
     checkingAccess: 'Перевірка доступу...',
@@ -262,6 +263,11 @@ const messages = {
     canvasBlockLayoutMissing: 'Не вдалося завантажити блоковий макет.',
     compactLayout: 'Компактний макет',
     compactLayoutHint: 'Поля, що показуються в панелі основних полів.',
+    compactView: 'Вигляд Compact',
+    compactViewHint:
+      'Inline = однорядкова смуга в заголовку. Panel = сітка з ширинами полів Compact Layout.',
+    compactViewInline: 'Inline (один рядок)',
+    compactViewPanel: 'Panel (сітка)',
     useRoleCompactLayout: 'За роллю за замовчуванням',
     actionLayout: 'Дії з блокового макета',
     actionLayoutHint: 'Використовує список дій з обраного блокового макета.',
@@ -289,6 +295,7 @@ const messages = {
       relatedList: 'Пов’язаний список',
       files: 'Файли',
       activityLog: 'Журнал активності',
+      messageTimeline: 'Стрічка повідомлень',
       tabs: 'Вкладки',
       actions: 'Дії',
       field: 'Поле',
@@ -411,6 +418,8 @@ const messages = {
       subtitle:
         'Налаштуйте зведені звіти з колекцій реєстру. Підключіть їх у Навігації, коли буде готово.',
       linkHint: 'Створення та редагування зведених звітів для Навігації та дашбордів.',
+      authorAccessRequired: 'У вас немає права керувати звітами.',
+      authorOwnRoleOnly: 'Ви можете редагувати лише звіти, прив’язані до вашої ролі.',
     },
     dashboards: {
       title: 'Дашборди',
@@ -685,9 +694,14 @@ const messages = {
       empty: 'Ролей ще немає.',
       columnName: 'Назва',
       columnAdmin: 'Адмін',
+      columnAuthorReports: 'Звіти',
       columnUsers: 'Користувачі',
       columnCollection: 'Колекція',
       isAdmin: 'Адміністратор',
+      canAuthorReports: 'Автор звітів',
+      canAuthorReportsHint:
+        'Учасники можуть створювати та редагувати звіти лише для цієї ролі. Публікація для всіх ролей — лише для адміністратора.',
+      ownRoleLocked: 'Ваша роль (заблоковано)',
       adminBypass:
         'Адміністратори обходять матрицю прав і мають повний доступ.',
       permissions: 'Права доступу',
@@ -730,7 +744,7 @@ const messages = {
     entityParameters: {
       title: 'Параметри сутності',
       hint:
-        'Налаштування об’єкта: примітка, іконка, шаблон відображення, видимість, відстеження активності та правила унікальності.',
+        'Налаштування об’єкта: примітка, іконка, шаблон відображення, видимість, відстеження активності, Owner row security та правила унікальності.',
       collection: 'Колекція',
       label: 'Мітка',
       note: 'Примітка',
@@ -754,6 +768,21 @@ const messages = {
       defaultFieldSensitivity: 'Рівень захисту нових полів за замовчуванням',
       defaultFieldSensitivityHint:
         'Застосовується до нових полів, якщо рівень захисту поля лишають за замовчуванням. Існуючі поля не змінюються. У domain pack можна задати backendConfig.defaultFieldSensitivity так само. Щоб бачити позначені поля, ролі все одно потрібні права Sensitive read / edit.',
+      ownerRowSecurity: 'Owner row security',
+      ownerRowSecurityHint:
+        'Коли увімкнено, користувачі без прав адміністратора можуть лише переглядати, відкривати, редагувати й видаляти записи, якими володіють (Owner / owner_id). Created By лишається аудитом. Адміністратори бачать усі рядки. Ручний шаринг і ієрархія команд ще не підтримуються.',
+      inheritOwnerFrom: 'Успадковувати власника від батька',
+      inheritOwnerFromNone: 'Немає (власник — автор)',
+      inheritOwnerFromHint:
+        'Якщо задано, нові рядки копіюють Owner (owner_id) з пов’язаного батька (стиль master-detail). Created By лишається користувачем, який створив запис. Для дочірніх об’єктів, наприклад позицій можливості.',
+      rowLevelReadAlsoIf: 'Також дозволити читання якщо',
+      rowLevelReadAlsoIfHint:
+        'Користувачі, що збігаються з будь-яким вибраним M2O на Users (наприклад To user), можуть читати рядок нарівні з власником. Оновлення й видалення лишаються лише для власника. Типовий випадок: вхідні Message.',
+      rowLevelReadAlsoIfPlaceholder: 'Оберіть поля Users…',
+      rowLevelReadAlsoIfEmpty: 'Немає M2O полів на Users для спільного читання.',
+      rowLevelReadAlsoIfSameRole: 'Також дозволити читання якщо та сама роль, що у власника',
+      rowLevelReadAlsoIfSameRoleHint:
+        'Якщо увімкнено, кожен користувач з тією ж роллю, що й Owner запису, може читати рядок (список і відкриття). Оновлення й видалення лишаються лише для власника. Грубіше за майбутній об’єкт Teams — наприклад усі Sales Rep бачать записи одне одного на цьому об’єкті.',
       saved: 'Параметри сутності збережено',
       loadError: 'Не вдалося завантажити параметри сутності',
       saveError: 'Не вдалося зберегти параметри сутності',
@@ -964,15 +993,15 @@ const messages = {
     automations: {
       title: 'Автоматизації',
       hint:
-        'Під час створення або оновлення запису відповідні правила автоматично заповнюють поля. Використовуйте «Потрібна зміна поля», щоб правило спрацьовувало лише коли поле входить у збереження (напр. fulfilled_qty). Спеціальні значення: $NOW, $NULL.',
+        'Правила виконуються під час створення, оновлення, видалення або відкриття запису (деталі). «Потрібна зміна поля» діє для create/update (ігнорується для On open / On delete). Спеціальні значення: $NOW, $NULL.',
       addRule: 'Додати правило',
       save: 'Зберегти автоматизації',
       saved: 'Автоматизації збережено',
-      savedDetail: 'Правила виконуються під час create/update у BFF.',
+      savedDetail: 'Правила виконуються в BFF на create/update/delete та при відкритті деталей запису.',
       loadError: 'Не вдалося завантажити автоматизації',
       saveError: 'Не вдалося зберегти автоматизації',
       empty:
-        'Автоматизацій ще немає. Додайте правило — наприклад, коли fulfilled_qty не порожнє і змінилось, встановити status і date_fulfilled = $NOW.',
+        'Автоматизацій ще немає. Додайте правило — наприклад, коли fulfilled_qty не порожнє і змінилось, встановити status і date_fulfilled = $NOW. Або On open: коли status = new, встановити status = read.',
       newRuleName: 'Нове правило',
       ruleName: 'Назва правила',
       sort: 'Сортування',
@@ -985,11 +1014,12 @@ const messages = {
       triggerCreate: 'Під час створення',
       triggerUpdate: 'Під час оновлення',
       triggerDelete: 'Під час видалення',
+      triggerOpen: 'Під час відкриття',
       logic: 'Логіка умов',
       logicAnd: 'Усі умови (AND)',
       logicOr: 'Будь-яка умова (OR)',
       requireChanged: 'Потрібна зміна поля',
-      requireChangedPlaceholder: 'Необов’язково — лише коли ці поля змінюються',
+      requireChangedPlaceholder: 'Необов’язково — лише на create/update, коли ці поля змінюються',
       configureRule: 'Налаштувати правило',
       configureRuleNamed: 'Налаштувати: {name}',
       deleteRule: 'Видалити правило',
@@ -1160,6 +1190,10 @@ const messages = {
     actionPromptHeader: 'Введіть значення',
     actionPromptMultiplier: 'Множник',
     actionPromptRequired: 'Введіть числове значення, щоб продовжити.',
+    actionRequiresWrite:
+      'У вас немає прав виконувати цю дію для цього запису.',
+    replyMessage: 'Відповісти',
+    forwardMessage: 'Переслати',
     bulkUpdateRelatedCompletedCount:
       'Оновлено записів: {updated}; пропущено: {skipped}.',
     bulkUpdateRelatedCompletedCountWithCreate:
@@ -1634,6 +1668,38 @@ const messages = {
     actionBehaviorFlow: 'Flow webhook',
     actionBehaviorCloneRelated: 'Клонувати структуру',
     actionBehaviorBulkUpdateRelated: 'Масове оновлення пов’язаних',
+    actionBehaviorCreateRecord: 'Створити запис',
+    createRecord: 'Створити запис',
+    createRecordHint:
+      'Відкрити форму створення для іншого об’єкта та заповнити поля з цього запису або статичними значеннями. Токени: $ME, $ME_EMAIL, $NOW, $NULL.',
+    createRecordTarget: 'Цільовий об’єкт',
+    createRecordTargetPlaceholder: 'Оберіть об’єкт…',
+    createRecordOpenAfter: 'Відкрити новий запис після створення',
+    createRecordWhenNotWritable: 'Лише коли джерело недоступне для редагування',
+    createRecordWhenNotWritableHint:
+      'Приховати цю дію, коли поточний користувач може редагувати вихідний запис (наприклад, Відповідь на Message для одержувача).',
+    createRecordMappings: 'Мапінг полів',
+    createRecordConfigureMappings: 'Налаштувати мапінг полів',
+    createRecordMappingsSummary: '{count} мапінг(ів)',
+    createRecordMappingsDialogTitle: 'Мапінг полів · {label}',
+    createRecordMappingsDialogTitleDefault: 'Мапінг полів',
+    createRecordMappingsDialogHint:
+      'Зіставте цільові поля з полями джерела або задайте статичні значення. Токени: $ME, $ME_EMAIL, $NOW, $NULL.',
+    createRecordAddMapping: '+ Мапінг',
+    createRecordMappingN: 'Мапінг {n}',
+    createRecordTargetField: 'Цільове поле',
+    createRecordSourceField: 'З поля джерела',
+    createRecordSourceStatic: 'Статичне значення',
+    createRecordSourceFieldPick: 'Поле джерела',
+    createRecordSourceFields: 'Резервні поля (через кому)',
+    createRecordStaticValue: 'Статичне значення ($ME, $NULL, …)',
+    createRecordTransformNone: 'Немає',
+    createRecordTransformQuoteLines: 'Цитата рядків (> )',
+    createRecordTransformSubjectPrefix: 'Префікс теми',
+    createRecordPrefix: 'Префікс (Re: / Fwd:)',
+    createRecordNoMappings: 'Мапінгів полів ще немає.',
+    createRecordMissingTarget: 'Оберіть цільовий об’єкт для цієї дії.',
+    createRecordRequiresCreate: 'Немає дозволу створювати цей об’єкт.',
     bulkUpdateRelated: 'Масове оновлення пов’язаних',
     bulkUpdateRelatedHint:
       'Запитати число, потім встановити Цільове поле з Шляху джерела + формули. За потреби оберіть Колекцію-джерело, щоб створити відсутні пов’язані рядки (upsert) перед оновленням.',
@@ -2103,6 +2169,56 @@ const messages = {
     backToRecord: 'Назад до запису {collection}',
     pageSubtitle: 'Повна історія активності для {collection}.',
   },
+  messageTimeline: {
+    title: 'Повідомлення',
+    loading: 'Завантаження повідомлень…',
+    loadMore: 'Показати ще',
+    loadFailed: 'Не вдалося завантажити повідомлення.',
+    empty: 'Повідомлень ще немає.',
+    configureFields:
+      'Оберіть вихідний і вхідний об’єкти та їхні поля зв’язку в конструкторі сторінки запису.',
+    showingCount: '{shown} з {total}',
+    peerFilter: 'Фільтр',
+    contextLoadFailed: 'Не вдалося завантажити контекст повідомлення.',
+    outgoingCollection: 'Вихідний об’єкт',
+    outgoingCollectionHint: 'Колекція для вихідних рядків (права сторона стрічки).',
+    incomingCollection: 'Вхідний об’єкт',
+    incomingCollectionHint: 'Колекція для вхідних рядків (ліва сторона стрічки).',
+    selectCollection: 'Оберіть об’єкт',
+    outgoingCompactLayout: 'Compact Layout вихідних',
+    outgoingCompactLayoutHint:
+      'Compact Layout для вихідних бульбашок. Порожнє значення — Compact Layout ролі за замовчуванням для цього об’єкта.',
+    incomingCompactLayout: 'Compact Layout вхідних',
+    incomingCompactLayoutHint:
+      'Compact Layout для вхідних бульбашок. Порожнє значення — Compact Layout ролі за замовчуванням для цього об’єкта.',
+    draft: 'Чернетка',
+    typeEmail: 'Email',
+    typeWhatsapp: 'WhatsApp',
+    typeTelegram: 'Telegram',
+    typeInternal: 'Внутрішнє',
+    builderDescription:
+      'Об’єднує дві пов’язані колекції в одну хронологічну стрічку. Оберіть вихідний і вхідний об’єкти, потім поля зв’язку та Compact Layout.',
+    outgoingParentField: 'Поле зв’язку вихідних',
+    outgoingParentFieldHint: 'M2O на вихідному об’єкті, що дорівнює id цього запису.',
+    incomingParentField: 'Поле зв’язку вхідних',
+    incomingParentFieldHint: 'M2O на вхідному об’єкті, що дорівнює id цього запису.',
+    outgoingPeerField: 'Поле peer-фільтра вихідних',
+    outgoingPeerFieldHint:
+      'Необов’язкове M2O на вихідному об’єкті для фільтра в заголовку (наприклад To user).',
+    incomingPeerField: 'Поле peer-фільтра вхідних',
+    incomingPeerFieldHint:
+      'Необов’язкове M2O на вхідному об’єкті для фільтра в заголовку (наприклад From user).',
+    outgoingDraftField: 'Поле чернетки вихідних',
+    outgoingDraftFieldHint:
+      'Необов’язкове boolean-поле на вихідному об’єкті. Використовується лише коли увімкнено «Приховати чернетки».',
+    selectParentField: 'Оберіть поле',
+    maxItems: 'Повідомлень на сторінку',
+    maxItemsHint:
+      'Спочатку найновіші. «Показати ще» додає наступну сторінку (за замовчуванням {count}).',
+    hideDrafts: 'Приховати чернетки',
+    hideDraftsHint:
+      'Якщо увімкнено і задано поле чернетки, вихідні чернетки не показуються.',
+  },
   reports: {
     addCondition: 'Додати умову',
     addValue: 'Додати значення',
@@ -2365,6 +2481,8 @@ const messages = {
     noGroups: 'У цій вкладці ще немає груп.',
     noTabs: 'У цьому макеті ще немає вкладок.',
     scheduler: 'Планувальник',
+    showLess: 'Показати менше',
+    showMore: 'Показати більше',
     tabFallback: 'Вкладка {n}',
     unknownComponent: 'Невідомий компонент: {component}',
   },
@@ -2650,6 +2768,8 @@ const messages = {
     favoriteAddError: 'Не вдалося додати до обраного.',
     removeFavorite: 'Видалити з обраного',
     renameFavorite: 'Перейменувати',
+    account: 'Обліковий запис',
+    profile: 'Профіль',
     favoriteDialogTitle: 'Додати до обраного',
     favoriteLabel: 'Назва',
     favoriteAdd: 'Додати до обраного',

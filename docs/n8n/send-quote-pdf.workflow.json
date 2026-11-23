@@ -82,7 +82,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ name: 'Quote PDF', body: 'Quote PDF queued', type: 1, delivery_status: 'queued', opportunity: $('CRM Webhook').item.json.body.recordId || $('CRM Webhook').item.json.recordId, ...( $('CRM Webhook').item.json.body.messageId || $('CRM Webhook').item.json.messageId ? { id: $('CRM Webhook').item.json.body.messageId || $('CRM Webhook').item.json.messageId } : {} ) }) }}",
+        "jsonBody": "={{ JSON.stringify({ name: 'Quote PDF', subject: 'Quote PDF', body: 'Quote PDF queued', type: 'email', delivery_status: 'queued', opportunity: $('CRM Webhook').item.json.body.recordId || $('CRM Webhook').item.json.recordId, ...( $('CRM Webhook').item.json.body.messageId || $('CRM Webhook').item.json.messageId ? { id: $('CRM Webhook').item.json.body.messageId || $('CRM Webhook').item.json.messageId } : {} ) }) }}",
         "options": {
           "qs": {
             "upsert": "true"
@@ -182,7 +182,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ delivery_status: 'sent', result: 1, body: 'Quote PDF ready: ' + (($('Generate PDF').item.json.downloadUrl || $('Generate PDF').item.json.outputFileId) || 'generated') }) }}",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'sent', body: 'Quote PDF ready: ' + (($('Generate PDF').item.json.downloadUrl || $('Generate PDF').item.json.outputFileId) || 'generated') }) }}",
         "options": {}
       },
       "id": "message-sent",

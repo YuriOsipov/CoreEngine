@@ -28,6 +28,7 @@ describe('assertEntityPermission auth gate', () => {
       roleId: null,
       roleName: null,
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -56,6 +57,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: false,
       roleId: null,
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -77,6 +79,7 @@ describe('sensitive read resolvers require auth / entity read', () => {
       roleId: null,
       roleName: null,
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
   })

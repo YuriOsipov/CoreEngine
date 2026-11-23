@@ -9,6 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
+import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import { buildHierarchyTreeNodes, type HierarchyTreeNode } from '@/core/hierarchyTree'
 import { loadAppRoles } from '@/core/settingRoleUtils'
 import { useTranslation } from '@/core/translation'
@@ -18,7 +19,7 @@ import {
   deleteReport,
   deleteReportFolder,
   listReportFolders,
-  listReports,
+  listReportsForAuthoring,
   reportFolderDepth,
   reportFolderPathLabel,
   REPORT_FOLDER_MAX_DEPTH,
@@ -36,6 +37,8 @@ const reports = ref<ReportWithSetting[]>([])
 const folders = ref<ReportFolder[]>([])
 const roles = ref<AppRoleOption[]>([])
 const loading = ref(false)
+const isAdmin = ref(false)
+const canAuthor = ref(false)
 const searchQuery = ref('')
 const selectedFolderId = ref<string | 'all' | 'unfiled'>('all')
 const folderDialogVisible = ref(false)
@@ -158,8 +161,26 @@ onMounted(() => {
 async function loadAll(): Promise<void> {
   loading.value = true
   try {
+    const access = await getEffectiveSetupAccess()
+    isAdmin.value = access.isFullSetupAdmin
+    canAuthor.value = access.canAuthorReports
+    if (!access.canOpenSetup) {
+      reports.value = []
+      folders.value = []
+      roles.value = []
+      toast.add({
+        severity: 'warn',
+        summary: t('common.error', 'Error'),
+        detail: t(
+          'setup.reports.authorAccessRequired',
+          'You do not have permission to manage reports.',
+        ),
+        life: 4000,
+      })
+      return
+    }
     const [reportRows, folderRows, roleRows] = await Promise.all([
-      listReports(),
+      listReportsForAuthoring(),
       listReportFolders(),
       loadAppRoles(),
     ])
@@ -351,6 +372,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         <Button
+          v-if="isAdmin"
           :label="t('reports.newFolder', 'New folder')"
           icon="pi pi-folder-plus"
           size="small"
@@ -359,6 +381,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
           @click="openNewFolderDialog"
         />
         <Button
+          v-if="canAuthor"
           :label="t('reports.newReport', 'New report')"
           icon="pi pi-plus"
           size="small"
@@ -425,6 +448,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
             </button>
           </div>
           <Button
+            v-if="isAdmin"
             icon="pi pi-trash"
             text
             rounded

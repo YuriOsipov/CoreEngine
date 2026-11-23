@@ -35,6 +35,10 @@ import { translateCollection, translateField } from '@/core/translation'
 import { resolveRecordKey } from '@/core/utils/object'
 import { findRelationForField, normalizeSpecial } from '../utils/fieldMapper'
 import {
+  bestParentRelation,
+  parentFkFromRelation,
+} from '../utils/parentRelation'
+import {
   buildChoiceLabelMap,
   choiceValueLabel,
   extractTemplateFields,
@@ -83,6 +87,11 @@ export interface FetchDataTableOptions {
   search?: string | null
   parentCollection?: string
   parentId?: string | number
+  /**
+   * Layout binding key (e.g. `message_user_created`) used when multiple
+   * child→parent M2Os exist so the correct FK is filtered.
+   */
+  parentRelationField?: string | null
   recordIds?: string[]
   totalCountOverride?: number
   includeArchivedStatus?: boolean
@@ -504,6 +513,7 @@ async function prepareDataTableContext(
     relations,
     options.parentCollection,
     options.parentId,
+    options.parentRelationField,
   )
 
   const columns = await resolveDataTableColumns(
@@ -808,9 +818,11 @@ function buildFetchFilterQuery(
         relations,
         options.parentCollection,
         options.parentId,
+        options.parentRelationField,
       )
+    const fk = parentFkFromRelation(relation)
     return mergeListQueryFilters(
-      relation ? { [relation.field]: { _eq: options.parentId } } : undefined,
+      fk ? { [fk]: { _eq: options.parentId } } : undefined,
       statusFilter,
       options.listFilter,
     )
@@ -824,15 +836,17 @@ function resolveParentRelation(
   relations: RelationDefinition[],
   parentCollection?: string,
   parentId?: string | number,
+  parentRelationField?: string | null,
 ) {
   if (!parentCollection || parentId === undefined || parentId === null) {
     return undefined
   }
 
-  return relations.find(
-    (relation) =>
-      relation.collection === collection &&
-      relation.related_collection === parentCollection,
+  return bestParentRelation(
+    relations,
+    collection,
+    parentCollection,
+    parentRelationField,
   )
 }
 

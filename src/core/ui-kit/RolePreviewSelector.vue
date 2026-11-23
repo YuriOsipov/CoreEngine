@@ -8,6 +8,7 @@ export default {
 import { computed, onMounted, ref } from 'vue'
 import { currentUser } from '@/core/currentUser'
 import { clearEntityPermissionsCache } from '@/core/entityPermissions'
+import { clearLayoutSettingsGraphQlCache } from '@/core/graphql/layoutSettingsApi'
 import {
   ACTUAL_ROLE_SELECT_VALUE,
   clearRolePreviewOverride,
@@ -120,8 +121,9 @@ function handleRolePreviewChange(value: string): void {
     setRolePreviewOverride(value)
   }
 
-  // Drop any in-memory admin-full matrix before reload (HMR / soft paths).
+  // Drop any in-memory admin-full matrix / layout snapshot before reload.
   clearEntityPermissionsCache()
+  clearLayoutSettingsGraphQlCache()
   window.location.reload()
 }
 </script>

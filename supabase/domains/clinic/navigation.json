@@ -8,6 +8,7 @@
       "subGroup": "full",
       "body": {
         "id": "nav_clinic_reception",
+        "isDefault": true,
         "home": {
           "kind": "object",
           "collection": "appointment"
@@ -61,6 +62,7 @@
       "subGroup": "full",
       "body": {
         "id": "nav_clinic_clinician",
+        "isDefault": true,
         "home": {
           "kind": "object",
           "collection": "visit"

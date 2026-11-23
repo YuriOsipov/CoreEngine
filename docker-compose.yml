@@ -14,6 +14,13 @@
 #     ./scripts/provision-platform-db.mts --domain sales
 #   docker compose up -d bff
 #   docker compose --profile ui up -d --build web
+#   # Optional Supabase extras (off by default):
+#   docker compose --profile studio up -d
+#   docker compose --profile realtime up -d
+#   docker compose --profile auth up -d
+#   docker compose --profile functions up -d
+#   docker compose --profile pooler up -d
+#   docker compose --profile imgproxy up -d   # also set ENABLE_IMAGE_TRANSFORMATION=true
 #
 # Lightweight: docker-compose.minimal.yml
 # External host Supabase: docker-compose.supabase.yml on top of minimal.

@@ -16,19 +16,23 @@ n8n is not part of CoreEngine. Profile `automation` in `docker-compose.minimal.y
 | Client admin | Setup → Flows keys (`dispatch_outbound_message`, …) on/off — **no raw n8n URLs** when Destination = Your n8n |
 | You / partner | n8n canvas, credentials, Slack/Telegram failed-execution alerts |
 
-**Preferred outbox:** multichannel notifications and automations. Create a Sales `message` row → `queue_outbound_message` sets `delivery_status=queued`. If **Scheduled send at** is empty, `dispatch_outbound_message` fires immediately; if set, Setup → Tasks **`dispatch_due_messages`** (every 5 min) marks `sending` and triggers the same flow when due. n8n channel connectors route on `type` (1 Email / 2 WhatsApp / 3 Telegram / **4 Internal**) → optional PDF generate + `/files/{id}/link` → PATCH `result` + `delivery_status`. Each send is one Message row.
+**Preferred outbox:** multichannel notifications and automations. `message` / `incoming_message` are ordinary objects — **no BFF special-case code**. Create a Sales `message` row (with **Is Draft** off) → pack automation `queue_outbound_message` sets `delivery_status=queued`. If **Scheduled send at** is empty, `dispatch_outbound_message` fires the n8n flow; if set, Setup → Tasks **`dispatch_due_messages`** marks `sending` and triggers the same flow when due. The same pack rules also run **on update** when **Is Draft** changes (draft On → Off).
 
-**User → user:** set **To user** (`to_user`). Recipients see those rows via list view **For me** (and RLS read-share). For Type Internal, n8n should `GET /api/v1/users/{to_user}` and email that address (A); in-app visibility is B.
+**Send button / n8n rules** (in [`dispatch-outbound-message.workflow.json`](./dispatch-outbound-message.workflow.json)): if the Message is still draft → PATCH `is_draft=false` and stop (automations queue + dispatch once); if not draft → channel send → Mark sent → when **To user** is set, **POST** a new `incoming_message` (owner=`to_user`) and link `message.source_message`. Integration has **Modify all** on `incoming_message` and may pass `owner_id` on create.
+
+**User → user:** set **To user** (`to_user`). Recipients get an owned **Incoming message** from the n8n workflow; Message **For me** / read-share remains available for the outbox row. For Type Internal, n8n should `GET /api/v1/users/{to_user}` and email that address (A); in-app inbox is B.
+
+**From (inbound / integration):** set **From user** (`from_user`) and/or **From email** (`from_email`) on the Message when the row is created by the Integration (n8n) user — Created By stays the automation account, while From shows the real sender. UI Reply prefers `from_user` as the reply recipient (then owner / Created By).
 
 Convention: flow key `dispatch_outbound_message` → n8n webhook path **`ce-dispatch_outbound_message`**. BFF resolves `{N8N_BASE_URL}/webhook/ce-{key}` when the flow has `config.target=n8n`.
 
-`result` is an integer choice (**1 Success / 2 Failed**) — put free-text errors in `body`, not in `result`. Integration needs **View/Modify all** on `message` (seeded in the Sales pack) so write-back works for rep-owned rows.
+Delivery outcome is tracked only via `delivery_status` (`queued` / `sending` / `sent` / `delivered` / `failed`) — put free-text errors in `body`. Integration needs **View/Modify all** on `message` (seeded in the Sales pack) so write-back works for rep-owned rows.
 
 ### Pack / production templates
 
 | Template | Flow key / webhook path | When to use |
 |----------|-------------------------|-------------|
-| [`dispatch-outbound-message.workflow.json`](./dispatch-outbound-message.workflow.json) | `dispatch_outbound_message` → `ce-dispatch_outbound_message` | **Sales Message outbox:** create / due → optional PDF attach → route by Type → PATCH sent/failed |
+| [`dispatch-outbound-message.workflow.json`](./dispatch-outbound-message.workflow.json) | `dispatch_outbound_message` → `ce-dispatch_outbound_message` | **Sales Message outbox:** draft clear vs send; optional PDF; route by Type → SMTP → Mark sent/failed; create `incoming_message` when `to_user` set |
 | [`send-quote-pdf.workflow.json`](./send-quote-pdf.workflow.json) | `send_quote_pdf` → `ce-send_quote_pdf` | Sales: queue message → generate PDF → link → mark Sent |
 | [`send-appointment-reminder.workflow.json`](./send-appointment-reminder.workflow.json) | `send_appointment_reminder` → `ce-send_appointment_reminder` | Clinic: mark reminder Queued → stub send → Sent |
 | [`generate-opportunity-document.workflow.json`](./generate-opportunity-document.workflow.json) | `send_opportunity_document` → `ce-send_opportunity_document` | Document generate only (no message row) |
@@ -90,7 +94,7 @@ Vendor guidance applied in `docker-compose.minimal.yml` + pack seeds:
 | **Encryption key** | Set a fixed `N8N_ENCRYPTION_KEY` in `.env` and keep the `coreengine_n8n` volume. Recreating the container without the same key makes stored SMTP/API credentials unreadable. |
 | **Node lockdown** | `NODES_EXCLUDE` drops Execute Command, Read/Write Files, and Git. Execution history pruning defaults on (`EXECUTIONS_DATA_PRUNE`, 7-day max age). |
 | **Env access in nodes** | Stock CE templates need `$env` (`BFF_URL`, `CRM_N8N_*`, `N8N_WEBHOOK_SECRET`, `SMTP_FROM`). Leave `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` until those move into n8n Credentials / `$vars`, then set `true`. |
-| **Integration user** | `npm run registry:seed-n8n-automation-user` creates a **non-admin** Integration user. Sales pack grants **Modify all** only on `message` (outbox PATCH); **View all** on `account` / `contact` / `opportunity` / `message` / `opportunity_item` so quote PDF / related reads work under owner RLS. Do not pass `--admin` for day-to-day n8n. |
+| **Integration user** | `npm run registry:seed-n8n-automation-user` creates a **non-admin** Integration user. Sales pack grants **Modify all** on `message` + `incoming_message` (outbox PATCH + inbox create with `owner_id=to_user`); **View all** on CRM entities needed for related reads / PDF under owner RLS. Do not pass `--admin` for day-to-day n8n. |
 
 ## Wire a CoreEngine flow key
 
@@ -107,7 +111,7 @@ Vendor guidance applied in `docker-compose.minimal.yml` + pack seeds:
 
 Three signals, on purpose:
 
-- **Message row** — outbox SMTP (or channel) failure runs **Mark failed** (`delivery_status=failed`, `result=2`, error text in `body`), then rethrows so the execution still errors.
+- **Message row** — outbox SMTP (or channel) failure runs **Mark failed** (`delivery_status=failed`, error text in `body`), then rethrows so the execution still errors.
 - **Inside CoreEngine** — Setup → Flows → **Failed runs** (outbound `runLocalFlow` errors, kept 90 days). Outbox webhook uses `responseMode=lastNode`, so a failed send returns an error to the BFF and appears here. Setup → Tasks → **Failed runs** covers scheduled jobs (`FAILED`); per-task **History** remains.
 - **Optional admin email** — Setup → General → **Failed-run alerts** (needs platform `SMTP_HOST` / `SMTP_FROM`). Or set `FAILED_RUN_NOTIFY_EMAIL` / `FAILED_RUN_NOTIFY=true`. Same flow/task key is not emailed again for 15 minutes.
 - **Inside n8n** — Executions, filter **Error**. Import [`failed-execution-alert.workflow.json`](./failed-execution-alert.workflow.json), set `ALERT_WEBHOOK_URL`, then on each pack workflow open **Settings → Error workflow** and select **CoreEngine — failed execution alert** (Error Trigger workflows are not toggled Active like webhooks). n8n does not call that workflow unless the failing workflow points at it.

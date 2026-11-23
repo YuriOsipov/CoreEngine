@@ -22,7 +22,9 @@ import {
   resolveNavTarget,
 } from '@/core/navigation/navTargetRoute'
 import { currentUser } from '@/core/currentUser'
+import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import { canUseBffAuth, logoutWithBff } from '@/core/auth/session'
+import CrmRegistryIcon from './CrmRegistryIcon.vue'
 import FavoriteLabelDialog from './FavoriteLabelDialog.vue'
 import RolePreviewSelector from './RolePreviewSelector.vue'
 import type { NavLink } from '@/interfaces'
@@ -61,6 +63,7 @@ const {
 const { context: favoriteContext } = useFavoriteContext()
 
 const favoriteToggleBusy = ref(false)
+const canOpenSetup = ref(false)
 
 /** SF-style: fill/highlight the star when this page is already favorited. */
 const currentFavoriteLink = computed(() => {
@@ -89,6 +92,7 @@ function isFavoriteLinkActive(link: NavLink): boolean {
 const favoritesPopover = ref<InstanceType<typeof Popover> | null>(null)
 const userPopover = ref<InstanceType<typeof Popover> | null>(null)
 const loggingOut = ref(false)
+const userId = ref<string | null>(null)
 const userName = ref('')
 const userSubtitle = ref('')
 const renameFavId = ref<string | null>(null)
@@ -128,7 +132,15 @@ function toggleUser(event: Event): void {
 }
 
 function openSetup(): void {
+  if (!canOpenSetup.value) return
   void router.push('/setup')
+}
+
+function openProfile(): void {
+  const id = userId.value?.trim()
+  if (!id) return
+  userPopover.value?.hide()
+  void router.push(`/object/users/${encodeURIComponent(id)}`)
 }
 
 function openFavorite(link: NavLink): void {
@@ -222,13 +234,20 @@ async function handleLogout(): Promise<void> {
 onMounted(async () => {
   void reload()
   try {
-    const user = await currentUser()
+    const [user, setupAccess] = await Promise.all([
+      currentUser(),
+      getEffectiveSetupAccess(),
+    ])
+    userId.value = user.id
     const hasDisplayName = Boolean(user.label) && user.label !== user.id
     userName.value = hasDisplayName ? user.label : t('navigation.account', 'Account')
     userSubtitle.value = user.roleName || ''
+    canOpenSetup.value = setupAccess.canOpenSetup
   } catch {
+    userId.value = null
     userName.value = ''
     userSubtitle.value = ''
+    canOpenSetup.value = false
   }
 })
 
@@ -325,7 +344,10 @@ defineExpose({ reload })
                   class="app-top-bar__favorites-link"
                   @click="openFavorite(link)"
                 >
-                  <i :class="link.icon || 'pi pi-star'" class="app-top-bar__favorites-icon" />
+                  <CrmRegistryIcon
+                    :icon="link.icon || 'pi pi-star'"
+                    icon-class="app-top-bar__favorites-icon"
+                  />
                   <span class="app-top-bar__favorites-label">{{ link.label }}</span>
                 </button>
                 <button
@@ -359,6 +381,7 @@ defineExpose({ reload })
       </div>
 
       <Button
+        v-if="canOpenSetup"
         type="button"
         icon="pi pi-cog"
         text
@@ -392,6 +415,15 @@ defineExpose({ reload })
               class="app-top-bar__user-sub"
             >{{ userSubtitle }}</span>
           </div>
+          <Button
+            v-if="userId"
+            :label="t('navigation.profile', 'Profile')"
+            icon="pi pi-user"
+            text
+            size="small"
+            class="w-full justify-start"
+            @click="openProfile"
+          />
           <RolePreviewSelector
             @preview-active="emit('preview-active', $event)"
             @preview-label="emit('preview-label', $event)"
@@ -617,6 +649,16 @@ defineExpose({ reload })
   color: var(--p-primary-color, #0f766e);
   flex: 0 0 auto;
   font-size: 0.9rem;
+}
+
+.app-top-bar__favorites-icon.material-icons {
+  font-family: 'Material Icons';
+  font-style: normal;
+  font-weight: normal;
+  letter-spacing: normal;
+  line-height: 1;
+  text-transform: none;
+  width: 1em;
 }
 
 .app-top-bar__favorites-label {

@@ -110,17 +110,34 @@ describe('n8n workflow templates', () => {
     expect(outbox).toBeTruthy()
     const workflow = outbox!.workflow as WorkflowFile & {
       connections: Record<string, { main?: Array<Array<{ node: string }>> }>
-      nodes: Array<WorkflowNode & { onError?: string; parameters?: { responseMode?: string } }>
+      nodes: Array<
+        WorkflowNode & {
+          onError?: string
+          parameters?: {
+            responseMode?: string
+            subject?: string
+            jsCode?: string
+            url?: string
+          }
+        }
+      >
     }
     const webhook = workflow.nodes.find((n) => n.type === 'n8n-nodes-base.webhook')
     expect(webhook?.parameters?.responseMode).toBe('lastNode')
     for (const name of ['Send email', 'Send email (with files)']) {
       const node = workflow.nodes.find((n) => n.name === name)
       expect(node?.onError, name).toBe('continueErrorOutput')
+      expect(node?.parameters?.subject, name).toBe('={{$json.subject}}')
       expect(workflow.connections[name]?.main?.[1]?.some((l) => l.node === 'Mark failed')).toBe(true)
     }
     expect(workflow.connections['Mark failed']?.main?.[0]?.some((l) => l.node === 'Rethrow after failed')).toBe(
       true,
     )
+    expect(workflow.nodes.some((n) => n.name === 'Load message')).toBe(true)
+    expect(workflow.nodes.some((n) => n.name === 'Merge message record')).toBe(true)
+    const route = workflow.nodes.find((n) => n.name === 'Route payload')
+    expect(route?.parameters?.jsCode).toMatch(/record\.subject/)
+    expect(route?.parameters?.jsCode).toMatch(/rawType === 'email'|channel === 'email'/)
+    expect(route?.parameters?.jsCode).not.toMatch(/type === 1\b/)
   })
 })

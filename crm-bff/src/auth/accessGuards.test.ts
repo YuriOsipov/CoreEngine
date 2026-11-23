@@ -38,6 +38,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: false,
       roleId: null,
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(
@@ -51,6 +52,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: true,
       roleId: 'r1',
       roleAdminAccess: true,
+      canAuthorReports: true,
       mustChangePassword: true,
     })
     await expect(
@@ -64,6 +66,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: false,
       roleId: 'r1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: true,
     })
     const me = await requireAuthenticatedUser(
@@ -80,6 +83,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: true,
       roleId: 'admin',
       roleAdminAccess: true,
+      canAuthorReports: true,
       mustChangePassword: false,
     })
     applyRolePreview.mockResolvedValue({
@@ -87,6 +91,7 @@ describe('requireAuthenticatedUser', () => {
       adminAccess: false,
       roleId: 'pricing',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     const previewed = await requireAuthenticatedUser({
@@ -117,6 +122,7 @@ describe('requireAdminAccess', () => {
       adminAccess: false,
       roleId: 'r1',
       roleAdminAccess: false,
+      canAuthorReports: false,
       mustChangePassword: false,
     })
     await expect(

@@ -33,6 +33,8 @@ export function defaultValueForField(field: LayoutFieldMetadata): unknown {
       return null
     case 'CrmActivityLog':
       return null
+    case 'CrmMessageTimeline':
+      return null
     case 'Files':
       return null
     case 'M2ABuilder':

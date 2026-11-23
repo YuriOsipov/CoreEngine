@@ -40,8 +40,9 @@ export async function dispatchDueMessages(
     filter: {
       _and: [
         { delivery_status: { _eq: 'queued' } },
-        { result: { _null: true } },
-        { is_active: { _eq: true } },
+        {
+          _or: [{ is_draft: { _eq: false } }, { is_draft: { _null: true } }],
+        },
         { scheduled_send_at: { _nnull: true } },
         { scheduled_send_at: { _lte: nowIso } },
       ],

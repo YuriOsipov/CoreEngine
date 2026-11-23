@@ -9,9 +9,12 @@ import {
   relatedFieldRelationId,
   formatFieldDisplayValue,
 } from '@/core/fieldHelpers'
+import { useTranslation } from '@/core/translation'
 
 export function useRelatedDisplayLabels(entity: () => string) {
+  const { t } = useTranslation()
   const labels = reactive<Record<string, string>>({})
+  const restricted = reactive<Record<string, boolean>>({})
   const keys = reactive<Record<string, string>>({})
   const requests = new Set<string>()
 
@@ -31,6 +34,7 @@ export function useRelatedDisplayLabels(entity: () => string) {
       if (!relatedKeys.has(key)) {
         delete labels[key]
         delete keys[key]
+        delete restricted[key]
       }
     }
 
@@ -57,6 +61,7 @@ export function useRelatedDisplayLabels(entity: () => string) {
 
     keys[field.field] = key
     labels[field.field] = ''
+    restricted[field.field] = false
     requests.add(key)
 
     try {
@@ -67,13 +72,24 @@ export function useRelatedDisplayLabels(entity: () => string) {
         metadata.template,
       )
 
-      if (keys[field.field] === key) {
-        labels[field.field] = option?.label ?? formatFieldDisplayValue(relationId)
+      if (keys[field.field] !== key) return
+
+      if (option?.restricted) {
+        restricted[field.field] = true
+        labels[field.field] = t('common.relatedRecordRestricted', 'Restricted')
+        return
       }
+
+      restricted[field.field] = false
+      labels[field.field] = option?.label ?? formatFieldDisplayValue(relationId)
     } finally {
       requests.delete(key)
     }
   }
 
-  return { labels, keys, cacheKey, sync }
+  function isRestricted(field: LayoutFieldMetadata): boolean {
+    return Boolean(restricted[field.field])
+  }
+
+  return { labels, keys, restricted, cacheKey, sync, isRestricted }
 }

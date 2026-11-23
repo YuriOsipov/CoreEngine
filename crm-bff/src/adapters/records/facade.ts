@@ -16,6 +16,7 @@ import type {
   RecordsListResult,
 } from './types.js'
 import { isSystemRecordAccess, SYSTEM_RECORD_ACCESS } from './types.js'
+import { ROLE_PREVIEW_NO_USER_ID } from '../../auth/rolePreview.js'
 import { resolveRecordsStore } from './registry.js'
 import { resolveCanonicalEntityApiName } from './entityName.js'
 import {
@@ -44,14 +45,17 @@ import {
   loadAutoNumberFields,
   stripAutoNumberWrites,
 } from '../../computed/applyAutoNumber.js'
+import { applyFieldDefaultsOnCreate } from '../../computed/applyFieldDefaults.js'
 import {
   attachLiveRollupsOnRead,
   recomputeRollupsForChildChange,
 } from '../../computed/applyRollups.js'
 import { isLiveRollup, loadRollupFields } from '../../computed/fieldMeta.js'
 import {
+  AUTOMATION_TOASTS_KEY,
   applyRecordAutomations,
   attachAutomationToasts,
+  type AutomationToast,
 } from '../../computed/applyRecordAutomations.js'
 import { scheduleAutomationFlows } from '../../computed/dispatchAutomationFlows.js'
 import {
@@ -71,8 +75,9 @@ import {
 import {
   applyOwnerFilterIfNeeded,
   assertOwnerAccessIfNeeded,
+  ownerAccessCheckFields,
 } from '../../services/rowLevelSecurity.js'
-import { resolveCreateOwnerId } from '../../services/ownerInheritance.js'
+import { resolveEffectiveCreateOwnerId } from '../../services/ownerInheritance.js'
 import type { MeUser } from '../usersAdapter.js'
 
 export { clearRecordsBackendCache, resolveRecordsBackend, resolveRecordsStore } from './registry.js'
@@ -176,6 +181,42 @@ function stripClientAuditUserFields(
   delete next.date_updated
   delete next.owner_id
   return next
+}
+
+/**
+ * Effective user for **owner_id** under View-as-role (`me.id` = sample user).
+ * Fall back to `actorUserId` (real session / audit actor).
+ */
+function recordOwnerStampId(
+  options: RecordWriteOptions,
+): string | null | undefined {
+  const meIdRaw =
+    !isSystemRecordAccess(options.access) &&
+    typeof options.access.me?.id === 'string'
+      ? options.access.me.id.trim()
+      : ''
+  if (meIdRaw && meIdRaw !== ROLE_PREVIEW_NO_USER_ID) return meIdRaw
+  return options?.actorUserId
+}
+
+/**
+ * Created By / Last Modified By — real session actor (`actorUserId` /
+ * `auditActorId`), so System fields match the Activity log under View-as-role.
+ */
+function recordAuditStampId(
+  options: RecordWriteOptions,
+): string | null | undefined {
+  const fromOptions =
+    typeof options.actorUserId === 'string' ? options.actorUserId.trim() : ''
+  if (fromOptions) return fromOptions
+  if (!isSystemRecordAccess(options.access)) {
+    const audit =
+      typeof options.access.me?.auditActorId === 'string'
+        ? options.access.me.auditActorId.trim()
+        : ''
+    if (audit) return audit
+  }
+  return recordOwnerStampId(options)
 }
 
 /**
@@ -829,7 +870,14 @@ export async function findOneRecord(
   const store = await resolveRecordsStore(apiName)
   const fieldAccess = await resolveFieldAccess(access.me, apiName)
   const readable = filterReadableFieldPaths(fields, fieldAccess)
-  const storeFields = await physicalStoreFields(apiName, readable)
+  // Owner RLS assert needs owner_id / user_created / readAlsoIf even when the
+  // client field list omitted them (common for detail layouts).
+  const ownerFields = await ownerAccessCheckFields(apiName)
+  const fetchFields =
+    readable == null
+      ? null
+      : Array.from(new Set([...(readable ?? []), ...ownerFields]))
+  const storeFields = await physicalStoreFields(apiName, fetchFields)
   const record = await store.findOne(apiName, id, storeFields)
   await assertOwnerAccessIfNeeded(apiName, access, record, 'read')
   const [expanded] = await expandRecordRelations(apiName, [record], access, readable)
@@ -926,14 +974,19 @@ export async function createRecord(
   }
   const apiName = await resolveEntity(entity)
   const store = await resolveRecordsStore(apiName)
-  await assertWriteAllowed(options.access, apiName, data)
+  // Capture before strip / field ACL — only Modify-all / admin / system may apply it.
+  const requestedOwnerId = fkIdFromValue(data.owner_id)
+  const dataForWrite: Record<string, unknown> = { ...data }
+  delete dataForWrite.owner_id
+  await assertWriteAllowed(options.access, apiName, dataForWrite)
   const withoutClientAudit = await sanitizeHtmlFieldWrites(
     apiName,
-    stripClientAuditUserFields(data),
+    stripClientAuditUserFields(dataForWrite),
   )
   const strippedRollups = await stripRollupWrites(apiName, withoutClientAudit)
   const stripped = await stripAutoNumberWrites(apiName, strippedRollups)
-  const withFormulas = await applyFormulasOnWrite(apiName, stripped, null)
+  const withDefaults = await applyFieldDefaultsOnCreate(apiName, stripped)
+  const withFormulas = await applyFormulasOnWrite(apiName, withDefaults, null)
   const autoNumberFields = await loadAutoNumberFields(apiName)
   const maxAttempts = autoNumberFields.length > 0 ? 5 : 1
 
@@ -948,16 +1001,22 @@ export async function createRecord(
     )
     const m2a = await peelM2AAliasFields(apiName, automationResult.patch)
     const o2m = await peelO2MAliasFields(apiName, m2a.parentData)
-    const ownerUserId = await resolveCreateOwnerId(
+    // Under View-as-role: owner uses sample `me.id`; Created By uses real
+    // `actorUserId` so System fields match the Activity log.
+    const ownerStampId = recordOwnerStampId(options)
+    const auditStampId = recordAuditStampId(options)
+    const ownerUserId = await resolveEffectiveCreateOwnerId(
       apiName,
       o2m.parentData,
-      options?.actorUserId,
+      options.access,
+      ownerStampId,
+      requestedOwnerId,
     )
     const parentData = await stampAuditUsers(
       apiName,
       o2m.parentData,
       'create',
-      options?.actorUserId,
+      auditStampId,
       ownerUserId,
     )
     try {
@@ -1080,7 +1139,7 @@ export async function updateRecord(
     apiName,
     o2m.parentData,
     'update',
-    options?.actorUserId,
+    recordAuditStampId(options),
   )
   const updated = await store.update(apiName, id, parentData, null)
   await applyM2ANestedWrites(apiName, String(id), m2a.nested)
@@ -1099,6 +1158,92 @@ export async function updateRecord(
     flowTriggers: automationResult.flowTriggers,
   })
   return attachAutomationToasts(record, automationResult.toasts)
+}
+
+export const OPEN_AUTOMATIONS_APPLIED_KEY = '__openAutomationsApplied'
+
+/**
+ * Run entity automations with trigger `open` after a record detail is opened.
+ * Matching setFields are applied via updateRecord (update automations may also run).
+ * requireChanged is ignored for open rules.
+ */
+export async function runOpenRecordAutomations(
+  entity: string,
+  id: string,
+  fields: string[] | null | undefined,
+  options: RecordWriteOptions,
+): Promise<Record<string, unknown>> {
+  const apiName = await resolveEntity(entity)
+  const recordId = String(id)
+  const existing = await findOneRecord(apiName, recordId, null, options.access)
+
+  const openResult = await applyRecordAutomations(apiName, {}, existing, 'open')
+  const setPatch = { ...openResult.patch }
+  // applyRecordAutomations copies the input patch; open starts empty so drop noise.
+  delete setPatch.id
+
+  const hasSetFields = Object.keys(setPatch).length > 0
+  if (!hasSetFields && !openResult.flowTriggers.length && !openResult.toasts.length) {
+    const unchanged = fields?.length
+      ? await findOneRecord(apiName, recordId, fields, options.access)
+      : existing
+    return {
+      ...asObject(unchanged),
+      [OPEN_AUTOMATIONS_APPLIED_KEY]: false,
+    }
+  }
+
+  if (hasSetFields) {
+    if (!isSystemRecordAccess(options.access)) {
+      const me = options.access.me
+      if (!me) {
+        throw new Error(
+          'Record write requires authenticated `{ me }` or SYSTEM_RECORD_ACCESS',
+        )
+      }
+      await assertMeEntityPermission(me, apiName, 'update', {
+        recordId,
+      })
+    }
+    const updated = await updateRecord(
+      apiName,
+      recordId,
+      setPatch,
+      fields,
+      options,
+    )
+    scheduleAutomationFlows({
+      entityApiName: apiName,
+      recordId,
+      record: asObject(updated),
+      before: asObject(existing),
+      trigger: 'open',
+      flowTriggers: openResult.flowTriggers,
+    })
+    const mergedToasts = [
+      ...readAutomationToasts(updated),
+      ...openResult.toasts,
+    ]
+    const withToasts = attachAutomationToasts(asObject(updated), mergedToasts)
+    return {
+      ...withToasts,
+      [OPEN_AUTOMATIONS_APPLIED_KEY]: true,
+    }
+  }
+
+  scheduleAutomationFlows({
+    entityApiName: apiName,
+    recordId,
+    record: asObject(existing),
+    before: asObject(existing),
+    trigger: 'open',
+    flowTriggers: openResult.flowTriggers,
+  })
+  const withToasts = attachAutomationToasts(asObject(existing), openResult.toasts)
+  return {
+    ...withToasts,
+    [OPEN_AUTOMATIONS_APPLIED_KEY]: false,
+  }
 }
 
 export async function softDeleteRecord(
@@ -1167,7 +1312,7 @@ export async function softDeleteRecord(
     apiName,
     archivePatch,
     'update',
-    options?.actorUserId,
+    recordAuditStampId(options),
   )
   const deleted = await store.update(apiName, recordId, archivePatch, null)
   await recomputeRollupsForChildChange(apiName, {
@@ -1189,6 +1334,23 @@ export async function softDeleteRecord(
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return value as Record<string, unknown>
+}
+
+function readAutomationToasts(record: Record<string, unknown>): AutomationToast[] {
+  const raw = record[AUTOMATION_TOASTS_KEY]
+  if (!Array.isArray(raw)) return []
+  const out: AutomationToast[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const message = typeof row.message === 'string' ? row.message.trim() : ''
+    if (!message) continue
+    out.push({
+      severity: row.severity === 'warn' ? 'warn' : 'info',
+      message,
+    })
+  }
+  return out
 }
 
 export async function restoreRecord(

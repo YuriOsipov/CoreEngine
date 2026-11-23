@@ -5,6 +5,7 @@ export interface AppRoleAdminDto {
   id: string
   name: string
   isAdmin: boolean
+  canAuthorReports: boolean
   backendRoleId: string | null
   userCount: number
 }
@@ -24,11 +25,13 @@ export interface AppUserAdminDto {
 export interface CreateAppRoleInput {
   name: string
   isAdmin?: boolean
+  canAuthorReports?: boolean
 }
 
 export interface UpdateAppRoleInput {
   name?: string | null
   isAdmin?: boolean | null
+  canAuthorReports?: boolean | null
 }
 
 export interface CreateAppUserInput {
@@ -54,6 +57,7 @@ const APP_ROLES_ADMIN_QUERY = /* GraphQL */ `
       id
       name
       isAdmin
+      canAuthorReports
       backendRoleId
       userCount
     }
@@ -82,6 +86,7 @@ const CREATE_APP_ROLE = /* GraphQL */ `
       id
       name
       isAdmin
+      canAuthorReports
       backendRoleId
       userCount
     }
@@ -94,6 +99,7 @@ const UPDATE_APP_ROLE = /* GraphQL */ `
       id
       name
       isAdmin
+      canAuthorReports
       backendRoleId
       userCount
     }

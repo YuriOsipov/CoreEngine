@@ -74,6 +74,8 @@ function componentTypeLabel(type: RecordPageComponentType): string {
       return t('recordPage.component.files', 'Files')
     case 'activityLog':
       return t('recordPage.component.activityLog', 'Activity log')
+    case 'messageTimeline':
+      return t('recordPage.component.messageTimeline', 'Message timeline')
     case 'tabs':
       return t('recordPage.component.tabs', 'Tabs')
     case 'actions':
@@ -273,6 +275,14 @@ const subtitle = computed(() => {
   }
   if (props.component.type === 'activityLog') {
     return t('recordPage.component.activityLog', 'Activity log')
+  }
+  if (props.component.type === 'messageTimeline') {
+    const outCol = props.component.messageTimeline?.outgoingCollection
+    const inCol = props.component.messageTimeline?.incomingCollection
+    if (!outCol && !inCol) {
+      return t('messageTimeline.selectCollection', 'Select an object')
+    }
+    return `${outCol || '—'} / ${inCol || '—'}`
   }
   if (props.component.type === 'tabs') {
     return t('recordPage.tabsCount', '{count} tabs', { count: tabs.value.length })

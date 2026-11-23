@@ -8,6 +8,8 @@ export default {
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
+import { currentUserRole } from '@/core/currentUser'
+import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import {
   buildRoleSelectOptions,
   loadAppRoles,
@@ -54,6 +56,7 @@ const draftRoleId = ref<string | null>(null)
 const folders = ref<ReportFolder[]>([])
 const collections = ref<Array<{ label: string; value: string }>>([])
 const roleOptions = ref<AppRoleOption[]>([])
+const isAdmin = ref(false)
 const loadingCollections = ref(false)
 const rows = ref<Record<string, unknown>[]>([])
 const loading = ref(false)
@@ -207,6 +210,7 @@ function updateFolderId(folderId: unknown): void {
 }
 
 function updateRoleId(value: unknown): void {
+  if (!isAdmin.value) return
   draftRoleId.value = selectValueToRoleId(value)
 }
 
@@ -214,10 +218,26 @@ async function loadDesigner(): Promise<void> {
   loading.value = true
   rows.value = []
   try {
+    const access = await getEffectiveSetupAccess()
+    isAdmin.value = access.isFullSetupAdmin
+    if (!access.canOpenSetup || !access.canAuthorReports) {
+      toast.add({
+        severity: 'warn',
+        summary: t('common.error', 'Error'),
+        detail: t(
+          'setup.reports.authorAccessRequired',
+          'You do not have permission to manage reports.',
+        ),
+        life: 4000,
+      })
+      await router.replace({ name: 'home' })
+      return
+    }
+    const ownRoleId = await currentUserRole()
     folders.value = await listReportFolders()
     if (isNew.value) {
       draftSettingId.value = null
-      draftRoleId.value = null
+      draftRoleId.value = access.isFullSetupAdmin ? null : ownRoleId
       draft.value = await defaultReportDefinition('', 'tabular')
       return
     }
@@ -233,8 +253,26 @@ async function loadDesigner(): Promise<void> {
       await router.replace({ name: 'setup-reports' })
       return
     }
+    if (
+      !access.isFullSetupAdmin &&
+      (report.roleId == null ||
+        report.roleId === '' ||
+        String(report.roleId) !== String(ownRoleId))
+    ) {
+      toast.add({
+        severity: 'warn',
+        summary: t('common.error', 'Error'),
+        detail: t(
+          'setup.reports.authorOwnRoleOnly',
+          'You can only edit reports locked to your role.',
+        ),
+        life: 4000,
+      })
+      await router.replace({ name: 'setup-reports' })
+      return
+    }
     draftSettingId.value = report.settingId
-    draftRoleId.value = report.roleId
+    draftRoleId.value = access.isFullSetupAdmin ? report.roleId : ownRoleId
     draft.value = await resolveReportDateGrains(normalizeReportDefinition(report.config))
     if (canRun.value) await runPreview()
   } catch (err) {
@@ -301,7 +339,10 @@ async function saveCurrent(): Promise<void> {
       return
     }
 
-    const saved = await saveReport(draft.value, draftSettingId.value, draftRoleId.value)
+    const roleIdForSave = isAdmin.value
+      ? draftRoleId.value
+      : await currentUserRole()
+    const saved = await saveReport(draft.value, draftSettingId.value, roleIdForSave)
     draftSettingId.value = saved.settingId
     draftRoleId.value = saved.roleId
     draft.value = normalizeReportDefinition(saved.config)
@@ -423,12 +464,23 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
       <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('layoutRole.role', 'Role') }}
         <Select
+          v-if="isAdmin"
           :model-value="roleIdToSelectValue(draftRoleId)"
           :options="roleSelectOptions"
           option-label="label"
           option-value="value"
           fluid
           @update:model-value="updateRoleId($event)"
+        />
+        <InputText
+          v-else
+          :model-value="
+            roleOptions.find((role) => role.id === draftRoleId)?.name ||
+            t('setup.roles.ownRoleLocked', 'Your role (locked)')
+          "
+          fluid
+          readonly
+          disabled
         />
       </label>
       <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">

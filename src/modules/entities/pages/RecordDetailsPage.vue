@@ -5,14 +5,22 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import FormRenderer from '../components/FormRenderer.vue'
 import FormRendererLight from '../components/FormRendererLight.vue'
 import RecordPageRenderer from '../components/RecordPageRenderer.vue'
+import RecordCreateDialog from '../components/RecordCreateDialog.vue'
 import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
+import { resolveMessageComposeFromEmail } from '@/core/messageCreateDefaults'
+import {
+  buildCreateRecordInitialValues,
+  canShowCreateRecordAction,
+  isCreateRecordActionVisible,
+} from '@/core/createRecordAction'
+import { canWriteOwnedRecord } from '@/core/ownerRowWriteAccess'
 import { isRecordNotFoundError } from '../utils/isRecordNotFoundError'
 import type {
   EntityAction,
@@ -26,6 +34,7 @@ import { resolvePreferredBlockLayoutForCurrentUser } from '@/core/resolvePreferr
 import { collectionExistsInRegistry } from '../services/collectionSchema'
 import {
   archiveObjectRecord,
+  applyOpenRecordAutomations,
   isRecordArchived,
   restoreObjectRecord,
   fetchObjectRecordForEdit,
@@ -39,9 +48,10 @@ import {
   useTranslation,
   useTranslatedCollection,
 } from '@/core/translation'
-import { useEntityPermissions } from '@/core/entityPermissions'
+import { canCreateEntity, useEntityPermissions } from '@/core/entityPermissions'
 import { useRecordEditAccess } from '@/core/useRecordEditAccess'
-import { renderTemplateLabel } from '../utils/recordDisplay'
+import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
+import { extractRelationFieldId, renderTemplateLabel } from '../utils/recordDisplay'
 import {
   fetchCollectionDisplayTemplate,
   fetchRelatedCollectionOptionById,
@@ -131,6 +141,10 @@ watch(
         parentPathPair.value?.collection !== collection ||
         parentPathPair.value?.id !== id
       ) {
+        return
+      }
+      if (option?.restricted) {
+        parentDisplayLabel.value = t('common.relatedRecordRestricted', 'Restricted')
         return
       }
       const label = option?.label != null ? String(option.label).trim() : ''
@@ -239,6 +253,106 @@ const pageHasHighlightsComponent = computed(() => {
 })
 
 const isArchivedRecord = computed(() => isRecordArchived(recordData.value))
+
+const effectiveUserId = ref<string | null>(peekCachedCurrentUserId())
+onMounted(() => {
+  void currentUserId().then((id) => {
+    effectiveUserId.value = id
+  })
+})
+watch(
+  () => [detailCollectionName.value, detailRecordId.value, recordData.value] as const,
+  () => {
+    const peeked = peekCachedCurrentUserId()
+    if (peeked) effectiveUserId.value = peeked
+    else void currentUserId().then((id) => { effectiveUserId.value = id })
+  },
+)
+
+/** Hide Edit/Delete/Send when Owner RLS would deny writes (preview or real session). */
+const canWriteOwnedRow = computed(() =>
+  canWriteOwnedRecord(recordData.value, effectiveUserId.value),
+)
+const showEditRecord = computed(
+  () => canUpdateRecord.value && canWriteOwnedRow.value,
+)
+const showDeleteRecord = computed(
+  () => canDeleteRecord.value && canWriteOwnedRow.value,
+)
+const createDialogVisible = ref(false)
+const createTargetCollection = ref('')
+const createInitialValues = ref<Record<string, unknown>>({})
+const createOpenAfterCreate = ref(true)
+
+const visibleDetailActions = computed(() =>
+  detailActions.value.filter((action) => {
+    if (action.behavior === 'createRecord') {
+      return isCreateRecordActionVisible(action, {
+        canCreateTarget: canCreateEntity,
+        sourceWritable: showEditRecord.value,
+      })
+    }
+    return true
+  }),
+)
+
+async function openCreateRecordAction(action: EntityAction): Promise<void> {
+  const settings = action.createRecord
+  const target = String(settings?.targetCollection ?? '').trim()
+  if (!target) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning', 'Warning'),
+      detail: t(
+        'formBuilder.createRecordMissingTarget',
+        'Select a target object for this action.',
+      ),
+      life: 4000,
+    })
+    return
+  }
+  if (
+    !canShowCreateRecordAction({
+      settings,
+      canCreateTarget: canCreateEntity(target),
+      sourceWritable: showEditRecord.value,
+    })
+  ) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning', 'Warning'),
+      detail: t(
+        'formBuilder.createRecordRequiresCreate',
+        'You do not have permission to create that object.',
+      ),
+      life: 4000,
+    })
+    return
+  }
+  const fromUserId = peekCachedCurrentUserId() ?? (await currentUserId())
+  const fromEmail = await resolveMessageComposeFromEmail(fromUserId)
+  createTargetCollection.value = target
+  createOpenAfterCreate.value = settings?.openAfterCreate !== false
+  createInitialValues.value = buildCreateRecordInitialValues(
+    settings,
+    recordData.value,
+    { userId: fromUserId, email: fromEmail },
+  )
+  createDialogVisible.value = true
+}
+
+function onCreateRecordCreated(record: Record<string, unknown>): void {
+  createDialogVisible.value = false
+  if (!createOpenAfterCreate.value) return
+  const id =
+    extractRelationFieldId(record.id) ??
+    (record.id != null && record.id !== '' ? String(record.id) : null)
+  if (!id || !createTargetCollection.value) return
+  void router.push(
+    `/object/${encodeURIComponent(createTargetCollection.value)}/${encodeURIComponent(id)}`,
+  )
+}
+
 const stayOnProjectForm = computed(
   () => route.query.form === '1' || route.query.form === 'true',
 )
@@ -439,6 +553,12 @@ async function loadRecordDetails(collection: string, id: string): Promise<void> 
     recordData.value = record
     detailActions.value = await resolveDetailActions(pageLayout, schema)
     void trackRecentRecordView(collection, id, record)
+
+    const afterOpen = await applyOpenRecordAutomations(collection, id, record)
+    if (token !== loadToken) return
+    if (afterOpen) {
+      recordData.value = afterOpen
+    }
   } catch (err) {
     if (token !== loadToken) return
     if (isRecordNotFoundError(err)) {
@@ -706,6 +826,25 @@ function runEntityAction(action: EntityAction): void {
 
   if (action.behavior === 'openDocument' || action.displayType === 'document') {
     void openDocumentAction(action)
+    return
+  }
+
+  if (action.behavior === 'createRecord') {
+    void openCreateRecordAction(action)
+    return
+  }
+
+  // Flow / clone / bulk-update need the same write gate as Edit (owner RLS + update).
+  if (!showEditRecord.value) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning', 'Warning'),
+      detail: t(
+        'recordDetails.actionRequiresWrite',
+        'You do not have permission to run this action on this record.',
+      ),
+      life: 4000,
+    })
     return
   }
 
@@ -1159,14 +1298,14 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
           <template v-if="!pageHasHighlightsComponent">
             <div class="app-header-actions__group">
               <Button
-                v-if="canUpdateRecord"
+                v-if="showEditRecord"
                 :label="t('common.edit', 'Edit')"
                 size="small"
                 :disabled="loading || deleting || !layoutSchema"
                 @click="openEditDialog"
               />
               <Button
-                v-if="canDeleteRecord"
+                v-if="showDeleteRecord"
                 :label="
                   isArchivedRecord
                     ? t('common.restore', 'Restore')
@@ -1180,11 +1319,11 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
               />
             </div>
             <div
-              v-if="detailActions.length > 0"
+              v-if="visibleDetailActions.length > 0"
               class="app-header-actions__group app-header-actions__group--bordered"
             >
               <Button
-                v-for="action in detailActions"
+                v-for="action in visibleDetailActions"
                 :key="action.id"
                 :label="action.label"
                 size="small"
@@ -1329,6 +1468,14 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
         </div>
       </template>
     </section>
+
+    <RecordCreateDialog
+      :visible="createDialogVisible"
+      :collection="createTargetCollection"
+      :initial-values="createInitialValues"
+      @update:visible="createDialogVisible = $event"
+      @created="onCreateRecordCreated"
+    />
 
     <Dialog
       :visible="editDialogVisible"

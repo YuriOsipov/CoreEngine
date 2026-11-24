@@ -35,6 +35,8 @@ export interface MeUser {
 interface ListUsersOptions {
   ids?: string[] | null
   search?: string | null
+  /** Exact email match (case-insensitive) for unique `email:value` lookups. */
+  emailEq?: string | null
   fields?: string[] | null
   limit?: number | null
   sort?: string[] | null

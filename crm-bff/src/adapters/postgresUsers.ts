@@ -180,6 +180,8 @@ function buildSelectSql(profileColumns: string[]): string {
 export async function postgresListUsers(options: {
   ids?: string[] | null
   search?: string | null
+  /** Exact email match (case-insensitive). Used by unique `email:value` REST lookup. */
+  emailEq?: string | null
   fields?: string[] | null
   limit?: number | null
   sort?: string[] | null
@@ -190,12 +192,14 @@ export async function postgresListUsers(options: {
 }): Promise<Record<string, unknown>[]> {
   const ids = (options.ids ?? []).map(String).filter(Boolean)
   const searchText = options.search?.trim() || ''
-  // Id lookups (detail / audit) include email so Block Layout can render it.
-  const includeEmail = options.includeEmail === true || ids.length > 0
+  const emailEq = options.emailEq?.trim() || ''
+  // Id / exact-email lookups include email so Block Layout / inbound routing can use it.
+  const includeEmail =
+    options.includeEmail === true || ids.length > 0 || Boolean(emailEq)
   const includeInactive = options.includeInactive === true || ids.length > 0
 
-  // Don't dump all users unless ids/search/limit is provided.
-  if (ids.length === 0 && !searchText && options.limit == null) return []
+  // Don't dump all users unless ids/search/emailEq/limit is provided.
+  if (ids.length === 0 && !searchText && !emailEq && options.limit == null) return []
 
   const profileColumns = await resolveUsersProfileColumns()
   const selectable = new Set(profileColumns)
@@ -211,6 +215,12 @@ export async function postgresListUsers(options: {
       `(backend_user_id = ANY($${next}::text[]) OR id::text = ANY($${next}::text[]))`,
     )
     params.push(ids)
+    next += 1
+  }
+  if (emailEq) {
+    // Exact match only — not a substring probe (search still omits email for non-admins).
+    where.push(`lower(trim(email)) = lower($${next})`)
+    params.push(emailEq)
     next += 1
   }
   if (searchText) {

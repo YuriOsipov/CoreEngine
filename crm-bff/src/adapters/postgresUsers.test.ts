@@ -162,6 +162,33 @@ describe('postgresListUsers', () => {
     const [, params] = query.mock.calls[2] as [string, unknown[]]
     expect(params[1]).toBe(200)
   })
+
+  it('exact emailEq lookup uses lower(trim(email)) and projects email', async () => {
+    mockProfileMeta()
+    query.mockResolvedValueOnce([
+      {
+        id: 'u1',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        email: 'ada@example.com',
+        role_id: null,
+        is_active: true,
+      },
+    ])
+
+    const rows = await postgresListUsers({
+      emailEq: 'Ada@Example.com',
+      fields: ['id', 'email', 'first_name'],
+      limit: 2,
+    })
+
+    const [sql, params] = query.mock.calls[2] as [string, unknown[]]
+    expect(sql).toMatch(/lower\(trim\(email\)\) = lower\(/)
+    expect(params).toEqual(['Ada@Example.com', 2])
+    expect(rows).toEqual([
+      { id: 'u1', email: 'ada@example.com', first_name: 'Ada' },
+    ])
+  })
 })
 
 describe('escapeIlikePattern', () => {

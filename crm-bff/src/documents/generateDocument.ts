@@ -380,7 +380,7 @@ export async function generateDocument(
       if (/Cannot find module|ERR_MODULE_NOT_FOUND|@docengine/i.test(message)) {
         throw new DocumentsGenerateStubError(
           'Document PDF/HTML render requires @docengine/pdf-renderer ' +
-            '(clone sibling ../docEngine next to coreEngine)',
+            '(npm @docengine/* or sibling ../docEngine)',
         )
       }
       throw error

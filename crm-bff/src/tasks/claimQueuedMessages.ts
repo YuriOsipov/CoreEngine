@@ -1,21 +1,53 @@
 /**
- * Atomically claim due Message outbox rows (queued → sending).
+ * Atomically claim due Message outbox rows (queued or stale sending → sending).
  * Uses FOR UPDATE SKIP LOCKED so two BFF schedulers cannot claim the same row.
+ *
+ * sending_since is the claim clock. attempts increments on every claim.
+ * A row left in sending (process died after the claim) is reclaimed once
+ * sending_since is older than the stale window, until attempts hits the cap.
  */
 import { query } from '../db/pool.js'
-import { quoteIdent, resolveRecordRelation } from '../schema/crmStorage.js'
+import { resolveRecordRelation } from '../schema/crmStorage.js'
+import {
+  buildMessageOutboxSql,
+  readAttempts,
+  type MessageOutboxSql,
+} from './messageOutbox.js'
 
 export type ClaimedMessageRow = {
   id: string
   record: Record<string, unknown>
   idempotencyKey: string
+  attempts: number
 }
+
+export type ReleasedClaim = 'requeued' | 'failed' | 'unchanged'
 
 export function messageIdempotencyKey(messageId: string): string {
   return `ce-message-${String(messageId).trim()}`
 }
 
-function asPublicRecord(row: Record<string, unknown>): Record<string, unknown> {
+type OutboxTarget = {
+  storage: 'typed' | 'jsonb'
+  sql: MessageOutboxSql
+}
+
+async function loadOutboxTarget(collection: string): Promise<OutboxTarget | null> {
+  const name = String(collection || '').trim()
+  if (!name) return null
+  const relation = await resolveRecordRelation(name)
+  return {
+    storage: relation.storage,
+    sql: buildMessageOutboxSql({
+      storage: relation.storage,
+      relationSql: relation.relationSql,
+      promoted: relation.promoted.map((field) => field.apiName),
+      hasDeleted: relation.hasDeleted,
+    }),
+  }
+}
+
+function asPublicRecord(row: Record<string, unknown>, nowIso: string): Record<string, unknown> {
   const data =
     row.data && typeof row.data === 'object' && !Array.isArray(row.data)
       ? (row.data as Record<string, unknown>)
@@ -24,109 +56,106 @@ function asPublicRecord(row: Record<string, unknown>): Record<string, unknown> {
     ...data,
     id: String(row.record_id ?? row.id ?? '').trim(),
     delivery_status: 'sending',
+    sending_since: nowIso,
   }
   for (const [key, value] of Object.entries(row)) {
     if (key === 'data' || key === 'record_id') continue
     if (value !== null && value !== undefined) out[key] = value
   }
+  if (out.sending_since == null || out.sending_since === '') out.sending_since = nowIso
   return out
 }
 
-function mapClaimed(rows: Record<string, unknown>[]): ClaimedMessageRow[] {
+function mapClaimed(rows: Record<string, unknown>[], nowIso: string): ClaimedMessageRow[] {
   return rows
     .map((row) => {
-      const id = String(row.record_id || '').trim()
+      const record = asPublicRecord(row, nowIso)
+      const id = String(record.id || '').trim()
       return {
         id,
-        record: asPublicRecord(row),
+        record,
         idempotencyKey: messageIdempotencyKey(id),
+        attempts: readAttempts(record.attempts),
       }
     })
     .filter((row) => row.id)
 }
 
+function readStatus(row: Record<string, unknown>): string {
+  if (typeof row.delivery_status === 'string' && row.delivery_status.trim()) {
+    return row.delivery_status.trim()
+  }
+  const data = row.data
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const value = (data as Record<string, unknown>).delivery_status
+    if (typeof value === 'string') return value.trim()
+  }
+  return ''
+}
+
 /**
- * Claim up to `limit` due queued messages. Returns only rows this caller owns.
+ * Mark stale sending rows that already used every attempt as failed.
+ * In-flight claims (sending_since inside the window) are left alone.
+ */
+export async function failExhaustedMessageClaims(options: {
+  collection: string
+  staleBeforeIso: string
+  maxAttempts: number
+}): Promise<number> {
+  const target = await loadOutboxTarget(options.collection)
+  if (!target) return 0
+  const params =
+    target.storage === 'jsonb'
+      ? [options.collection, options.staleBeforeIso, options.maxAttempts]
+      : [options.staleBeforeIso, options.maxAttempts]
+  const rows = await query<{ record_id: string }>(target.sql.exhaustSql, params)
+  return rows.length
+}
+
+/**
+ * Claim up to `limit` due rows. Includes queued rows whose backoff has elapsed
+ * and sending rows older than the stale window. Returns only rows this caller owns.
  */
 export async function claimDueQueuedMessages(options: {
   collection: string
   limit: number
-  nowIso?: string
+  nowIso: string
+  staleBeforeIso: string
+  maxAttempts: number
 }): Promise<ClaimedMessageRow[]> {
   const collection = String(options.collection || '').trim()
-  if (!collection) return []
+  const target = await loadOutboxTarget(collection)
+  if (!target) return []
   const limit = Math.min(Math.max(Math.floor(options.limit), 1), 200)
-  const nowIso = options.nowIso || new Date().toISOString()
-  const relation = await resolveRecordRelation(collection)
-  const promoted = new Set(relation.promoted.map((field) => field.apiName))
-  const deletedClause = relation.hasDeleted
-    ? `AND COALESCE(is_deleted, false) = false`
-    : ''
+  const params =
+    target.storage === 'jsonb'
+      ? [collection, options.nowIso, options.staleBeforeIso, options.maxAttempts, limit]
+      : [options.nowIso, options.staleBeforeIso, options.maxAttempts, limit]
+  const rows = await query<Record<string, unknown>>(target.sql.claimSql, params)
+  return mapClaimed(rows, options.nowIso)
+}
 
-  if (relation.storage === 'typed') {
-    const statusCol = promoted.has('delivery_status')
-      ? `d.${quoteIdent('delivery_status')}`
-      : `d.data->>'delivery_status'`
-    const statusColM = promoted.has('delivery_status')
-      ? `m.${quoteIdent('delivery_status')}`
-      : `m.data->>'delivery_status'`
-    const draftCol = promoted.has('is_draft')
-      ? `d.${quoteIdent('is_draft')}`
-      : `d.data->>'is_draft'`
-    const scheduledCol = promoted.has('scheduled_send_at')
-      ? `d.${quoteIdent('scheduled_send_at')}`
-      : `NULLIF(d.data->>'scheduled_send_at', '')`
-    const setStatus = promoted.has('delivery_status')
-      ? `${quoteIdent('delivery_status')} = 'sending'`
-      : `data = jsonb_set(COALESCE(data, '{}'::jsonb), '{delivery_status}', '"sending"'::jsonb, true)`
-
-    const rows = await query<Record<string, unknown>>(
-      `WITH due AS (
-         SELECT record_id
-         FROM ${relation.relationSql} AS d
-         WHERE ${statusCol} = 'queued'
-           AND COALESCE((${draftCol})::text, 'false') NOT IN ('true', '1', 't')
-           AND ${scheduledCol} IS NOT NULL
-           AND (${scheduledCol})::timestamptz <= $1::timestamptz
-           ${deletedClause}
-         ORDER BY (${scheduledCol})::timestamptz ASC NULLS LAST
-         FOR UPDATE SKIP LOCKED
-         LIMIT $2
-       )
-       UPDATE ${relation.relationSql} AS m
-       SET ${setStatus},
-           updated_at = now()
-       FROM due
-       WHERE m.record_id = due.record_id
-         AND ${statusColM} = 'queued'
-       RETURNING m.*`,
-      [nowIso, limit],
-    )
-    return mapClaimed(rows)
-  }
-
-  const rows = await query<Record<string, unknown>>(
-    `WITH due AS (
-       SELECT record_id
-       FROM public.business_records AS d
-       WHERE d.entity_api_name = $1
-         AND COALESCE(d.data->>'delivery_status', '') = 'queued'
-         AND COALESCE(d.data->>'is_draft', 'false') NOT IN ('true', '1')
-         AND NULLIF(d.data->>'scheduled_send_at', '') IS NOT NULL
-         AND (d.data->>'scheduled_send_at')::timestamptz <= $2::timestamptz
-         ${deletedClause}
-       ORDER BY (d.data->>'scheduled_send_at')::timestamptz ASC NULLS LAST
-       FOR UPDATE SKIP LOCKED
-       LIMIT $3
-     )
-     UPDATE public.business_records AS br
-     SET data = jsonb_set(COALESCE(br.data, '{}'::jsonb), '{delivery_status}', '"sending"'::jsonb, true),
-         updated_at = now()
-     FROM due
-     WHERE br.record_id = due.record_id
-       AND COALESCE(br.data->>'delivery_status', '') = 'queued'
-     RETURNING br.*`,
-    [collection, nowIso, limit],
-  )
-  return mapClaimed(rows)
+/**
+ * Put a claimed row back after the flow throws.
+ * sent/delivered are left alone (the send already committed).
+ * failed + attempts at the cap stays failed.
+ * Otherwise: queued while attempts remain, failed once the cap is reached.
+ * sending_since is kept so the next claim waits out the stale window.
+ */
+export async function releaseClaimedMessage(options: {
+  collection: string
+  id: string
+  maxAttempts: number
+}): Promise<ReleasedClaim> {
+  const id = String(options.id || '').trim()
+  const target = await loadOutboxTarget(options.collection)
+  if (!target || !id) return 'unchanged'
+  const params =
+    target.storage === 'jsonb'
+      ? [options.collection, id, options.maxAttempts]
+      : [id, options.maxAttempts]
+  const rows = await query<Record<string, unknown>>(target.sql.releaseSql, params)
+  const row = rows[0]
+  if (!row) return 'unchanged'
+  return readStatus(row) === 'failed' ? 'failed' : 'requeued'
 }

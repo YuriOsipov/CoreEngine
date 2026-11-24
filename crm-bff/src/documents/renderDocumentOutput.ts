@@ -1,7 +1,7 @@
 /**
  * Phase 2 — server DocEngine render (PDF/HTML) via @docengine/pdf-renderer.
  * Render runs in a worker_threads Worker so timeouts hard-kill via terminate().
- * Requires sibling ../docEngine (file: deps) or CI stubs.
+ * Requires @docengine/pdf-renderer (published @docengine/* or sibling ../docEngine).
  */
 import {
   assertRenderOutputSize,

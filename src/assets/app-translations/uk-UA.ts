@@ -672,7 +672,7 @@ const messages = {
       description: 'Опис',
       params: 'Параметри (JSON)',
       paramsHint:
-        'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}. dispatch_due_messages: { "flowKey": "dispatch_outbound_message", "limit": 50 }.',
+        'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}. dispatch_due_messages: { "flowKey": "dispatch_outbound_message", "limit": 50, "staleMinutes": 15, "maxAttempts": 5 }.',
       paramsObject: 'Параметри мають бути JSON-об’єктом.',
       paramsInvalid: 'Некоректний JSON параметрів.',
       columnName: 'Назва',

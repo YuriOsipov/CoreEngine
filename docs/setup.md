@@ -20,6 +20,8 @@ chmod +x ./scripts/install-minimal.sh
 ./scripts/install-minimal.sh --domain sales --with-ui
 ```
 
+**What `--domain sales` ships:** kernel + Documents pack (template objects; no sample templates) + Sales pack (CRM + catalog/pricing entities, roles, layouts) with demo records — accounts/contacts, opportunities + line items, item groups/items/price lists/item prices, a campaign + promotions, and a few messages. Kernel-only: `--domain none`. Other packs: `clinic`, `pricing`, `documents`.
+
 - BFF health: http://localhost:4000/health  
 - UI (if started): http://localhost:8080  
 - Login: `admin@example.com` with the password printed by provision (or pass `--admin-password` / `-AdminPassword`)
@@ -107,8 +109,8 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 |---------|-------------|
 | `npm run dev` | Vite dev server |
 | `npm run bff:dev` | GraphQL BFF |
-| `npm run build` | `vue-tsc -b && vite build` (CI app job) |
-| `npm run build:ci` | `vite build` only (skip typecheck) |
+| `npm run build` | `vue-tsc -b && vite build` — CI app build job |
+| `npm run build:ci` | `vite build` only (local bundle without typecheck) |
 | `npm run preview` | Preview production build |
 | `npm run install:minimal` | One-shot lightweight Docker install (Windows PowerShell) |
 | `npm run install:minimal:sh` | Same via bash |
@@ -131,6 +133,6 @@ npm --prefix crm-bff run typecheck
 npm run build                 # vue-tsc -b && vite build
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, Vue `npm run build`, and **DocEngine real PDF render**. Default deps are npm `@docengine/*@0.0.105`. CI falls back to `ci/stubs/` or a sibling checkout only if that pin is missing from the registry. Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, app build (`npm run build`: `vue-tsc -b && vite build`), and **DocEngine real PDF render**. The PDF job installs published `@docengine/*@0.0.105` and runs `crm-bff` `npm run test:docengine-render` (real PDF and HTML). If that pin is missing from the registry, the fast jobs fall back to `ci/stubs/` and the render job checks out the sibling repo. Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
 
 Layout schemas live under `src/interfaces` / config layout services and are stored in registry `layout_settings`.

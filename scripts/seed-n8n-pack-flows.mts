@@ -66,7 +66,19 @@ const MESSAGE_OUTBOX_AUTOMATIONS: EntityRecordAutomation[] = [
     logic: 'and',
     conditions: [{ field: 'is_draft', operator: '_neq', value: true }],
     requireChanged: ['is_draft'],
-    setFields: { delivery_status: 'queued' },
+    setFields: { delivery_status: 'queued', attempts: 0, sending_since: '$NULL' },
+    actions: [],
+  },
+  {
+    id: 'reset_outbound_attempts',
+    name: 'Reset outbound attempts',
+    enabled: true,
+    sort: 15,
+    triggers: ['update'],
+    logic: 'and',
+    conditions: [{ field: 'delivery_status', operator: '_eq', value: 'queued' }],
+    requireChanged: ['delivery_status'],
+    setFields: { attempts: 0, sending_since: '$NULL' },
     actions: [],
   },
   {
@@ -163,7 +175,7 @@ if (pack === 'sales' || pack === 'all') {
            'UTC',
            true,
            $2::jsonb,
-           'Fire dispatch_outbound_message for Message rows with scheduled_send_at <= now',
+           'Claim due Message rows and fire dispatch_outbound_message. Reclaims sending rows after staleMinutes and stops after maxAttempts.',
            now()
          )
          ON CONFLICT (key) DO UPDATE SET
@@ -192,6 +204,8 @@ if (pack === 'sales' || pack === 'all') {
             collection: 'message',
             flowKey: 'dispatch_outbound_message',
             limit: 50,
+            staleMinutes: 15,
+            maxAttempts: 5,
           }),
         ],
       )

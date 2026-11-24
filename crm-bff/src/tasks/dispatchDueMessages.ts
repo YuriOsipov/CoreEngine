@@ -1,13 +1,20 @@
 /**
  * Dispatch Message outbox rows whose scheduled_send_at is due.
- * Claims rows atomically (queued → sending) then triggers dispatch_outbound_message.
+ * Claims rows atomically (queued or stale sending → sending) then triggers
+ * dispatch_outbound_message.
+ *
+ * The idempotency key is ce-message-{id}. The shipped n8n template uses it as
+ * the SMTP Message-ID and skips send only when delivery_status is already
+ * sent or delivered. A reclaimed sending row is therefore sent again; the
+ * attempt cap is what bounds that, not the key.
  */
-import {
-  SYSTEM_RECORD_ACCESS,
-  updateRecord,
-} from '../adapters/records/facade.js'
 import { runLocalFlow } from '../flows/localFlows.js'
-import { claimDueQueuedMessages } from './claimQueuedMessages.js'
+import {
+  claimDueQueuedMessages,
+  failExhaustedMessageClaims,
+  releaseClaimedMessage,
+} from './claimQueuedMessages.js'
+import { resolveMessageOutboxPolicy } from './messageOutbox.js'
 
 const DEFAULT_FLOW_KEY = 'dispatch_outbound_message'
 const DEFAULT_COLLECTION = 'message'
@@ -29,16 +36,25 @@ export async function dispatchDueMessages(
     (typeof params.flowKey === 'string' && params.flowKey.trim()) ||
     DEFAULT_FLOW_KEY
   const limit = positiveInt(params.limit, DEFAULT_LIMIT)
-  const nowIso = new Date().toISOString()
+  const policy = resolveMessageOutboxPolicy(params)
+
+  const exhausted = await failExhaustedMessageClaims({
+    collection,
+    staleBeforeIso: policy.staleBeforeIso,
+    maxAttempts: policy.maxAttempts,
+  })
 
   const claimed = await claimDueQueuedMessages({
     collection,
     limit,
-    nowIso,
+    nowIso: policy.nowIso,
+    staleBeforeIso: policy.staleBeforeIso,
+    maxAttempts: policy.maxAttempts,
   })
 
   let dispatched = 0
   let failed = 0
+  let requeued = 0
   const errors: string[] = []
 
   for (const row of claimed) {
@@ -61,15 +77,16 @@ export async function dispatchDueMessages(
       const message = error instanceof Error ? error.message : String(error)
       errors.push(`${row.id}: ${message}`)
       try {
-        await updateRecord(
+        const released = await releaseClaimedMessage({
           collection,
-          row.id,
-          { delivery_status: 'queued' },
-          null,
-          { access: SYSTEM_RECORD_ACCESS },
-        )
-      } catch {
-        // leave as sending if revert fails — operator can fix in UI
+          id: row.id,
+          maxAttempts: policy.maxAttempts,
+        })
+        if (released === 'requeued') requeued += 1
+      } catch (releaseError) {
+        const releaseMessage =
+          releaseError instanceof Error ? releaseError.message : String(releaseError)
+        errors.push(`${row.id}: release failed: ${releaseMessage}`)
       }
     }
   }
@@ -81,7 +98,11 @@ export async function dispatchDueMessages(
     claimed: claimed.length,
     dispatched,
     failed,
+    requeued,
+    exhausted,
+    staleMinutes: policy.staleMinutes,
+    maxAttempts: policy.maxAttempts,
     errors: errors.slice(0, 10),
-    asOf: nowIso,
+    asOf: policy.nowIso,
   }
 }

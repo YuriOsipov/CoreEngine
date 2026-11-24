@@ -1,6 +1,8 @@
 /**
- * Real DocEngine PDF/HTML render (sibling checkout or DOCENGINE_REAL_RENDER=1).
- * Default CI jobs use ci/stubs and skip this file via vitest exclude / gate.
+ * Real DocEngine PDF/HTML render.
+ * Runs when @docengine/pdf-renderer resolves outside ci/stubs (published
+ * @docengine/* or a sibling checkout), or when DOCENGINE_REAL_RENDER=1.
+ * The CI render job installs @docengine/*@0.0.105 and sets that flag.
  */
 import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
@@ -44,7 +46,7 @@ const FIELDS_EXPORT = {
   values: {},
 }
 
-describe.runIf(runReal)('DocEngine real render (sibling)', () => {
+describe.runIf(runReal)('DocEngine real render', () => {
   it('renders a non-stub PDF via the worker', async () => {
     expect(isStub, `expected real @docengine/pdf-renderer, got ${pdfRendererPath}`).toBe(
       false,
@@ -83,8 +85,8 @@ describe.runIf(runReal)('DocEngine real render (sibling)', () => {
   }, 60_000)
 })
 
-describe.runIf(!runReal)('DocEngine real render (skipped without sibling)', () => {
-  it('documents that stub CI skips real PDF coverage', () => {
+describe.runIf(!runReal)('DocEngine real render (skipped on stubs)', () => {
+  it('skips real PDF coverage when only the CI stub is installed', () => {
     expect(isStub || !pdfRendererPath).toBe(true)
   })
 })

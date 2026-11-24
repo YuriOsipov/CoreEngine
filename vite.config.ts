@@ -26,7 +26,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      // Local monorepo: pin to sibling dist. CI installs `@docengine/field-date` stub via npm.
+      // Local monorepo: pin to sibling dist. CI resolves published `@docengine/field-date`.
       ...(hasSiblingDocEngine
         ? { '@docengine/field-date': siblingFieldDate }
         : {}),

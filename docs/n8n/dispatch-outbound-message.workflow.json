@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. **Is Draft?** If draft → PATCH `is_draft=false` and stop (CoreEngine queue/dispatch automations send once). If not draft → continue (retry / send-now).\n4. Idempotency: BFF sends `idempotencyKey` (`ce-message-{id}`); skip SMTP when `delivery_status` is already `sent`; SMTP Message-ID uses that key.\n5. Type **Email** → SMTP. On SMTP error → **Mark failed** → rethrow.\n6. Other types stub → Mark sent.\n7. After Mark sent: if `to_user` set → **Create incoming_message** (always new; owner=`to_user`) via BFF REST — no BFF special-case code.\n8. Settings → Error workflow → failed-execution-alert.\n9. Repo JSON is source of truth — re-export after UI edits.",
+        "content": "## Message outbox\nWebhook **ce-dispatch_outbound_message** (responseMode=lastNode).\n\n1. SMTP credential **CoreEngine SMTP** on both **Send email** nodes.\n2. Env: `BFF_URL`, `N8N_WEBHOOK_SECRET`, `CRM_N8N_*`, optional `SMTP_FROM`.\n3. **Is Draft?** If draft → PATCH `is_draft=false` and stop (CoreEngine queue/dispatch automations send once). If not draft → continue (retry / send-now).\n4. Idempotency: BFF sends `idempotencyKey` (`ce-message-{id}`). Skip SMTP and inbox create when `delivery_status` is already `sent` or `delivered`. Both Send email nodes set Message-ID from that key (Merge attachments and Split files must keep it). Message-ID is not a send lock — a row still `sending` is retried by the BFF, which caps attempts.\n5. Type **Email** → SMTP. On SMTP error → **Mark failed** (`delivery_status` only — do not replace `body`) → rethrow the SMTP error.\n6. Other types stub → Mark sent.\n7. After Mark sent: if `to_user` set → **Create incoming_message** (always new; owner=`to_user`) via BFF REST — no BFF special-case code.\n8. Settings → Error workflow → failed-execution-alert.\n9. Repo JSON is source of truth — re-export after UI edits.",
         "height": 300,
         "width": 460
       },
@@ -297,7 +297,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const routed = $input.first().json;\nconst files = Array.isArray(routed.files) ? routed.files : [];\nreturn files.map((f) => ({\n  json: {\n    messageId: routed.messageId,\n    email: routed.email,\n    subject: routed.subject,\n    body: routed.body,\n    fileId: f.id,\n    fileName: f.fileName || 'attachment.bin',\n  },\n}));"
+        "jsCode": "const routed = $input.first().json;\nconst files = Array.isArray(routed.files) ? routed.files : [];\nreturn files.map((f) => ({\n  json: {\n    messageId: routed.messageId,\n    idempotencyKey: String(routed.idempotencyKey || (routed.messageId ? `ce-message-${routed.messageId}` : '')).trim(),\n    email: routed.email,\n    subject: routed.subject,\n    body: routed.body,\n    fileId: f.id,\n    fileName: f.fileName || 'attachment.bin',\n  },\n}));"
       },
       "id": "split-files",
       "name": "Split files",
@@ -348,7 +348,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const routed = $('Resolve attachments').first().json;\nconst binary = {};\nconst keys = [];\nlet i = 0;\nfor (const item of $input.all()) {\n  const bin = item.binary && item.binary.data;\n  if (!bin) continue;\n  const key = `file${i}`;\n  const fileName =\n    item.json.fileName || bin.fileName || `attachment-${i + 1}.bin`;\n  binary[key] = {\n    ...bin,\n    fileName,\n    mimeType: bin.mimeType || 'application/octet-stream',\n  };\n  keys.push(key);\n  i += 1;\n}\nreturn [{\n  json: {\n    messageId: routed.messageId,\n    email: routed.email,\n    subject: routed.subject,\n    body: routed.body,\n    attachOk: keys.length > 0,\n    attachmentKeys: keys.join(','),\n    attachedCount: keys.length,\n  },\n  binary: keys.length ? binary : undefined,\n}];"
+        "jsCode": "const routed = $('Resolve attachments').first().json;\nconst binary = {};\nconst keys = [];\nlet i = 0;\nfor (const item of $input.all()) {\n  const bin = item.binary && item.binary.data;\n  if (!bin) continue;\n  const key = `file${i}`;\n  const fileName =\n    item.json.fileName || bin.fileName || `attachment-${i + 1}.bin`;\n  binary[key] = {\n    ...bin,\n    fileName,\n    mimeType: bin.mimeType || 'application/octet-stream',\n  };\n  keys.push(key);\n  i += 1;\n}\nreturn [{\n  json: {\n    messageId: routed.messageId,\n    idempotencyKey: String(routed.idempotencyKey || (routed.messageId ? `ce-message-${routed.messageId}` : '')).trim(),\n    email: routed.email,\n    subject: routed.subject,\n    body: routed.body,\n    attachOk: keys.length > 0,\n    attachmentKeys: keys.join(','),\n    attachedCount: keys.length,\n  },\n  binary: keys.length ? binary : undefined,\n}];"
       },
       "id": "prepare-email-with-file",
       "name": "Merge attachments",
@@ -509,7 +509,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed', body: String(($json.error && ($json.error.message || $json.error)) || $json.message || 'Outbound send failed') }) }}",
+        "jsonBody": "={{ JSON.stringify({ delivery_status: 'failed' }) }}",
         "options": {}
       },
       "id": "patch-failed",
@@ -523,7 +523,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const err = $json.error && ($json.error.message || $json.error);\nconst msg = String(err || $json.body || $json.message || 'Outbound send failed');\nthrow new Error(msg);"
+        "jsCode": "function fromNode(name) {\n  try {\n    const json = $(name).first().json || {};\n    const err = json.error && (json.error.message || json.error);\n    return String(err || json.message || '').trim();\n  } catch (e) {\n    return '';\n  }\n}\nconst msg = fromNode('Send email') || fromNode('Send email (with files)') || 'Outbound send failed';\nthrow new Error(msg);"
       },
       "id": "rethrow-after-failed",
       "name": "Rethrow after failed",

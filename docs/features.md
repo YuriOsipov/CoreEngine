@@ -50,7 +50,7 @@ Product surface for operators and implementers. For security layers see [`securi
 - Record automations (conditions, set fields, notify, break, trigger flow).
 - **Setup → Flows** — `app_flow_triggers` (`http` to your n8n via `ce-{key}`, custom URL, or `update_record`). Failed runs in Setup.
 - **Setup → Tasks** — scheduled jobs (e.g. Sync promo prices, **Dispatch due messages**). Runner is in-process with a **Postgres advisory lock** per task; still set `TASK_SCHEDULER_ENABLED=false` on extra BFF replicas.
-- **Sales Message outbox** — one Message row per send; due rows are claimed with **`FOR UPDATE SKIP LOCKED`**; flow payload carries `idempotencyKey` (`ce-message-{id}`). Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales`. See [`n8n/README.md`](./n8n/README.md) and [`n8n-bff-flows.md`](./n8n-bff-flows.md).
+- **Sales Message outbox** — one Message row per send; due rows are claimed with **`FOR UPDATE SKIP LOCKED`** (`sending_since` + `attempts`). Stale `sending` rows are reclaimed after `staleMinutes` and stop after `maxAttempts`. Flow payload carries `idempotencyKey` (`ce-message-{id}`). Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales`. See [`n8n/README.md`](./n8n/README.md) and [`n8n-bff-flows.md`](./n8n-bff-flows.md).
 - Complex visual orchestration: optional **n8n** (compose profile `automation`). License notes: [`THIRD_PARTY.md`](../THIRD_PARTY.md) — Sustainable Use License limits hosting/resale; prefer customer-owned n8n or a built-in Postgres queue for “reliable ops” without that constraint.
 
 ## Reliable operations

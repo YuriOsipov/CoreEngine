@@ -660,6 +660,24 @@
           }
         },
         {
+          "apiName": "sending_since",
+          "label": "Sending since",
+          "type": "DATETIME",
+          "interface": "datetime",
+          "readonly": true,
+          "isIndexed": true
+        },
+        {
+          "apiName": "attempts",
+          "label": "Send attempts",
+          "type": "INTEGER",
+          "interface": "input",
+          "readonly": true,
+          "options": {
+            "default": 0
+          }
+        },
+        {
           "apiName": "is_draft",
           "label": "Is Draft",
           "type": "BOOLEAN",
@@ -712,7 +730,26 @@
             ],
             "requireChanged": ["is_draft"],
             "setFields": {
-              "delivery_status": "queued"
+              "delivery_status": "queued",
+              "attempts": 0,
+              "sending_since": "$NULL"
+            },
+            "actions": []
+          },
+          {
+            "id": "reset_outbound_attempts",
+            "name": "Reset outbound attempts",
+            "enabled": true,
+            "sort": 15,
+            "triggers": ["update"],
+            "logic": "and",
+            "conditions": [
+              { "field": "delivery_status", "operator": "_eq", "value": "queued" }
+            ],
+            "requireChanged": ["delivery_status"],
+            "setFields": {
+              "attempts": 0,
+              "sending_since": "$NULL"
             },
             "actions": []
           },

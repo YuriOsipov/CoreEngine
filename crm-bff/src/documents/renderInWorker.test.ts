@@ -15,4 +15,23 @@ describe('renderInWorker hard kill', () => {
     ).rejects.toThrow(/timed out after 40ms/)
     expect(Date.now() - started).toBeLessThan(500)
   })
+
+  it(
+    'kills a worker that exceeds resourceLimits heap',
+    async () => {
+      const oomUrl = fileURLToPath(new URL('./renderOomWorker.mjs', import.meta.url))
+      await expect(
+        runRenderWorker({
+          workerUrl: oomUrl,
+          workerData: {},
+          timeoutMs: 8_000,
+          resourceLimits: {
+            maxOldGenerationSizeMb: 16,
+            stackSizeMb: 1,
+          },
+        }),
+      ).rejects.toThrow(/memory|heap|exited|oom/i)
+    },
+    15_000,
+  )
 })

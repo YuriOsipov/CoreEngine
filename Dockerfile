@@ -1,7 +1,8 @@
 # CoreEngine Vue SPA (Docker / try-out image)
 #
-# Uses in-repo DocEngine CI stubs (same as GitHub Actions). Full editor needs
-# sibling ../docEngine + `npm run dev` against this stack's BFF.
+# Try-out image swaps the editor packages for in-repo ci/stubs so this build
+# does not need a DocEngine checkout. GitHub Actions installs published
+# @docengine/*@0.0.105; its app job runs `npm run build`.
 #
 #   docker build -f Dockerfile -t coreengine-web .
 # Compose: context is this repo (coreEngine).
@@ -23,7 +24,7 @@ ENV VITE_DATA_SOURCE=graphql
 ENV VITE_RECORDS_SOURCE=graphql
 ENV VITE_AUTH_MODE=bff
 ENV VITE_GRAPHQL_URL=/graphql
-# Same as CI: skip vue-tsc until the typecheck debt is cleared.
+# Vite bundle for this image. The CI app job runs `npm run build`.
 RUN npm run build:ci
 
 FROM nginx:1.27-alpine AS runtime

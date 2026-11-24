@@ -670,7 +670,7 @@ const messages = {
       description: 'Description',
       params: 'Params (JSON)',
       paramsHint:
-        'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}. dispatch_due_messages: { "flowKey": "dispatch_outbound_message", "limit": 50 }.',
+        'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}. dispatch_due_messages: { "flowKey": "dispatch_outbound_message", "limit": 50, "staleMinutes": 15, "maxAttempts": 5 }.',
       paramsObject: 'Params must be a JSON object.',
       paramsInvalid: 'Params JSON is invalid.',
       columnName: 'Name',

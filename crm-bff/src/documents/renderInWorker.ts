@@ -1,10 +1,14 @@
 /**
  * Run DocEngine PDF/HTML render in a worker_threads Worker.
  * On timeout the worker is terminated (hard kill), not just Promise.raced away.
+ * V8 heap/stack caps come from renderWorkerResourceLimits().
  */
-import { Worker } from 'node:worker_threads'
+import { Worker, type ResourceLimits } from 'node:worker_threads'
 import { fileURLToPath } from 'node:url'
-import { renderTimeoutMs } from './renderLimits.js'
+import {
+  renderTimeoutMs,
+  renderWorkerResourceLimits,
+} from './renderLimits.js'
 
 export type RenderInWorkerInput = {
   template: Record<string, unknown>
@@ -26,6 +30,8 @@ export type RunRenderWorkerOptions = {
   /** Override worker module (tests). */
   workerUrl?: URL | string
   workerData?: unknown
+  /** Override V8 resourceLimits (tests). */
+  resourceLimits?: ResourceLimits
 }
 
 /**
@@ -35,6 +41,8 @@ export function runRenderWorker(
   options: RunRenderWorkerOptions & { workerData: unknown },
 ): Promise<RenderInWorkerResult> {
   const timeoutMs = options.timeoutMs ?? renderTimeoutMs()
+  const resourceLimits =
+    options.resourceLimits ?? renderWorkerResourceLimits()
   const workerPath =
     typeof options.workerUrl === 'string'
       ? options.workerUrl
@@ -45,6 +53,7 @@ export function runRenderWorker(
     let timer: ReturnType<typeof setTimeout> | undefined
     const worker = new Worker(workerPath, {
       workerData: options.workerData,
+      resourceLimits,
     })
 
     const finish = (err: Error | null, result?: RenderInWorkerResult) => {

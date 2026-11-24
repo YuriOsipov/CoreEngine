@@ -75,10 +75,11 @@ Pack apply is additive registry seed — review pack release notes before re-app
 
 Keep vertical UI in a **sibling package** and wire it from gitignored `src/extensions/register.local.ts` so CoreEngine upgrades do not overwrite your imports — see [`docs/custom-blocks.md`](custom-blocks.md).
 
-## Deployment notes (proxy + SSO secrets)
+## Deployment notes (proxy, SSO secrets, pooling)
 
 - Behind a TLS-terminating reverse proxy, set **`TRUST_PROXY`** (e.g. `loopback,uniquelocal`) so OIDC cookies get `Secure` from `X-Forwarded-Proto`. Without it, state / id-token cookies are issued without `Secure` even when users hit HTTPS.
 - For SSO with `OIDC_CHECK_ON_REFRESH`, set a dedicated **`OIDC_TOKEN_ENCRYPTION_KEY`** in production. Falling back to a hash of `AUTH_JWT_SECRET` couples IdP-token seals to JWT rotation.
+- **Advisory locks and pooling.** Scheduled tasks take a session-level `pg_try_advisory_lock` on a checked-out pool client and hold that client until the task run finishes. Point `DATABASE_URL` at Postgres directly (Compose does this) or at a pooler in **session** mode. **PgBouncer in transaction mode breaks these locks:** the server connection is returned after each transaction, so lock and unlock can land on different backends, the mutex does not hold across BFF instances, and a lock can stick on a recycled server session. Supavisor's transaction port does the same — do not send the BFF through it. A held lock also keeps one BFF pool connection for the whole run (node-pg's default pool size is 10). Size that pool and Postgres `max_connections` for API traffic plus in-flight tasks, and leave `TASK_SCHEDULER_ENABLED=true` on only one BFF.
 
 ## Prove the migrate is safe to re-run
 
@@ -101,7 +102,7 @@ npm run registry:smoke-backup-restore
 1. `GET http://localhost:4000/health`
 2. Sign in as admin (or SSO)
 3. Open one list + one record detail for a pack object you care about
-4. If you use server document generate, run one generate smoke (needs sibling DocEngine for a real PDF)
+4. If you use server document generate, run one generate smoke (real PDF uses published `@docengine/pdf-renderer@0.0.105`, or `npm run docengine:use-local`)
 
 ## Rollback
 

@@ -1,10 +1,14 @@
 /**
- * Caps for server document PDF/HTML render (timeout, concurrency, output size).
+ * Caps for server document PDF/HTML render (timeout, concurrency, output size, worker V8 limits).
  * Env:
  *   DOC_RENDER_TIMEOUT_MS (default 30000)
  *   DOC_RENDER_MAX_CONCURRENCY (default 2)
  *   DOC_RENDER_MAX_OUTPUT_BYTES (default 25 MiB)
+ *   DOC_RENDER_WORKER_HEAP_MB (default 256) — Worker maxOldGenerationSizeMb
+ *   DOC_RENDER_WORKER_STACK_MB (default 4) — Worker stackSizeMb
  */
+
+import type { ResourceLimits } from 'node:worker_threads'
 
 const MB = 1024 * 1024
 
@@ -24,6 +28,22 @@ export function renderMaxConcurrency(): number {
 
 export function renderMaxOutputBytes(): number {
   return envInt('DOC_RENDER_MAX_OUTPUT_BYTES', 25 * MB, 64 * 1024)
+}
+
+export function renderWorkerHeapMb(): number {
+  return envInt('DOC_RENDER_WORKER_HEAP_MB', 256, 16)
+}
+
+export function renderWorkerStackMb(): number {
+  return envInt('DOC_RENDER_WORKER_STACK_MB', 4, 1)
+}
+
+/** V8 resourceLimits passed to document render Worker threads. */
+export function renderWorkerResourceLimits(): ResourceLimits {
+  return {
+    maxOldGenerationSizeMb: renderWorkerHeapMb(),
+    stackSizeMb: renderWorkerStackMb(),
+  }
 }
 
 let active = 0

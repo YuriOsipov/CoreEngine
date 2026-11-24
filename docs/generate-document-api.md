@@ -148,7 +148,7 @@ POST {{$env.BFF_URL}}/api/v1/documents/generate
 - Upload via existing files pipeline (`uploadFileBuffer`)
 - Set `doc_value.output_file` when persisting
 - Return `outputFileId` + `downloadUrl` (`/assets/:id`)
-- Uses `@docengine/pdf-renderer` from npm (or `npm run docengine:use-local` against sibling `../docEngine`). CI: stubs when npm packages are missing; **DocEngine real PDF render** uses npm or a sibling checkout (`crm-bff` `npm run test:docengine-render`).
+- Uses `@docengine/pdf-renderer` from npm (`@docengine/*@0.0.105`, or `npm run docengine:use-local` against sibling `../docEngine`). CI’s **DocEngine real PDF render** job installs that published pin and runs `crm-bff` `npm run test:docengine-render`. If the pin is missing, that job checks out the sibling repo; the other jobs fall back to `ci/stubs/`.
 
 ### Phase 3 — attach helpers (optional)
 - Optional `attachToRecordFiles: Boolean` to also add the file on a record files/M2M field

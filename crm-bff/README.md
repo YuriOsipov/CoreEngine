@@ -75,7 +75,7 @@ Directus (optional records backend, GraphQL only): `DIRECTUS_GRAPHQL_URL` (defau
 - `file` / `files`
 - user settings + recent record views
 - schema drift / sync (`runSchemaSync`: crm_schema ADD COLUMN, backfill, indexes, FKs, unique groups; dry-run default)
-- scheduled tasks (`scheduledTasks`, `runScheduledTask`, `generateScheduleSlots`); in-process cron via `TASK_SCHEDULER_ENABLED` (default on). Each tick still runs in-process, but `runScheduledTask` takes a **Postgres advisory lock** (`pg_try_advisory_lock`) per task id, and `dispatch_due_messages` claims Message rows with **`FOR UPDATE SKIP LOCKED`** plus an `idempotencyKey` on the flow payload. Prefer one scheduler process (`TASK_SCHEDULER_ENABLED=false` on replicas). A Postgres queue (pg-boss / Graphile Worker) remains the durable multi-instance path.
+- scheduled tasks (`scheduledTasks`, `runScheduledTask`, `generateScheduleSlots`); in-process cron via `TASK_SCHEDULER_ENABLED` (default on). Each tick still runs in-process, but `runScheduledTask` takes a **Postgres advisory lock** (`pg_try_advisory_lock`) per task id, and `dispatch_due_messages` claims Message rows with **`FOR UPDATE SKIP LOCKED`**, stamps `sending_since` / `attempts`, reclaims stale `sending` rows, and caps attempts. The flow payload includes an `idempotencyKey`. Prefer one scheduler process (`TASK_SCHEDULER_ENABLED=false` on replicas). A Postgres queue (pg-boss / Graphile Worker) remains the durable multi-instance path.
 
 ## Cutover
 

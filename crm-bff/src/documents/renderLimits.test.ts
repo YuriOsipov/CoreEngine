@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   assertRenderOutputSize,
+  renderWorkerResourceLimits,
   resetRenderSlotStateForTests,
   withRenderSlot,
   withRenderTimeout,
@@ -12,6 +13,24 @@ describe('renderLimits', () => {
     delete process.env.DOC_RENDER_TIMEOUT_MS
     delete process.env.DOC_RENDER_MAX_CONCURRENCY
     delete process.env.DOC_RENDER_MAX_OUTPUT_BYTES
+    delete process.env.DOC_RENDER_WORKER_HEAP_MB
+    delete process.env.DOC_RENDER_WORKER_STACK_MB
+  })
+
+  it('exposes worker V8 resourceLimits from env', () => {
+    process.env.DOC_RENDER_WORKER_HEAP_MB = '128'
+    process.env.DOC_RENDER_WORKER_STACK_MB = '2'
+    expect(renderWorkerResourceLimits()).toEqual({
+      maxOldGenerationSizeMb: 128,
+      stackSizeMb: 2,
+    })
+  })
+
+  it('defaults worker heap/stack when env unset', () => {
+    expect(renderWorkerResourceLimits()).toEqual({
+      maxOldGenerationSizeMb: 256,
+      stackSizeMb: 4,
+    })
   })
 
   it('rejects oversized output', () => {

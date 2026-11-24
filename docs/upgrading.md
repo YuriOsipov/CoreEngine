@@ -71,6 +71,8 @@ npm run registry:migrate:node   # or: npm run registry:migrate (Windows + psql)
 
 Pack apply is additive registry seed — review pack release notes before re-applying on production. Custom objects you created in Setup are not deleted by migrate; pack re-apply may upsert seeded entities/roles/layouts.
 
+**Sales messaging (String/Text + FTS):** re-apply `sales` so `message.body` / `incoming_message.body` become **Text** with full-text search indexes (`…_body_fts_idx`). Details: [`fields-and-search.md`](./fields-and-search.md).
+
 ## Custom UI extensions
 
 Keep vertical UI in a **sibling package** and wire it from gitignored `src/extensions/register.local.ts` so CoreEngine upgrades do not overwrite your imports — see [`docs/custom-blocks.md`](custom-blocks.md).

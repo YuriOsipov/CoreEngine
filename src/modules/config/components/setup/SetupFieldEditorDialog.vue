@@ -131,6 +131,11 @@ const form = reactive({
   /** NUMERIC Size (precision); Decimals = scale. */
   numericPrecision: 18,
   decimalPlaces: 2,
+  /** STRING 1–255 (default 255); TEXT 256–131072 (default 32768). */
+  maxLength: 255,
+  /** TEXT only: Postgres FTS (GIN) for list search. */
+  fullTextSearch: false,
+  ftsConfig: 'simple',
   jsonColumns: [] as JsonColumnRow[],
   picklistMode: 'static' as 'static' | 'dynamic',
   dynamicRelationField: '',
@@ -403,11 +408,12 @@ const typeOptions = computed(() => {
         label: t('setup.fields.typeAutoNumber', 'Auto Number'),
         value: 'AUTO_NUMBER',
       },
-      { label: t('setup.fields.typeString', 'Text'), value: 'STRING' },
+      { label: t('setup.fields.typeString', 'String'), value: 'STRING' },
     ]
   }
   return [
-    { label: t('setup.fields.typeString', 'Text'), value: 'STRING' },
+    { label: t('setup.fields.typeString', 'String'), value: 'STRING' },
+    { label: t('setup.fields.typeText', 'Text'), value: 'TEXT' },
     { label: t('setup.fields.typeInteger', 'Integer'), value: 'INTEGER' },
     { label: t('setup.fields.typeFloat', 'Number'), value: 'FLOAT' },
     { label: t('setup.fields.typeBoolean', 'Checkbox'), value: 'BOOLEAN' },
@@ -438,7 +444,8 @@ const typeOptions = computed(() => {
 })
 
 const resultTypeOptions = computed(() => [
-  { label: t('setup.fields.typeString', 'Text'), value: 'STRING' },
+  { label: t('setup.fields.typeString', 'String'), value: 'STRING' },
+  { label: t('setup.fields.typeText', 'Text'), value: 'TEXT' },
   { label: t('setup.fields.typeInteger', 'Integer'), value: 'INTEGER' },
   { label: t('setup.fields.typeFloat', 'Number'), value: 'FLOAT' },
   { label: t('setup.fields.typeBoolean', 'Checkbox'), value: 'BOOLEAN' },
@@ -477,6 +484,13 @@ const interfaceOptions = computed(() => {
         { label: t('setup.fields.ifaceText', 'Text'), value: 'input' },
         { label: t('setup.fields.ifaceTextarea', 'Textarea'), value: 'input-multiline' },
         { label: t('setup.fields.ifacePicklist', 'Picklist'), value: 'select-dropdown' },
+      ]
+    case 'TEXT':
+      return [
+        {
+          label: t('setup.fields.ifaceTextarea', 'Textarea'),
+          value: 'input-multiline',
+        },
       ]
     case 'INTEGER':
       return [
@@ -539,9 +553,21 @@ const isPicklist = computed(
 )
 const isCurrency = computed(() => form.interface === 'currency')
 const isFloatStorage = computed(() => storageType.value === 'FLOAT')
+const isStringStorage = computed(() => storageType.value === 'STRING')
+const isTextStorage = computed(() => storageType.value === 'TEXT')
+const isLengthLimitedStorage = computed(
+  () => isStringStorage.value || isTextStorage.value,
+)
 const isDateLike = computed(
   () => storageType.value === 'DATE' || storageType.value === 'DATETIME',
 )
+
+const STRING_MAX_LENGTH_DEFAULT = 255
+const STRING_MAX_LENGTH_MIN = 1
+const STRING_MAX_LENGTH_MAX = 255
+const TEXT_MAX_LENGTH_DEFAULT = 32_768
+const TEXT_MAX_LENGTH_MIN = 256
+const TEXT_MAX_LENGTH_MAX = 131_072
 
 function clampNumericPrecision(raw: unknown): number {
   const n = Math.trunc(Number(raw))
@@ -554,6 +580,51 @@ function clampNumericScale(raw: unknown, precision: number): number {
   if (!Number.isFinite(n)) return Math.min(2, precision)
   return Math.min(precision, Math.max(0, n))
 }
+
+function clampFieldMaxLength(raw: unknown, fieldType: string): number {
+  const upper = String(fieldType || '').toUpperCase()
+  const n = Math.trunc(Number(raw))
+  if (upper === 'TEXT') {
+    if (!Number.isFinite(n)) return TEXT_MAX_LENGTH_DEFAULT
+    return Math.min(
+      TEXT_MAX_LENGTH_MAX,
+      Math.max(TEXT_MAX_LENGTH_MIN, n),
+    )
+  }
+  if (!Number.isFinite(n)) return STRING_MAX_LENGTH_DEFAULT
+  return Math.min(
+    STRING_MAX_LENGTH_MAX,
+    Math.max(STRING_MAX_LENGTH_MIN, n),
+  )
+}
+
+const lengthFieldMin = computed(() =>
+  isTextStorage.value ? TEXT_MAX_LENGTH_MIN : STRING_MAX_LENGTH_MIN,
+)
+const lengthFieldMax = computed(() =>
+  isTextStorage.value ? TEXT_MAX_LENGTH_MAX : STRING_MAX_LENGTH_MAX,
+)
+const lengthFieldHint = computed(() =>
+  isTextStorage.value
+    ? t(
+        'setup.fields.maxLengthTextHint',
+        'Long text: {min}–{max} characters (default {default}).',
+        {
+          min: TEXT_MAX_LENGTH_MIN,
+          max: TEXT_MAX_LENGTH_MAX,
+          default: TEXT_MAX_LENGTH_DEFAULT,
+        },
+      )
+    : t(
+        'setup.fields.maxLengthStringHint',
+        'Short string: {min}–{max} characters (default {default}).',
+        {
+          min: STRING_MAX_LENGTH_MIN,
+          max: STRING_MAX_LENGTH_MAX,
+          default: STRING_MAX_LENGTH_DEFAULT,
+        },
+      ),
+)
 const showDefaultValue = computed(
   () =>
     !form.isLookup &&
@@ -1007,6 +1078,8 @@ function defaultInterfaceFor(type: string, isLookup: boolean): string {
       return 'file-image'
     case 'JSON':
       return 'json-list'
+    case 'TEXT':
+      return 'input-multiline'
     default:
       return 'input'
   }
@@ -1573,6 +1646,22 @@ function resetFromProps(): void {
       options.scale ?? options.decimalPlaces ?? options.minFractionDigits ?? 2,
       form.numericPrecision,
     )
+    {
+      const storedType =
+        props.field.type === 'ALIAS' ? form.resultType : props.field.type
+      const lengthType =
+        storedType === 'TEXT' || storageType.value === 'TEXT' ? 'TEXT' : 'STRING'
+      form.maxLength = clampFieldMaxLength(
+        options.maxLength ?? options.length,
+        lengthType,
+      )
+      form.fullTextSearch =
+        lengthType === 'TEXT' && options.fullTextSearch === true
+      form.ftsConfig =
+        typeof options.ftsConfig === 'string' && options.ftsConfig.trim()
+          ? options.ftsConfig.trim().toLowerCase()
+          : 'simple'
+    }
     form.jsonColumns = parseJsonColumns(options)
     ensureInterfaceValid()
     if (form.picklistMode === 'dynamic') {
@@ -1643,6 +1732,9 @@ function resetFromProps(): void {
   form.currencySuffix = ''
   form.numericPrecision = 18
   form.decimalPlaces = 2
+  form.maxLength = STRING_MAX_LENGTH_DEFAULT
+  form.fullTextSearch = false
+  form.ftsConfig = 'simple'
   form.jsonColumns = []
   form.formulaTemplate = ''
   form.rollupChildEntity = null
@@ -1771,6 +1863,23 @@ function buildOptionsAndDisplay(): {
     options.decimalPlaces = scale
     options.minFractionDigits = scale
     options.maxFractionDigits = scale
+  }
+
+  if (isLengthLimitedStorage.value) {
+    const maxLength = clampFieldMaxLength(form.maxLength, storageType.value)
+    form.maxLength = maxLength
+    options.maxLength = maxLength
+    options.length = maxLength
+  }
+
+  if (isTextStorage.value) {
+    if (form.fullTextSearch) {
+      options.fullTextSearch = true
+      options.ftsConfig = form.ftsConfig.trim() || 'simple'
+    } else {
+      delete options.fullTextSearch
+      delete options.ftsConfig
+    }
   }
 
   if (isCurrency.value) {
@@ -1930,6 +2039,19 @@ watch(
       form.isIndexed = true
       form.interface = 'input'
     }
+    if (form.type === 'TEXT' || storageType.value === 'TEXT') {
+      form.isUnique = false
+      form.isIndexed = false
+      form.maxLength = clampFieldMaxLength(form.maxLength, 'TEXT')
+      if (normalizeFieldInterface(form.interface) !== 'input-multiline') {
+        form.interface = 'input-multiline'
+      }
+    } else if (form.type === 'STRING' || storageType.value === 'STRING') {
+      form.fullTextSearch = false
+      form.maxLength = clampFieldMaxLength(form.maxLength, 'STRING')
+    } else {
+      form.fullTextSearch = false
+    }
     ensureInterfaceValid()
   },
 )
@@ -2062,13 +2184,20 @@ function submit(): void {
     required: isComputed.value || form.relationKind === 'M2M' ? false : form.required,
     readonly: isComputed.value ? true : form.readonly,
     hidden: form.hidden,
-    isUnique: isAutoNumberType.value ? true : form.isUnique,
+    isUnique:
+      isAutoNumberType.value
+        ? true
+        : isTextStorage.value
+          ? false
+          : form.isUnique,
     isIndexed:
-      isAutoNumberType.value ||
-      isImageType.value ||
-      form.relationKind === 'M2O' ||
-      form.isUnique ||
-      form.isIndexed,
+      isTextStorage.value
+        ? false
+        : isAutoNumberType.value ||
+          isImageType.value ||
+          form.relationKind === 'M2O' ||
+          form.isUnique ||
+          form.isIndexed,
     sensitivity: clampSensitivity(form.sensitivity),
     sort: form.sort,
     options,
@@ -2807,6 +2936,33 @@ function submit(): void {
       </div>
 
       <div
+        v-if="isLengthLimitedStorage && !form.isLookup"
+        class="setup-field-editor__length flex flex-col gap-1"
+      >
+        <label class="inline-flex items-center gap-1">
+          {{ t('setup.fields.maxLength', 'Length') }}
+          <button
+            type="button"
+            class="setup-field-editor__hint"
+            v-tooltip.bottom="hintTooltip(lengthFieldHint)"
+            :aria-label="t('common.moreInfo', 'More information')"
+          >
+            i
+          </button>
+        </label>
+        <InputNumber
+          v-model="form.maxLength"
+          class="w-full"
+          :min="lengthFieldMin"
+          :max="lengthFieldMax"
+          show-buttons
+          @update:model-value="
+            form.maxLength = clampFieldMaxLength($event, storageType)
+          "
+        />
+      </div>
+
+      <div
         v-if="isCurrency"
         class="setup-field-editor__currency flex flex-col gap-1"
       >
@@ -2953,7 +3109,7 @@ function submit(): void {
             v-model="form.isUnique"
             binary
             input-id="field-unique"
-            :disabled="isAutoNumberType"
+            :disabled="isAutoNumberType || isTextStorage"
           />
           <label for="field-unique">{{ t('setup.fields.unique', 'Unique') }}</label>
         </div>
@@ -2962,7 +3118,7 @@ function submit(): void {
             v-model="form.isIndexed"
             binary
             input-id="field-indexed"
-            :disabled="form.isLookup || form.isUnique || isAutoNumberType"
+            :disabled="form.isLookup || form.isUnique || isAutoNumberType || isTextStorage"
           />
           <label for="field-indexed">{{ t('setup.fields.indexed', 'Indexed') }}</label>
         </div>
@@ -2978,6 +3134,37 @@ function submit(): void {
           <label for="field-use-in-search">{{
             t('setup.fields.useInSearch', 'Use in search')
           }}</label>
+        </div>
+        <div
+          v-if="isTextStorage && !form.isLookup"
+          class="flex items-center gap-2"
+        >
+          <Checkbox
+            v-model="form.fullTextSearch"
+            binary
+            input-id="field-full-text-search"
+          />
+          <label
+            class="inline-flex items-center gap-1"
+            for="field-full-text-search"
+          >
+            {{ t('setup.fields.fullTextSearch', 'Full-text search') }}
+            <button
+              type="button"
+              class="setup-field-editor__hint"
+              v-tooltip.bottom="
+                hintTooltip(
+                  t(
+                    'setup.fields.fullTextSearchHint',
+                    'Includes this Text field in the list search box using Postgres full-text search (GIN). Better for long body/notes than Indexed + contains.',
+                  ),
+                )
+              "
+              :aria-label="t('common.moreInfo', 'More information')"
+            >
+              i
+            </button>
+          </label>
         </div>
       </div>
       <p

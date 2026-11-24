@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { query } from '../../../../db/pool.js'
 import {
   coercePromotedValue,
+  ftsMatchSql,
   loadPromotedFields,
   quoteIdent,
   resolveRecordRelation,
@@ -693,12 +694,19 @@ function isTextSearchField(field: CrmPromotedField): boolean {
 
 /**
  * Columns for list `search`: indexed non-FK text only (Setup → Indexed).
- * Cap matches Hasura's search-field limit (shared with opt-in M2O slots).
+ * Cap matches Hasura's search-field limit (shared with opt-in M2O / FTS slots).
  */
 function pickListSearchFields(relation: CrmRecordRelation): CrmPromotedField[] {
   return relation.promoted
     .filter(isTextSearchField)
-    .filter((field) => field.needsBtreeIndex)
+    .filter((field) => field.needsBtreeIndex && !field.needsFtsIndex)
+}
+
+/** TEXT columns with Setup → Full-text search (GIN / tsvector). */
+function pickFtsSearchFields(relation: CrmRecordRelation): CrmPromotedField[] {
+  return relation.promoted.filter(
+    (field) => field.needsFtsIndex && isTextSearchField(field),
+  )
 }
 
 /** M2O FKs flagged Setup → Use in search (related Display Template). */
@@ -767,7 +775,7 @@ async function m2oSearchExistsSql(
 }
 
 /**
- * OR of indexed parent text ILIKE + opt-in M2O Display Template EXISTS;
+ * OR of indexed parent text ILIKE + TEXT FTS + opt-in M2O Display Template EXISTS;
  * null when nothing to search.
  */
 async function compileListSearch(
@@ -783,13 +791,19 @@ async function compileListSearch(
   const exclude = new Set(excludeFields ?? [])
   const searchable = (field: CrmPromotedField) => !exclude.has(field.apiName)
   const textFields = pickListSearchFields(relation).filter(searchable)
+  const ftsFields = pickFtsSearchFields(relation).filter(searchable)
   const m2oFields = pickM2OSearchFields(relation).filter(searchable)
   const slots = LIST_SEARCH_FIELD_CAP
   const textTake = Math.min(textFields.length, slots)
-  const m2oTake = Math.min(m2oFields.length, Math.max(0, slots - textTake))
+  const ftsTake = Math.min(ftsFields.length, Math.max(0, slots - textTake))
+  const m2oTake = Math.min(
+    m2oFields.length,
+    Math.max(0, slots - textTake - ftsTake),
+  )
   const texts = textFields.slice(0, textTake)
+  const fts = ftsFields.slice(0, ftsTake)
   const m2os = m2oFields.slice(0, m2oTake)
-  if (!texts.length && !m2os.length) return null
+  if (!texts.length && !fts.length && !m2os.length) return null
 
   const pattern = `%${q}%`
   const parts: string[] = []
@@ -799,6 +813,12 @@ async function compileListSearch(
   for (const field of texts) {
     parts.push(`${quoteIdent(field.apiName)} ILIKE $${index}`)
     params.push(pattern)
+    index += 1
+  }
+
+  for (const field of fts) {
+    parts.push(ftsMatchSql(quoteIdent(field.apiName), index, field.ftsConfig))
+    params.push(q)
     index += 1
   }
 

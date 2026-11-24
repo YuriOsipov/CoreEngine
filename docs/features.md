@@ -6,7 +6,7 @@ Product surface for operators and implementers. For security layers see [`securi
 
 | Area | CoreEngine today |
 |------|------------------|
-| **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks**. Visual multi-step designer lives in **n8n**. |
+| **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks**. Visual multi-step designer lives in **n8n** or **Activepieces** (MIT). |
 | **Permissions** | Partial — layered BFF security (auth → object CRUD → field sensitivity → owner row security + read-share). Layouts/nav are UX only. No manual share / Teams / hierarchy. See [`security.md`](./security.md). |
 | **Owner transfer** | **Done** — Change Owner on record pages; BFF allows `owner_id` on update for Modify all / admin / current owner. Bulk list transfer still open. |
 | **Teams / peer groups** | **Open** — MVP peer-queue read uses **same Role as owner**. True Teams subsets are future work. |
@@ -15,17 +15,18 @@ Product surface for operators and implementers. For security layers see [`securi
 | **Application builder** | Yes — Object Manager, Form / Record Page / list / tree designers, dashboards, role-scoped navigation, reports. |
 | **Resource scheduler** | Yes — Scheduler block + Setup schedule slots. Clinic pack seeds practitioners / visits / appointments. |
 | **Projects** | Yes — `pm_project` List / Board / Gantt, templates, stages, services. |
-| **Automation** | Partial — record automations, flow keys, Message outbox → n8n, in-process scheduled jobs. Durable graphs in **n8n**. |
+| **Automation** | Partial — record automations, flow keys, Message outbox → n8n / Activepieces, in-process scheduled jobs. Durable graphs in **n8n** or **Activepieces**. |
 | **Reliable operations** | Partial — advisory locks + SKIP LOCKED claim for scheduled Message dispatch; failed-run monitoring; backup/upgrade smokes. Still prefer one scheduler process; durable Postgres queue (pg-boss / Graphile Worker) is the next step. |
 | **Validation & business rules** | Partial — required / unique / unique groups; automations often used as rules. No dedicated validation-rules designer. |
 | **Admin config audit** | Yes — append-only `config_audits` + GraphQL `configAudits` + Setup → **Config audit** browser (filter/paginate/detail). Pack apply remains git-based. See [`security.md`](./security.md#known-gaps-close-or-test). |
-| **Integrations** | Partial — GraphQL BFF + REST CRUD, SOQL `/api/v1/query`, n8n templates, optional Hasura/Directus. No first-party SaaS connector catalog. |
+| **Integrations** | Partial — GraphQL BFF + REST CRUD, SOQL `/api/v1/query`, n8n templates + Activepieces (MIT) destination, optional Hasura/Directus. No first-party SaaS connector catalog. |
 
 ## Schema-driven UI
 
 - Object Manager, role-scoped Block Layouts, list/tree/table designers, Form Builder canvas.
 - **Per-role edit and view forms** and **per-role list filters (views)**.
 - **Tree navigation + master-detail**, **batch insert**, **in-context edit dialogs**.
+- **String vs Text fields** — String (1–255, default 255 → `varchar`) vs Text (256–131 072, default 32 768 → `text`); list search uses **Indexed** (`ILIKE`) for short strings and **Full-text search** (Postgres GIN / `tsvector`) for Text. Details: [`fields-and-search.md`](./fields-and-search.md).
 - **Custom palette blocks** (Attachments, DocEngine, Tree table, Scheduler). Vertical UI via `registerCustomBlock` — see [`custom-blocks.md`](./custom-blocks.md).
 - Block Layout **show / readonly conditions**, **inline editor**, **child value lookup**, **soft delete**.
 
@@ -48,16 +49,16 @@ Product surface for operators and implementers. For security layers see [`securi
 ## Automation & workflows
 
 - Record automations (conditions, set fields, notify, break, trigger flow).
-- **Setup → Flows** — `app_flow_triggers` (`http` to your n8n via `ce-{key}`, custom URL, or `update_record`). Failed runs in Setup.
+- **Setup → Connections** — `app_flow_triggers` (`http` to your n8n via `ce-{key}`, Activepieces via `flowId`, custom URL, or `update_record`). Failed runs in Setup.
 - **Setup → Tasks** — scheduled jobs (e.g. Sync promo prices, **Dispatch due messages**). Runner is in-process with a **Postgres advisory lock** per task; still set `TASK_SCHEDULER_ENABLED=false` on extra BFF replicas.
 - **Sales Message outbox** — one Message row per send; due rows are claimed with **`FOR UPDATE SKIP LOCKED`** (`sending_since` + `attempts`). Stale `sending` rows are reclaimed after `staleMinutes` and stop after `maxAttempts`. Flow payload carries `idempotencyKey` (`ce-message-{id}`). Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales`. See [`n8n/README.md`](./n8n/README.md) and [`n8n-bff-flows.md`](./n8n-bff-flows.md).
-- Complex visual orchestration: optional **n8n** (compose profile `automation`). License notes: [`THIRD_PARTY.md`](../THIRD_PARTY.md) — Sustainable Use License limits hosting/resale; prefer customer-owned n8n or a built-in Postgres queue for “reliable ops” without that constraint.
+- Complex visual orchestration: optional **n8n** (compose profile `automation`) or **Activepieces** (MIT; profile `automation-activepieces`). License notes: [`THIRD_PARTY.md`](../THIRD_PARTY.md) — n8n Sustainable Use limits hosting/resale; Activepieces is MIT — see [`activepieces/README.md`](./activepieces/README.md). A built-in Postgres queue remains an option for “reliable ops” without an external designer.
 
 ## Reliable operations
 
 - Backup / restore: [`backup-restore.md`](./backup-restore.md) (`npm run registry:smoke-backup-restore`).
 - Upgrades: [`upgrading.md`](./upgrading.md) (`npm run registry:smoke-upgrade`).
-- Failed-run monitoring: Setup → Flows / Tasks; optional admin email (Setup → General or `FAILED_RUN_NOTIFY*`).
+- Failed-run monitoring: Setup → Connections / Tasks; optional admin email (Setup → General or `FAILED_RUN_NOTIFY*`).
 - **Scheduler today:** one enabled BFF + advisory lock + message claim locks. Enough for SMB single-node / careful HA.
 - **Next (recommended):** Postgres-backed queue (**pg-boss** or **Graphile Worker**) for retries, failed-run history, and multi-instance workers — no new infra beyond the DB you already run, and no dependence on n8n for durable operations.
 
@@ -80,7 +81,8 @@ Product surface for operators and implementers. For security layers see [`securi
 ## Platform kernel & packs
 
 - New customer DB = new Postgres; kernel in `supabase/migrations/`, packs in `supabase/domains/` (Sales, Clinic, Pricing, Documents).
-- See [`supabase/README.md`](../supabase/README.md) and [`supabase/domains/sales/README.md`](../supabase/domains/sales/README.md).
+- Vertical matrix and how to build a pack: [`domain-packs.md`](./domain-packs.md).
+- Runbooks: [`supabase/README.md`](../supabase/README.md) · [`sales`](../supabase/domains/sales/README.md).
 
 ## Data layer & integrations
 

@@ -14,6 +14,7 @@ import {
   clearCrmStorageCache,
   normalizeFloatFieldOptions,
   normalizeOnDelete,
+  normalizeStringFieldOptions,
   resolveCrmStorageConfig,
   shouldPromoteField,
 } from './crmStorage.js'
@@ -36,6 +37,7 @@ import {
 
 const FIELD_TYPES = new Set([
   'STRING',
+  'TEXT',
   'INTEGER',
   'FLOAT',
   'BOOLEAN',
@@ -46,9 +48,8 @@ const FIELD_TYPES = new Set([
   'ALIAS',
 ])
 
-/** UI aliases accepted then stored as STRING / JSON / UUID. */
+/** UI aliases accepted then stored as JSON / UUID. */
 const FIELD_TYPE_ALIASES: Record<string, string> = {
-  TEXT: 'STRING',
   ADDRESS: 'JSON',
   IMAGE: 'UUID',
 }
@@ -125,10 +126,22 @@ function normalizeFieldType(raw: string): string {
   const type = FIELD_TYPE_ALIASES[upper] ?? upper
   if (!FIELD_TYPES.has(type)) {
     throw new Error(
-      `Unsupported field type "${raw}". Use: ${[...FIELD_TYPES].join(', ')} (or TEXT→STRING)`,
+      `Unsupported field type "${raw}". Use: ${[...FIELD_TYPES].join(', ')}`,
     )
   }
   return type
+}
+
+function normalizeOptionsForType(
+  fieldType: string,
+  options?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const upper = String(fieldType || '').toUpperCase()
+  if (upper === 'FLOAT') return normalizeFloatFieldOptions(options)
+  if (upper === 'STRING' || upper === 'TEXT') {
+    return normalizeStringFieldOptions(upper, options)
+  }
+  return asObject(options)
 }
 
 export function defaultInterfaceForType(type: string, relationKind?: string | null): string {
@@ -149,6 +162,8 @@ export function defaultInterfaceForType(type: string, relationKind?: string | nu
       return 'input-code'
     case 'ALIAS':
       return 'presentation'
+    case 'TEXT':
+      return 'input-multiline'
     case 'UUID':
     case 'STRING':
     default:
@@ -689,10 +704,11 @@ export async function createRegistryField(
       )[0]?.next ?? 10,
     )
 
-  const fieldOptions =
-    fieldType === 'FLOAT'
-      ? normalizeFloatFieldOptions(input.options)
-      : asObject(input.options)
+  if (fieldType === 'TEXT' && Boolean(input.isUnique)) {
+    throw new Error('TEXT fields cannot be marked unique')
+  }
+
+  const fieldOptions = normalizeOptionsForType(fieldType, input.options)
 
   // Explicit 0/1/2 wins; omitted/null uses entity backend_config.defaultFieldSensitivity.
   // Formula/rollup fields inherit at least the max sensitivity of their sources.
@@ -858,18 +874,42 @@ export async function updateRegistryField(
         defaultInterfaceForType(nextType, relationKind ?? null)
       : undefined
 
+  const nextTypeUpper = String(nextType).toUpperCase()
+  // TEXT cannot be unique; clear on type change, reject explicit unique=true.
+  let forceClearUnique = false
+  if (nextTypeUpper === 'TEXT') {
+    if (input.isUnique === true) {
+      throw new Error('TEXT fields cannot be marked unique')
+    }
+    if (Boolean(current.is_unique) || input.type) {
+      forceClearUnique = true
+    }
+  }
+
   let nextOptionsJson: string | null = null
-  if (input.options !== undefined || String(nextType).toUpperCase() === 'FLOAT') {
+  // FLOAT always re-clamps precision/scale. STRING/TEXT stamp maxLength when
+  // options or type are explicitly updated (legacy rows without maxLength stay open).
+  if (
+    input.options !== undefined ||
+    nextTypeUpper === 'FLOAT' ||
+    (Boolean(input.type) &&
+      (nextTypeUpper === 'STRING' || nextTypeUpper === 'TEXT'))
+  ) {
     const baseOptions =
       input.options !== undefined
         ? asObject(input.options)
         : asObject(current.options)
-    nextOptionsJson =
-      String(nextType).toUpperCase() === 'FLOAT'
-        ? JSON.stringify(normalizeFloatFieldOptions(baseOptions))
-        : input.options !== undefined
-          ? JSON.stringify(baseOptions)
-          : null
+    if (
+      nextTypeUpper === 'FLOAT' ||
+      nextTypeUpper === 'STRING' ||
+      nextTypeUpper === 'TEXT'
+    ) {
+      nextOptionsJson = JSON.stringify(
+        normalizeOptionsForType(nextTypeUpper, baseOptions),
+      )
+    } else {
+      nextOptionsJson = JSON.stringify(baseOptions)
+    }
   }
 
   let nextSensitivity: number | null =
@@ -935,7 +975,11 @@ export async function updateRegistryField(
       input.readonly !== undefined ? Boolean(input.readonly) : null,
       input.hidden !== undefined ? Boolean(input.hidden) : null,
       input.sort !== undefined ? Number(input.sort) : null,
-      input.isUnique !== undefined ? Boolean(input.isUnique) : null,
+      forceClearUnique
+        ? false
+        : input.isUnique !== undefined
+          ? Boolean(input.isUnique)
+          : null,
       input.isIndexed !== undefined
         ? Boolean(input.isIndexed) ||
           String(input.relationKind || '').toUpperCase() === 'M2O'

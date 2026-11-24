@@ -39,6 +39,7 @@ import {
 } from './o2mNestedWrite.js'
 import { applyFormulasOnWrite, stripRollupWrites } from '../../computed/applyFormulas.js'
 import { sanitizeHtmlFieldWrites } from '../../computed/sanitizeHtmlFields.js'
+import { assertStringFieldLengths } from '../../computed/assertStringFieldLengths.js'
 import { assertListOffsetAllowed } from '../../rest/listQueryPolicy.js'
 import {
   applyAutoNumbersOnCreate,
@@ -730,23 +731,50 @@ async function findManyRoleAssets(
   return { nodes, totalCount: filtered.length }
 }
 
+/** Exact `email._eq` from a list filter (also walks `_and`). */
+function emailEqFromFilter(
+  filter: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!filter || typeof filter !== 'object') return null
+  const direct = filter.email
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+    const eq = (direct as Record<string, unknown>)._eq
+    if (eq != null && String(eq).trim()) return String(eq).trim()
+  }
+  const and = filter._and
+  if (Array.isArray(and)) {
+    for (const part of and) {
+      if (part && typeof part === 'object' && !Array.isArray(part)) {
+        const hit = emailEqFromFilter(part as Record<string, unknown>)
+        if (hit) return hit
+      }
+    }
+  }
+  return null
+}
+
 async function findManyUserAssets(
   params: RecordsListParams = {},
 ): Promise<RecordsListResult> {
   const ids = idsFromFilter(params.filter ?? null)
+  const emailEq = emailEqFromFilter(params.filter ?? null)
   const search = String(params.search || '').trim() || null
   const requested =
     params.limit != null && params.limit >= 0
       ? params.limit
-      : ids.length > 0
-        ? ids.length
+      : ids.length > 0 || emailEq
+        ? Math.max(ids.length, 1)
         : 20
   const me = params.access?.me
   const isAdmin = !me || Boolean(me.adminAccess || me.roleAdminAccess)
-  // Directory pulls (no ids) are capped for non-admins — same as GraphQL `users`.
-  const limit = isAdmin || ids.length > 0 ? requested : Math.min(requested, 50)
+  // Directory pulls (no ids / email) are capped for non-admins — same as GraphQL `users`.
+  const limit =
+    isAdmin || ids.length > 0 || Boolean(emailEq)
+      ? requested
+      : Math.min(requested, 50)
   const nodes = await listUsers({
     ids: ids.length ? ids : null,
+    emailEq,
     search,
     fields: params.fields ?? null,
     limit,
@@ -1003,6 +1031,7 @@ export async function createRecord(
       null,
       'create',
     )
+    await assertStringFieldLengths(apiName, automationResult.patch)
     const m2a = await peelM2AAliasFields(apiName, automationResult.patch)
     const o2m = await peelO2MAliasFields(apiName, m2a.parentData)
     // Under View-as-role: owner uses sample `me.id`; Created By uses real
@@ -1141,6 +1170,7 @@ export async function updateRecord(
     existing,
     'update',
   )
+  await assertStringFieldLengths(apiName, automationResult.patch)
   const m2a = await peelM2AAliasFields(apiName, automationResult.patch)
   const o2m = await peelO2MAliasFields(apiName, m2a.parentData)
   const parentData = await stampAuditUsers(
@@ -1492,5 +1522,6 @@ export async function aggregateRecords(
   return store.aggregate(apiName, {
     ...options,
     filter: securedFilter,
+    access,
   })
 }

@@ -21,6 +21,8 @@ function promoted(
     relatedEntityApiName: null,
     onDelete: null,
     useInSearch: false,
+    needsFtsIndex: false,
+    ftsConfig: 'simple',
     sensitivity,
   }
 }

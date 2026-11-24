@@ -81,6 +81,13 @@ export interface CrmPromotedField {
    */
   useInSearch: boolean
   /**
+   * When true, list `search` uses Postgres FTS (GIN + tsvector) on this
+   * TEXT column (Setup → Full-text search / options.fullTextSearch).
+   */
+  needsFtsIndex: boolean
+  /** Postgres text search config for FTS (`simple`, `english`, …). */
+  ftsConfig: string
+  /**
    * Registry `fields.sensitivity` (0–2). Carried into ddlSync as
    * `COMMENT ON COLUMN … IS 'coreengine.sensitivity=N'`.
    */
@@ -113,6 +120,69 @@ function asObject(value: unknown): Record<string, unknown> {
 
 export function quoteIdent(ident: string): string {
   return `"${ident.replace(/"/g, '""')}"`
+}
+
+export function quoteLiteral(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`
+}
+
+/** Default / allowed Postgres text-search configs for TEXT full-text search. */
+export const DEFAULT_FTS_CONFIG = 'simple'
+const ALLOWED_FTS_CONFIGS = new Set([
+  'simple',
+  'english',
+  'german',
+  'french',
+  'spanish',
+  'portuguese',
+  'italian',
+  'dutch',
+  'russian',
+  'swedish',
+  'danish',
+  'finnish',
+  'hungarian',
+  'norwegian',
+  'romanian',
+  'turkish',
+])
+
+export function normalizeFtsConfig(raw: unknown): string {
+  const value = String(raw ?? DEFAULT_FTS_CONFIG)
+    .trim()
+    .toLowerCase()
+  return ALLOWED_FTS_CONFIGS.has(value) ? value : DEFAULT_FTS_CONFIG
+}
+
+/** TEXT fields opt into list FTS via options.fullTextSearch. */
+export function wantsFullTextSearch(
+  fieldType: string,
+  options?: Record<string, unknown> | null,
+): boolean {
+  if (String(fieldType || '').toUpperCase() !== 'TEXT') return false
+  const opts =
+    options && typeof options === 'object' && !Array.isArray(options)
+      ? options
+      : {}
+  return opts.fullTextSearch === true
+}
+
+/**
+ * Expression used both for GIN index DDL and list-search WHERE so the planner
+ * can match the index (Neon/Postgres FTS pattern).
+ */
+export function ftsVectorExpr(columnIdent: string, ftsConfig?: string): string {
+  const config = normalizeFtsConfig(ftsConfig)
+  return `to_tsvector(${quoteLiteral(config)}, coalesce(${columnIdent}, ''))`
+}
+
+export function ftsMatchSql(
+  columnIdent: string,
+  queryParamIndex: number,
+  ftsConfig?: string,
+): string {
+  const config = normalizeFtsConfig(ftsConfig)
+  return `${ftsVectorExpr(columnIdent, config)} @@ plainto_tsquery(${quoteLiteral(config)}, $${queryParamIndex})`
 }
 
 /**
@@ -173,6 +243,16 @@ export const DEFAULT_NUMERIC_PRECISION = 18
 export const DEFAULT_NUMERIC_SCALE = 2
 export const MAX_NUMERIC_PRECISION = 38
 
+/** String (short text): Salesforce-style 1–255, default 255. */
+export const DEFAULT_STRING_MAX_LENGTH = 255
+export const MIN_STRING_MAX_LENGTH = 1
+export const MAX_STRING_MAX_LENGTH = 255
+
+/** Text (long text): min 256, default 32 768, max 131 072. */
+export const DEFAULT_TEXT_MAX_LENGTH = 32_768
+export const MIN_TEXT_MAX_LENGTH = 256
+export const MAX_TEXT_MAX_LENGTH = 131_072
+
 /** Clamp Size (precision) and Decimals (scale) for FLOAT storage. */
 export function normalizeNumericPrecisionScale(
   options?: Record<string, unknown> | null,
@@ -193,6 +273,70 @@ export function normalizeNumericPrecisionScale(
   scale = Math.min(precision, Math.max(0, Math.trunc(scale)))
 
   return { precision, scale }
+}
+
+function readDeclaredMaxLength(
+  options?: Record<string, unknown> | null,
+): number | null {
+  const opts =
+    options && typeof options === 'object' && !Array.isArray(options)
+      ? options
+      : {}
+  const raw = opts.maxLength ?? opts.length
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return null
+  return Math.trunc(n)
+}
+
+/** Clamp maxLength for STRING or TEXT field options. */
+export function normalizeStringMaxLength(
+  fieldType: string,
+  options?: Record<string, unknown> | null,
+): number {
+  const upper = String(fieldType || '').toUpperCase()
+  const declared = readDeclaredMaxLength(options)
+  if (upper === 'TEXT') {
+    const value = declared ?? DEFAULT_TEXT_MAX_LENGTH
+    return Math.min(
+      MAX_TEXT_MAX_LENGTH,
+      Math.max(MIN_TEXT_MAX_LENGTH, value),
+    )
+  }
+  const value = declared ?? DEFAULT_STRING_MAX_LENGTH
+  return Math.min(
+    MAX_STRING_MAX_LENGTH,
+    Math.max(MIN_STRING_MAX_LENGTH, value),
+  )
+}
+
+/**
+ * Ensure STRING / TEXT options carry clamped `maxLength` (and length mirror).
+ */
+export function normalizeStringFieldOptions(
+  fieldType: string,
+  options?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const out = asObject(options)
+  const maxLength = normalizeStringMaxLength(fieldType, out)
+  out.maxLength = maxLength
+  out.length = maxLength
+  return out
+}
+
+/**
+ * Effective write limit for STRING/TEXT. Legacy rows without maxLength are
+ * unrestricted (backward compatible); new/edited fields always store maxLength.
+ */
+export function resolveStringFieldMaxLength(
+  fieldType: string,
+  options?: Record<string, unknown> | null,
+): number | null {
+  const upper = String(fieldType || '').toUpperCase()
+  if (upper !== 'STRING' && upper !== 'TEXT') return null
+  const declared = readDeclaredMaxLength(options)
+  if (declared == null) return null
+  return normalizeStringMaxLength(upper, { maxLength: declared })
 }
 
 /** True when pgType is `numeric` or `numeric(p,s)`. */
@@ -239,7 +383,12 @@ export function pgTypeForFieldType(
     case 'UUID':
       // record_id and FKs are text in business_records / GraphQL.
       return 'text'
-    case 'STRING':
+    case 'TEXT':
+      return 'text'
+    case 'STRING': {
+      const maxLength = normalizeStringMaxLength('STRING', options)
+      return `varchar(${maxLength})`
+    }
     default:
       return 'text'
   }
@@ -339,6 +488,8 @@ export async function loadPromotedFields(
   ): void => {
     if (!shouldPromoteField(apiName, fieldType)) return
     const useInSearch = opts.fieldOptions?.useInSearch === true
+    const needsFtsIndex = wantsFullTextSearch(fieldType, opts.fieldOptions)
+    const ftsConfig = normalizeFtsConfig(opts.fieldOptions?.ftsConfig)
     const sensitivity = clampPromotedSensitivity(opts.sensitivity)
     if (seen.has(apiName)) {
       // Upgrade flags if we already promoted as a plain scalar.
@@ -355,6 +506,10 @@ export async function loadPromotedFields(
           existing.onDelete = opts.onDelete
         }
         if (useInSearch) existing.useInSearch = true
+        if (needsFtsIndex) {
+          existing.needsFtsIndex = true
+          existing.ftsConfig = ftsConfig
+        }
         if (sensitivity > existing.sensitivity) existing.sensitivity = sensitivity
         existing.needsBtreeIndex =
           existing.needsBtreeIndex || existing.needsFkIndex
@@ -378,6 +533,8 @@ export async function loadPromotedFields(
       relatedEntityApiName: related,
       onDelete: opts.onDelete ?? null,
       useInSearch: isFk && useInSearch,
+      needsFtsIndex,
+      ftsConfig,
       sensitivity,
     })
   }

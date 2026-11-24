@@ -1,12 +1,12 @@
-# CoreEngine — operations suite for service and sales teams
+# CoreEngine — operations suite for service, sales & regulated teams
 
-Self-hosted ops app for teams that need **role-scoped layouts**, **tree price lists / campaign pricing**, **in-app documents** (HTML/PDF), **resource scheduling + projects**, and **git-versioned domain packs** — on a schema-driven object model with a GraphQL BFF.
+Schema-driven UI, resource scheduling, tiered pricing & PDF docs on Postgres/Supabase or any GraphQL backend (Vue 3 + TypeScript).
 
-Vue 3 + Vite + TypeScript. Registry on Supabase; vertical starters (Sales, Clinic, Pricing, Documents).
+Self-hosted ops with **role-scoped layouts**, **tree price lists / campaign pricing**, **in-app documents** (HTML/PDF), **resource scheduling + projects**, and **git-versioned domain packs**. Registry on Supabase; vertical starters (Sales, Clinic, Pricing, Documents).
 
 **License:** MIT ([`LICENSE`](LICENSE)). Other components: [`THIRD_PARTY.md`](THIRD_PARTY.md). Support: [`SUPPORT.md`](SUPPORT.md) (community, no SLA). Vulnerabilities: [`SECURITY.md`](SECURITY.md).
 
-**Project status:** early-stage, aimed at **SMB / mid-market** (tens to a few hundred users). No sharing hierarchies, **no SAML/SCIM**, no AppExchange-depth automation. Owner row security + View/Modify all + **Change Owner** cover “my rows / manager sees all / reassign leavers”; durable multi-step runs go to **n8n** (or a future Postgres queue). Interactive DocEngine comes from npm `@docengine/*` — see below.
+**Project status:** early-stage, aimed at **SMB / mid-market** (tens to a few hundred users). No sharing hierarchies, **no SAML/SCIM**, no AppExchange-depth automation. Owner row security + View/Modify all + **Change Owner** cover “my rows / manager sees all / reassign leavers”; durable multi-step workflows plug cleanly into **Activepieces (MIT)**, **n8n**, or any custom webhook/API runner via Setup → Connections and GraphQL/REST write-back. Interactive DocEngine comes from npm `@docengine/*` — see below.
 
 **For:** operators and vertical implementers who want Setup + packs + documents, with optional engineer-owned blocks — not Twenty-style SDK CRM, Retool canvases, inbox/calendar CRM, or full ERP accounting (see Frappe note below).
 
@@ -25,7 +25,7 @@ Vue 3 + Vite + TypeScript. Registry on Supabase; vertical starters (Sales, Clini
 | Resource scheduling | Built-in | Plugins / build | Limited | Build it | Service Cloud / custom |
 | Projects (board / Gantt) | Built-in | Plugins / build | Limited | Build it | Custom / AppExchange |
 | Document generation (PDF/HTML) | UI DocEngine + server generate (CI real-PDF job) | Plugins / build | Limited | Build it | Good |
-| Durable multi-step workflows | Via **n8n** (license limits hosting/resale) | Built-in | Built-in + AI | Built-in | Flow + Apex |
+| Durable multi-step workflows | Via **[Activepieces](https://www.activepieces.com/)** (**MIT**), **n8n** (Sustainable Use), or any custom webhook/API via Setup → Connections + GraphQL/REST write-back | Built-in | Built-in + AI | Built-in | Flow + Apex |
 | Config as code (packs in git) | Yes | Partial | Yes (SDK) | App source | Metadata / DX |
 | Price | Free / self-hosted (MIT) | Free Core / commercial | Free self-host core; Org license for SSO / row ACL | Paid | Expensive |
 
@@ -55,16 +55,27 @@ Full Supabase stack, local npm, env vars, and scripts: [`docs/setup.md`](docs/se
 
 ---
 
+## Vertical domain packs
+
+Git-versioned packs under `supabase/domains/` adapt the same kernel to an industry (entities, roles, layouts, seed data). Included starters: **sales**, **clinic**, **pricing**; **documents** is always applied on provision.
+
+Vertical matrix (shipped vs example forks), apply/export, and how to build a pack: [`docs/domain-packs.md`](docs/domain-packs.md). Runbooks: [`supabase/README.md`](supabase/README.md).
+
+---
+
 ## Documentation
 
 | Doc | Contents |
 |-----|----------|
 | [`docs/features.md`](docs/features.md) | Capability overview, builders, automation, documents, packs |
+| [`docs/fields-and-search.md`](docs/fields-and-search.md) | String vs Text lengths; Indexed vs full-text (GIN) list search |
+| [`docs/domain-packs.md`](docs/domain-packs.md) | Vertical packs matrix, apply/export, building your own |
 | [`docs/security.md`](docs/security.md) | Auth, object ACL, field sensitivity, owner RLS, Change Owner, deployment checklist |
 | [`docs/setup.md`](docs/setup.md) | Docker / local install, environment, scripts, CI |
 | [`docs/oidc-sso.md`](docs/oidc-sso.md) | External OIDC IdP (Keycloak, Auth0, Entra, …) |
 | [`docs/n8n/README.md`](docs/n8n/README.md) | n8n profile, pack flows, Message outbox templates |
-| [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md) | Webhook trigger + GraphQL write-back |
+| [`docs/activepieces/README.md`](docs/activepieces/README.md) | Activepieces (MIT) — Compose profile `automation-activepieces`, Setup `target=activepieces` |
+| [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md) | Webhook trigger + GraphQL write-back (n8n / Activepieces) |
 | [`docs/upgrading.md`](docs/upgrading.md) | Pull → migrate → rebuild |
 | [`docs/backup-restore.md`](docs/backup-restore.md) | Postgres dump / restore |
 | [`docs/generate-document-api.md`](docs/generate-document-api.md) | Automation `generateDocument` |
@@ -73,4 +84,4 @@ Full Supabase stack, local npm, env vars, and scripts: [`docs/setup.md`](docs/se
 | [`supabase/domains/sales/README.md`](supabase/domains/sales/README.md) | Sales pack (CRM + messaging) |
 | [`crm-bff/README.md`](crm-bff/README.md) | GraphQL / REST BFF |
 
-**DocEngine** (interactive HTML/PDF) ships as npm packages `@docengine/editor`, `@docengine/engine`, `@docengine/pdf-renderer`, `@docengine/field-date` at **0.0.105** (MIT source: [YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine)). Links: [editor](https://www.npmjs.com/package/@docengine/editor) · [engine](https://www.npmjs.com/package/@docengine/engine) · [pdf-renderer](https://www.npmjs.com/package/@docengine/pdf-renderer) · [field-date](https://www.npmjs.com/package/@docengine/field-date). CoreEngine CI covers BFF / app unit tests and `npm run build`; real PDF smoke lives in the DocEngine package (or locally: `crm-bff` `npm run test:docengine-render`). If the pin is missing from the registry, CI falls back to `ci/stubs/`. Maintainers iterating on DocEngine next to this repo: `npm run docengine:use-local` (sibling `../docEngine`), then `npm run docengine:use-npm` before committing. Publish checklist: [docEngine/docs/PUBLISH.md](https://github.com/YuriiOsypov/docEngine/blob/main/docs/PUBLISH.md).
+**DocEngine** (interactive HTML/PDF) ships as npm packages `@docengine/editor`, `@docengine/engine`, `@docengine/pdf-renderer`, `@docengine/field-date` at **0.0.105** (MIT source: [YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine)). Links: [editor](https://www.npmjs.com/package/@docengine/editor) · [engine](https://www.npmjs.com/package/@docengine/engine) · [pdf-renderer](https://www.npmjs.com/package/@docengine/pdf-renderer) · [field-date](https://www.npmjs.com/package/@docengine/field-date). CoreEngine CI covers BFF / app unit tests and `npm run build` with **`npm ci`** (lockfile enforced). Real PDF smoke lives in the DocEngine package (or locally: `crm-bff` `npm run test:docengine-render`). Stubs under `ci/stubs/` are **opt-in only** (`workflow_dispatch` → Use DocEngine stubs, or `DOCENGINE_ALLOW_STUBS=true`); a missing pin or registry blip fails the job instead of silently stubbing. Maintainers iterating on DocEngine next to this repo: `npm run docengine:use-local` (sibling `../docEngine`), then `npm run docengine:use-npm` before committing. Publish checklist: [docEngine/docs/PUBLISH.md](https://github.com/YuriiOsypov/docEngine/blob/main/docs/PUBLISH.md).

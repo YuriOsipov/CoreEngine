@@ -9,6 +9,7 @@ import {
   CRM_SCHEMA,
   clearCrmStorageCache,
   crmQualifiedTable,
+  ftsVectorExpr,
   isNumericPgType,
   loadPromotedFields,
   normalizeOnDelete,
@@ -73,6 +74,7 @@ export interface TypedColumnInfo {
   udtName: string
   numericPrecision: number | null
   numericScale: number | null
+  characterMaximumLength: number | null
 }
 
 export interface DdlDriftItem {
@@ -128,6 +130,7 @@ function normalizePgType(
   udtName: string,
   numericPrecision?: number | null,
   numericScale?: number | null,
+  characterMaximumLength?: number | null,
 ): string {
   const dt = String(dataType || '').toLowerCase()
   const udt = String(udtName || '').toLowerCase()
@@ -154,7 +157,14 @@ function normalizePgType(
   if (dt === 'timestamp with time zone' || udt === 'timestamptz') return 'timestamptz'
   if (dt === 'timestamp without time zone' || udt === 'timestamp') return 'timestamp'
   if (dt === 'text' || udt === 'text') return 'text'
-  if (dt === 'character varying' || udt === 'varchar') return 'text'
+  if (dt === 'character varying' || udt === 'varchar') {
+    const len =
+      characterMaximumLength != null &&
+      Number.isFinite(Number(characterMaximumLength))
+        ? Math.trunc(Number(characterMaximumLength))
+        : null
+    return len != null && len > 0 ? `varchar(${len})` : 'text'
+  }
   if (dt === 'uuid' || udt === 'uuid') return 'uuid'
   return udt || dt || 'unknown'
 }
@@ -165,7 +175,17 @@ function columnNormalizedType(col: TypedColumnInfo): string {
     col.udtName,
     col.numericPrecision,
     col.numericScale,
+    col.characterMaximumLength,
   )
+}
+
+function parseVarcharLength(pgType: string): number | null {
+  const match = String(pgType || '')
+    .toLowerCase()
+    .match(/^varchar\((\d+)\)$/)
+  if (!match) return null
+  const n = Number(match[1])
+  return Number.isFinite(n) ? n : null
 }
 
 function typesCompatible(expected: string, actual: string): boolean {
@@ -173,7 +193,20 @@ function typesCompatible(expected: string, actual: string): boolean {
   const a = actual.toLowerCase()
   if (e === a) return true
   // FK / id scalars are always text in crm_schema.
-  if (e === 'text' && (a === 'text' || a === 'uuid' || a === 'varchar')) return true
+  if (e === 'text' && (a === 'text' || a === 'uuid' || a.startsWith('varchar'))) {
+    return true
+  }
+  // Legacy STRING columns are plain text; do not force-coerce to varchar(n).
+  if (e.startsWith('varchar') && (a === 'text' || a.startsWith('varchar'))) {
+    const want = parseVarcharLength(e)
+    const have = parseVarcharLength(a)
+    if (a === 'text') return true
+    if (want != null && have != null && want === have) return true
+    // Widening varchar is optional; treat same family as compatible to avoid
+    // failing DDL when values may exceed a narrower target.
+    if (want != null && have != null && have >= want) return true
+    return false
+  }
   if (e === 'bigint' && (a === 'bigint' || a === 'integer')) return true
   return false
 }
@@ -243,7 +276,8 @@ export async function listTypedTableColumns(
             data_type AS "dataType",
             udt_name AS "udtName",
             numeric_precision AS "numericPrecision",
-            numeric_scale AS "numericScale"
+            numeric_scale AS "numericScale",
+            character_maximum_length AS "characterMaximumLength"
      FROM information_schema.columns
      WHERE table_schema = $1
        AND table_name = $2
@@ -648,6 +682,18 @@ function planStandardIndexes(
       field.needsFkIndex
         ? `FK index ${entityApiName}.${field.apiName}`
         : `Indexed field ${entityApiName}.${field.apiName}`,
+    )
+  }
+
+  for (const field of promoted) {
+    if (!field.needsFtsIndex) continue
+    const idxName = `${sanitizeIdentPart(entityApiName)}_${sanitizeIdentPart(field.apiName)}_fts_idx`
+    const vectorExpr = ftsVectorExpr(quoteIdent(field.apiName), field.ftsConfig)
+    pushIndex(
+      idxName,
+      `CREATE INDEX IF NOT EXISTS ${quoteIdent(idxName)}
+       ON ${relation} USING GIN (${vectorExpr})`,
+      `Full-text search index ${entityApiName}.${field.apiName}`,
     )
   }
 

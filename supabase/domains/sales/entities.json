@@ -537,8 +537,14 @@
         {
           "apiName": "body",
           "label": "Body",
-          "type": "STRING",
-          "interface": "input-multiline"
+          "type": "TEXT",
+          "interface": "input-multiline",
+          "options": {
+            "maxLength": 32768,
+            "length": 32768,
+            "fullTextSearch": true,
+            "ftsConfig": "simple"
+          }
         },
         {
           "apiName": "contact",
@@ -792,8 +798,14 @@
         {
           "apiName": "body",
           "label": "Body",
-          "type": "STRING",
-          "interface": "input-multiline"
+          "type": "TEXT",
+          "interface": "input-multiline",
+          "options": {
+            "maxLength": 32768,
+            "length": 32768,
+            "fullTextSearch": true,
+            "ftsConfig": "simple"
+          }
         },
         {
           "apiName": "status",
@@ -859,6 +871,14 @@
           "label": "From email",
           "type": "STRING",
           "interface": "input"
+        },
+        {
+          "apiName": "external_message_id",
+          "label": "External message id",
+          "type": "STRING",
+          "interface": "input",
+          "isUnique": true,
+          "isIndexed": true
         },
         {
           "apiName": "contact",

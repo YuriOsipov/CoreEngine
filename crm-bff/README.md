@@ -18,7 +18,7 @@ npm run dev
 - Auth: `POST /auth/login|refresh|logout` (`AUTH_BACKEND=local`); optional OIDC SSO `GET /auth/oidc/login|callback`, `POST /auth/oidc/session`, `POST /auth/oidc/logout` (`OIDC_ENABLED`)
 - REST records (Bearer JWT; n8n-friendly):
   - `GET|POST /api/v1/query` — SOQL subset (`q=SELECT … FROM …`; `*`, `*, relation.path`, WHERE/ORDER/LIMIT)
-  - `GET /api/v1/:collection` — list (`?filter={...}&fields=&sort=&limit=&offset=&search=`; `includeDeleted=true` needs **export**; limit > 500 or unlimited needs **export**, hard cap 10_000)
+  - `GET /api/v1/:collection` — list (`?filter={...}&fields=&sort=&limit=&offset=&search=`; `search` ORs Indexed string `ILIKE`, Text **full-text** (`tsvector`/GIN), and M2O “Use in search”; see [docs/fields-and-search.md](../docs/fields-and-search.md); `includeDeleted=true` needs **export**; limit > 500 or unlimited needs **export**, hard cap 10_000)
   - `GET /api/v1/:collection/:id` — read one (PK or `uniqueField:value`; `?expand=children` → `_children` reverse-M2O + `_files`)
   - `POST /api/v1/:collection` — create; `?upsert=true` (+ optional `&by=<uniqueField>`) for upsert (requires **create and update**; auth validated before existence lookup)
   - `PUT|PATCH /api/v1/:collection/:id` — update (PK or `uniqueField:value`)
@@ -26,7 +26,7 @@ npm run dev
 - REST documents: `POST /api/v1/documents/generate` — populate + persist `doc_value` + PDF/HTML render/upload (`outputFileId` / `downloadUrl`; owner RLS on the source record). See docs/generate-document-api.md.
 - Sales pack examples: [supabase/domains/sales/README.md](../supabase/domains/sales/README.md)
 - Files: `POST /files`, `PATCH /files/:id`, `GET /assets/:id` → Supabase Storage + `public.files`
-- Flows: `POST /flows/trigger/:key` → local `app_flow_triggers` (`http` | `update_record`; Setup → Flows)
+- Flows: `POST /flows/trigger/:key` → local `app_flow_triggers` (`http` | `update_record`; Setup → Connections)
   - Auth: JWT Bearer or `FLOWS_TRIGGER_SERVICE_KEY` (default required)
   - Outbound `http` handlers inject `X-CRM-Flow-Secret` / `X-CRM-Source` from `N8N_WEBHOOK_*`
   - Runbook: [docs/n8n-bff-flows.md](../docs/n8n-bff-flows.md)
@@ -74,7 +74,7 @@ Directus (optional records backend, GraphQL only): `DIRECTUS_GRAPHQL_URL` (defau
 - `presets`, `dashboards`, `panels`
 - `file` / `files`
 - user settings + recent record views
-- schema drift / sync (`runSchemaSync`: crm_schema ADD COLUMN, backfill, indexes, FKs, unique groups; dry-run default)
+- schema drift / sync (`runSchemaSync`: crm_schema ADD COLUMN, backfill, btree/GIN FTS indexes, FKs, unique groups; dry-run default)
 - scheduled tasks (`scheduledTasks`, `runScheduledTask`, `generateScheduleSlots`); in-process cron via `TASK_SCHEDULER_ENABLED` (default on). Each tick still runs in-process, but `runScheduledTask` takes a **Postgres advisory lock** (`pg_try_advisory_lock`) per task id, and `dispatch_due_messages` claims Message rows with **`FOR UPDATE SKIP LOCKED`**, stamps `sending_since` / `attempts`, reclaims stale `sending` rows, and caps attempts. The flow payload includes an `idempotencyKey`. Prefer one scheduler process (`TASK_SCHEDULER_ENABLED=false` on replicas). A Postgres queue (pg-boss / Graphile Worker) remains the durable multi-instance path.
 
 ## Cutover

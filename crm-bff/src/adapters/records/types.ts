@@ -57,6 +57,11 @@ export interface RecordsAggregateOptions {
   groupBy?: string[] | null
   filter?: Record<string, unknown> | null
   limit?: number
+  /**
+   * Caller identity for backends that enforce owner RLS / related-owner hops
+   * inside aggregate (e.g. Directus fail-closed).
+   */
+  access?: RecordAccess | null
 }
 
 export interface RecordsStore {

@@ -809,6 +809,7 @@ export async function updateRegistryField(
     field_type: string
     options: Record<string, unknown> | null
     is_system: boolean
+    is_unique: boolean
     entity_api_name: string
     relation_kind: string | null
   }>(
@@ -818,6 +819,7 @@ export async function updateRegistryField(
             f.field_type,
             f.options,
             f.is_system,
+            COALESCE(f.is_unique, false) AS is_unique,
             e.api_name AS entity_api_name,
             r.kind AS relation_kind
      FROM public.fields f

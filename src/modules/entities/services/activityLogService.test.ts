@@ -3,16 +3,26 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const readRecordActivitiesBridge = vi.fn()
-const readRecordRevisionsBridge = vi.fn()
-const getCachedCollectionFields = vi.fn()
-const getCachedRelations = vi.fn()
-const fetchRelatedCollectionOptionById = vi.fn()
-const readUsersBridge = vi.fn()
-const translateField = vi.fn(
-  async (field: { field?: string; name?: string }) =>
-    field.field === 'owner_id' ? 'Owner' : String(field.field ?? field.name ?? ''),
-)
+const {
+  readRecordActivitiesBridge,
+  readRecordRevisionsBridge,
+  getCachedCollectionFields,
+  getCachedRelations,
+  fetchRelatedCollectionOptionById,
+  readUsersBridge,
+  translateField,
+} = vi.hoisted(() => ({
+  readRecordActivitiesBridge: vi.fn(),
+  readRecordRevisionsBridge: vi.fn(),
+  getCachedCollectionFields: vi.fn(),
+  getCachedRelations: vi.fn(),
+  fetchRelatedCollectionOptionById: vi.fn(),
+  readUsersBridge: vi.fn(),
+  translateField: vi.fn(
+    async (field: { field?: string; name?: string }) =>
+      field.field === 'owner_id' ? 'Owner' : String(field.field ?? field.name ?? ''),
+  ),
+}))
 
 vi.mock('@/core/graphql/auditApi', async () => {
   const actual = await vi.importActual<typeof import('@/core/graphql/auditApi')>(
@@ -20,28 +30,24 @@ vi.mock('@/core/graphql/auditApi', async () => {
   )
   return {
     ...actual,
-    readRecordActivitiesBridge: (...args: unknown[]) =>
-      readRecordActivitiesBridge(...args),
-    readRecordRevisionsBridge: (...args: unknown[]) =>
-      readRecordRevisionsBridge(...args),
+    readRecordActivitiesBridge,
+    readRecordRevisionsBridge,
   }
 })
 vi.mock('./collectionSchema', () => ({
-  getCachedCollectionFields: (...args: unknown[]) =>
-    getCachedCollectionFields(...args),
-  getCachedRelations: (...args: unknown[]) => getCachedRelations(...args),
-  fetchRelatedCollectionOptionById: (...args: unknown[]) =>
-    fetchRelatedCollectionOptionById(...args),
+  getCachedCollectionFields,
+  getCachedRelations,
+  fetchRelatedCollectionOptionById,
 }))
 vi.mock('@/core/graphql/usersApi', () => ({
-  readUsersBridge: (...args: unknown[]) => readUsersBridge(...args),
+  readUsersBridge,
 }))
 vi.mock('@/core/translation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/core/translation')>()
   return {
     ...actual,
     t: (_key: string, fallback?: string) => fallback ?? _key,
-    translateField: (...args: unknown[]) => translateField(...args),
+    translateField,
   }
 })
 

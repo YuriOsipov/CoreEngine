@@ -4,28 +4,45 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const resolveRecordsStore = vi.fn()
-const resolveOwnerReassignment = vi.fn()
-const loadPromotedFields = vi.fn()
-const resolveFieldAccess = vi.fn()
-const assertOwnerAccessIfNeeded = vi.fn()
-const loadM2ORelations = vi.fn()
-const loadM2ARelations = vi.fn()
-const loadO2MRelations = vi.fn()
-const loadRollupFields = vi.fn()
-const attachLiveRollupsOnRead = vi.fn(
-  async (
-    _entity: string,
-    nodes: Record<string, unknown>[],
-  ): Promise<Record<string, unknown>[]> => nodes,
-)
-const scheduleAutomationFlows = vi.fn()
-const recomputeRollupsForChildChange = vi.fn()
-const applyM2ANestedWrites = vi.fn()
-const applyO2MNestedWrites = vi.fn()
+const {
+  resolveRecordsStore,
+  resolveOwnerReassignment,
+  loadPromotedFields,
+  resolveFieldAccess,
+  assertOwnerAccessIfNeeded,
+  loadM2ORelations,
+  loadM2ARelations,
+  loadO2MRelations,
+  loadRollupFields,
+  attachLiveRollupsOnRead,
+  scheduleAutomationFlows,
+  recomputeRollupsForChildChange,
+  applyM2ANestedWrites,
+  applyO2MNestedWrites,
+} = vi.hoisted(() => ({
+  resolveRecordsStore: vi.fn(),
+  resolveOwnerReassignment: vi.fn(),
+  loadPromotedFields: vi.fn(),
+  resolveFieldAccess: vi.fn(),
+  assertOwnerAccessIfNeeded: vi.fn(),
+  loadM2ORelations: vi.fn(),
+  loadM2ARelations: vi.fn(),
+  loadO2MRelations: vi.fn(),
+  loadRollupFields: vi.fn(),
+  attachLiveRollupsOnRead: vi.fn(
+    async (
+      _entity: string,
+      nodes: Record<string, unknown>[],
+    ): Promise<Record<string, unknown>[]> => nodes,
+  ),
+  scheduleAutomationFlows: vi.fn(),
+  recomputeRollupsForChildChange: vi.fn(),
+  applyM2ANestedWrites: vi.fn(),
+  applyO2MNestedWrites: vi.fn(),
+}))
 
 vi.mock('./registry.js', () => ({
-  resolveRecordsStore: (...args: unknown[]) => resolveRecordsStore(...args),
+  resolveRecordsStore,
 }))
 vi.mock('./entityName.js', () => ({
   resolveCanonicalEntityApiName: async (entity: string) => entity,
@@ -36,8 +53,7 @@ vi.mock('../../services/ownerInheritance.js', async () => {
   >('../../services/ownerInheritance.js')
   return {
     ...actual,
-    resolveOwnerReassignment: (...args: unknown[]) =>
-      resolveOwnerReassignment(...args),
+    resolveOwnerReassignment,
   }
 })
 vi.mock('../../services/rowLevelSecurity.js', async () => {
@@ -46,8 +62,7 @@ vi.mock('../../services/rowLevelSecurity.js', async () => {
   >('../../services/rowLevelSecurity.js')
   return {
     ...actual,
-    assertOwnerAccessIfNeeded: (...args: unknown[]) =>
-      assertOwnerAccessIfNeeded(...args),
+    assertOwnerAccessIfNeeded,
     ownerAccessCheckFields: async () => ['owner_id', 'user_created'],
   }
 })
@@ -57,7 +72,7 @@ vi.mock('../../services/fieldSecurity.js', async () => {
   >('../../services/fieldSecurity.js')
   return {
     ...actual,
-    resolveFieldAccess: (...args: unknown[]) => resolveFieldAccess(...args),
+    resolveFieldAccess,
     assertPayloadWritable: vi.fn(),
     assertFieldsEditable: vi.fn(),
   }
@@ -68,7 +83,7 @@ vi.mock('../../schema/crmStorage.js', async () => {
   )
   return {
     ...actual,
-    loadPromotedFields: (...args: unknown[]) => loadPromotedFields(...args),
+    loadPromotedFields,
   }
 })
 vi.mock('./relations.js', async () => {
@@ -77,9 +92,9 @@ vi.mock('./relations.js', async () => {
   )
   return {
     ...actual,
-    loadM2ORelations: (...args: unknown[]) => loadM2ORelations(...args),
-    loadM2ARelations: (...args: unknown[]) => loadM2ARelations(...args),
-    loadO2MRelations: (...args: unknown[]) => loadO2MRelations(...args),
+    loadM2ORelations,
+    loadM2ARelations,
+    loadO2MRelations,
     loadReverseM2OChildren: async () => [],
   }
 })
@@ -89,7 +104,7 @@ vi.mock('../../computed/fieldMeta.js', async () => {
   )
   return {
     ...actual,
-    loadRollupFields: (...args: unknown[]) => loadRollupFields(...args),
+    loadRollupFields,
   }
 })
 vi.mock('../../computed/applyRollups.js', async () => {
@@ -98,10 +113,8 @@ vi.mock('../../computed/applyRollups.js', async () => {
   >('../../computed/applyRollups.js')
   return {
     ...actual,
-    attachLiveRollupsOnRead: (...args: unknown[]) =>
-      attachLiveRollupsOnRead(...args),
-    recomputeRollupsForChildChange: (...args: unknown[]) =>
-      recomputeRollupsForChildChange(...args),
+    attachLiveRollupsOnRead,
+    recomputeRollupsForChildChange,
   }
 })
 vi.mock('../../computed/applyFormulas.js', async () => {
@@ -156,8 +169,7 @@ vi.mock('../../computed/applyRecordAutomations.js', async () => {
   }
 })
 vi.mock('../../computed/dispatchAutomationFlows.js', () => ({
-  scheduleAutomationFlows: (...args: unknown[]) =>
-    scheduleAutomationFlows(...args),
+  scheduleAutomationFlows,
 }))
 vi.mock('./m2aNestedWrite.js', async () => {
   const actual = await vi.importActual<typeof import('./m2aNestedWrite.js')>(
@@ -169,7 +181,7 @@ vi.mock('./m2aNestedWrite.js', async () => {
       _entity: string,
       data: Record<string, unknown>,
     ) => ({ parentData: data, nested: new Map() }),
-    applyM2ANestedWrites: (...args: unknown[]) => applyM2ANestedWrites(...args),
+    applyM2ANestedWrites,
   }
 })
 vi.mock('./o2mNestedWrite.js', async () => {
@@ -182,7 +194,7 @@ vi.mock('./o2mNestedWrite.js', async () => {
       _entity: string,
       data: Record<string, unknown>,
     ) => ({ parentData: data, nested: new Map() }),
-    applyO2MNestedWrites: (...args: unknown[]) => applyO2MNestedWrites(...args),
+    applyO2MNestedWrites,
   }
 })
 

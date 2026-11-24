@@ -153,8 +153,10 @@ async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig
   }
   if (modeLoad) return modeLoad
 
-  modeLoad = (async () => {
-    const byEntity = new Map<string, EntityOwnerSecurityConfig>()
+  // Shared so concurrent callers see the same deny-or-last-good result.
+  // A failed first load must reject (fail closed). Caching an empty map
+  // would treat every entity as unsecured for CACHE_TTL_MS.
+  const load = (async (): Promise<Map<string, EntityOwnerSecurityConfig>> => {
     try {
       const rows = await query<{
         api_name: string
@@ -164,6 +166,7 @@ async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig
          FROM public.entities
          WHERE deleted_at IS NULL`,
       )
+      const byEntity = new Map<string, EntityOwnerSecurityConfig>()
       for (const row of rows) {
         const config =
           row.backend_config &&
@@ -178,19 +181,25 @@ async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig
           readAlsoIfSameRole: readReadAlsoIfSameRole(config),
         })
       }
+      modeCache = {
+        byEntity,
+        expiresAt: Date.now() + CACHE_TTL_MS,
+        epoch: await readCacheEpoch('row_level_security'),
+      }
+      return byEntity
     } catch (error) {
       console.warn('[rowLevelSecurity] failed to load entity modes', error)
+      if (modeCache) return modeCache.byEntity
+      throw error
     }
-    modeCache = {
-      byEntity,
-      expiresAt: Date.now() + CACHE_TTL_MS,
-      epoch: await readCacheEpoch('row_level_security'),
-    }
-    modeLoad = null
-    return byEntity
   })()
 
-  return modeLoad
+  modeLoad = load
+  try {
+    return await load
+  } finally {
+    if (modeLoad === load) modeLoad = null
+  }
 }
 
 export async function resolveEntityOwnerSecurity(

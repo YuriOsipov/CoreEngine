@@ -326,3 +326,38 @@ describe('View all / Modify all bypass', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+describe('owner config load failure', () => {
+  beforeEach(() => {
+    clearRowLevelSecurityCache()
+    resolveRoleOwnerBypass.mockReset()
+    resolveRoleOwnerBypass.mockResolvedValue({ viewAll: false, modifyAll: false })
+    vi.useRealTimers()
+  })
+
+  it('denies on a first-load failure and does not cache the miss', async () => {
+    vi.mocked(query).mockRejectedValueOnce(new Error('connection reset'))
+    await expect(
+      applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
+    ).rejects.toThrow('connection reset')
+    await expect(
+      applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
+    ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
+  })
+
+  it('keeps the last good config when a later refresh fails', async () => {
+    vi.useFakeTimers()
+    try {
+      await expect(
+        applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
+      ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
+      vi.advanceTimersByTime(5_001)
+      vi.mocked(query).mockRejectedValueOnce(new Error('connection reset'))
+      await expect(
+        applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
+      ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

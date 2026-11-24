@@ -139,6 +139,9 @@ vi.mock('../../computed/sanitizeHtmlFields.js', () => ({
     data: Record<string, unknown>,
   ) => data,
 }))
+vi.mock('../../computed/assertStringFieldLengths.js', () => ({
+  assertStringFieldLengths: async () => undefined,
+}))
 vi.mock('../../computed/applyAutoNumber.js', async () => {
   const actual = await vi.importActual<
     typeof import('../../computed/applyAutoNumber.js')

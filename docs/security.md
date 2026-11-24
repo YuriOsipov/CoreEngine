@@ -92,7 +92,7 @@ Keep Confidential data on objects with tight object ACL / owner RLS. Config hist
 | **Object ACL** | Per-role CRUD matrix. Missing Read blocks the object on API paths. |
 | **Field tiers** | Sensitivity `0` / `1` / `2` + per-role max read/edit. Production refuses to start if sensitivity columns are missing. |
 | **Owner row security** | Opt-in `owner_id` + optional read-share / same-role read. Managers: View all / Modify all. No Teams object yet. |
-| **Document render** | Worker thread + hard kill on timeout; V8 heap/stack `resourceLimits`; `DOC_RENDER_*` caps. CI’s DocEngine job renders a real PDF with published `@docengine/pdf-renderer@0.0.105`. |
+| **Document render** | Worker thread + hard kill on timeout; V8 heap/stack `resourceLimits`; `DOC_RENDER_*` caps. Uses published `@docengine/pdf-renderer` (real PDF smoke lives in the DocEngine package / local `crm-bff` `npm run test:docengine-render`). |
 | **Hasura / Directus** | Optional record backends — keep admin consoles / secrets off public networks. Clients talk to the BFF only. |
 | **Scheduler** | In-process with **Postgres advisory locks** per task + Message **SKIP LOCKED** claim. Prefer **one** BFF with `TASK_SCHEDULER_ENABLED=true`; disable on replicas. Durable multi-instance queue (pg-boss / Graphile Worker) is planned. |
 | **Flows** | `FLOWS_TRIGGER_REQUIRE_AUTH=false` refused in production. |

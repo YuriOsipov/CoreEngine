@@ -20,4 +20,4 @@ CREATE INDEX IF NOT EXISTS config_audits_resource_idx
   ON public.config_audits (resource_type, resource_key, created_at DESC);
 
 COMMENT ON TABLE public.config_audits IS
-  'Append-only log of Setup/registry mutations (roles, fields, entities, permissions, …).';
+  'Append-only log of Setup/registry mutations (roles, fields, entities, permissions, …). Enforced in 202611240001_config_audits_append_only.sql.';

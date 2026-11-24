@@ -37,7 +37,7 @@ Content-Type: application/json
 }
 ```
 
-Populate, persist, and PDF/HTML upload are implemented. Real PDF/HTML needs the sibling DocEngine checkout. Contract: [`generate-document-api.md`](./generate-document-api.md). Importable workflow: [`n8n/generate-opportunity-document.workflow.json`](./n8n/generate-opportunity-document.workflow.json).
+Populate, persist, and PDF/HTML upload are implemented. Real PDF/HTML uses published `@docengine/pdf-renderer@0.0.105` (or `npm run docengine:use-local`). Contract: [`generate-document-api.md`](./generate-document-api.md). Importable workflow: [`n8n/generate-opportunity-document.workflow.json`](./n8n/generate-opportunity-document.workflow.json).
 
 ### REST records (n8n-friendly)
 
@@ -150,7 +150,7 @@ When an automation action `trigger_flow` matches, the BFF posts:
 }
 ```
 
-Prefer `http` flow handlers from automations. An `update_record` handler can re-enter automations — use conditions / `requireChanged` carefully.
+Prefer `http` flow handlers from automations. An `update_record` handler can re-enter automations — use conditions / `requireChanged` carefully. JWT callers of `/flows/trigger` must pass FLS on the **merged** patch (including admin `config.patch`); in-process **system** dispatch (record automations / scheduler) does not. See [`security.md`](./security.md).
 
 ### Sales Message outbox
 
@@ -158,8 +158,8 @@ Multichannel notifications and automations. n8n supplies the channel connectors.
 
 1. Rep creates a **Message** (Type / Body / Email or Phone / Contact / Opportunity, and/or **To user**, optional **Scheduled send at**).
 2. Pack automation **`queue_outbound_message`** (create; `is_draft` ≠ true) sets `delivery_status=queued`.
-3. If `scheduled_send_at` is empty, **`dispatch_outbound_message`** triggers immediately. If set, stay queued until Setup → Tasks **`dispatch_due_messages`** (params `{ "flowKey": "dispatch_outbound_message", "limit": 50 }`) **claims** due `queued` rows with `FOR UPDATE SKIP LOCKED` (`queued` → `sending`) and runs the same flow. Payload includes `idempotencyKey` (`ce-message-{id}`). Drafts skip auto-send.
-4. n8n webhook `ce-dispatch_outbound_message` (`responseMode=lastNode`) owns all outbox rules (Message / Incoming are ordinary BFF objects). If `is_draft` → PATCH `is_draft=false` and stop (pack automations re-dispatch once). If already `sent` → skip SMTP / inbox create. Else: optional PDF → route on `record.type` → send (SMTP `Message-ID` = idempotency key) → Mark sent/failed. When `to_user` is set after Mark sent → POST `incoming_message` (owner=`to_user`) and link `message.source_message`. No BFF special-case for message/inbox.
+3. If `scheduled_send_at` is empty, **`dispatch_outbound_message`** triggers immediately. If set, stay queued until Setup → Tasks **`dispatch_due_messages`** (params `{ "flowKey": "dispatch_outbound_message", "limit": 50, "staleMinutes": 15, "maxAttempts": 5 }`) **claims** due rows with `FOR UPDATE SKIP LOCKED`. A claim sets `delivery_status=sending`, `sending_since=now`, and increments `attempts`. The same statement also reclaims `sending` rows whose `sending_since` is older than `staleMinutes` (a worker that died after the claim). At `maxAttempts` a stale `sending` row is marked `failed` and is not claimed. A thrown flow returns the row to `queued` and keeps `sending_since`, so the next try waits out that window instead of running on every tick. `sent` / `delivered` are not moved back to `queued`. Payload includes `idempotencyKey` (`ce-message-{id}`). Drafts skip auto-send. Setting **Delivery status** back to `queued` (or clearing **Is Draft**) resets `attempts` and `sending_since`.
+4. n8n webhook `ce-dispatch_outbound_message` (`responseMode=lastNode`) owns all outbox rules (Message / Incoming are ordinary BFF objects). If `is_draft` → PATCH `is_draft=false` and stop (pack automations re-dispatch once). If already `sent` or `delivered` → skip SMTP / inbox create. Else: optional PDF → route on `record.type` → send (SMTP `Message-ID` = idempotency key) → Mark sent/failed. The key is a Message-ID, not a send lock: a reclaimed `sending` row is sent again, and `maxAttempts` is what bounds that. Mark failed sets `delivery_status` only and does not replace `body`. When `to_user` is set after Mark sent → POST `incoming_message` (owner=`to_user`) and link `message.source_message`. No BFF special-case for message/inbox.
 5. Recipients see owned **Incoming message** rows from n8n; outbox Message **For me** / read-share (`rowLevelReadAlsoIf`) remains available. Update/delete stay owner-only.
 6. Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales` (flows + Message automations + due-messages task). Template: [`n8n/dispatch-outbound-message.workflow.json`](./n8n/dispatch-outbound-message.workflow.json).
 

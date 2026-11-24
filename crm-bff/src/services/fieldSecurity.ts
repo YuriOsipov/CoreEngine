@@ -22,8 +22,9 @@ export const MAX_SENSITIVITY = 2
 
 /**
  * Per-process tier/field cache (stores elevated computed tiers too).
- * Same-instance Setup mutations clear immediately; peers reload when the DB
- * epoch advances. TTL is a secondary bound only.
+ * Same-instance Setup mutations clear immediately via `clearFieldSecurityCache`
+ * (bumps DB epoch); peers reload on the next read when the epoch advances.
+ * TTL is only a memory bound / fallback if the epoch table is missing.
  */
 export const FIELD_SECURITY_CACHE_TTL_MS = 5_000
 const MAX_FILTER_DEPTH = 6

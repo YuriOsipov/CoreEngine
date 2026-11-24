@@ -79,8 +79,8 @@ import {
   readRecordOwnerId,
 } from '../../services/rowLevelSecurity.js'
 import {
-  canAssignOwnerOnUpdate,
   resolveEffectiveCreateOwnerId,
+  resolveOwnerReassignment,
 } from '../../services/ownerInheritance.js'
 import type { MeUser } from '../usersAdapter.js'
 
@@ -1149,14 +1149,13 @@ export async function updateRecord(
     'update',
     recordAuditStampId(options),
   )
-  if (requestedOwnerId) {
-    const existingOwner = existing ? readRecordOwnerId(existing) : null
-    if (
-      await canAssignOwnerOnUpdate(options.access, apiName, existingOwner)
-    ) {
-      parentData.owner_id = requestedOwnerId
-    }
-  }
+  const nextOwnerId = await resolveOwnerReassignment(
+    options.access,
+    apiName,
+    existing ? readRecordOwnerId(existing) : null,
+    requestedOwnerId,
+  )
+  if (nextOwnerId) parentData.owner_id = nextOwnerId
   const updated = await store.update(apiName, id, parentData, null)
   await applyM2ANestedWrites(apiName, String(id), m2a.nested)
   await applyO2MNestedWrites(apiName, String(id), o2m.nested)
@@ -1180,8 +1179,9 @@ export const OPEN_AUTOMATIONS_APPLIED_KEY = '__openAutomationsApplied'
 
 /**
  * Run entity automations with trigger `open` after a record detail is opened.
- * Matching setFields are applied via updateRecord (update automations may also run).
- * requireChanged is ignored for open rules.
+ * Matching setFields write as trusted server policy (SYSTEM_RECORD_ACCESS) after
+ * caller Update + owner checks — same FLS posture as create/update setFields.
+ * Update automations may also run on that write. requireChanged is ignored for open.
  */
 export async function runOpenRecordAutomations(
   entity: string,
@@ -1210,6 +1210,8 @@ export async function runOpenRecordAutomations(
   }
 
   if (hasSetFields) {
+    // Trusted admin setFields (same as create/update merge): caller must still
+    // hold Update + owner access, but FLS does not block automation keys.
     if (!isSystemRecordAccess(options.access)) {
       const me = options.access.me
       if (!me) {
@@ -1220,13 +1222,17 @@ export async function runOpenRecordAutomations(
       await assertMeEntityPermission(me, apiName, 'update', {
         recordId,
       })
+      await assertOwnerAccessIfNeeded(apiName, options.access, existing, 'update')
     }
     const updated = await updateRecord(
       apiName,
       recordId,
       setPatch,
       fields,
-      options,
+      {
+        actorUserId: recordAuditStampId(options),
+        access: SYSTEM_RECORD_ACCESS,
+      },
     )
     scheduleAutomationFlows({
       entityApiName: apiName,

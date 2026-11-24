@@ -1,3 +1,4 @@
+import type { ListVisibility } from '../auth/listVisibility.js'
 import { query } from '../db/pool.js'
 
 /**
@@ -53,9 +54,25 @@ export async function postgresListPresets(options: {
   filter?: Record<string, unknown> | null
   sort?: string[] | null
   limit?: number
+  visibility?: ListVisibility | null
 }): Promise<Record<string, unknown>[]> {
   const params: unknown[] = []
-  const whereSql = compilePresetFilter(options.filter, params)
+  const clauses: string[] = []
+  const filterSql = compilePresetFilter(options.filter, params)
+  if (filterSql) clauses.push(filterSql)
+
+  const visibility = options.visibility
+  if (visibility?.kind === 'scoped') {
+    params.push(visibility.userId || '__no_user__')
+    const userIdx = params.length
+    params.push(visibility.roleRefs)
+    const roleIdx = params.length
+    clauses.push(
+      `((user_id IS NULL AND role_id IS NULL) OR user_id = $${userIdx} OR role_id::text = ANY($${roleIdx}::text[]))`,
+    )
+  }
+
+  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   const orderSql = compilePresetSort(options.sort)
 
   let limitSql = ''
@@ -65,11 +82,12 @@ export async function postgresListPresets(options: {
     limitSql = ` LIMIT $${params.length}`
   }
 
+  // audit-ignore: SQL-DYNAMIC where is built from $n placeholders only
   const rows = await query<Record<string, unknown>>(
     `SELECT backend_preset_id AS id, collection, bookmark, filter, search,
             search_query, layout_query, user_id AS user, role_id AS role
      FROM public.app_presets
-     ${whereSql ? `WHERE ${whereSql}` : ''}
+     ${whereSql}
      ORDER BY ${orderSql}${limitSql}`,
     params,
   )

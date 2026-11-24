@@ -198,6 +198,18 @@ function parseSort(raw: unknown, fallback: number): number {
   return fallback
 }
 
+/**
+ * GraphQL `backendConfig` must never expose automation rules — use
+ * `Entity.automations` (admin-gated). Strips `automations` / legacy keys.
+ */
+export function stripAutomationsFromBackendConfig(
+  backendConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!backendConfig || typeof backendConfig !== 'object') return {}
+  const { automations: _a, ...rest } = backendConfig
+  return rest
+}
+
 /** Parse automations array from entities.backend_config. */
 export function parseAutomationsFromConfig(backendConfig: unknown): EntityRecordAutomation[] {
   const config = asObject(backendConfig)

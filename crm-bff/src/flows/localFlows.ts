@@ -201,8 +201,9 @@ async function assertFlowRoleAllowed(
  * Patch a business record. Target comes from config and/or action payload
  * (`collection` / `recordId`). Patch fields: `config.patch` merged with
  * `payload.data` / `payload.patch` (payload wins on key clash).
- * For user callers, payload patch keys must be listed in `config.allowedFields`
- * (config.patch is admin-authored and always applied).
+ * For user callers, payload patch keys must be listed in `config.allowedFields`,
+ * and the merged patch (including admin `config.patch`) must pass FLS edit checks.
+ * System / service invokers still apply `config.patch` without caller FLS.
  */
 async function runUpdateRecordHandler(
   key: string,
@@ -249,19 +250,20 @@ async function runUpdateRecordHandler(
       )
     }
   }
-  if (invoker.kind === 'user') {
-    try {
-      await assertMeEntityPermission(invoker.me, collection, 'update')
-      await assertFieldsEditable(invoker.me, collection, Object.keys(payloadPatch))
-    } catch (error) {
-      throw new LocalFlowError(403, error instanceof Error ? error.message : 'Permission denied')
-    }
-  }
-
   const patch = { ...configPatch, ...payloadPatch }
   delete patch.id
   delete patch.collection
   delete patch.recordId
+
+  if (invoker.kind === 'user') {
+    try {
+      await assertMeEntityPermission(invoker.me, collection, 'update')
+      // FLS on the merged patch — admin config.patch must not bypass caller edit tiers.
+      await assertFieldsEditable(invoker.me, collection, Object.keys(patch))
+    } catch (error) {
+      throw new LocalFlowError(403, error instanceof Error ? error.message : 'Permission denied')
+    }
+  }
 
   if (!Object.keys(patch).length) {
     throw new LocalFlowError(

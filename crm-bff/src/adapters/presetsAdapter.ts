@@ -1,3 +1,4 @@
+import type { ListVisibility } from '../auth/listVisibility.js'
 import { hasAppPresets, postgresListPresets } from './postgresPresets.js'
 
 interface ListPresetsOptions {
@@ -5,6 +6,7 @@ interface ListPresetsOptions {
   filter?: Record<string, unknown> | null
   sort?: string[] | null
   limit?: number
+  visibility?: ListVisibility | null
 }
 
 /**

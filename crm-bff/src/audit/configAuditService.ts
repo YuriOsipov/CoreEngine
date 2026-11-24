@@ -43,6 +43,13 @@ export function compactAuditState(
   return Object.keys(out).length ? out : null
 }
 
+/**
+ * Oversized payloads keep a 2_000-char JSON preview (not redacted).
+ * Safe today: product org settings never store credentials (see
+ * `orgSettingsService` inventory). Passwords stay out of audit payloads
+ * (`passwordSet` / `passwordChanged` flags only). Do not put secrets into
+ * audited before/after states.
+ */
 function clipJson(
   value: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | null {

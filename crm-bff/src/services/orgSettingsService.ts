@@ -1,5 +1,14 @@
 import { query } from '../db/pool.js'
 
+/**
+ * Product org-setting keys (Setup → General / ops toggles). None store
+ * credentials — secrets stay in env (`AUTH_*`, `SMTP_*`, `OIDC_*`, n8n) or
+ * `app_user_credentials`. Inventory for config-audit `clipJson` previews:
+ * - `company_profile` — name, address, locale, currency, date formats, TZ
+ * - `files_upload` — allowed image MIME types, max upload MB
+ * - `ops.failed_run_notify` — `{ enabled: boolean }`
+ * Keep new keys non-secret, or redact before any audit write.
+ */
 export async function getOrgSetting(settingKey: string): Promise<unknown> {
   const key = String(settingKey || '').trim()
   if (!key) return null

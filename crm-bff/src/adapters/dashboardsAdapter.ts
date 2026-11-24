@@ -1,3 +1,4 @@
+import type { ListVisibility } from '../auth/listVisibility.js'
 import {
   hasAppDashboards,
   postgresDeleteDashboard,
@@ -18,6 +19,7 @@ export async function listDashboards(options: {
   fields?: string[] | null
   sort?: string[] | null
   limit?: number
+  visibility?: ListVisibility | null
 }): Promise<Record<string, unknown>[]> {
   if (!(await hasAppDashboards())) return []
   return postgresListDashboards(options)
@@ -28,6 +30,7 @@ export async function listPanels(options: {
   filter?: Record<string, unknown> | null
   sort?: string[] | null
   limit?: number
+  visibility?: ListVisibility | null
 }): Promise<Record<string, unknown>[]> {
   if (!(await hasAppDashboards())) return []
   return postgresListPanels(options)

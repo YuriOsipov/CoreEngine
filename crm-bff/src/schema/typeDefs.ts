@@ -204,7 +204,7 @@ export const typeDefs = /* GraphQL */ `
     backendConfig: JSON!
     """Effective unique groups (backend_config.uniqueGroups + fields.is_unique)."""
     uniqueGroups: [EntityUniqueGroup!]!
-    """Record automations from backend_config.automations (create/update/delete/open)."""
+    """Record automations (admin only; empty for non-admins). Rules live in backend_config.automations."""
     automations: [EntityRecordAutomation!]!
     labelTranslations: [LocalizedLabel!]!
     hidden: Boolean!

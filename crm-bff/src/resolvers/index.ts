@@ -42,6 +42,7 @@ import {
   requireAuthenticatedUser,
   requireSelfOrAdmin,
 } from '../auth/accessGuards.js'
+import { resolveListVisibility } from '../auth/listVisibility.js'
 import { actorIdFromMe, applyRolePreview } from '../auth/rolePreview.js'
 // Re-export for existing tests / callers.
 export {
@@ -80,6 +81,7 @@ import {
 import {
   loadEntityAutomations,
   saveEntityAutomations,
+  stripAutomationsFromBackendConfig,
   type EntityRecordAutomation,
 } from '../schema/recordAutomations.js'
 import {
@@ -321,15 +323,17 @@ async function loadSyncState(entityId: string) {
 function mapEntityBase(row: Record<string, unknown>, language?: string | null) {
   const labelTranslations = parseLabelTranslations(row.label_translations)
   const baseLabel = String(row.label ?? row.api_name)
-  const backendConfig =
+  const rawBackendConfig =
     row.backend_config && typeof row.backend_config === 'object'
       ? (row.backend_config as Record<string, unknown>)
       : {}
+  // Never leak automation rules via JSON blob; Entity.automations is admin-gated.
+  const backendConfig = stripAutomationsFromBackendConfig(rawBackendConfig)
   return {
     id: String(row.id),
     apiName: String(row.api_name),
     label: pickLocalizedLabel(labelTranslations, language, baseLabel),
-    note: readNote(backendConfig),
+    note: readNote(rawBackendConfig),
     icon: row.icon ? String(row.icon) : null,
     singleton: Boolean(row.singleton),
     group: row.entity_group ? String(row.entity_group) : null,
@@ -1028,7 +1032,8 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visibility = await resolveListVisibility(me)
       return listPresets({
         fields: args.fields?.length
           ? args.fields
@@ -1036,6 +1041,7 @@ export const resolvers = {
         filter: args.filter ?? null,
         sort: args.sort ?? null,
         limit: args.limit ?? -1,
+        visibility,
       })
     },
 
@@ -1048,11 +1054,13 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAuthenticatedUser(ctx)
+      const me = await requireAuthenticatedUser(ctx)
+      const visibility = await resolveListVisibility(me)
       return listDashboards({
         fields: args.fields ?? null,
         sort: args.sort ?? null,
         limit: args.limit ?? -1,
+        visibility,
       })
     },
 
@@ -1067,11 +1075,13 @@ export const resolvers = {
       ctx: GraphQlAuthContext,
     ) => {
       const me = await requireAuthenticatedUser(ctx)
+      const visibility = await resolveListVisibility(me)
       const panels = await listPanels({
         fields: args.fields ?? null,
         filter: args.filter ?? null,
         sort: args.sort ?? null,
         limit: args.limit ?? -1,
+        visibility,
       })
       // Panel options expose the source collection, filters and fields — hide
       // panels over collections the caller cannot read.
@@ -1681,9 +1691,10 @@ export const resolvers = {
       },
       ctx: GraphQlAuthContext,
     ): Promise<EntityRecordAutomation[]> => {
-      await requireAdminAccess(ctx)
+      const me = await requireAdminAccess(ctx)
       const entityApiName = String(args.entity || '').trim()
       if (!entityApiName) throw new Error('entity is required')
+      const before = await loadEntityAutomations(entityApiName)
       const saved = await saveEntityAutomations(
         entityApiName,
         (args.automations ?? []).map((rule, index) => ({
@@ -1744,6 +1755,14 @@ export const resolvers = {
         })),
       )
       clearCrmStorageCache()
+      await recordConfigAudit(me, {
+        action: 'REPLACE',
+        resourceType: 'automation',
+        resourceKey: entityApiName,
+        summary: `Replaced record automations for ${entityApiName}`,
+        before: { automations: before },
+        after: { automations: saved },
+      })
       return saved
     },
 
@@ -2311,8 +2330,18 @@ export const resolvers = {
       args: { key: string; value?: unknown },
       ctx: GraphQlAuthContext,
     ) => {
-      await requireAdminAccess(ctx)
-      await upsertOrgSetting(String(args.key || ''), args.value ?? null)
+      const me = await requireAdminAccess(ctx)
+      const key = String(args.key || '').trim()
+      const beforeValue = await getOrgSetting(key)
+      await upsertOrgSetting(key, args.value ?? null)
+      await recordConfigAudit(me, {
+        action: beforeValue == null ? 'CREATE' : 'UPDATE',
+        resourceType: 'org_setting',
+        resourceKey: key,
+        summary: `${beforeValue == null ? 'Created' : 'Updated'} org setting ${key}`,
+        before: beforeValue == null ? null : { value: beforeValue },
+        after: { value: args.value ?? null },
+      })
       return true
     },
 
@@ -2568,10 +2597,20 @@ export const resolvers = {
       if (!apiName) return []
       return loadEntityUniqueGroups(String(apiName))
     },
-    automations: async (parent: {
-      apiName?: string
-      __apiName?: string
-    }): Promise<EntityRecordAutomation[]> => {
+    automations: async (
+      parent: {
+        apiName?: string
+        __apiName?: string
+      },
+      _args: unknown,
+      ctx: GraphQlAuthContext,
+    ): Promise<EntityRecordAutomation[]> => {
+      try {
+        // Session admin (ignores View-as-role) — Setup editor must keep working.
+        await requireAdminAccess(ctx)
+      } catch {
+        return []
+      }
       const apiName = parent.__apiName || parent.apiName
       if (!apiName) return []
       return loadEntityAutomations(String(apiName))

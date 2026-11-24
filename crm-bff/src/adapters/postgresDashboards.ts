@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { ListVisibility } from '../auth/listVisibility.js'
 import { query } from '../db/pool.js'
 
 /** Serve dashboards from Supabase `app_dashboards` (id = backend id). */
@@ -6,19 +7,28 @@ export async function postgresListDashboards(options: {
   fields?: string[] | null
   sort?: string[] | null
   limit?: number
+  visibility?: ListVisibility | null
 }): Promise<Record<string, unknown>[]> {
   const orderSql = compileSort(options.sort, ['name'], DASHBOARD_COLUMNS)
   const params: unknown[] = []
+  const clauses: string[] = []
+  if (options.visibility?.kind === 'scoped') {
+    params.push(options.visibility.roleRefs)
+    clauses.push(`(role_id IS NULL OR role_id::text = ANY($${params.length}::text[]))`)
+  }
+  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   let limitSql = ''
   const limit = options.limit ?? -1
   if (limit >= 0) {
     params.push(limit)
     limitSql = ` LIMIT $${params.length}`
   }
+  // audit-ignore: SQL-DYNAMIC where is built from $n placeholders only
   const rows = await query<Record<string, unknown>>(
     `SELECT backend_dashboard_id AS id, name, icon, note, color,
             role_id, source_snapshot, last_refreshed_at
      FROM public.app_dashboards
+     ${whereSql}
      ORDER BY ${orderSql}${limitSql}`,
     params,
   )
@@ -170,9 +180,22 @@ export async function postgresListPanels(options: {
   filter?: Record<string, unknown> | null
   sort?: string[] | null
   limit?: number
+  visibility?: ListVisibility | null
 }): Promise<Record<string, unknown>[]> {
   const params: unknown[] = []
-  const whereSql = compilePanelFilter(options.filter, params)
+  const clauses: string[] = []
+  const filterSql = compilePanelFilter(options.filter, params)
+  if (filterSql) clauses.push(filterSql)
+  if (options.visibility?.kind === 'scoped') {
+    params.push(options.visibility.roleRefs)
+    clauses.push(
+      `dashboard_id IN (
+         SELECT backend_dashboard_id FROM public.app_dashboards
+         WHERE role_id IS NULL OR role_id::text = ANY($${params.length}::text[])
+       )`,
+    )
+  }
+  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   const orderSql = compileSort(
     options.sort,
     ['dashboard', 'position_y', 'position_x'],
@@ -184,11 +207,12 @@ export async function postgresListPanels(options: {
     params.push(limit)
     limitSql = ` LIMIT $${params.length}`
   }
+  // audit-ignore: SQL-DYNAMIC where is built from $n placeholders only
   return query<Record<string, unknown>>(
     `SELECT backend_panel_id AS id, dashboard_id AS dashboard, name, icon, color,
             show_header, note, type, position_x, position_y, width, height, options
      FROM public.app_panels
-     ${whereSql ? `WHERE ${whereSql}` : ''}
+     ${whereSql}
      ORDER BY ${orderSql}${limitSql}`,
     params,
   )

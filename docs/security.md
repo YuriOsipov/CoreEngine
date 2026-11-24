@@ -38,14 +38,14 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 
 - Per-role Create / Read / Update / Delete / Import / Export — **enforced by the BFF**. Without Read, the object is unreachable even if a layout or nav item points at it.
 - Setup → Roles also grants optional **View all** / **Modify all** per object (only meaningful when owner row security is on).
-- **Setup / registry** mutations require **admin** (`requireAdminAccess`). Successful changes append to **`config_audits`** (GraphQL `configAudits`) — entities, fields, roles, permissions, users, layouts.
+- **Setup / registry** mutations require **admin** (`requireAdminAccess`). Successful changes append to **`config_audits`** (GraphQL `configAudits`) — entities, fields, roles, permissions, users, layouts, **automations**, **org settings**.
 
 ## Field-level security (sensitivity)
 
 - Mark a field **None / Restricted / Confidential** in Setup → Fields; grant a per-role max **Sensitive read** / **Sensitive edit** tier in Setup → Roles. Platform default is open (new fields = None) until an admin marks them. Admins bypass. **UI hide alone is not enough**.
 - **Entity / pack default:** Setup → Entity parameters → **Default field security level** (`backend_config.defaultFieldSensitivity`).
 - **Column-level only.** Flags do **not** by themselves cover “Sales can see salary only for their own team” — combine with owner row security or keep that data on a separate object.
-- **Covered (unit-tested):** record reads & writes; filters, sorts, aggregates (`assertReadableQuery` before every store); dotted SOQL keys; list search; revision snapshot redaction; export/import; upsert / unique-key lookups; `expand=children`; bulk update; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (value field, **rollup child filters**, formula sources); live rollup omit on filter FLS deny; child value lookup filter/value FLS; ddlSync sensitivity column comments; production boot refuses missing sensitivity columns; hard delete audits **before** erase.
+- **Covered (unit-tested):** record reads & writes; filters, sorts, aggregates (`assertReadableQuery` before every store); dotted SOQL keys; list search; revision snapshot redaction; export/import; upsert / unique-key lookups; `expand=children`; bulk update; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (value field, **rollup child filters**, formula sources); live rollup omit on filter FLS deny; child value lookup filter/value FLS; ddlSync sensitivity column comments; production boot refuses missing sensitivity columns; hard delete audits **before** erase; GraphQL strips / admin-gates automation rules; JWT flow `update_record` FLS on merged patch; presets/dashboards/panels list visibility.
 - **Documents vs FLS:** `generateDocument` freezes the generating caller’s readable snapshot. Persisted `doc_value` / PDF/HTML then follows **document-object ACL**. See [`generate-document-api.md`](./generate-document-api.md).
 - **Known gaps** (close or add regression tests — see below).
 
@@ -54,7 +54,7 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 - Opt-in per object so users without View/Modify all only reach rows they **own** (`owner_id`). Kernel default is **off**. The **Sales pack** turns it **on** for `account`, `contact`, `opportunity`, `message`, and `opportunity_item`.
 - **Enable:** Setup → Entity parameters → **Owner row security**, or `backendConfig.rowLevelSecurity = "owner"` in pack JSON.
 - Optional **Inherit owner from parent** (`backendConfig.inheritOwnerFrom`) copies parent `owner_id` on create. **Created By** (`user_created`) stays the creating actor.
-- **Change Owner:** record action + `updateRecord` with `owner_id`. Allowed for **Modify all** / admin / system, and for the **current owner**. Use this when a rep leaves — reassign their rows before (or after) deactivating the user. Managers with Modify all are not limited to “edit others’ fields while leaving ownership stranded.”
+- **Change Owner:** record action + `updateRecord` with `owner_id`. Allowed for **Modify all** / admin / system, and for the **current owner**. The new id must be an **active** `app_users` row (`is_active`, `backend_user_id` or id); typos and deactivated users are rejected. Unauthorized reassignment returns **Permission denied** (it is not dropped). Use this when a rep leaves — reassign their rows before (or after) deactivating the user. Managers with Modify all are not limited to “edit others’ fields while leaving ownership stranded.”
 - **Also grant read if** (`rowLevelReadAlsoIf`): UUID/M2O → Users fields (e.g. Message `to_user`). Matching users may **read**; update/delete stay owner-only.
 - **Also grant read if same role as owner** (`rowLevelReadAlsoIfSameRole`): peers with the owner’s app Role may **read**. Coarser than a future Teams object.
 - **Typical setup:** Reps = Read/Update (owner filter). Managers = same CRUD **plus View all** (and **Modify all** if needed). Platform admins bypass.
@@ -69,20 +69,15 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 - **Admin “View as role”** — `X-Role-Preview` applies the selected role’s object ACL, FLS, and owner rules without logging out. Setup mutations and GraphQL `me` keep real admin identity; audits still stamp the admin.
 - Per-role layouts, list filters/views, and navigation apps are UX on top of API security — they do not grant access by themselves.
 
-## Known gaps (close or test)
+## Accepted product limits
 
-Prioritized for FLS / buyer diligence. Record Activity & Revision Tracking covers **business rows**, not Setup.
+No open high-priority FLS/ACL gaps. Buyer notes:
 
-| Priority | Gap | Risk | Status |
-|----------|-----|------|--------|
-| **P0** | **Rollup child filters on sensitive fields** | Filtered aggregates can leak sensitive child columns via inference (e.g. COUNT where `salary > X`). | **Closed** — rollups inherit max sensitivity from child **value + filter** paths (`computedSensitivity`); live reads also `assertReadableQuery` the filter and omit the field on deny (`applyRollups`). Tests: `computedSensitivity.test.ts`, `fieldSecurity.test.ts`. |
-| **P1** | **`ddlSync` ignores sensitivity** | Physical column plan/apply did not consult `fields.sensitivity`. | **Closed** — `loadPromotedFields` carries sensitivity; ddlSync plans `COMMENT ON COLUMN … IS 'coreengine.sensitivity=N'` on create/add/drift (`planSensitivityCommentActions`). Tests: `ddlSync.sensitivity.test.ts`. |
-| **P1** | **Child value lookups — no FLS test** | Form/inline **child value lookup** paths lacked a dedicated FLS regression. | **Closed** — regression covers filter/value `assertReadableQuery` deny + valueField redaction (same gates as ChildLookup list fetches). Tests: `fieldSecurity.test.ts`. |
-| **P2** | **Admin config audit trail** | Security-minded buyers expect who-changed-what for Roles, Fields, layouts, packs, nav. | **Closed** — `public.config_audits` + GraphQL `configAudits` + Setup → **Config audit** UI. Wired for entities, fields, roles, permissions, users, layouts. Best-effort write; passwords never stored. Packs via CLI use git. Tests: `configAuditService.test.ts`. |
-| **P2** | Automation `setFields` / `notify` | Trusted server-side rules; document and bound as system context, not caller FLS. | Partial |
-| **P3** | Field/role FLS caches | **5s TTL** + DB epoch; brief stale grants possible after Setup edits. | Accepted for now |
+- **Record automations** — Setup → Automations are **trusted server policy** (like formulas/rollups). create/update/delete/open `setFields` apply after the caller passes object Update + owner RLS; caller FLS does not block automation keys. **`notify`** is toast-only. JWT flow `update_record` still FLS-checks the merged patch. Automation definition changes go to `config_audits`.
+- **FLS cache** — Setup field/role writes call `clearFieldSecurityCache()` (DB epoch); peers reload on next request. In-memory TTL is a fallback only.
+- **Owner RLS “Not yet”** — Teams / membership subsets, manual share UI, role hierarchy, criteria sharing, bulk Change Owner (see Owner row security above).
 
-**Mitigations until closed:** keep Confidential data on objects with tight object ACL / owner RLS. Config history: GraphQL `configAudits` (after `npm run registry:migrate`) or DB `public.config_audits`.
+Keep Confidential data on objects with tight object ACL / owner RLS. Config history: GraphQL `configAudits` or DB `public.config_audits`.
 
 ## Deployment checklist
 
@@ -91,11 +86,13 @@ Prioritized for FLS / buyer diligence. Record Activity & Revision Tracking cover
 | **JWTs** | HMAC-signed, algorithm-pinned, verified on each guarded request. Access TTL **15 minutes**; refresh rotates. Reuse of a rotated refresh token revokes **all** sessions. Placeholder / too-short `AUTH_JWT_SECRET` refused at every BFF start. |
 | **OIDC SSO** | Optional external IdP. BFF is the relying party. Roles stay in CoreEngine. See [`oidc-sso.md`](./oidc-sso.md). |
 | **Admin status** | From the **database**, not JWT / IdP claims. |
-| **Setup mutations** | Require **admin**. Config changes → `config_audits` / `configAudits` query. |
+| **Setup mutations** | Require **admin**. Config changes → `config_audits` / `configAudits` query (includes automations + org settings). |
+| **Automation rules** | Admin-only schema read; create/update/delete/open `setFields` are trusted server policy (caller needs Update + owner RLS). JWT flow patches are FLS-checked. |
+| **Presets / dashboards** | Non-admins see global + own-user / own-role presets; dashboards/panels scoped like layoutSettings (`role_id` null or matching role). |
 | **Object ACL** | Per-role CRUD matrix. Missing Read blocks the object on API paths. |
 | **Field tiers** | Sensitivity `0` / `1` / `2` + per-role max read/edit. Production refuses to start if sensitivity columns are missing. |
 | **Owner row security** | Opt-in `owner_id` + optional read-share / same-role read. Managers: View all / Modify all. No Teams object yet. |
-| **Document render** | Worker thread + hard kill on timeout; `DOC_RENDER_*` caps. CI uses stubs. |
+| **Document render** | Worker thread + hard kill on timeout; V8 heap/stack `resourceLimits`; `DOC_RENDER_*` caps. CI’s DocEngine job renders a real PDF with published `@docengine/pdf-renderer@0.0.105`. |
 | **Hasura / Directus** | Optional record backends — keep admin consoles / secrets off public networks. Clients talk to the BFF only. |
 | **Scheduler** | In-process with **Postgres advisory locks** per task + Message **SKIP LOCKED** claim. Prefer **one** BFF with `TASK_SCHEDULER_ENABLED=true`; disable on replicas. Durable multi-instance queue (pg-boss / Graphile Worker) is planned. |
 | **Flows** | `FLOWS_TRIGGER_REQUIRE_AUTH=false` refused in production. |

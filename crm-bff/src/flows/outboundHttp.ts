@@ -7,9 +7,9 @@
  *   when the host is on FLOWS_HTTP_ALLOWED_HOSTS
  * Private RFC1918 targets need FLOWS_HTTP_ALLOWED_HOSTS (e.g. "n8n" or "n8n:5678"
  * on a Docker/compose network). Loopback (127.0.0.0/8, ::1) is hard-blocked by
- * default; local host-BFF → published n8n is allowed when the URL host matches
- * N8N_BASE_URL / N8N_WEBHOOK_URL (non-production), or FLOWS_ALLOW_LOOPBACK=true.
- * Also allowed: the host of N8N_BASE_URL / N8N_WEBHOOK_URL (private ranges).
+ * default; local host-BFF → published n8n/Activepieces is allowed when the URL host
+ * matches N8N_BASE_URL / N8N_WEBHOOK_URL / ACTIVEPIECES_BASE_URL (non-production),
+ * or FLOWS_ALLOW_LOOPBACK=true. Also allowed: those same configured hosts on private ranges.
  */
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns'
 import { BlockList, isIP } from 'node:net'
@@ -99,9 +99,15 @@ export function isBlockedAddress(
   return false
 }
 
-function n8nConfiguredHosts(): Set<string> {
+const CONFIGURED_FLOW_BASE_ENVS = [
+  'N8N_BASE_URL',
+  'N8N_WEBHOOK_URL',
+  'ACTIVEPIECES_BASE_URL',
+] as const
+
+function configuredFlowHosts(): Set<string> {
   const out = new Set<string>()
-  for (const envName of ['N8N_BASE_URL', 'N8N_WEBHOOK_URL'] as const) {
+  for (const envName of CONFIGURED_FLOW_BASE_ENVS) {
     const raw = (process.env[envName] || '').trim()
     if (!raw) continue
     try {
@@ -115,14 +121,14 @@ function n8nConfiguredHosts(): Set<string> {
   return out
 }
 
-/** Loopback to the configured n8n origin — local host BFF → published Docker port. */
+/** Loopback to a configured automation origin — local host BFF → published Docker port. */
 export function allowLoopbackForUrl(url: URL): boolean {
   const flag = (process.env.FLOWS_ALLOW_LOOPBACK || '').trim().toLowerCase()
   if (flag === '1' || flag === 'true' || flag === 'yes') {
     return hostAllowsPrivate(url)
   }
   if ((process.env.NODE_ENV || '').toLowerCase() === 'production') return false
-  const hosts = n8nConfiguredHosts()
+  const hosts = configuredFlowHosts()
   return hosts.has(url.host.toLowerCase()) || hosts.has(url.hostname.toLowerCase())
 }
 
@@ -132,7 +138,7 @@ function allowedPrivateHosts(): Set<string> {
     const value = raw.trim().toLowerCase()
     if (value) out.add(value)
   }
-  for (const envName of ['N8N_BASE_URL', 'N8N_WEBHOOK_URL'] as const) {
+  for (const envName of CONFIGURED_FLOW_BASE_ENVS) {
     const raw = (process.env[envName] || '').trim()
     if (!raw) continue
     try {

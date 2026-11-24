@@ -1,4 +1,4 @@
-﻿/** PrimeIcons glyph names (from primeicons/raw-svg). Class form: `pi pi-{name}`. */
+﻿/** OpenIcons glyph names (PrimeIcons-compatible). Class form: `pi pi-{name}` via `@openvue/openicons/primeicons.css`. */
 export const PRIME_ICON_NAMES = [
   'address-book',
   'align-center',

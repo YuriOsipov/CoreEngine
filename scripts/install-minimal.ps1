@@ -1,15 +1,17 @@
-﻿# One-shot lightweight install: Postgres + BFF (+ optional stub UI).
+# One-shot lightweight install: Postgres + BFF (+ optional stub UI).
 # Usage (repo root):
 #   powershell -File ./scripts/install-minimal.ps1
 #   powershell -File ./scripts/install-minimal.ps1 -Domain sales -WithUi
-# n8n is not started here. Customers pull upstream n8n themselves:
+# n8n / Activepieces are not started here. Customers pull upstream images themselves:
 #   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
+#   docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
 #   powershell -File ./scripts/install-minimal.ps1 -AdminPassword 'ChooseAUniqueSecret!'
 param(
   [ValidateSet('none', 'sales', 'clinic', 'pricing', 'documents')]
   [string]$Domain = 'sales',
   [switch]$WithUi,
   [switch]$WithN8n,
+  [switch]$WithActivepieces,
   [string]$AdminPassword = ''
 )
 
@@ -21,6 +23,15 @@ This installer does not start n8n. Pull the upstream image yourself:
   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
 
 See THIRD_PARTY.md. Sell implementation and support, not n8n access.
+"@
+}
+if ($WithActivepieces) {
+  throw @"
+This installer does not start Activepieces. Pull the upstream image yourself:
+
+  docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
+
+See docs/activepieces/README.md and THIRD_PARTY.md.
 "@
 }
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -116,6 +127,8 @@ Write-Host '  BFF health: http://localhost:4000/health'
 if ($WithUi) { Write-Host '  UI:         http://localhost:8080' }
 Write-Host '  n8n:        not started. Pull upstream yourself if you want it (see THIRD_PARTY.md):'
 Write-Host '              docker compose -f docker-compose.minimal.yml --profile automation up -d n8n'
+Write-Host '  Activepieces (MIT): not started. See docs/activepieces/README.md:'
+Write-Host '              docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d'
 Write-Host '  Login:      admin@example.com (password from provision output above)'
 Write-Host '  Upgrade:    see docs/upgrading.md'
 Write-Host '  Backup:     see docs/backup-restore.md'

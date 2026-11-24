@@ -14,6 +14,14 @@ n8n Community Edition is free for internal business use; hosted or resold use ne
 
 Managed hosting or a true bundle needs a commercial agreement. n8n’s license contact is [license@n8n.io](mailto:license@n8n.io). Confirm the current terms with them.
 
+## Activepieces — MIT alternative (not part of CoreEngine)
+
+| Component | How it shows up | License |
+|-----------|-----------------|--------|
+| [Activepieces](https://github.com/activepieces/activepieces) `ghcr.io/activepieces/activepieces` | Optional Compose profile `automation-activepieces` in `docker-compose.minimal.yml` (app + worker + dedicated Postgres/Redis). You pull the upstream image. It is not copied into the CoreEngine or BFF image, and `scripts/install-minimal.sh` / `install-minimal.ps1` refuse to start it. Setup → Connections `config.target=activepieces` → `{ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}`. | [MIT](https://github.com/activepieces/activepieces/blob/main/LICENSE) (community edition) |
+
+Use Activepieces when you want an OSI-permissive orchestrator for the same BFF write-back pattern as n8n. Pack flow JSON under `docs/n8n/` remains n8n-native; rebuild equivalent Catch Webhook + HTTP steps in Activepieces (see [`docs/activepieces/README.md`](docs/activepieces/README.md)).
+
 ## Sibling repository
 
 | Component | License |
@@ -24,7 +32,7 @@ Managed hosting or a true bundle needs a commercial agreement. n8n’s license c
 
 ### MIT
 
-`vue`, `vue-router`, `vue-draggable-next`, `openvue`, `@openvue/themes`, `@openvue/auto-import-resolver`, `primeicons`, `tailwindcss`, `tailwindcss-primeui`, `@tailwindcss/vite`, `floating-vue`, `@visactor/vtable`, `@visactor/vue-vtable`, `chart.js`, `vite`, `@vitejs/plugin-vue`, `vitest`, `vue-tsc`, `unplugin-vue-components`, `@types/node`, `fastify`, `@fastify/cors`, `@fastify/helmet`, `@fastify/multipart`, `cors`, `graphql`, `graphql-yoga`, `isomorphic-dompurify`, `jose`, `pg`, `undici`, `tsx`, `@types/cors`, `@types/nodemailer`, `@types/pg`.
+`vue`, `vue-router`, `vue-draggable-next`, `openvue`, `@openvue/themes`, `@openvue/auto-import-resolver`, `@openvue/openicons`, `tailwindcss`, `tailwindcss-primeui`, `@tailwindcss/vite`, `floating-vue`, `@visactor/vtable`, `@visactor/vue-vtable`, `chart.js`, `vite`, `@vitejs/plugin-vue`, `vitest`, `vue-tsc`, `unplugin-vue-components`, `@types/node`, `fastify`, `@fastify/cors`, `@fastify/helmet`, `@fastify/multipart`, `cors`, `graphql`, `graphql-yoga`, `isomorphic-dompurify`, `jose`, `pg`, `undici`, `tsx`, `@types/cors`, `@types/nodemailer`, `@types/pg`.
 
 ### MIT-0
 

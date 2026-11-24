@@ -33,7 +33,7 @@ export async function triggerFlowViaBff(
 ): Promise<unknown> {
   const key = flowTriggerKeyFromWebhook(webhook)
   if (!key) {
-    throw new Error('Flow webhook is not configured for this action.')
+    throw new Error('Connection is not configured for this action.')
   }
 
   const token = await getAccessToken()

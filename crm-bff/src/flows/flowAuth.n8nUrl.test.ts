@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assertProductionFlowAuthConfig,
+  isActivepiecesDestination,
   isN8nDestination,
   n8nBaseUrl,
   n8nWebhookPathForKey,
+  resolveActivepiecesFlowUrl,
   resolveN8nFlowUrl,
+  sanitizeActivepiecesFlowId,
+  warnIfActivepiecesWebhookSecretMissing,
   warnIfN8nWebhookSecretMissing,
 } from './flowAuth.js'
 
@@ -13,6 +17,8 @@ const ORIGINAL = {
   N8N_BASE_URL: process.env.N8N_BASE_URL,
   N8N_WEBHOOK_URL: process.env.N8N_WEBHOOK_URL,
   N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
+  ACTIVEPIECES_BASE_URL: process.env.ACTIVEPIECES_BASE_URL,
+  ACTIVEPIECES_WEBHOOK_SECRET: process.env.ACTIVEPIECES_WEBHOOK_SECRET,
   FLOWS_TRIGGER_REQUIRE_AUTH: process.env.FLOWS_TRIGGER_REQUIRE_AUTH,
 }
 
@@ -25,6 +31,16 @@ afterEach(() => {
   else process.env.N8N_WEBHOOK_URL = ORIGINAL.N8N_WEBHOOK_URL
   if (ORIGINAL.N8N_WEBHOOK_SECRET === undefined) delete process.env.N8N_WEBHOOK_SECRET
   else process.env.N8N_WEBHOOK_SECRET = ORIGINAL.N8N_WEBHOOK_SECRET
+  if (ORIGINAL.ACTIVEPIECES_BASE_URL === undefined) {
+    delete process.env.ACTIVEPIECES_BASE_URL
+  } else {
+    process.env.ACTIVEPIECES_BASE_URL = ORIGINAL.ACTIVEPIECES_BASE_URL
+  }
+  if (ORIGINAL.ACTIVEPIECES_WEBHOOK_SECRET === undefined) {
+    delete process.env.ACTIVEPIECES_WEBHOOK_SECRET
+  } else {
+    process.env.ACTIVEPIECES_WEBHOOK_SECRET = ORIGINAL.ACTIVEPIECES_WEBHOOK_SECRET
+  }
   if (ORIGINAL.FLOWS_TRIGGER_REQUIRE_AUTH === undefined) {
     delete process.env.FLOWS_TRIGGER_REQUIRE_AUTH
   } else {
@@ -84,6 +100,64 @@ describe('n8n flow URL helpers', () => {
     process.env.N8N_WEBHOOK_SECRET = 'x'
     warn.mockClear()
     warnIfN8nWebhookSecretMissing({ warn })
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('Activepieces flow URL helpers', () => {
+  it('sanitizes flow ids from Catch Webhook Live URL', () => {
+    expect(sanitizeActivepiecesFlowId('abc123XYZ')).toBe('abc123XYZ')
+    expect(sanitizeActivepiecesFlowId('/flow_id-1/')).toBe('flow_id-1')
+    expect(() => sanitizeActivepiecesFlowId('')).toThrow(/flowId/)
+    expect(() => sanitizeActivepiecesFlowId('bad/id')).toThrow(/alphanumeric/)
+  })
+
+  it('resolves from ACTIVEPIECES_BASE_URL + flowId', () => {
+    process.env.ACTIVEPIECES_BASE_URL = 'http://activepieces:80/'
+    expect(
+      resolveActivepiecesFlowUrl({ flowId: 'QkLmNoPqRs' }),
+    ).toBe('http://activepieces:80/api/v1/webhooks/QkLmNoPqRs')
+    expect(
+      resolveActivepiecesFlowUrl({ flowId: 'QkLmNoPqRs', sync: true }),
+    ).toBe('http://activepieces:80/api/v1/webhooks/QkLmNoPqRs/sync')
+  })
+
+  it('detects Activepieces destinations for secret injection', () => {
+    process.env.ACTIVEPIECES_BASE_URL = 'http://activepieces:80'
+    expect(
+      isActivepiecesDestination(
+        new URL('http://activepieces:80/api/v1/webhooks/x'),
+      ),
+    ).toBe(true)
+    expect(
+      isActivepiecesDestination(new URL('https://evil.example/api/v1/webhooks/x')),
+    ).toBe(false)
+  })
+
+  it('production refuses Activepieces without webhook secret', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.FLOWS_TRIGGER_REQUIRE_AUTH = 'true'
+    delete process.env.N8N_BASE_URL
+    delete process.env.N8N_WEBHOOK_URL
+    delete process.env.N8N_WEBHOOK_SECRET
+    process.env.ACTIVEPIECES_BASE_URL = 'http://activepieces:80'
+    delete process.env.ACTIVEPIECES_WEBHOOK_SECRET
+    expect(() => assertProductionFlowAuthConfig()).toThrow(/ACTIVEPIECES_WEBHOOK_SECRET/)
+    process.env.N8N_WEBHOOK_SECRET = 'shared-secret'
+    expect(() => assertProductionFlowAuthConfig()).not.toThrow()
+  })
+
+  it('warns in non-production when Activepieces secret is missing', () => {
+    process.env.NODE_ENV = 'development'
+    process.env.ACTIVEPIECES_BASE_URL = 'http://activepieces:80'
+    delete process.env.ACTIVEPIECES_WEBHOOK_SECRET
+    delete process.env.N8N_WEBHOOK_SECRET
+    const warn = vi.fn()
+    warnIfActivepiecesWebhookSecretMissing({ warn })
+    expect(warn).toHaveBeenCalledOnce()
+    process.env.ACTIVEPIECES_WEBHOOK_SECRET = 'x'
+    warn.mockClear()
+    warnIfActivepiecesWebhookSecretMissing({ warn })
     expect(warn).not.toHaveBeenCalled()
   })
 })

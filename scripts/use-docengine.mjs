@@ -5,7 +5,7 @@
  * Modes:
  *   npm   — published registry versions (GitHub / clone-and-run default)
  *   local — sibling ../docEngine packages (maintainers iterating on DocEngine)
- *   stub  — in-repo ci/stubs (fast CI / install without DocEngine)
+ *   stub  — in-repo ci/stubs (local / explicit CI via DOCENGINE_ALLOW_STUBS only)
  *
  * Usage:
  *   node ./scripts/use-docengine.mjs npm|local|stub

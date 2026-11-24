@@ -1,0 +1,151 @@
+{
+  "name": "CoreEngine — ingest inbound email",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Inbound email (IMAP)\nPolls a shared mailbox and creates **incoming_message** rows owned by the matched user.\n\n1. Credential **CoreEngine IMAP** on Email Trigger (IMAP). Example: `imap.credentials.example.json`.\n2. Env: `BFF_URL`, `CRM_N8N_*`. Optional `CRM_INBOUND_FALLBACK_OWNER_ID` (backend_user_id) when To does not match an app user. Optional `CRM_INBOUND_ROUTE_MAP` JSON map of address → owner id (overrides email match).\n3. Re-apply sales pack so `incoming_message.external_message_id` is unique (dedupe / upsert key = RFC Message-ID).\n4. Routing: To / Delivered-To / Envelope-To / Cc → `GET /api/v1/users/email:{addr}` → fallback owner.\n5. Upsert `POST /api/v1/incoming_message?upsert=true&by=external_message_id` with `owner_id`, `from_email`, subject, body, type=email.\n6. Settings → Error workflow → failed-execution-alert.\n7. Repo JSON is source of truth — re-export after UI edits.\n8. Not a BFF flow key — activate in n8n only (IMAP trigger).",
+        "height": 340,
+        "width": 480
+      },
+      "id": "note-inbound",
+      "name": "Setup note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-80, -360]
+    },
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "format": "simple",
+        "downloadAttachments": false,
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\"]",
+          "trackLastMessageId": true
+        }
+      },
+      "id": "imap-trigger",
+      "name": "Email Trigger (IMAP)",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.2,
+      "position": [0, 0],
+      "credentials": {
+        "imap": {
+          "id": "REPLACE_WITH_IMAP_CREDENTIAL_ID",
+          "name": "CoreEngine IMAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{$env.CRM_N8N_EMAIL}}\",\n  \"password\": \"{{$env.CRM_N8N_PASSWORD}}\"\n}",
+        "options": {}
+      },
+      "id": "bff-login-inbound",
+      "name": "BFF Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mail = $('Email Trigger (IMAP)').first().json || {};\nconst token = String($('BFF Login').first().json.access_token || '').trim();\nif (!token) throw new Error('BFF login did not return access_token');\nconst bff = String($env.BFF_URL || '').replace(/\\/$/, '');\nif (!bff) throw new Error('BFF_URL is required');\n\nconst headers = mail.headers && typeof mail.headers === 'object' ? mail.headers : {};\nconst meta = mail.metadata && typeof mail.metadata === 'object' ? mail.metadata : {};\n\nfunction pickHeader(...keys) {\n  for (const key of keys) {\n    const v = headers[key] ?? headers[key.toLowerCase()] ?? headers[key.toUpperCase()];\n    if (v == null) continue;\n    if (Array.isArray(v)) return v.map(String).join(', ');\n    return String(v);\n  }\n  return '';\n}\n\nfunction extractEmails(raw) {\n  const text = String(raw || '');\n  const out = [];\n  const re = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi;\n  let m;\n  while ((m = re.exec(text))) {\n    const addr = m[0].toLowerCase();\n    if (!out.includes(addr)) out.push(addr);\n  }\n  return out;\n}\n\nconst toRaw = mail.to || pickHeader('to', 'delivered-to', 'envelope-to', 'x-original-to');\nconst ccRaw = mail.cc || pickHeader('cc');\nconst fromRaw = mail.from || pickHeader('from');\nconst subject = String(mail.subject || pickHeader('subject') || '').trim();\nconst body = String(mail.text || mail.textPlain || mail.html || mail.textAsHtml || '').trim();\nlet messageId = String(\n  meta.messageId || mail.messageId || pickHeader('message-id', 'messageid') || '',\n).trim();\nmessageId = messageId.replace(/^<|>$/g, '').trim();\nif (!messageId) {\n  const seed = [fromRaw, toRaw, subject, mail.date || meta.date || ''].join('|');\n  messageId = `ce-imap-${Buffer.from(seed).toString('base64url').slice(0, 48)}`;\n}\n\nconst toCandidates = [...extractEmails(toRaw), ...extractEmails(ccRaw)];\nconst fromEmail = extractEmails(fromRaw)[0] || '';\n\nlet routeMap = {};\ntry {\n  const rawMap = String($env.CRM_INBOUND_ROUTE_MAP || '').trim();\n  if (rawMap) routeMap = JSON.parse(rawMap);\n} catch (e) {\n  throw new Error('CRM_INBOUND_ROUTE_MAP must be valid JSON object');\n}\n\nlet ownerId = '';\nlet routeSource = '';\nfor (const addr of toCandidates) {\n  const hit = routeMap[addr] || routeMap[addr.toLowerCase()];\n  if (hit != null && String(hit).trim()) {\n    ownerId = String(hit).trim();\n    routeSource = `route_map:${addr}`;\n    break;\n  }\n}\n\nif (!ownerId) {\n  for (const addr of toCandidates) {\n    try {\n      const row = await this.helpers.httpRequest({\n        method: 'GET',\n        url: `${bff}/api/v1/users/email:${encodeURIComponent(addr)}`,\n        headers: {\n          Authorization: `Bearer ${token}`,\n          'X-CRM-Automation': 'n8n',\n        },\n        json: true,\n      });\n      const id = row && row.id != null ? String(row.id).trim() : '';\n      if (id) {\n        ownerId = id;\n        routeSource = `users.email:${addr}`;\n        break;\n      }\n    } catch (e) {\n      // 404 / no match — try next recipient\n    }\n  }\n}\n\nif (!ownerId) {\n  ownerId = String($env.CRM_INBOUND_FALLBACK_OWNER_ID || '').trim();\n  if (ownerId) routeSource = 'fallback';\n}\n\nconst name = subject || `Email ${messageId.slice(0, 12)}`;\nreturn [{\n  json: {\n    hasOwner: Boolean(ownerId),\n    ownerId,\n    routeSource,\n    toCandidates,\n    token,\n    inboxPayload: {\n      name,\n      subject: subject || null,\n      body,\n      type: 'email',\n      status: 'new',\n      from_email: fromEmail || null,\n      external_message_id: messageId,\n      owner_id: ownerId || null,\n    },\n  },\n}];"
+      },
+      "id": "resolve-owner",
+      "name": "Resolve owner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasOwner}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-has-owner",
+      "name": "Has owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [760, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.BFF_URL}}/api/v1/incoming_message?upsert=true&by=external_message_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            },
+            {
+              "name": "X-CRM-Automation",
+              "value": "n8n"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.inboxPayload) }}",
+        "options": {}
+      },
+      "id": "upsert-incoming",
+      "name": "Upsert incoming message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $input.first().json;\nthrow new Error(\n  'Inbound email: no owner matched for recipients ' +\n    JSON.stringify(ctx.toCandidates || []) +\n    '. Set CRM_INBOUND_FALLBACK_OWNER_ID or CRM_INBOUND_ROUTE_MAP, or ensure To matches an active app user email.',\n);"
+      },
+      "id": "no-owner",
+      "name": "No owner error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 120]
+    }
+  ],
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [[{ "node": "BFF Login", "type": "main", "index": 0 }]]
+    },
+    "BFF Login": {
+      "main": [[{ "node": "Resolve owner", "type": "main", "index": 0 }]]
+    },
+    "Resolve owner": {
+      "main": [[{ "node": "Has owner?", "type": "main", "index": 0 }]]
+    },
+    "Has owner?": {
+      "main": [
+        [{ "node": "Upsert incoming message", "type": "main", "index": 0 }],
+        [{ "node": "No owner error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "crmNotes": "IMAP → match To/Cc to app_users.email (or CRM_INBOUND_ROUTE_MAP / CRM_INBOUND_FALLBACK_OWNER_ID) → upsert incoming_message by external_message_id. No BFF webhook. Attach CoreEngine IMAP credential. Re-apply sales pack for unique external_message_id. Do not point a Postgres node at crm_schema."
+  },
+  "pinData": {},
+  "versionId": "1"
+}

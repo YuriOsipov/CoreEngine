@@ -44,8 +44,15 @@ const form = reactive({
   handler: 'http' as string,
   enabled: true,
   description: '',
-  /** Customer's n8n (ce-{key}) vs custom absolute URL. CoreEngine does not ship n8n. */
-  httpTarget: 'n8n' as 'n8n' | 'url',
+  /**
+   * Customer's n8n (ce-{key}), Activepieces (flowId), or custom absolute URL.
+   * CoreEngine does not ship either automation engine.
+   */
+  httpTarget: 'n8n' as 'n8n' | 'activepieces' | 'url',
+  /** Activepieces Catch Webhook Live URL id (last path segment). */
+  flowId: '',
+  /** Append /sync so Activepieces waits for Return Response. */
+  sync: false,
   url: '',
   method: 'POST',
   authType: 'none' as string,
@@ -71,6 +78,10 @@ const httpTargetOptions = computed(() => [
   {
     label: t('setup.flows.httpTargetN8n', 'Your n8n (recommended)'),
     value: 'n8n',
+  },
+  {
+    label: t('setup.flows.httpTargetActivepieces', 'Your Activepieces (MIT)'),
+    value: 'activepieces',
   },
   {
     label: t('setup.flows.httpTargetUrl', 'Custom URL'),
@@ -149,6 +160,13 @@ function destinationLabel(flow: GraphQlFlowTrigger): string {
         key: flow.key,
       })
     }
+    if (target === 'activepieces') {
+      const flowId =
+        typeof flow.config?.flowId === 'string' ? flow.config.flowId : ''
+      return t('setup.flows.destinationActivepieces', 'Activepieces ({flowId})', {
+        flowId: flowId || '—',
+      })
+    }
     const url = typeof flow.config?.url === 'string' ? flow.config.url : ''
     return url || '—'
   }
@@ -179,6 +197,8 @@ function resetForm(): void {
   form.enabled = true
   form.description = ''
   form.httpTarget = 'n8n'
+  form.flowId = ''
+  form.sync = false
   form.url = ''
   form.method = 'POST'
   resetAuthFields()
@@ -251,7 +271,15 @@ function openEdit(flow: GraphQlFlowTrigger): void {
     typeof flow.config?.target === 'string'
       ? flow.config.target.trim().toLowerCase()
       : ''
-  form.httpTarget = target === 'n8n' ? 'n8n' : 'url'
+  form.httpTarget =
+    target === 'n8n' || target === 'activepieces' ? target : 'url'
+  form.flowId =
+    typeof flow.config?.flowId === 'string' ? flow.config.flowId : ''
+  form.sync =
+    flow.config?.sync === true ||
+    String(flow.config?.sync || '')
+      .trim()
+      .toLowerCase() === 'true'
   form.url = typeof flow.config?.url === 'string' ? flow.config.url : ''
   form.method =
     typeof flow.config?.method === 'string' && flow.config.method
@@ -276,10 +304,10 @@ async function load(): Promise<void> {
       failedRuns.value = await fetchFailedFlowDispatches(50)
     } catch (err) {
       failedRuns.value = []
-      showError(err, t('setup.flows.failedRunsError', 'Failed to load flow run errors'))
+      showError(err, t('setup.flows.failedRunsError', 'Failed to load connection run errors'))
     }
   } catch (err) {
-    showError(err, t('setup.flows.loadError', 'Failed to load flows'))
+    showError(err, t('setup.flows.loadError', 'Failed to load connections'))
   } finally {
     loading.value = false
   }
@@ -291,7 +319,7 @@ async function save(): Promise<void> {
     toast.add({
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
-      detail: t('setup.flows.keyRequired', 'Flow key is required.'),
+      detail: t('setup.flows.keyRequired', 'Connection key is required.'),
       life: 4000,
     })
     return
@@ -301,6 +329,22 @@ async function save(): Promise<void> {
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
       detail: t('setup.flows.urlRequired', 'HTTP URL is required.'),
+      life: 4000,
+    })
+    return
+  }
+  if (
+    form.handler === 'http' &&
+    form.httpTarget === 'activepieces' &&
+    !form.flowId.trim()
+  ) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning', 'Warning'),
+      detail: t(
+        'setup.flows.flowIdRequired',
+        'Activepieces flow id is required (Catch Webhook Live URL).',
+      ),
       life: 4000,
     })
     return
@@ -361,13 +405,23 @@ async function save(): Promise<void> {
               headers: { Accept: 'application/json' },
               auth: { type: 'none' },
             }
-          : {
-              allowedRoles: preserved.allowedRoles,
-              url: form.url.trim(),
-              method: form.method || 'POST',
-              headers: { Accept: 'application/json' },
-              auth: buildAuthConfig(),
-            }
+          : form.httpTarget === 'activepieces'
+            ? {
+                allowedRoles: preserved.allowedRoles,
+                target: 'activepieces',
+                flowId: form.flowId.trim(),
+                ...(form.sync ? { sync: true } : {}),
+                method: form.method || 'POST',
+                headers: { Accept: 'application/json' },
+                auth: { type: 'none' },
+              }
+            : {
+                allowedRoles: preserved.allowedRoles,
+                url: form.url.trim(),
+                method: form.method || 'POST',
+                headers: { Accept: 'application/json' },
+                auth: buildAuthConfig(),
+              }
         : {
             collection: preserved.collection,
             recordId: preserved.recordId,
@@ -387,15 +441,15 @@ async function save(): Promise<void> {
     await load()
     toast.add({
       severity: 'success',
-      summary: t('setup.flows.saved', 'Flow saved'),
+      summary: t('setup.flows.saved', 'Connection saved'),
       detail: t(
         'setup.flows.savedDetail',
-        'Use this key in Automations → Trigger flow.',
+        'Use this key in Automations → Call connection.',
       ),
       life: 4000,
     })
   } catch (err) {
-    showError(err, t('setup.flows.saveError', 'Failed to save flow'))
+    showError(err, t('setup.flows.saveError', 'Failed to save connection'))
   } finally {
     saving.value = false
   }
@@ -408,7 +462,7 @@ async function openFailedRuns(): Promise<void> {
     failedRuns.value = await fetchFailedFlowDispatches(50)
   } catch (err) {
     failedRuns.value = []
-    showError(err, t('setup.flows.failedRunsError', 'Failed to load flow run errors'))
+    showError(err, t('setup.flows.failedRunsError', 'Failed to load connection run errors'))
   } finally {
     failedLoading.value = false
   }
@@ -425,10 +479,10 @@ function confirmDelete(flow: GraphQlFlowTrigger): void {
   confirm.require({
     message: t(
       'setup.flows.deleteConfirm',
-      'Delete flow "{key}"? Automations that use this key will fail until updated.',
+      'Delete connection "{key}"? Automations that use this key will fail until updated.',
       { key: flow.key },
     ),
-    header: t('setup.flows.delete', 'Delete flow'),
+    header: t('setup.flows.delete', 'Delete connection'),
     icon: 'pi pi-exclamation-triangle',
     rejectProps: {
       label: t('common.cancel', 'Cancel'),
@@ -446,11 +500,11 @@ function confirmDelete(flow: GraphQlFlowTrigger): void {
           await load()
           toast.add({
             severity: 'success',
-            summary: t('setup.flows.deleted', 'Flow deleted'),
+            summary: t('setup.flows.deleted', 'Connection deleted'),
             life: 3000,
           })
         } catch (err) {
-          showError(err, t('setup.flows.deleteError', 'Failed to delete flow'))
+          showError(err, t('setup.flows.deleteError', 'Failed to delete connection'))
         }
       })()
     },
@@ -466,12 +520,12 @@ onMounted(() => {
   <section class="setup-tab-content">
     <div class="setup-panel-header">
       <div>
-        <h2>{{ t('setup.flows.title', 'Flows') }}</h2>
+        <h2>{{ t('setup.flows.title', 'Connections') }}</h2>
         <p class="setup-panel-header__meta">
           {{
             t(
               'setup.flows.subtitle',
-              'Map a flow key to an external HTTP webhook (or update record). Use the key in Automations → Trigger flow.',
+              'Map a connection key to your n8n or an external HTTP webhook (or update record). Use the key in Automations → Call connection.',
             )
           }}
         </p>
@@ -493,7 +547,7 @@ onMounted(() => {
           @click="openFailedRuns"
         />
         <Button
-          :label="t('setup.flows.new', 'New flow')"
+          :label="t('setup.flows.new', 'New connection')"
           icon="pi pi-plus"
           :disabled="!isAdmin || !graphqlEnabled"
           @click="openCreate"
@@ -509,7 +563,7 @@ onMounted(() => {
       {{
         t(
           'setup.flows.graphqlRequired',
-          'Set VITE_DATA_SOURCE=graphql to manage flows.',
+          'Set VITE_DATA_SOURCE=graphql to manage connections.',
         )
       }}
     </Message>
@@ -527,7 +581,7 @@ onMounted(() => {
       class="page-loading"
     >
       <ProgressSpinner stroke-width="4" />
-      <span>{{ t('setup.flows.loading', 'Loading flows...') }}</span>
+      <span>{{ t('setup.flows.loading', 'Loading connections...') }}</span>
     </div>
 
     <DataTable
@@ -535,7 +589,7 @@ onMounted(() => {
       :value="filteredFlows"
       striped-rows
       data-key="key"
-      :empty-message="t('setup.flows.empty', 'No flows yet. Create one to map a key to an external URL.')"
+      :empty-message="t('setup.flows.empty', 'No connections yet. Create one to map a key to n8n or an external URL.')"
     >
       <Column
         field="key"
@@ -628,14 +682,14 @@ onMounted(() => {
     <Dialog
       v-model:visible="failedVisible"
       modal
-      :header="t('setup.flows.failedRunsTitle', 'Failed flow runs')"
+      :header="t('setup.flows.failedRunsTitle', 'Failed connection runs')"
       :style="{ width: 'min(840px, 95vw)' }"
     >
       <p class="text-muted-color text-[0.85rem] mt-0">
         {{
           t(
             'setup.flows.failedRunsHint',
-            'Outbound flow calls that failed. n8n execution errors stay in n8n — import the failed-execution alert template.',
+            'Outbound connection calls that failed. n8n execution errors stay in n8n — import the failed-execution alert template.',
           )
         }}
       </p>
@@ -650,7 +704,7 @@ onMounted(() => {
         :value="failedRuns"
         striped-rows
         data-key="id"
-        :empty-message="t('setup.flows.failedRunsEmpty', 'No failed flow runs.')"
+        :empty-message="t('setup.flows.failedRunsEmpty', 'No failed connection runs.')"
       >
         <Column
           field="startedAt"
@@ -695,15 +749,15 @@ onMounted(() => {
       modal
       :header="
         editingKey
-          ? t('setup.flows.editTitle', 'Edit flow')
-          : t('setup.flows.createTitle', 'New flow')
+          ? t('setup.flows.editTitle', 'Edit connection')
+          : t('setup.flows.createTitle', 'New connection')
       "
       class="w-full max-w-xl"
     >
       <div class="flex flex-col gap-3">
         <div class="flex flex-col gap-1">
           <label class="text-[0.85rem] font-medium">
-            {{ t('setup.flows.key', 'Flow key') }}
+            {{ t('setup.flows.key', 'Connection key') }}
           </label>
           <InputText
             v-model="form.key"
@@ -714,7 +768,7 @@ onMounted(() => {
             {{
               t(
                 'setup.flows.keyHint',
-                'This key is what you enter in Automations → Trigger flow.',
+                'This key is what you enter in Automations → Call connection.',
               )
             }}
           </span>
@@ -751,12 +805,48 @@ onMounted(() => {
                       'Calls your n8n webhook at /webhook/ce-{key}. Point N8N_BASE_URL at the n8n instance you run. CoreEngine does not include n8n.',
                       { key: form.key.trim() || 'your_key' },
                     )
-                  : t(
-                      'setup.flows.httpTargetUrlHint',
-                      'Paste any absolute webhook URL (advanced / non-n8n).',
-                    )
+                  : form.httpTarget === 'activepieces'
+                    ? t(
+                        'setup.flows.httpTargetActivepiecesHint',
+                        'Calls your Activepieces Catch Webhook at /api/v1/webhooks/{flowId}. Point ACTIVEPIECES_BASE_URL at the instance you run (MIT). CoreEngine does not include Activepieces.',
+                      )
+                    : t(
+                        'setup.flows.httpTargetUrlHint',
+                        'Paste any absolute webhook URL (advanced / non-n8n).',
+                      )
               }}
             </span>
+          </div>
+
+          <div
+            v-if="form.httpTarget === 'activepieces'"
+            class="flex flex-col gap-2"
+          >
+            <div class="flex flex-col gap-1">
+              <label class="text-[0.85rem] font-medium">
+                {{ t('setup.flows.flowId', 'Activepieces flow id') }}
+              </label>
+              <InputText
+                v-model="form.flowId"
+                :placeholder="
+                  t(
+                    'setup.flows.flowIdPlaceholder',
+                    'Last segment of Catch Webhook Live URL',
+                  )
+                "
+              />
+            </div>
+            <div class="flex items-center gap-2">
+              <ToggleSwitch v-model="form.sync" input-id="flow-ap-sync" />
+              <label for="flow-ap-sync" class="text-[0.85rem]">
+                {{
+                  t(
+                    'setup.flows.syncResponse',
+                    'Wait for response (/sync)',
+                  )
+                }}
+              </label>
+            </div>
           </div>
 
           <div

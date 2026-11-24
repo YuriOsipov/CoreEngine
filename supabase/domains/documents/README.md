@@ -25,13 +25,13 @@ These objects are hidden from Object Manager day-to-day pickers and excluded fro
 
 ## Outbound flows (platform)
 
-Record Automations can call an external HTTP webhook after create/update/delete via **Trigger flow**. Mapping is configured in the UI (not by pasting a raw URL into the automation).
+Record Automations can call an external HTTP webhook after create/update/delete via **Call connection**. Mapping is configured in the UI (not by pasting a raw URL into the automation).
 
-### Setup → Flows
+### Setup → Connections
 
-1. Open **Setup → Flows** (`/setup/flows`).
-2. **New flow** (or edit an existing key):
-   - **Flow key** — e.g. `test_hook` (this is what Automations use)
+1. Open **Setup → Connections** (`/setup/connections`).
+2. **New connection** (or edit an existing key):
+   - **Connection key** — e.g. `test_hook` (this is what Automations use)
    - **Handler** — `HTTP (external URL)`
    - **External URL** — e.g. `https://integrations.eclouds.co:8445/api2/test_hook`
    - **HTTP method** — usually `POST`
@@ -47,11 +47,11 @@ Record Automations can call an external HTTP webhook after create/update/delete 
 
 Rows live in `public.app_flow_triggers` (`handler=http`, `config.url` / `config.auth`). Outbound calls also send `X-CRM-Source: bff-flow` and, when set, `X-CRM-Flow-Secret` from env `N8N_WEBHOOK_SECRET`.
 
-### Automations → Trigger flow
+### Automations → Call connection
 
 1. **Setup → Object Manager** → choose an object → **Automations**.
-2. Add/edit a rule → **Actions** → **Add flow**.
-3. Enter the **flow key** (e.g. `test_hook`), not the external URL.
+2. Add/edit a rule → **Actions** → **Add connection**.
+3. Enter the **connection key** (e.g. `test_hook`), not the external URL.
 4. Apply. After a matching create/update/delete commits, the BFF runs `runLocalFlow(key)` and POSTs a payload like:
 
 ```json
@@ -76,7 +76,7 @@ Server-side DocEngine generation for automations / n8n (no browser session). Ful
 
 ```text
 Opportunity saved
-  → Automations → Trigger flow (HTTP)
+  → Automations → Call connection (HTTP)
       → n8n
            1) POST /api/v1/documents/generate
            2) use outputFileId / downloadUrl

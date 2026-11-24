@@ -504,7 +504,7 @@ export async function triggerFlowAction(
 ): Promise<unknown> {
   const webhook = action.flow?.webhook?.trim()
   if (!webhook) {
-    throw new Error('Flow webhook is not configured for this action.')
+    throw new Error('Connection is not configured for this action.')
   }
 
   return triggerFlow(webhook, buildFlowActionPayload(action, collection, id, record))

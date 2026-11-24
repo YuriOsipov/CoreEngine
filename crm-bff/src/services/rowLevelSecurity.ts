@@ -2,6 +2,10 @@ import { query } from '../db/pool.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
 import type { RecordAccess } from '../adapters/records/types.js'
 import { isSystemRecordAccess } from '../adapters/records/types.js'
+import {
+  loadM2ORelations,
+  loadO2MRelations,
+} from '../adapters/records/relations.js'
 import { resolveRoleOwnerBypass } from './rolePermissions.js'
 import { bumpCacheEpoch, readCacheEpoch } from './cacheEpoch.js'
 
@@ -59,7 +63,9 @@ export type OwnerShareFilterOptions = {
 /** Row owner (sharing). Distinct from audit `user_created`. */
 export const ROW_OWNER_FIELD = 'owner_id'
 
-const CACHE_TTL_MS = 5_000
+export const CACHE_TTL_MS = 5_000
+/** Serve last-good after a failed refresh; avoids retrying the DB on every request. */
+export const CACHE_NEGATIVE_TTL_MS = 2_000
 
 let modeCache: {
   byEntity: Map<string, EntityOwnerSecurityConfig>
@@ -189,7 +195,12 @@ async function loadOwnerConfigs(): Promise<Map<string, EntityOwnerSecurityConfig
       return byEntity
     } catch (error) {
       console.warn('[rowLevelSecurity] failed to load entity modes', error)
-      if (modeCache) return modeCache.byEntity
+      if (modeCache) {
+        // Negative cache: keep last-good briefly so every request does not
+        // re-hit a failing entities query until the DB recovers.
+        modeCache.expiresAt = Date.now() + CACHE_NEGATIVE_TTL_MS
+        return modeCache.byEntity
+      }
       throw error
     }
   })()
@@ -525,6 +536,138 @@ export async function relatedOwnerFilterIfNeeded(
     config.readAlsoIfSameRole,
   )
   return ownerOrShareEqFilter(myId, config.readAlsoIf, { sameRolePeerIds })
+}
+
+const RELATED_OWNER_FILTER_MAX_DEPTH = 8
+
+function isPlainFilterObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Comparison ops (`_eq`, `_gt`, …) — not logical wrappers. */
+function isComparisonFilterObject(value: unknown): boolean {
+  if (!isPlainFilterObject(value)) return false
+  const keys = Object.keys(value)
+  if (!keys.length) return false
+  return keys.every(
+    (key) =>
+      key.startsWith('_') &&
+      key !== '_and' &&
+      key !== '_or' &&
+      key !== '_not' &&
+      key !== '_some' &&
+      key !== '_none',
+  )
+}
+
+async function relatedEntityForFilterHop(
+  entity: string,
+  field: string,
+): Promise<string | null> {
+  const key = String(field || '')
+    .trim()
+    .toLowerCase()
+  if (!key) return null
+  const m2o = (await loadM2ORelations(entity)).find(
+    (rel) => rel.fieldApiName.trim().toLowerCase() === key,
+  )
+  if (m2o?.relatedEntityApiName) return m2o.relatedEntityApiName
+  const o2m = (await loadO2MRelations(entity)).find(
+    (rel) => rel.fieldApiName.trim().toLowerCase() === key,
+  )
+  return o2m?.junctionEntityApiName ?? null
+}
+
+/**
+ * Fail closed for backends that cannot AND a related-row owner predicate into
+ * nested/dotted filters (Directus GraphQL). Throws when a hop targets an
+ * owner-secured related entity that would need {@link relatedOwnerFilterIfNeeded}.
+ * Admins / View all / RLS-off related entities are allowed.
+ */
+export async function assertRelatedOwnerFilterHopsSupported(
+  entityApiName: string,
+  filter: unknown,
+  me: MeUser | null | undefined,
+  depth = 0,
+): Promise<void> {
+  if (depth > RELATED_OWNER_FILTER_MAX_DEPTH) return
+  if (Array.isArray(filter)) {
+    for (const item of filter) {
+      await assertRelatedOwnerFilterHopsSupported(
+        entityApiName,
+        item,
+        me,
+        depth + 1,
+      )
+    }
+    return
+  }
+  if (!isPlainFilterObject(filter)) return
+
+  for (const [key, value] of Object.entries(filter)) {
+    if (key === '_and' || key === '_or' || key === '_not') {
+      await assertRelatedOwnerFilterHopsSupported(
+        entityApiName,
+        value,
+        me,
+        depth + 1,
+      )
+      continue
+    }
+    if (key.startsWith('_')) continue
+
+    if (key.includes('.')) {
+      const [root, ...rest] = key
+        .split('.')
+        .map((part) => part.trim())
+        .filter(Boolean)
+      if (!root || !rest.length) continue
+      const related = await relatedEntityForFilterHop(entityApiName, root)
+      if (!related) continue
+      const ownerFilter = await relatedOwnerFilterIfNeeded(related, me)
+      if (ownerFilter) {
+        throw new Error(
+          `Permission denied: related owner row security cannot be applied on Directus filters for ${related}`,
+        )
+      }
+      if (rest.length === 1 && isComparisonFilterObject(value)) continue
+      await assertRelatedOwnerFilterHopsSupported(
+        related,
+        rest.length === 1 ? value : { [rest.join('.')]: value },
+        me,
+        depth + 1,
+      )
+      continue
+    }
+
+    if (!isPlainFilterObject(value) || isComparisonFilterObject(value)) continue
+
+    const nested: Record<string, unknown> = {}
+    for (const [childKey, childValue] of Object.entries(value)) {
+      if (childKey === '_some' || childKey === '_none') {
+        if (isPlainFilterObject(childValue)) Object.assign(nested, childValue)
+      } else if (!childKey.startsWith('_')) {
+        nested[childKey] = childValue
+      }
+    }
+    if (!Object.keys(nested).length) continue
+    const related = await relatedEntityForFilterHop(entityApiName, key)
+    if (!related) continue
+    const ownerFilter = await relatedOwnerFilterIfNeeded(related, me)
+    if (ownerFilter) {
+      throw new Error(
+        `Permission denied: related owner row security cannot be applied on Directus filters for ${related}`,
+      )
+    }
+    await assertRelatedOwnerFilterHopsSupported(
+      related,
+      nested,
+      me,
+      depth + 1,
+    )
+  }
 }
 
 /**

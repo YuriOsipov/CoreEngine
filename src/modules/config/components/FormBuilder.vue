@@ -230,7 +230,7 @@ const ACTION_DISPLAY_OPTIONS = computed(() => [
   { label: t('formBuilder.document', 'Document'), value: 'document' },
 ])
 const ACTION_BEHAVIOR_OPTIONS = computed(() => [
-  { label: t('formBuilder.actionBehaviorFlow', 'Flow webhook'), value: 'flow' },
+  { label: t('formBuilder.actionBehaviorFlow', 'Connection'), value: 'flow' },
   {
     label: t('formBuilder.actionBehaviorCloneRelated', 'Clone structure'),
     value: 'cloneRelated',
@@ -3484,7 +3484,7 @@ function hintTooltip(value: string) {
           />
         </div>
         <div class="flex flex-col gap-[0.35rem]">
-          <label for="action-webhook" class="text-[0.85rem] font-medium">{{ t('formBuilder.flowWebhook', 'Flow webhook') }}</label>
+          <label for="action-webhook" class="text-[0.85rem] font-medium">{{ t('formBuilder.flowWebhook', 'Connection key') }}</label>
           <InputText
             id="action-webhook"
             v-model="configActionWebhook"

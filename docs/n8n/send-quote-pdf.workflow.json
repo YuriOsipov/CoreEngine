@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## send_quote_pdf\nWebhook path must be **ce-send_quote_pdf** (Setup → Flows target=n8n).\nCreates/patches Sales `message.delivery_status`, then generates a PDF.\nWire Settings → Error workflow → CoreEngine — failed execution alert.",
+        "content": "## send_quote_pdf\nWebhook path must be **ce-send_quote_pdf** (Setup → Connections target=n8n).\nCreates/patches Sales `message.delivery_status`, then generates a PDF.\nWire Settings → Error workflow → CoreEngine — failed execution alert.",
         "height": 200,
         "width": 360
       },

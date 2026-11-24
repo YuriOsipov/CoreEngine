@@ -5,6 +5,7 @@
  *   npm run registry:check-cutover
  *   npm run registry:check-cutover -- --require-bff
  */
+import { assertConfigAuditsAppendOnlyReady } from '../crm-bff/src/audit/configAuditsSchemaGate.ts'
 import { pool, query } from '../crm-bff/src/db/pool.ts'
 
 const requireBff = process.argv.includes('--require-bff')
@@ -126,6 +127,14 @@ add(
   Number(creds[0]?.count ?? 0) > 0,
   `app_user_credentials=${creds[0]?.count ?? 0}`,
 )
+
+try {
+  await assertConfigAuditsAppendOnlyReady({ requireTable: true })
+  add('config_audits append-only triggers', true, 'ok')
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  add('config_audits append-only triggers', false, message)
+}
 
 const orphanFiles = await query<{
   junction_id: string

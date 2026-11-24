@@ -70,6 +70,8 @@ This overwrites `supabase/domains/<id>/` (`entities.json`, `layouts.json`, `role
 
 ## Domain packs
 
+Product overview (vertical matrix, shipped vs example industries, fork guide): [`docs/domain-packs.md`](../docs/domain-packs.md).
+
 - [`domains/sales`](domains/sales) — **CoreEngine Sales** commercial starter: Account, Contact, Opportunity (stage Path), Quote; pairs with Pricing for catalog/promotions. Documents REST/SOQL/CRUD examples for these entities: see pack README **REST API (BFF)**.
 - [`domains/clinic`](domains/clinic) — Patient, Practitioner, Visit, Appointment
 - [`domains/pricing`](domains/pricing) — Item catalog, Campaign → Promotion, item prices (`promo_price` + linked promotion)

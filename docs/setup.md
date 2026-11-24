@@ -97,7 +97,9 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Optional registry REST |
 | `DIRECTUS_RUNTIME` | Must be `off` |
 | `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts) |
-| `N8N_BASE_URL` / `N8N_WEBHOOK_SECRET` / `N8N_ENCRYPTION_KEY` | Your n8n instance for Setup → Flows |
+| `N8N_BASE_URL` / `N8N_WEBHOOK_SECRET` / `N8N_ENCRYPTION_KEY` | Your n8n instance for Setup → Connections |
+| `ACTIVEPIECES_BASE_URL` / `ACTIVEPIECES_WEBHOOK_SECRET` | Optional MIT Activepieces (`target=activepieces` + flow id) |
+| `AP_ENCRYPTION_KEY` / `AP_JWT_SECRET` / `AP_POSTGRES_PASSWORD` | Required to start Compose profile `automation-activepieces` |
 | `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP flow targets |
 | `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Integration user for n8n → BFF |
 | `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` | Optional email on flow/task failure |
@@ -133,6 +135,6 @@ npm --prefix crm-bff run typecheck
 npm run build                 # vue-tsc -b && vite build
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, and app build (`npm run build`: `vue-tsc -b && vite build`). Default deps are npm `@docengine/*@0.0.105`; jobs fall back to `ci/stubs/` if that pin is missing. Real PDF/HTML smoke belongs in the DocEngine package CI (or locally: `crm-bff` `npm run test:docengine-render`). Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, and app build (`npm run build`: `vue-tsc -b && vite build`). Default installs use **`npm ci`** against lockfile `@docengine/*@0.0.105`. Stubs (`ci/stubs/`) are opt-in only via `workflow_dispatch` → Use DocEngine stubs (`DOCENGINE_ALLOW_STUBS=true`); registry miss / network errors fail the job. Real PDF/HTML smoke belongs in the DocEngine package CI (or locally: `crm-bff` `npm run test:docengine-render`). Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
 
 Layout schemas live under `src/interfaces` / config layout services and are stored in registry `layout_settings`.

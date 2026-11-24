@@ -56,9 +56,13 @@ const configRoutes: RouteRecordRaw[] = [
         component: () => import('@/modules/config/pages/TaskSchedulerSetupPage.vue'),
       },
       {
-        path: 'flows',
-        name: 'setup-flows',
+        path: 'connections',
+        name: 'setup-connections',
         component: () => import('@/modules/config/pages/FlowTriggersSetupPage.vue'),
+      },
+      {
+        path: 'flows',
+        redirect: '/setup/connections',
       },
       {
         path: 'archived',

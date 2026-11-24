@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      use_docengine_stubs:
+        description: 'Install @docengine/* from ci/stubs instead of the npm lockfile (explicit only; skips lockfile enforcement)'
+        type: boolean
+        default: false
+
+# Stub fallback is opt-in only. A failed `npm view` / registry blip must not
+# silently switch to ci/stubs and green the job on fake packages.
+env:
+  DOCENGINE_ALLOW_STUBS: ${{ inputs.use_docengine_stubs && 'true' || 'false' }}
 
 jobs:
   bff:
@@ -21,18 +31,16 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: crm-bff/package-lock.json
-      # Prefer published @docengine/*; fall back to in-repo stubs when not on npm yet.
-      - name: Resolve DocEngine deps (npm or stubs)
+      - name: Install dependencies
         run: |
-          if npm view @docengine/engine@$DOCENGINE_VERSION version >/dev/null 2>&1; then
-            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
-          else
-            echo "npm @docengine/*@$DOCENGINE_VERSION missing — using CI stubs"
+          if [ "$DOCENGINE_ALLOW_STUBS" = "true" ]; then
+            echo "DOCENGINE_ALLOW_STUBS=true — using ci/stubs (npm install; lockfile not enforced)"
             node ../scripts/use-docengine.mjs stub
+            npm install --no-audit --no-fund
+          else
+            echo "Installing lockfile @docengine/* via npm ci"
+            npm ci --no-audit --no-fund
           fi
-        env:
-          DOCENGINE_VERSION: '0.0.105'
-      - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
 
@@ -46,17 +54,16 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Resolve DocEngine deps (npm or stubs)
+      - name: Install dependencies
         run: |
-          if npm view @docengine/editor@$DOCENGINE_VERSION version >/dev/null 2>&1; then
-            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
-          else
-            echo "npm @docengine/*@$DOCENGINE_VERSION missing — using CI stubs"
+          if [ "$DOCENGINE_ALLOW_STUBS" = "true" ]; then
+            echo "DOCENGINE_ALLOW_STUBS=true — using ci/stubs (npm install; lockfile not enforced)"
             node ./scripts/use-docengine.mjs stub
+            npm install --no-audit --no-fund
+          else
+            echo "Installing lockfile @docengine/* via npm ci"
+            npm ci --no-audit --no-fund
           fi
-        env:
-          DOCENGINE_VERSION: '0.0.105'
-      - run: npm install --no-audit --no-fund
       - run: npm test
 
   build:
@@ -69,15 +76,14 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Resolve DocEngine deps (npm or stubs)
+      - name: Install dependencies
         run: |
-          if npm view @docengine/editor@$DOCENGINE_VERSION version >/dev/null 2>&1; then
-            echo "Using npm @docengine/*@$DOCENGINE_VERSION"
-          else
-            echo "npm @docengine/*@$DOCENGINE_VERSION missing — using CI stubs"
+          if [ "$DOCENGINE_ALLOW_STUBS" = "true" ]; then
+            echo "DOCENGINE_ALLOW_STUBS=true — using ci/stubs (npm install; lockfile not enforced)"
             node ./scripts/use-docengine.mjs stub
+            npm install --no-audit --no-fund
+          else
+            echo "Installing lockfile @docengine/* via npm ci"
+            npm ci --no-audit --no-fund
           fi
-        env:
-          DOCENGINE_VERSION: '0.0.105'
-      - run: npm install --no-audit --no-fund
       - run: npm run build

@@ -714,17 +714,17 @@ onMounted(async () => {
         </span>
       </RouterLink>
       <RouterLink
-        :to="{ name: 'setup-flows' }"
+        :to="{ name: 'setup-connections' }"
         class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
       >
         <i class="pi pi-share-alt text-primary text-xl mt-1" aria-hidden="true" />
         <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.flows.title', 'Flows') }}</span>
+          <span class="font-semibold">{{ t('setup.flows.title', 'Connections') }}</span>
           <span class="text-muted-color text-[0.8rem]">
             {{
               t(
                 'setup.flows.linkHint',
-                'Map flow keys to external HTTP webhooks for Automations.',
+                'Map connection keys to n8n or external HTTP webhooks for Automations.',
               )
             }}
           </span>

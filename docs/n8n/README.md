@@ -8,12 +8,14 @@ CoreEngine stays the only write path into Postgres. Do not add a Postgres node a
 
 n8n is not part of CoreEngine. Profile `automation` in `docker-compose.minimal.yml` only names the upstream image `n8nio/n8n`. You pull it yourself. The installers refuse `--with-n8n` / `-WithN8n`. n8n Community Edition is free for internal business use; hosted or resold use needs a separate agreement with n8n. White-labeling n8n, hosting it and charging for access, or putting it inside a commercial product or appliance is outside the Sustainable Use License. Sell implementation and support on the customer’s own instance, not “n8n access.” A managed host or a true bundle needs a commercial agreement: [license@n8n.io](mailto:license@n8n.io). This is not legal advice; confirm with them. Component list: [`../../THIRD_PARTY.md`](../../THIRD_PARTY.md).
 
+**MIT alternative:** [Activepieces](https://www.activepieces.com/) — same BFF write-back pattern via Setup → Connections Destination **Your Activepieces (MIT)**. See [`../activepieces/README.md`](../activepieces/README.md).
+
 ## Seamless client model
 
 | Who | Sees |
 |-----|------|
 | Receptionist / sales rep | **Message** list / related list (`Type`, `Result`, `Delivery status`) — create a Message to send |
-| Client admin | Setup → Flows keys (`dispatch_outbound_message`, …) on/off — **no raw n8n URLs** when Destination = Your n8n |
+| Client admin | Setup → Connections keys (`dispatch_outbound_message`, …) on/off — **no raw n8n URLs** when Destination = Your n8n |
 | You / partner | n8n canvas, credentials, Slack/Telegram failed-execution alerts |
 
 **Preferred outbox:** multichannel notifications and automations. `message` / `incoming_message` are ordinary objects — **no BFF special-case code**. Create a Sales `message` row (with **Is Draft** off) → pack automation `queue_outbound_message` sets `delivery_status=queued`. If **Scheduled send at** is empty, `dispatch_outbound_message` fires the n8n flow; if set, Setup → Tasks **`dispatch_due_messages`** claims the row (`sending`, `sending_since`, `attempts`) and triggers the same flow when due. A `sending` row older than `staleMinutes` is reclaimed; after `maxAttempts` it is marked `failed`. The same pack rules also run **on update** when **Is Draft** changes (draft On → Off).
@@ -36,6 +38,7 @@ Delivery outcome is tracked only via `delivery_status` (`queued` / `sending` / `
 | [`send-quote-pdf.workflow.json`](./send-quote-pdf.workflow.json) | `send_quote_pdf` → `ce-send_quote_pdf` | Sales: queue message → generate PDF → link → mark Sent |
 | [`send-appointment-reminder.workflow.json`](./send-appointment-reminder.workflow.json) | `send_appointment_reminder` → `ce-send_appointment_reminder` | Clinic: mark reminder Queued → stub send → Sent |
 | [`generate-opportunity-document.workflow.json`](./generate-opportunity-document.workflow.json) | `send_opportunity_document` → `ce-send_opportunity_document` | Document generate only (no message row) |
+| [`ingest-inbound-email.workflow.json`](./ingest-inbound-email.workflow.json) | Email Trigger (IMAP) — not a BFF webhook | **Inbound mailbox:** IMAP → match To/Cc to `users.email` (or route map / fallback owner) → upsert `incoming_message` by `external_message_id` |
 | [`failed-execution-alert.workflow.json`](./failed-execution-alert.workflow.json) | Error Trigger (not a webhook) | POST JSON alert when a linked workflow fails — select under **Settings → Error workflow**; do not flip Active for normal polling |
 
 ### Optional samples (inactive examples)
@@ -62,11 +65,15 @@ Runbook (payload shape, auth, loop avoidance): [`../n8n-bff-flows.md`](../n8n-bf
 | `OPPORTUNITY_QUOTE_TEMPLATE_ID` | Document / quote templates (also used by outbox when `message.opportunity` is set) |
 | `MESSAGE_DOC_TEMPLATE_ID` | Optional override for outbox PDF generate |
 | `SMTP_FROM` | From address for outbox **Send email** (e.g. `CoreEngine <you@gmail.com>`) |
-
-**Real email (Message Type = Email):** create n8n credential **CoreEngine SMTP** (Credentials → SMTP; Gmail needs an [App Password](https://myaccount.google.com/apppasswords)). Example shape: [`smtp.credentials.example.json`](./smtp.credentials.example.json). On `dispatch-outbound-message`, select that credential on **both** Send email nodes. Set `SMTP_FROM` on the n8n process to match. Attachments: **all** files on the Message (Files panel), plus a generated PDF when Opportunity + template env are set.
-| `N8N_INBOUND_SECRET` | Header `X-CRM-Inbound-Secret` on the upsert webhook |
+| `CRM_INBOUND_FALLBACK_OWNER_ID` | Inbound IMAP: `owner_id` when To/Cc does not match an app user (use `backend_user_id`) |
+| `CRM_INBOUND_ROUTE_MAP` | Optional JSON `{"sales@co.com":"<owner_id>",…}` — checked before `users.email` match |
+| `N8N_INBOUND_SECRET` | Header `X-CRM-Inbound-Secret` on the upsert-by-external-id sample webhook |
 | `CRM_UPSERT_COLLECTION` / `CRM_UPSERT_BY` | Default `account` / `external_id` (field must be unique) |
 | `ALERT_WEBHOOK_URL` | Failed-execution alert (Slack incoming webhook or any JSON POST) |
+
+**Real email (Message Type = Email):** create n8n credential **CoreEngine SMTP** (Credentials → SMTP; Gmail needs an [App Password](https://myaccount.google.com/apppasswords)). Example shape: [`smtp.credentials.example.json`](./smtp.credentials.example.json). On `dispatch-outbound-message`, select that credential on **both** Send email nodes. Set `SMTP_FROM` on the n8n process to match. Attachments: **all** files on the Message (Files panel), plus a generated PDF when Opportunity + template env are set.
+
+**Inbound mailbox:** import [`ingest-inbound-email.workflow.json`](./ingest-inbound-email.workflow.json), attach **CoreEngine IMAP** ([`imap.credentials.example.json`](./imap.credentials.example.json)), set `CRM_INBOUND_FALLBACK_OWNER_ID` (and optional `CRM_INBOUND_ROUTE_MAP`), re-apply the sales pack for unique `incoming_message.external_message_id`, then **Activate**. Not seeded by `registry:seed-n8n-pack-flows` (IMAP trigger, no BFF flow key).
 
 ## Optional upstream n8n (minimal stack)
 
@@ -96,14 +103,14 @@ Vendor guidance applied in `docker-compose.minimal.yml` + pack seeds:
 | **Env access in nodes** | Stock CE templates need `$env` (`BFF_URL`, `CRM_N8N_*`, `N8N_WEBHOOK_SECRET`, `SMTP_FROM`). Leave `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` until those move into n8n Credentials / `$vars`, then set `true`. |
 | **Integration user** | `npm run registry:seed-n8n-automation-user` creates a **non-admin** Integration user. Sales pack grants **Modify all** on `message` + `incoming_message` (outbox PATCH + inbox create with `owner_id=to_user`); **View all** on CRM entities needed for related reads / PDF under owner RLS. Do not pass `--admin` for day-to-day n8n. |
 
-## Wire a CoreEngine flow key
+## Wire a CoreEngine connection key
 
 **Recommended (your n8n):**
 
 1. Seed keys: `npm run registry:seed-n8n-pack-flows`
-2. Or Setup → Flows → New → Destination **Your n8n** → key e.g. `send_quote_pdf`
+2. Or Setup → Connections → New → Destination **Your n8n** → key e.g. `send_quote_pdf`
 3. Import + activate the matching workflow (webhook path `ce-{key}`)
-4. Put that key on Automations → Trigger flow (never a raw URL)
+4. Put that key on Automations → Call connection (never a raw URL)
 
 **Legacy single URL:** set `N8N_WEBHOOK_URL` and run `npm run registry:seed-n8n-flow-trigger` (stores an absolute URL).
 
@@ -112,10 +119,10 @@ Vendor guidance applied in `docker-compose.minimal.yml` + pack seeds:
 Three signals, on purpose:
 
 - **Message row** — outbox SMTP (or channel) failure runs **Mark failed** (`delivery_status=failed`, error text in `body`), then rethrows so the execution still errors.
-- **Inside CoreEngine** — Setup → Flows → **Failed runs** (outbound `runLocalFlow` errors, kept 90 days). Outbox webhook uses `responseMode=lastNode`, so a failed send returns an error to the BFF and appears here. Setup → Tasks → **Failed runs** covers scheduled jobs (`FAILED`); per-task **History** remains.
+- **Inside CoreEngine** — Setup → Connections → **Failed runs** (outbound `runLocalFlow` errors, kept 90 days). Outbox webhook uses `responseMode=lastNode`, so a failed send returns an error to the BFF and appears here. Setup → Tasks → **Failed runs** covers scheduled jobs (`FAILED`); per-task **History** remains.
 - **Optional admin email** — Setup → General → **Failed-run alerts** (needs platform `SMTP_HOST` / `SMTP_FROM`). Or set `FAILED_RUN_NOTIFY_EMAIL` / `FAILED_RUN_NOTIFY=true`. Same flow/task key is not emailed again for 15 minutes.
 - **Inside n8n** — Executions, filter **Error**. Import [`failed-execution-alert.workflow.json`](./failed-execution-alert.workflow.json), set `ALERT_WEBHOOK_URL`, then on each pack workflow open **Settings → Error workflow** and select **CoreEngine — failed execution alert** (Error Trigger workflows are not toggled Active like webhooks). n8n does not call that workflow unless the failing workflow points at it.
 
-**Smoke the failure path:** break SMTP on purpose (wrong host/password) → create/Send a Message → confirm `delivery_status=failed`, Setup → Flows → Failed runs has `dispatch_outbound_message`, and the alert webhook receives a POST. Re-export the outbox JSON if you changed the canvas.
+**Smoke the failure path:** break SMTP on purpose (wrong host/password) → create/Send a Message → confirm `delivery_status=failed`, Setup → Connections → Failed runs has `dispatch_outbound_message`, and the alert webhook receives a POST. Re-export the outbox JSON if you changed the canvas.
 
 In-process jobs are still a timer in each BFF process. Run the scheduler on one process (`TASK_SCHEDULER_ENABLED=false` on the others).

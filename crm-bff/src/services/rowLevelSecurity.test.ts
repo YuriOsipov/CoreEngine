@@ -3,6 +3,8 @@ import type { MeUser } from '../adapters/usersAdapter.js'
 import { SYSTEM_RECORD_ACCESS } from '../adapters/records/types.js'
 
 const resolveRoleOwnerBypass = vi.fn()
+const loadM2ORelations = vi.fn()
+const loadO2MRelations = vi.fn()
 
 vi.mock('./rolePermissions.js', () => ({
   resolveRoleOwnerBypass: (...args: unknown[]) => resolveRoleOwnerBypass(...args),
@@ -13,11 +15,19 @@ vi.mock('./cacheEpoch.js', () => ({
   bumpCacheEpoch: async () => 1,
 }))
 
+vi.mock('../adapters/records/relations.js', () => ({
+  loadM2ORelations: (...args: unknown[]) => loadM2ORelations(...args),
+  loadO2MRelations: (...args: unknown[]) => loadO2MRelations(...args),
+}))
+
 import {
   applyOwnerFilterIfNeeded,
   assertOwnerAccessIfNeeded,
   assertRecordOwner,
+  assertRelatedOwnerFilterHopsSupported,
   bypassesRowLevelSecurity,
+  CACHE_NEGATIVE_TTL_MS,
+  CACHE_TTL_MS,
   clearRowLevelSecurityCache,
   mergeOwnerFilter,
   ownerEqFilter,
@@ -40,6 +50,10 @@ vi.mock('../db/pool.js', () => ({
       return [
         {
           api_name: 'opportunity',
+          backend_config: { rowLevelSecurity: 'owner' },
+        },
+        {
+          api_name: 'account',
           backend_config: { rowLevelSecurity: 'owner' },
         },
         {
@@ -327,11 +341,91 @@ describe('View all / Modify all bypass', () => {
   })
 })
 
+describe('assertRelatedOwnerFilterHopsSupported (Directus fail closed)', () => {
+  beforeEach(() => {
+    clearRowLevelSecurityCache()
+    resolveRoleOwnerBypass.mockReset()
+    resolveRoleOwnerBypass.mockResolvedValue({ viewAll: false, modifyAll: false })
+    loadM2ORelations.mockReset()
+    loadO2MRelations.mockReset()
+    loadM2ORelations.mockImplementation(async (entity: string) => {
+      if (entity === 'opportunity') {
+        return [
+          { fieldApiName: 'account_id', relatedEntityApiName: 'account' },
+        ]
+      }
+      return []
+    })
+    loadO2MRelations.mockResolvedValue([])
+  })
+
+  it('refuses dotted filters through an owner-secured related entity', async () => {
+    await expect(
+      assertRelatedOwnerFilterHopsSupported(
+        'opportunity',
+        { 'account_id.name': { _eq: 'Acme' } },
+        me({ id: 'u1' }),
+      ),
+    ).rejects.toThrow(
+      'related owner row security cannot be applied on Directus filters for account',
+    )
+  })
+
+  it('refuses nested filters through an owner-secured related entity', async () => {
+    await expect(
+      assertRelatedOwnerFilterHopsSupported(
+        'opportunity',
+        { account_id: { name: { _eq: 'Acme' } } },
+        me({ id: 'u1' }),
+      ),
+    ).rejects.toThrow(
+      'related owner row security cannot be applied on Directus filters for account',
+    )
+  })
+
+  it('allows local comparison filters and admin callers', async () => {
+    await expect(
+      assertRelatedOwnerFilterHopsSupported(
+        'opportunity',
+        { stage: { _eq: 'open' } },
+        me({ id: 'u1' }),
+      ),
+    ).resolves.toBeUndefined()
+    await expect(
+      assertRelatedOwnerFilterHopsSupported(
+        'opportunity',
+        { account_id: { name: { _eq: 'Acme' } } },
+        me({ id: 'admin', adminAccess: true }),
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  it('allows related hops when the role has View all on the related entity', async () => {
+    resolveRoleOwnerBypass.mockImplementation(
+      async (_me: unknown, entity: string) =>
+        entity === 'account'
+          ? { viewAll: true, modifyAll: false }
+          : { viewAll: false, modifyAll: false },
+    )
+    await expect(
+      assertRelatedOwnerFilterHopsSupported(
+        'opportunity',
+        { account_id: { name: { _eq: 'Acme' } } },
+        me({ id: 'u1' }),
+      ),
+    ).resolves.toBeUndefined()
+  })
+})
+
 describe('owner config load failure', () => {
   beforeEach(() => {
     clearRowLevelSecurityCache()
     resolveRoleOwnerBypass.mockReset()
     resolveRoleOwnerBypass.mockResolvedValue({ viewAll: false, modifyAll: false })
+    loadM2ORelations.mockReset()
+    loadO2MRelations.mockReset()
+    loadM2ORelations.mockResolvedValue([])
+    loadO2MRelations.mockResolvedValue([])
     vi.useRealTimers()
   })
 
@@ -351,11 +445,25 @@ describe('owner config load failure', () => {
       await expect(
         applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
       ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
-      vi.advanceTimersByTime(5_001)
+      const callsAfterWarm = vi.mocked(query).mock.calls.length
+      vi.advanceTimersByTime(CACHE_TTL_MS + 1)
       vi.mocked(query).mockRejectedValueOnce(new Error('connection reset'))
       await expect(
         applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
       ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
+      expect(vi.mocked(query).mock.calls.length).toBe(callsAfterWarm + 1)
+
+      // Negative cache: do not re-query while the failure window is open.
+      await expect(
+        applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
+      ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
+      expect(vi.mocked(query).mock.calls.length).toBe(callsAfterWarm + 1)
+
+      vi.advanceTimersByTime(CACHE_NEGATIVE_TTL_MS + 1)
+      await expect(
+        applyOwnerFilterIfNeeded('opportunity', { me: me({ id: 'u1' }) }, null),
+      ).resolves.toEqual({ [ROW_OWNER_FIELD]: { _eq: 'u1' } })
+      expect(vi.mocked(query).mock.calls.length).toBe(callsAfterWarm + 2)
     } finally {
       vi.useRealTimers()
     }

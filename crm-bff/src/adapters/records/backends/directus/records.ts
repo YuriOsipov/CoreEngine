@@ -8,6 +8,7 @@ import { assertGqlName, directusRequest, graphqlLiteral } from './client.js'
 import { expandDottedFilterKeys } from '../../expandDottedFilterKeys.js'
 import type { RecordsAggregateOptions, RecordsListParams, RecordsListResult } from '../../types.js'
 import { aggregateSelectFields, groupAggregateRows } from '../../groupAggregate.js'
+import { assertRelatedOwnerFilterHopsSupported } from '../../../../services/rowLevelSecurity.js'
 
 export interface DirectusEntityConfig {
   endpoint: string | null
@@ -454,6 +455,13 @@ export async function directusFindMany(
   params: RecordsListParams = {},
 ): Promise<RecordsListResult> {
   const config = await resolveDirectusConfig(collection)
+  // Directus cannot AND related-row owner predicates into nested/dotted filters
+  // (Supabase/Hasura M2O search can). Fail closed instead of probing.
+  await assertRelatedOwnerFilterHopsSupported(
+    collection,
+    params.filter ?? null,
+    params.access?.me,
+  )
   const scalarFields = await loadScalarFieldNames(collection)
   const root = config.collection
   const agg = `${root}_aggregated`
@@ -706,6 +714,7 @@ async function directusScanRows(
   params: {
     filter?: Record<string, unknown> | null
     fields: string[]
+    access?: RecordsListParams['access']
   },
 ): Promise<Record<string, unknown>[]> {
   const nodes: Record<string, unknown>[] = []
@@ -717,6 +726,7 @@ async function directusScanRows(
       limit: DIRECTUS_GROUP_PAGE,
       offset,
       includeDeleted: false,
+      access: params.access,
     })
     nodes.push(...page.nodes)
     if (page.nodes.length < DIRECTUS_GROUP_PAGE) break
@@ -738,6 +748,12 @@ export async function directusAggregate(
   if (!aggEntries.length) {
     throw new Error('directusAggregate: at least one aggregate function is required')
   }
+
+  await assertRelatedOwnerFilterHopsSupported(
+    collection,
+    options.filter ?? null,
+    options.access?.me,
+  )
 
   const groupFields = (options.groupBy ?? []).filter(
     (field): field is string => Boolean(field),
@@ -780,6 +796,7 @@ export async function directusAggregate(
       const nodes = await directusScanRows(collection, {
         filter: options.filter ?? null,
         fields: aggregateSelectFields(groupFields, options.aggregate),
+        access: options.access,
       })
       return groupAggregateRows(
         nodes,

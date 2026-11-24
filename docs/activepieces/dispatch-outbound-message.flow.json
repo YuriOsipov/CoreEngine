@@ -1,0 +1,503 @@
+{
+  "name": "CoreEngine — dispatch outbound message",
+  "description": "CoreEngine Sales Message outbox (draft clear / mark sent / optional incoming_message). Mirror of docs/n8n/dispatch-outbound-message.workflow.json.",
+  "flows": [
+    {
+      "displayName": "CoreEngine — dispatch outbound message",
+      "schemaVersion": null,
+      "notes": [],
+      "trigger": {
+        "name": "trigger",
+        "type": "PIECE_TRIGGER",
+        "valid": true,
+        "displayName": "Catch Webhook",
+        "settings": {
+          "pieceName": "@activepieces/piece-webhook",
+          "pieceVersion": "~0.1.43",
+          "pieceType": "OFFICIAL",
+          "packageType": "REGISTRY",
+          "triggerName": "catch_webhook",
+          "input": {
+            "authType": "header",
+            "authFields": {
+              "headerName": "X-CRM-Flow-Secret",
+              "headerValue": "{{YOUR_ACTIVEPIECES_WEBHOOK_SECRET}}"
+            }
+          },
+          "propertySettings": {},
+          "sampleData": {}
+        },
+        "nextAction": {
+          "name": "prepare_context",
+          "type": "CODE",
+          "valid": true,
+          "displayName": "Prepare context",
+          "skip": false,
+          "settings": {
+            "input": {
+              "payload": "{{ trigger }}"
+            },
+            "sourceCode": {
+              "code": "export const code = async (inputs) => {\n  const root = inputs.payload || {};\n  const body = root.body && typeof root.body === 'object' ? root.body : root;\n  const record = body.record && typeof body.record === 'object' ? body.record : {};\n  const messageId = String(body.recordId || body.id || record.id || '').trim();\n  const idempotencyKey = String(body.idempotencyKey || (messageId ? `ce-message-${messageId}` : '')).trim();\n  const isDraft = record.is_draft === true || record.is_draft === 'true' || record.is_draft === 1;\n  const status = String(record.delivery_status || '').toLowerCase();\n  const alreadyDelivered = status === 'sent' || status === 'delivered';\n  const toUser = record.to_user || null;\n  const toUserId = toUser && typeof toUser === 'object' ? String(toUser.id || '').trim() : String(toUser || '').trim();\n  const fromUser = record.from_user || null;\n  const fromUserId = fromUser && typeof fromUser === 'object' ? String(fromUser.id || '').trim() : String(fromUser || '').trim();\n  const email = String(record.email || '').trim();\n  const subject = String(record.subject || record.name || '').trim() || 'Message from CoreEngine';\n  const messageBody = String(record.body || '');\n  const rawType = String(record.type ?? '').trim().toLowerCase();\n  const channel =\n    rawType === 'internal' || rawType === '4' || toUserId\n      ? 'internal'\n      : rawType === 'whatsapp' || rawType === '2'\n        ? 'whatsapp'\n        : rawType === 'telegram' || rawType === '3'\n          ? 'telegram'\n          : 'email';\n  return {\n    messageId,\n    idempotencyKey,\n    hasMessageId: Boolean(messageId),\n    isDraft,\n    alreadyDelivered,\n    toUserId,\n    fromUserId,\n    email,\n    subject,\n    body: messageBody,\n    channel,\n    branch: !messageId\n      ? 'invalid'\n      : isDraft\n        ? 'draft'\n        : alreadyDelivered\n          ? 'skip'\n          : 'send',\n  };\n};\n",
+              "packageJson": "{}"
+            },
+            "errorHandlingOptions": {
+              "continueOnFailure": {
+                "value": false
+              },
+              "retryOnFailure": {
+                "value": false
+              }
+            }
+          },
+          "nextAction": {
+            "name": "bff_login",
+            "type": "PIECE",
+            "valid": true,
+            "displayName": "BFF Login",
+            "skip": false,
+            "settings": {
+              "pieceName": "@activepieces/piece-http",
+              "pieceVersion": "~0.13.3",
+              "pieceType": "OFFICIAL",
+              "packageType": "REGISTRY",
+              "actionName": "send_request",
+              "input": {
+                "url": "http://host.docker.internal:4000/auth/login",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json"
+                },
+                "body_type": "json",
+                "body": {
+                  "email": "{{YOUR_CRM_N8N_EMAIL}}",
+                  "password": "{{YOUR_CRM_N8N_PASSWORD}}"
+                },
+                "failsafe": false,
+                "timeout": 30
+              },
+              "propertySettings": {},
+              "sampleData": {},
+              "errorHandlingOptions": {
+                "continueOnFailure": {
+                  "value": false
+                },
+                "retryOnFailure": {
+                  "value": false
+                }
+              }
+            },
+            "nextAction": {
+              "name": "route_message",
+              "type": "ROUTER",
+              "valid": true,
+              "displayName": "Route message",
+              "skip": false,
+              "settings": {
+                "branches": [
+                  {
+                    "branchType": "CONDITION",
+                    "branchName": "Clear draft",
+                    "conditions": [
+                      [
+                        {
+                          "operator": "TEXT_EXACTLY_MATCHES",
+                          "firstValue": "{{ prepare_context.branch }}",
+                          "secondValue": "draft",
+                          "caseSensitive": false
+                        }
+                      ]
+                    ]
+                  },
+                  {
+                    "branchType": "CONDITION",
+                    "branchName": "Already sent",
+                    "conditions": [
+                      [
+                        {
+                          "operator": "TEXT_EXACTLY_MATCHES",
+                          "firstValue": "{{ prepare_context.branch }}",
+                          "secondValue": "skip",
+                          "caseSensitive": false
+                        }
+                      ]
+                    ]
+                  },
+                  {
+                    "branchType": "CONDITION",
+                    "branchName": "Send",
+                    "conditions": [
+                      [
+                        {
+                          "operator": "TEXT_EXACTLY_MATCHES",
+                          "firstValue": "{{ prepare_context.branch }}",
+                          "secondValue": "send",
+                          "caseSensitive": false
+                        }
+                      ]
+                    ]
+                  },
+                  {
+                    "branchType": "FALLBACK",
+                    "branchName": "Otherwise"
+                  }
+                ],
+                "executionType": "EXECUTE_FIRST_MATCH"
+              },
+              "children": [
+                {
+                  "name": "clear_draft",
+                  "type": "PIECE",
+                  "valid": true,
+                  "displayName": "Clear draft",
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@activepieces/piece-http",
+                    "pieceVersion": "~0.13.3",
+                    "pieceType": "OFFICIAL",
+                    "packageType": "REGISTRY",
+                    "actionName": "send_request",
+                    "input": {
+                      "url": "http://host.docker.internal:4000/api/v1/message/{{ prepare_context.messageId }}",
+                      "method": "PATCH",
+                      "headers": {
+                        "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                        "X-CRM-Automation": "activepieces",
+                        "Content-Type": "application/json"
+                      },
+                      "body_type": "json",
+                      "body": {
+                        "is_draft": false
+                      },
+                      "failsafe": false,
+                      "timeout": 30
+                    },
+                    "propertySettings": {},
+                    "sampleData": {},
+                    "errorHandlingOptions": {
+                      "continueOnFailure": {
+                        "value": false
+                      },
+                      "retryOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": {
+                    "name": "respond_draft",
+                    "type": "PIECE",
+                    "valid": true,
+                    "displayName": "Return draft cleared",
+                    "skip": false,
+                    "settings": {
+                      "pieceName": "@activepieces/piece-webhook",
+                      "pieceVersion": "~0.1.43",
+                      "pieceType": "OFFICIAL",
+                      "packageType": "REGISTRY",
+                      "actionName": "return_response",
+                      "input": {
+                        "fields": {
+                          "status": 200,
+                          "headers": {},
+                          "body": {
+                            "ok": true,
+                            "action": "draft_cleared",
+                            "messageId": "{{ prepare_context.messageId }}"
+                          }
+                        },
+                        "respond": "stop",
+                        "responseType": "json"
+                      },
+                      "propertySettings": {},
+                      "sampleData": {},
+                      "errorHandlingOptions": {
+                        "continueOnFailure": {
+                          "value": false
+                        },
+                        "retryOnFailure": {
+                          "value": false
+                        }
+                      }
+                    },
+                    "nextAction": null
+                  }
+                },
+                {
+                  "name": "respond_skip",
+                  "type": "PIECE",
+                  "valid": true,
+                  "displayName": "Return already sent",
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@activepieces/piece-webhook",
+                    "pieceVersion": "~0.1.43",
+                    "pieceType": "OFFICIAL",
+                    "packageType": "REGISTRY",
+                    "actionName": "return_response",
+                    "input": {
+                      "fields": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {
+                          "ok": true,
+                          "action": "skipped",
+                          "messageId": "{{ prepare_context.messageId }}",
+                          "reason": "already_delivered"
+                        }
+                      },
+                      "respond": "stop",
+                      "responseType": "json"
+                    },
+                    "propertySettings": {},
+                    "sampleData": {},
+                    "errorHandlingOptions": {
+                      "continueOnFailure": {
+                        "value": false
+                      },
+                      "retryOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": null
+                },
+                {
+                  "name": "mark_sent",
+                  "type": "PIECE",
+                  "valid": true,
+                  "displayName": "Mark sent",
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@activepieces/piece-http",
+                    "pieceVersion": "~0.13.3",
+                    "pieceType": "OFFICIAL",
+                    "packageType": "REGISTRY",
+                    "actionName": "send_request",
+                    "input": {
+                      "url": "http://host.docker.internal:4000/api/v1/message/{{ prepare_context.messageId }}",
+                      "method": "PATCH",
+                      "headers": {
+                        "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                        "X-CRM-Automation": "activepieces",
+                        "Content-Type": "application/json"
+                      },
+                      "body_type": "json",
+                      "body": {
+                        "delivery_status": "sent"
+                      },
+                      "failsafe": false,
+                      "timeout": 30
+                    },
+                    "propertySettings": {},
+                    "sampleData": {},
+                    "errorHandlingOptions": {
+                      "continueOnFailure": {
+                        "value": false
+                      },
+                      "retryOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": {
+                    "name": "inbox_router",
+                    "type": "ROUTER",
+                    "valid": true,
+                    "displayName": "Create inbox?",
+                    "skip": false,
+                    "settings": {
+                      "branches": [
+                        {
+                          "branchType": "CONDITION",
+                          "branchName": "Has to_user",
+                          "conditions": [
+                            [
+                              {
+                                "operator": "EXISTS",
+                                "firstValue": "{{ prepare_context.toUserId }}",
+                                "secondValue": "",
+                                "caseSensitive": false
+                              }
+                            ]
+                          ]
+                        },
+                        {
+                          "branchType": "FALLBACK",
+                          "branchName": "No inbox"
+                        }
+                      ],
+                      "executionType": "EXECUTE_FIRST_MATCH"
+                    },
+                    "children": [
+                      {
+                        "name": "create_incoming",
+                        "type": "PIECE",
+                        "valid": true,
+                        "displayName": "Create incoming_message",
+                        "skip": false,
+                        "settings": {
+                          "pieceName": "@activepieces/piece-http",
+                          "pieceVersion": "~0.13.3",
+                          "pieceType": "OFFICIAL",
+                          "packageType": "REGISTRY",
+                          "actionName": "send_request",
+                          "input": {
+                            "url": "http://host.docker.internal:4000/api/v1/incoming_message",
+                            "method": "POST",
+                            "headers": {
+                              "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                              "X-CRM-Automation": "activepieces",
+                              "Content-Type": "application/json"
+                            },
+                            "body_type": "json",
+                            "body": {
+                              "owner_id": "{{ prepare_context.toUserId }}",
+                              "subject": "{{ prepare_context.subject }}",
+                              "body": "{{ prepare_context.body }}",
+                              "type": "{{ prepare_context.channel }}",
+                              "source_message": "{{ prepare_context.messageId }}",
+                              "from_user": "{{ prepare_context.fromUserId }}"
+                            },
+                            "failsafe": false,
+                            "timeout": 30
+                          },
+                          "propertySettings": {},
+                          "sampleData": {},
+                          "errorHandlingOptions": {
+                            "continueOnFailure": {
+                              "value": false
+                            },
+                            "retryOnFailure": {
+                              "value": false
+                            }
+                          }
+                        },
+                        "nextAction": {
+                          "name": "respond_sent_inbox",
+                          "type": "PIECE",
+                          "valid": true,
+                          "displayName": "Return sent + inbox",
+                          "skip": false,
+                          "settings": {
+                            "pieceName": "@activepieces/piece-webhook",
+                            "pieceVersion": "~0.1.43",
+                            "pieceType": "OFFICIAL",
+                            "packageType": "REGISTRY",
+                            "actionName": "return_response",
+                            "input": {
+                              "fields": {
+                                "status": 200,
+                                "headers": {},
+                                "body": {
+                                  "ok": true,
+                                  "action": "sent",
+                                  "inbox": true,
+                                  "messageId": "{{ prepare_context.messageId }}"
+                                }
+                              },
+                              "respond": "stop",
+                              "responseType": "json"
+                            },
+                            "propertySettings": {},
+                            "sampleData": {},
+                            "errorHandlingOptions": {
+                              "continueOnFailure": {
+                                "value": false
+                              },
+                              "retryOnFailure": {
+                                "value": false
+                              }
+                            }
+                          },
+                          "nextAction": null
+                        }
+                      },
+                      {
+                        "name": "respond_sent",
+                        "type": "PIECE",
+                        "valid": true,
+                        "displayName": "Return sent",
+                        "skip": false,
+                        "settings": {
+                          "pieceName": "@activepieces/piece-webhook",
+                          "pieceVersion": "~0.1.43",
+                          "pieceType": "OFFICIAL",
+                          "packageType": "REGISTRY",
+                          "actionName": "return_response",
+                          "input": {
+                            "fields": {
+                              "status": 200,
+                              "headers": {},
+                              "body": {
+                                "ok": true,
+                                "action": "sent",
+                                "inbox": false,
+                                "messageId": "{{ prepare_context.messageId }}"
+                              }
+                            },
+                            "respond": "stop",
+                            "responseType": "json"
+                          },
+                          "propertySettings": {},
+                          "sampleData": {},
+                          "errorHandlingOptions": {
+                            "continueOnFailure": {
+                              "value": false
+                            },
+                            "retryOnFailure": {
+                              "value": false
+                            }
+                          }
+                        },
+                        "nextAction": null
+                      }
+                    ],
+                    "nextAction": null
+                  }
+                },
+                {
+                  "name": "respond_invalid",
+                  "type": "PIECE",
+                  "valid": true,
+                  "displayName": "Return invalid",
+                  "skip": false,
+                  "settings": {
+                    "pieceName": "@activepieces/piece-webhook",
+                    "pieceVersion": "~0.1.43",
+                    "pieceType": "OFFICIAL",
+                    "packageType": "REGISTRY",
+                    "actionName": "return_response",
+                    "input": {
+                      "fields": {
+                        "status": 400,
+                        "headers": {},
+                        "body": {
+                          "ok": false,
+                          "error": "missing_messageId"
+                        }
+                      },
+                      "respond": "stop",
+                      "responseType": "json"
+                    },
+                    "propertySettings": {},
+                    "sampleData": {},
+                    "errorHandlingOptions": {
+                      "continueOnFailure": {
+                        "value": false
+                      },
+                      "retryOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": null
+                }
+              ],
+              "nextAction": null
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -45,10 +45,12 @@ import {
 import { oidcPublicErrorCode } from './auth/oidcPublicErrors.js'
 import { assertBootstrapPasswordsSafe } from './auth/bootstrapPasswordGuard.js'
 import { localLoginHttpGuard } from './auth/localLoginHttp.js'
+import { assertConfigAuditsAppendOnlyReady } from './audit/configAuditsSchemaGate.js'
 import { assertFieldSensitivitySchemaReady } from './services/fieldSecurity.js'
 import { assertOidcRefreshTokenSchemaReady } from './auth/oidcSchemaGate.js'
 import {
   assertProductionFlowAuthConfig,
+  warnIfActivepiecesWebhookSecretMissing,
   warnIfN8nWebhookSecretMissing,
 } from './flows/flowAuth.js'
 import { authJwtSecret } from './auth/jwt.js'
@@ -843,12 +845,15 @@ async function start() {
     assertCorsConfigSafe()
     assertProductionFlowAuthConfig()
     warnIfN8nWebhookSecretMissing(app.log)
+    warnIfActivepiecesWebhookSecretMissing(app.log)
     assertOidcConfigReady()
     // Refuse known example bootstrap passwords (admin12345 / ChangeMeNow!, …)
     // unless ALLOW_INSECURE_BOOTSTRAP=true.
     await assertBootstrapPasswordsSafe()
     // Production: field-level security columns must exist (no silent FLS-off).
     await assertFieldSensitivitySchemaReady()
+    // Append-only triggers may be NOTICE-skipped when migrate role ≠ table owner.
+    await assertConfigAuditsAppendOnlyReady()
     // When OIDC_CHECK_ON_REFRESH is on, oidc_* columns must exist (no 500 on login).
     await assertOidcRefreshTokenSchemaReady()
     await app.listen({ port, host: '0.0.0.0' })

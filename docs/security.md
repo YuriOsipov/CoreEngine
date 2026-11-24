@@ -47,8 +47,6 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 - **Column-level only.** Flags do **not** by themselves cover “Sales can see salary only for their own team” — combine with owner row security or keep that data on a separate object.
 - **Covered (unit-tested):** record reads & writes; filters, sorts, aggregates (`assertReadableQuery` before every store); dotted SOQL keys; list search; revision snapshot redaction; export/import; upsert / unique-key lookups; `expand=children`; bulk update; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (value field, **rollup child filters**, formula sources); live rollup omit on filter FLS deny; child value lookup filter/value FLS; ddlSync sensitivity column comments; production boot refuses missing sensitivity columns; hard delete audits **before** erase; GraphQL strips / admin-gates automation rules; JWT flow `update_record` FLS on merged patch; presets/dashboards/panels list visibility.
 - **Documents vs FLS:** `generateDocument` freezes the generating caller’s readable snapshot. Persisted `doc_value` / PDF/HTML then follows **document-object ACL**. See [`generate-document-api.md`](./generate-document-api.md).
-- **Known gaps** (close or add regression tests — see below).
-
 ## Owner row security (record-level)
 
 - Opt-in per object so users without View/Modify all only reach rows they **own** (`owner_id`). Kernel default is **off**. The **Sales pack** turns it **on** for `account`, `contact`, `opportunity`, `message`, and `opportunity_item`.
@@ -58,10 +56,10 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 - **Also grant read if** (`rowLevelReadAlsoIf`): UUID/M2O → Users fields (e.g. Message `to_user`). Matching users may **read**; update/delete stay owner-only.
 - **Also grant read if same role as owner** (`rowLevelReadAlsoIfSameRole`): peers with the owner’s app Role may **read**. Coarser than a future Teams object.
 - **Typical setup:** Reps = Read/Update (owner filter). Managers = same CRUD **plus View all** (and **Modify all** if needed). Platform admins bypass.
-- **Enforced:** list, get-by-id, update, soft-delete, restore, aggregates, live rollups, M2O list search, file read/write on parent records, generateDocument source access.
+- **Enforced:** list, get-by-id, update, soft-delete, restore, aggregates, live rollups, M2O list search (Supabase/Hasura), file read/write on parent records, generateDocument source access. Directus applies owner filters on the queried object itself; nested/dotted filters that hop through an owner-secured related object are **refused** (Directus cannot AND a related-row owner predicate the way Supabase/Hasura M2O search can).
 - **Bypass:** admins; `SYSTEM_RECORD_ACCESS`; role **View all** / **Modify all** (still need Read / Update / Delete).
-- **Not yet:** Teams / membership subsets, manual share UI, role hierarchy, criteria sharing rules, or **bulk** Change Owner from the list. Role list filters/views are UX-only.
-- **n8n / automation:** any active app user JWT works for record APIs. Seed helper defaults to non-admin **Integration**. With owner RLS on, creates stamp `owner_id` to that user.
+- **Not yet:** Teams / membership subsets, manual share UI, role hierarchy, criteria sharing rules, or **bulk** Change Owner from the list. Role list filters/views are UX-only. Directus has no related-row owner filter implementation (fail closed instead).
+- **n8n / Activepieces / automation:** any active app user JWT works for record APIs. Seed helper defaults to non-admin **Integration**. With owner RLS on, creates stamp `owner_id` to that user.
 - **Tests:** `crm-bff/src/services/rowLevelSecurity.test.ts`, `fieldSecurity.test.ts`, `resolverAccessPolicy.test.ts`.
 
 ## Layouts, preview, and UX
@@ -75,7 +73,7 @@ No open high-priority FLS/ACL gaps. Buyer notes:
 
 - **Record automations** — Setup → Automations are **trusted server policy** (like formulas/rollups). create/update/delete/open `setFields` apply after the caller passes object Update + owner RLS; caller FLS does not block automation keys. **`notify`** is toast-only. JWT flow `update_record` still FLS-checks the merged patch. Automation definition changes go to `config_audits`.
 - **FLS cache** — Setup field/role writes call `clearFieldSecurityCache()` (DB epoch); peers reload on next request. In-memory TTL is a fallback only.
-- **Owner RLS “Not yet”** — Teams / membership subsets, manual share UI, role hierarchy, criteria sharing, bulk Change Owner (see Owner row security above).
+- **Owner RLS “Not yet”** — Teams / membership subsets, manual share UI, role hierarchy, criteria sharing, bulk Change Owner (see Owner row security above). Directus related-row owner filters are fail-closed, not implemented.
 
 Keep Confidential data on objects with tight object ACL / owner RLS. Config history: GraphQL `configAudits` or DB `public.config_audits`.
 
@@ -86,17 +84,17 @@ Keep Confidential data on objects with tight object ACL / owner RLS. Config hist
 | **JWTs** | HMAC-signed, algorithm-pinned, verified on each guarded request. Access TTL **15 minutes**; refresh rotates. Reuse of a rotated refresh token revokes **all** sessions. Placeholder / too-short `AUTH_JWT_SECRET` refused at every BFF start. |
 | **OIDC SSO** | Optional external IdP. BFF is the relying party. Roles stay in CoreEngine. See [`oidc-sso.md`](./oidc-sso.md). |
 | **Admin status** | From the **database**, not JWT / IdP claims. |
-| **Setup mutations** | Require **admin**. Config changes → `config_audits` / `configAudits` query (includes automations + org settings). |
+| **Setup mutations** | Require **admin**. Config changes → `config_audits` / `configAudits` query (includes automations + org settings). BFF start + `registry:check-cutover` refuse missing append-only triggers (`config_audits_append_only` / `_truncate`) — migrate can NOTICE-skip them when the role does not own the table. |
 | **Automation rules** | Admin-only schema read; create/update/delete/open `setFields` are trusted server policy (caller needs Update + owner RLS). JWT flow patches are FLS-checked. |
 | **Presets / dashboards** | Non-admins see global + own-user / own-role presets; dashboards/panels scoped like layoutSettings (`role_id` null or matching role). |
 | **Object ACL** | Per-role CRUD matrix. Missing Read blocks the object on API paths. |
 | **Field tiers** | Sensitivity `0` / `1` / `2` + per-role max read/edit. Production refuses to start if sensitivity columns are missing. |
 | **Owner row security** | Opt-in `owner_id` + optional read-share / same-role read. Managers: View all / Modify all. No Teams object yet. |
 | **Document render** | Worker thread + hard kill on timeout; V8 heap/stack `resourceLimits`; `DOC_RENDER_*` caps. Uses published `@docengine/pdf-renderer` (real PDF smoke lives in the DocEngine package / local `crm-bff` `npm run test:docengine-render`). |
-| **Hasura / Directus** | Optional record backends — keep admin consoles / secrets off public networks. Clients talk to the BFF only. |
+| **Hasura / Directus** | Optional record backends — keep admin consoles / secrets off public networks. Clients talk to the BFF only. Directus: nested/dotted filters through owner-secured related objects are refused (no related-row owner filter). Prefer Supabase/Hasura when owner RLS + relation filters are required. |
 | **Scheduler** | In-process with **Postgres advisory locks** per task + Message **SKIP LOCKED** claim. Prefer **one** BFF with `TASK_SCHEDULER_ENABLED=true`; disable on replicas. Durable multi-instance queue (pg-boss / Graphile Worker) is planned. |
 | **Flows** | `FLOWS_TRIGGER_REQUIRE_AUTH=false` refused in production. |
 | **CORS** | Explicit origin allowlist; `CORS_ORIGIN=*` ignored / refused in production. |
 | **TLS & rate limiting** | Terminate TLS at the reverse proxy. Login uses per-IP and per-IP+email failure windows. |
 | **Bootstrap** | Weak bootstrap admin passwords refused unless `ALLOW_INSECURE_BOOTSTRAP=true`. |
-| **n8n automation user** | Any active app user JWT; seed helper defaults to non-admin Integration. |
+| **n8n / Activepieces automation user** | Any active app user JWT; seed helper defaults to non-admin Integration. |

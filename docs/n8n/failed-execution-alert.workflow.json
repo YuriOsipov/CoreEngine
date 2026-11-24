@@ -48,7 +48,7 @@
   },
   "meta": {
     "templateCredsSetupCompleted": false,
-    "crmNotes": "n8n only fires an error workflow when the failing workflow points at it. Activate this workflow after ALERT_WEBHOOK_URL is set. CoreEngine Setup → Flows / Tasks lists in-process failures, not n8n execution errors."
+    "crmNotes": "n8n only fires an error workflow when the failing workflow points at it. Activate this workflow after ALERT_WEBHOOK_URL is set. CoreEngine Setup → Connections / Tasks lists in-process failures, not n8n execution errors."
   },
   "pinData": {},
   "versionId": "1"

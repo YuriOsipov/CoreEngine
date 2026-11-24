@@ -36,6 +36,7 @@ describe('n8n workflow templates', () => {
       'dispatch-outbound-message.workflow.json',
       'failed-execution-alert.workflow.json',
       'generate-opportunity-document.workflow.json',
+      'ingest-inbound-email.workflow.json',
       'record-rest-patch.workflow.json',
       'send-appointment-reminder.workflow.json',
       'send-quote-pdf.workflow.json',
@@ -139,5 +140,29 @@ describe('n8n workflow templates', () => {
     expect(route?.parameters?.jsCode).toMatch(/record\.subject/)
     expect(route?.parameters?.jsCode).toMatch(/rawType === 'email'|channel === 'email'/)
     expect(route?.parameters?.jsCode).not.toMatch(/type === 1\b/)
+  })
+
+  it('inbound IMAP template upserts incoming_message by external_message_id', () => {
+    const inbound = workflows.find((entry) => entry.file === 'ingest-inbound-email.workflow.json')
+    expect(inbound).toBeTruthy()
+    const workflow = inbound!.workflow as WorkflowFile & {
+      nodes: Array<
+        WorkflowNode & {
+          parameters?: { jsCode?: string; url?: string; mailbox?: string }
+        }
+      >
+    }
+    expect(
+      workflow.nodes.some((n) => n.type === 'n8n-nodes-base.emailReadImap'),
+    ).toBe(true)
+    expect(workflow.nodes.some((n) => n.type === 'n8n-nodes-base.webhook')).toBe(false)
+    const resolve = workflow.nodes.find((n) => n.name === 'Resolve owner')
+    expect(resolve?.parameters?.jsCode).toMatch(/CRM_INBOUND_FALLBACK_OWNER_ID/)
+    expect(resolve?.parameters?.jsCode).toMatch(/CRM_INBOUND_ROUTE_MAP/)
+    expect(resolve?.parameters?.jsCode).toMatch(/\/api\/v1\/users\/email:/)
+    const upsert = workflow.nodes.find((n) => n.name === 'Upsert incoming message')
+    expect(upsert?.parameters?.url).toMatch(
+      /incoming_message\?upsert=true&by=external_message_id/,
+    )
   })
 })

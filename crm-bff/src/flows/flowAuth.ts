@@ -59,6 +59,12 @@ export function assertProductionFlowAuthConfig(): void {
         'n8n webhooks must check X-CRM-Flow-Secret so only the BFF can call /webhook/ce-{key}.',
     )
   }
+  if (activepiecesBaseUrl() && !activepiecesWebhookSecret()) {
+    throw new Error(
+      'Refusing to start in production: ACTIVEPIECES_BASE_URL is set without ACTIVEPIECES_WEBHOOK_SECRET (or N8N_WEBHOOK_SECRET fallback). ' +
+        'Activepieces Catch Webhook must check X-CRM-Flow-Secret so only the BFF can call /api/v1/webhooks/{flowId}.',
+    )
+  }
 }
 
 /** Dev/staging hint when n8n is configured without the shared webhook secret. */
@@ -66,6 +72,16 @@ export function warnIfN8nWebhookSecretMissing(log: { warn: (msg: string) => void
   if (!n8nBaseUrl() || n8nWebhookSecret()) return
   log.warn(
     'N8N_BASE_URL is set but N8N_WEBHOOK_SECRET is empty — /webhook/ce-{key} templates cannot authenticate BFF calls. Set a shared secret (see docs/n8n/README.md).',
+  )
+}
+
+/** Dev/staging hint when Activepieces is configured without a webhook secret. */
+export function warnIfActivepiecesWebhookSecretMissing(log: {
+  warn: (msg: string) => void
+}): void {
+  if (!activepiecesBaseUrl() || activepiecesWebhookSecret()) return
+  log.warn(
+    'ACTIVEPIECES_BASE_URL is set but ACTIVEPIECES_WEBHOOK_SECRET (and N8N_WEBHOOK_SECRET fallback) is empty — Catch Webhook cannot authenticate BFF calls. Set a shared secret (see docs/activepieces/README.md).',
   )
 }
 
@@ -133,6 +149,64 @@ export function isN8nDestination(destination: URL): boolean {
   const legacy = n8nWebhookUrl()
   if (legacy && sameOrigin(destination, legacy)) return true
   return false
+}
+
+/** Origin for the customer's Activepieces (e.g. http://activepieces:80). */
+export function activepiecesBaseUrl(): string {
+  return (process.env.ACTIVEPIECES_BASE_URL || '').trim().replace(/\/+$/, '')
+}
+
+/**
+ * Shared secret for Activepieces Catch Webhook Header Auth.
+ * Falls back to N8N_WEBHOOK_SECRET so one value can cover both engines.
+ */
+export function activepiecesWebhookSecret(): string {
+  const explicit = (process.env.ACTIVEPIECES_WEBHOOK_SECRET || '').trim()
+  if (explicit) return explicit
+  return n8nWebhookSecret()
+}
+
+/**
+ * Sanitize Activepieces flow id (last segment of Catch Webhook Live URL).
+ * Allows URL-safe chars used by Activepieces flow ids.
+ */
+export function sanitizeActivepiecesFlowId(raw: unknown): string {
+  const id = String(raw || '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+  if (!id) {
+    throw new Error('Activepieces flowId is required (Catch Webhook Live URL last segment)')
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error(
+      'Activepieces flowId must be alphanumeric with _ or - (paste the Live URL id only)',
+    )
+  }
+  return id
+}
+
+/**
+ * Full webhook URL: `{ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}` (+ `/sync` when requested).
+ * Activepieces does not support n8n-style `/webhook/ce-{key}` paths — store flowId on the trigger.
+ */
+export function resolveActivepiecesFlowUrl(config: Record<string, unknown>): string {
+  const base = activepiecesBaseUrl()
+  if (!base) {
+    throw new Error('ACTIVEPIECES_BASE_URL is required to resolve activepieces flow targets')
+  }
+  const flowId = sanitizeActivepiecesFlowId(config.flowId)
+  const sync =
+    config.sync === true ||
+    String(config.sync || '')
+      .trim()
+      .toLowerCase() === 'true'
+  return `${base}/api/v1/webhooks/${flowId}${sync ? '/sync' : ''}`
+}
+
+/** True when destination is under the configured Activepieces base. */
+export function isActivepiecesDestination(destination: URL): boolean {
+  const base = activepiecesBaseUrl()
+  return Boolean(base && sameOrigin(destination, base))
 }
 
 /**
@@ -244,8 +318,9 @@ function sameOrigin(url: URL, other: string): boolean {
 }
 
 /**
- * Headers merged into every outbound http flow call. N8N_WEBHOOK_SECRET is only
- * attached when the destination is under N8N_BASE_URL / N8N_WEBHOOK_URL.
+ * Headers merged into every outbound http flow call.
+ * Shared webhook secrets are attached only when the destination matches the
+ * configured n8n or Activepieces origin (never on arbitrary Custom URL hosts).
  */
 export function outboundHttpFlowHeaders(
   configHeaders: Record<string, string>,
@@ -255,9 +330,14 @@ export function outboundHttpFlowHeaders(
     ...configHeaders,
     [CRM_SOURCE_HEADER]: configHeaders[CRM_SOURCE_HEADER] || 'bff-flow',
   }
-  const secret = n8nWebhookSecret()
-  if (secret && !headers[CRM_FLOW_SECRET_HEADER] && isN8nDestination(destination)) {
-    headers[CRM_FLOW_SECRET_HEADER] = secret
+  if (!headers[CRM_FLOW_SECRET_HEADER]) {
+    if (isN8nDestination(destination)) {
+      const secret = n8nWebhookSecret()
+      if (secret) headers[CRM_FLOW_SECRET_HEADER] = secret
+    } else if (isActivepiecesDestination(destination)) {
+      const secret = activepiecesWebhookSecret()
+      if (secret) headers[CRM_FLOW_SECRET_HEADER] = secret
+    }
   }
   return headers
 }

@@ -717,7 +717,7 @@ watch(
             :aria-label="t('common.hint', 'Hint')"
             v-tooltip.bottom="hintTooltip(t(
               'setup.automations.actionsHint',
-              'Optional. Notify shows a toast to the current user. Trigger flow needs a key from Setup → Flows (not an external URL). Break stops later rules.',
+              'Optional. Notify shows a toast to the current user. Call connection needs a key from Setup → Connections (not an external URL). Break stops later rules.',
             ))"
           />
           <div class="ml-auto flex flex-wrap gap-1">
@@ -730,7 +730,7 @@ watch(
               @click="addNotifyAction"
             />
             <Button
-              :label="t('setup.automations.addFlow', 'Add flow')"
+              :label="t('setup.automations.addFlow', 'Add connection')"
               icon="pi pi-plus"
               size="small"
               severity="secondary"
@@ -775,7 +775,7 @@ watch(
           </template>
           <template v-else-if="action.type === 'trigger_flow'">
             <Tag
-              :value="t('setup.automations.actionTriggerFlow', 'Trigger flow')"
+              :value="t('setup.automations.actionTriggerFlow', 'Call connection')"
               severity="success"
             />
             <InputText

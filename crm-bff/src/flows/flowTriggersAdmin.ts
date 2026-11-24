@@ -1,5 +1,5 @@
 /**
- * Admin CRUD for public.app_flow_triggers (Setup → Flows).
+ * Admin CRUD for public.app_flow_triggers (Setup → Connections).
  */
 import { query } from '../db/pool.js'
 import { flowTriggerKeyFromWebhook } from './flowKey.js'
@@ -35,7 +35,7 @@ function parseHandler(raw: string): FlowHandlerKind {
   }
   if (token === 'ack') {
     throw new Error(
-      'Ack handler is not available in Setup → Flows. Use HTTP or Update record.',
+      'Ack handler is not available in Setup → Connections. Use HTTP or Update record.',
     )
   }
   throw new Error(
@@ -99,10 +99,36 @@ function sanitizeConfig(
       }
     }
 
+    // Customer's Activepieces: resolve from ACTIVEPIECES_BASE_URL + config.flowId.
+    if (target === 'activepieces') {
+      const flowId = String(config.flowId || '')
+        .trim()
+        .replace(/^\/+|\/+$/g, '')
+      if (!flowId || !/^[A-Za-z0-9_-]+$/.test(flowId)) {
+        throw new Error(
+          'http flow target=activepieces requires config.flowId (Catch Webhook Live URL id)',
+        )
+      }
+      const sync =
+        config.sync === true ||
+        String(config.sync || '')
+          .trim()
+          .toLowerCase() === 'true'
+      return {
+        target: 'activepieces',
+        flowId,
+        ...(sync ? { sync: true } : {}),
+        method,
+        headers,
+        auth: { type: 'none' },
+        ...access,
+      }
+    }
+
     const url = typeof config.url === 'string' ? config.url.trim() : ''
     if (!url) {
       throw new Error(
-        'http flow requires config.url, or set config.target to "n8n"',
+        'http flow requires config.url, or set config.target to "n8n" or "activepieces"',
       )
     }
     if (!/^https?:\/\//i.test(url)) {

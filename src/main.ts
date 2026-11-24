@@ -21,7 +21,7 @@ import '@fontsource/inter/400.css'
 import '@fontsource/inter/500.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
-import 'primeicons/primeicons.css'
+import '@openvue/openicons/primeicons.css'
 import 'floating-vue/dist/style.css'
 import 'quill/dist/quill.snow.css'
 

@@ -100,7 +100,7 @@
   },
   "meta": {
     "templateCredsSetupCompleted": false,
-    "crmNotes": "Common write-back. Env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD, optional CRM_PATCH_FIELD (default note) and CRM_PATCH_VALUE. Production webhook URL → Setup → Flows http handler. Change the patched field to one that exists on the object. After import, set Settings → Error workflow to Failed execution alert."
+    "crmNotes": "Common write-back. Env: BFF_URL, N8N_WEBHOOK_SECRET, CRM_N8N_EMAIL, CRM_N8N_PASSWORD, optional CRM_PATCH_FIELD (default note) and CRM_PATCH_VALUE. Production webhook URL → Setup → Connections http handler. Change the patched field to one that exists on the object. After import, set Settings → Error workflow to Failed execution alert."
   },
   "pinData": {},
   "versionId": "1"

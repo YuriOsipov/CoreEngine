@@ -396,7 +396,7 @@ async function save(): Promise<void> {
             throw new Error(
               t(
                 'setup.automations.flowKeyInvalid',
-                '"{value}" is not a CoreEngine flow key. Create the mapping under Setup → Flows, then enter that key here (e.g. test_hook).',
+                '"{value}" is not a CoreEngine connection key. Create the mapping under Setup → Connections, then enter that key here (e.g. test_hook).',
                 { value: raw },
               ),
             )

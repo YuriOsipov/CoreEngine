@@ -3,8 +3,9 @@
 # Usage (repo root):
 #   ./scripts/install-minimal.sh
 #   ./scripts/install-minimal.sh --domain sales --with-ui
-# n8n is not started here. Customers pull upstream n8n themselves:
+# n8n / Activepieces are not started here. Customers pull upstream images themselves:
 #   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
+#   docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
 #   ./scripts/install-minimal.sh --admin-password 'ChooseAUniqueSecret!'
 set -euo pipefail
 
@@ -30,6 +31,12 @@ while [[ $# -gt 0 ]]; do
       echo "This installer does not start n8n. Pull the upstream image yourself:" >&2
       echo "  docker compose -f docker-compose.minimal.yml --profile automation up -d n8n" >&2
       echo "See THIRD_PARTY.md. Sell implementation and support, not n8n access." >&2
+      exit 1
+      ;;
+    --with-activepieces)
+      echo "This installer does not start Activepieces. Pull the upstream image yourself:" >&2
+      echo "  docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d" >&2
+      echo "See docs/activepieces/README.md and THIRD_PARTY.md." >&2
       exit 1
       ;;
     --admin-password)
@@ -134,6 +141,8 @@ if [[ "$WITH_UI" -eq 1 ]]; then
 fi
 echo "  n8n:        not started. Pull upstream yourself if you want it (see THIRD_PARTY.md):"
 echo "              docker compose -f docker-compose.minimal.yml --profile automation up -d n8n"
+echo "  Activepieces (MIT): not started. See docs/activepieces/README.md:"
+echo "              docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d"
 echo "  Login:      admin@example.com (password from provision output above)"
 echo "  Upgrade:    see docs/upgrading.md"
 echo "  Backup:     see docs/backup-restore.md"

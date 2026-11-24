@@ -8,7 +8,11 @@ import { writeAuditEntry } from '../audit/auditService.js'
 import { query } from '../db/pool.js'
 import { assertFieldsEditable, redactRecordForMe } from '../services/fieldSecurity.js'
 import { assertMeEntityPermission, resolveAppRoleId } from '../services/rolePermissions.js'
-import { outboundHttpFlowHeaders, resolveN8nFlowUrl } from './flowAuth.js'
+import {
+  outboundHttpFlowHeaders,
+  resolveActivepiecesFlowUrl,
+  resolveN8nFlowUrl,
+} from './flowAuth.js'
 import { flowDispatchContext, recordFlowDispatchFailure } from './flowDispatchLog.js'
 import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
 import { assertOutboundUrlShape, guardedFlowFetch } from './outboundHttp.js'
@@ -79,11 +83,21 @@ function resolveHttpFlowUrl(key: string, config: Record<string, unknown>): strin
       )
     }
   }
+  if (target === 'activepieces') {
+    try {
+      return resolveActivepiecesFlowUrl(config)
+    } catch (error) {
+      throw new LocalFlowError(
+        500,
+        `Flow "${key}" activepieces target: ${error instanceof Error ? error.message : error}`,
+      )
+    }
+  }
   const url = typeof config.url === 'string' ? config.url.trim() : ''
   if (!url) {
     throw new LocalFlowError(
       500,
-      `Flow "${key}" http handler missing config.url (or set config.target=n8n)`,
+      `Flow "${key}" http handler missing config.url (or set config.target=n8n|activepieces)`,
     )
   }
   return url
@@ -373,7 +387,7 @@ async function executeLocalFlow(
   if (!trigger) {
     throw new LocalFlowError(
       404,
-      `Flow "${trimmed}" is not registered. Create it in Setup → Flows (handler http|update_record).`,
+      `Connection "${trimmed}" is not registered. Create it in Setup → Connections (handler http|update_record).`,
     )
   }
 

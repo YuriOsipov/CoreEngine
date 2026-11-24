@@ -33,9 +33,11 @@ describe('address classification', () => {
   it('allowLoopbackForUrl matches configured n8n host outside production', () => {
     const prevNode = process.env.NODE_ENV
     const prevBase = process.env.N8N_BASE_URL
+    const prevAp = process.env.ACTIVEPIECES_BASE_URL
     const prevFlag = process.env.FLOWS_ALLOW_LOOPBACK
     process.env.NODE_ENV = 'development'
     process.env.N8N_BASE_URL = 'http://localhost:5678'
+    delete process.env.ACTIVEPIECES_BASE_URL
     delete process.env.FLOWS_ALLOW_LOOPBACK
     try {
       expect(allowLoopbackForUrl(new URL('http://localhost:5678/webhook/x'))).toBe(true)
@@ -45,6 +47,28 @@ describe('address classification', () => {
       else process.env.NODE_ENV = prevNode
       if (prevBase === undefined) delete process.env.N8N_BASE_URL
       else process.env.N8N_BASE_URL = prevBase
+      if (prevAp === undefined) delete process.env.ACTIVEPIECES_BASE_URL
+      else process.env.ACTIVEPIECES_BASE_URL = prevAp
+      if (prevFlag === undefined) delete process.env.FLOWS_ALLOW_LOOPBACK
+      else process.env.FLOWS_ALLOW_LOOPBACK = prevFlag
+    }
+  })
+
+  it('allowLoopbackForUrl matches configured Activepieces host outside production', () => {
+    const prevNode = process.env.NODE_ENV
+    const prevAp = process.env.ACTIVEPIECES_BASE_URL
+    const prevFlag = process.env.FLOWS_ALLOW_LOOPBACK
+    process.env.NODE_ENV = 'development'
+    process.env.ACTIVEPIECES_BASE_URL = 'http://127.0.0.1:8082'
+    delete process.env.FLOWS_ALLOW_LOOPBACK
+    try {
+      expect(allowLoopbackForUrl(new URL('http://127.0.0.1:8082/api/v1/webhooks/x'))).toBe(true)
+      expect(allowLoopbackForUrl(new URL('http://evil.local:8082/api/v1/webhooks/x'))).toBe(false)
+    } finally {
+      if (prevNode === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = prevNode
+      if (prevAp === undefined) delete process.env.ACTIVEPIECES_BASE_URL
+      else process.env.ACTIVEPIECES_BASE_URL = prevAp
       if (prevFlag === undefined) delete process.env.FLOWS_ALLOW_LOOPBACK
       else process.env.FLOWS_ALLOW_LOOPBACK = prevFlag
     }

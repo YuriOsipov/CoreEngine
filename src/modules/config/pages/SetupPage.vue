@@ -85,8 +85,8 @@ const allTabs = computed(() => [
     adminOnly: true,
   },
   {
-    label: t('setup.flowsTab', 'Flows'),
-    to: '/setup/flows',
+    label: t('setup.flowsTab', 'Connections'),
+    to: '/setup/connections',
     adminOnly: true,
   },
   {
@@ -191,8 +191,8 @@ function isTabActive(path: string): boolean {
   if (path === '/setup/tasks') {
     return route.path.startsWith('/setup/tasks')
   }
-  if (path === '/setup/flows') {
-    return route.path.startsWith('/setup/flows')
+  if (path === '/setup/connections') {
+    return route.path.startsWith('/setup/connections')
   }
   if (path === '/setup/archived') {
     return route.path.startsWith('/setup/archived')

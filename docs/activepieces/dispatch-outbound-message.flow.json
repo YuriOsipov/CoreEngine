@@ -21,7 +21,7 @@
             "authType": "header",
             "authFields": {
               "headerName": "X-CRM-Flow-Secret",
-              "headerValue": "{{YOUR_ACTIVEPIECES_WEBHOOK_SECRET}}"
+              "headerValue": "{{variables['ACTIVEPIECES_WEBHOOK_SECRET']}}"
             }
           },
           "propertySettings": {},
@@ -63,15 +63,19 @@
               "packageType": "REGISTRY",
               "actionName": "send_request",
               "input": {
-                "url": "http://host.docker.internal:4000/auth/login",
+                "url": "{{variables['BFF_URL']}}/auth/login",
                 "method": "POST",
                 "headers": {
                   "Content-Type": "application/json"
                 },
+                "queryParams": {},
+                "authType": "NONE",
                 "body_type": "json",
                 "body": {
-                  "email": "{{YOUR_CRM_N8N_EMAIL}}",
-                  "password": "{{YOUR_CRM_N8N_PASSWORD}}"
+                  "data": {
+                    "email": "{{variables['CRM_N8N_EMAIL']}}",
+                    "password": "{{variables['CRM_N8N_PASSWORD']}}"
+                  }
                 },
                 "failsafe": false,
                 "timeout": 30
@@ -158,16 +162,20 @@
                     "packageType": "REGISTRY",
                     "actionName": "send_request",
                     "input": {
-                      "url": "http://host.docker.internal:4000/api/v1/message/{{ prepare_context.messageId }}",
+                      "url": "{{variables['BFF_URL']}}/api/v1/message/{{ prepare_context.messageId }}",
                       "method": "PATCH",
                       "headers": {
                         "Authorization": "Bearer {{ bff_login.body.access_token }}",
                         "X-CRM-Automation": "activepieces",
                         "Content-Type": "application/json"
                       },
+                      "queryParams": {},
+                      "authType": "NONE",
                       "body_type": "json",
                       "body": {
-                        "is_draft": false
+                        "data": {
+                          "is_draft": false
+                        }
                       },
                       "failsafe": false,
                       "timeout": 30
@@ -274,16 +282,20 @@
                     "packageType": "REGISTRY",
                     "actionName": "send_request",
                     "input": {
-                      "url": "http://host.docker.internal:4000/api/v1/message/{{ prepare_context.messageId }}",
+                      "url": "{{variables['BFF_URL']}}/api/v1/message/{{ prepare_context.messageId }}",
                       "method": "PATCH",
                       "headers": {
                         "Authorization": "Bearer {{ bff_login.body.access_token }}",
                         "X-CRM-Automation": "activepieces",
                         "Content-Type": "application/json"
                       },
+                      "queryParams": {},
+                      "authType": "NONE",
                       "body_type": "json",
                       "body": {
-                        "delivery_status": "sent"
+                        "data": {
+                          "delivery_status": "sent"
+                        }
                       },
                       "failsafe": false,
                       "timeout": 30
@@ -342,21 +354,25 @@
                           "packageType": "REGISTRY",
                           "actionName": "send_request",
                           "input": {
-                            "url": "http://host.docker.internal:4000/api/v1/incoming_message",
+                            "url": "{{variables['BFF_URL']}}/api/v1/incoming_message",
                             "method": "POST",
                             "headers": {
                               "Authorization": "Bearer {{ bff_login.body.access_token }}",
                               "X-CRM-Automation": "activepieces",
                               "Content-Type": "application/json"
                             },
+                            "queryParams": {},
+                            "authType": "NONE",
                             "body_type": "json",
                             "body": {
-                              "owner_id": "{{ prepare_context.toUserId }}",
-                              "subject": "{{ prepare_context.subject }}",
-                              "body": "{{ prepare_context.body }}",
-                              "type": "{{ prepare_context.channel }}",
-                              "source_message": "{{ prepare_context.messageId }}",
-                              "from_user": "{{ prepare_context.fromUserId }}"
+                              "data": {
+                                "owner_id": "{{ prepare_context.toUserId }}",
+                                "subject": "{{ prepare_context.subject }}",
+                                "body": "{{ prepare_context.body }}",
+                                "type": "{{ prepare_context.channel }}",
+                                "source_message": "{{ prepare_context.messageId }}",
+                                "from_user": "{{ prepare_context.fromUserId }}"
+                              }
                             },
                             "failsafe": false,
                             "timeout": 30

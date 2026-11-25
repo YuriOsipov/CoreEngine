@@ -1,0 +1,304 @@
+{
+  "name": "CoreEngine — sync promo prices",
+  "description": "Full promo match/winner/compute against item_price via BFF REST. Mirror of crm-bff syncPromoPrices algorithm. Setup → Connections key sync_promo_prices (target=activepieces, sync=true).",
+  "flows": [
+    {
+      "displayName": "CoreEngine — sync promo prices",
+      "schemaVersion": null,
+      "notes": [],
+      "trigger": {
+        "name": "trigger",
+        "type": "PIECE_TRIGGER",
+        "valid": true,
+        "displayName": "Catch Webhook",
+        "settings": {
+          "pieceName": "@activepieces/piece-webhook",
+          "pieceVersion": "~0.1.43",
+          "pieceType": "OFFICIAL",
+          "packageType": "REGISTRY",
+          "triggerName": "catch_webhook",
+          "input": {
+            "authType": "header",
+            "authFields": {
+              "headerName": "X-CRM-Flow-Secret",
+              "headerValue": "{{variables['ACTIVEPIECES_WEBHOOK_SECRET']}}"
+            }
+          },
+          "propertySettings": {},
+          "sampleData": {}
+        },
+        "nextAction": {
+          "name": "bff_login",
+          "type": "PIECE",
+          "valid": true,
+          "displayName": "BFF Login",
+          "skip": false,
+          "settings": {
+            "pieceName": "@activepieces/piece-http",
+            "pieceVersion": "~0.13.3",
+            "pieceType": "OFFICIAL",
+            "packageType": "REGISTRY",
+            "actionName": "send_request",
+            "input": {
+              "url": "{{variables['BFF_URL']}}/auth/login",
+              "method": "POST",
+              "headers": {
+                "Content-Type": "application/json"
+              },
+              "queryParams": {},
+              "authType": "NONE",
+              "body_type": "json",
+              "body": {
+                "data": {
+                  "email": "{{variables['CRM_N8N_EMAIL']}}",
+                  "password": "{{variables['CRM_N8N_PASSWORD']}}"
+                }
+              },
+              "failsafe": false,
+              "timeout": 30
+            },
+            "propertySettings": {},
+            "sampleData": {},
+            "errorHandlingOptions": {
+              "continueOnFailure": {
+                "value": false
+              },
+              "retryOnFailure": {
+                "value": false
+              }
+            }
+          },
+          "nextAction": {
+            "name": "list_promotions",
+            "type": "PIECE",
+            "valid": true,
+            "displayName": "List promotions",
+            "skip": false,
+            "settings": {
+              "pieceName": "@activepieces/piece-http",
+              "pieceVersion": "~0.13.3",
+              "pieceType": "OFFICIAL",
+              "packageType": "REGISTRY",
+              "actionName": "send_request",
+              "input": {
+                "url": "{{variables['BFF_URL']}}/api/v1/promotion?limit=2000&fields=id%2Cdate_start%2Cdate_end%2Citem%2Citem_group%2Cprice_group%2Cpromo_type%2Cfixed_price%2Cdiscount_percent",
+                "method": "GET",
+                "headers": {
+                  "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                  "X-CRM-Automation": "activepieces",
+                  "Accept": "application/json"
+                },
+                "body_type": "none",
+                "failsafe": false,
+                "timeout": 60
+              },
+              "propertySettings": {},
+              "sampleData": {},
+              "errorHandlingOptions": {
+                "continueOnFailure": {
+                  "value": false
+                },
+                "retryOnFailure": {
+                  "value": false
+                }
+              }
+            },
+            "nextAction": {
+              "name": "list_items",
+              "type": "PIECE",
+              "valid": true,
+              "displayName": "List items",
+              "skip": false,
+              "settings": {
+                "pieceName": "@activepieces/piece-http",
+                "pieceVersion": "~0.13.3",
+                "pieceType": "OFFICIAL",
+                "packageType": "REGISTRY",
+                "actionName": "send_request",
+                "input": {
+                  "url": "{{variables['BFF_URL']}}/api/v1/item?limit=2000&fields=id%2Cgroup",
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                    "X-CRM-Automation": "activepieces",
+                    "Accept": "application/json"
+                  },
+                  "body_type": "none",
+                  "failsafe": false,
+                  "timeout": 60
+                },
+                "propertySettings": {},
+                "sampleData": {},
+                "errorHandlingOptions": {
+                  "continueOnFailure": {
+                    "value": false
+                  },
+                  "retryOnFailure": {
+                    "value": false
+                  }
+                }
+              },
+              "nextAction": {
+                "name": "list_prices",
+                "type": "PIECE",
+                "valid": true,
+                "displayName": "List item prices",
+                "skip": false,
+                "settings": {
+                  "pieceName": "@activepieces/piece-http",
+                  "pieceVersion": "~0.13.3",
+                  "pieceType": "OFFICIAL",
+                  "packageType": "REGISTRY",
+                  "actionName": "send_request",
+                  "input": {
+                    "url": "{{variables['BFF_URL']}}/api/v1/item_price?limit=2000&fields=id%2Citem%2Cprice_group%2Cprice%2Cpromo_price%2Cpromotion",
+                    "method": "GET",
+                    "headers": {
+                      "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                      "X-CRM-Automation": "activepieces",
+                      "Accept": "application/json"
+                    },
+                    "body_type": "none",
+                    "failsafe": false,
+                    "timeout": 60
+                  },
+                  "propertySettings": {},
+                  "sampleData": {},
+                  "errorHandlingOptions": {
+                    "continueOnFailure": {
+                      "value": false
+                    },
+                    "retryOnFailure": {
+                      "value": false
+                    }
+                  }
+                },
+                "nextAction": {
+                  "name": "sync_promo",
+                  "type": "CODE",
+                  "valid": true,
+                  "displayName": "Sync promo prices",
+                  "skip": false,
+                  "settings": {
+                    "input": {
+                      "payload": "{{ trigger }}",
+                      "promotions": "{{ list_promotions }}",
+                      "items": "{{ list_items }}",
+                      "prices": "{{ list_prices }}"
+                    },
+                    "sourceCode": {
+                      "code": "export const code = async (inputs) => {\r\n  const PROMO_TYPE_FIXED = 'fixed_price'\r\n  const PROMO_TYPE_PERCENT = 'discount_percent'\r\n\r\n  const asArray = (value) => {\r\n    if (Array.isArray(value)) return value\r\n    if (value && typeof value === 'object' && Array.isArray(value.nodes)) return value.nodes\r\n    if (value && typeof value === 'object' && value.body) {\r\n      const body = value.body\r\n      if (Array.isArray(body)) return body\r\n      if (body && Array.isArray(body.nodes)) return body.nodes\r\n    }\r\n    return []\r\n  }\r\n\r\n  const fkId = (value) => {\r\n    if (value == null || value === '') return null\r\n    if (typeof value === 'object' && value.id != null) return String(value.id)\r\n    return String(value)\r\n  }\r\n\r\n  const toNumber = (value) => {\r\n    if (value == null || value === '') return null\r\n    const n = Number(value)\r\n    return Number.isFinite(n) ? n : null\r\n  }\r\n\r\n  const toDateString = (value) => {\r\n    if (value == null || value === '') return null\r\n    if (typeof value === 'string') {\r\n      const trimmed = value.trim()\r\n      return trimmed ? trimmed.slice(0, 10) : null\r\n    }\r\n    return null\r\n  }\r\n\r\n  const normalizePromoType = (value) => {\r\n    const raw = String(value ?? '')\r\n      .trim()\r\n      .toLowerCase()\r\n    if (raw === PROMO_TYPE_FIXED || raw === 'fixed') return PROMO_TYPE_FIXED\r\n    if (\r\n      raw === PROMO_TYPE_PERCENT ||\r\n      raw === 'percent' ||\r\n      raw === 'discount' ||\r\n      raw === 'discount_percent'\r\n    ) {\r\n      return PROMO_TYPE_PERCENT\r\n    }\r\n    return null\r\n  }\r\n\r\n  const computePromoPrice = (listPrice, promo) => {\r\n    if (promo.promoType === PROMO_TYPE_FIXED) {\r\n      return promo.fixedPrice == null ? listPrice : promo.fixedPrice\r\n    }\r\n    if (promo.discountPercent == null) return listPrice\r\n    return listPrice * (1 - promo.discountPercent / 100)\r\n  }\r\n\r\n  const promotionMatchesRow = (promo, itemId, itemGroupId, priceGroupId) => {\r\n    const hasItem = Boolean(promo.itemId)\r\n    const hasItemGroup = Boolean(promo.itemGroupId)\r\n    const hasPriceGroup = Boolean(promo.itemPriceGroupId)\r\n    if (!hasItem && !hasItemGroup && !hasPriceGroup) return false\r\n    if (hasItem && (!itemId || promo.itemId !== itemId)) return false\r\n    if (hasItemGroup && (!itemGroupId || promo.itemGroupId !== itemGroupId)) return false\r\n    if (hasPriceGroup && (!priceGroupId || promo.itemPriceGroupId !== priceGroupId)) {\r\n      return false\r\n    }\r\n    return true\r\n  }\r\n\r\n  const specificity = (promo) =>\r\n    (promo.itemId ? 4 : 0) + (promo.itemGroupId ? 2 : 0) + (promo.itemPriceGroupId ? 1 : 0)\r\n\r\n  const pickWinningPromotion = (matches) => {\r\n    if (!matches.length) return null\r\n    return (\r\n      [...matches].sort((a, b) => {\r\n        const spec = specificity(b) - specificity(a)\r\n        if (spec !== 0) return spec\r\n        if (a.dateStart !== b.dateStart) return a.dateStart < b.dateStart ? 1 : -1\r\n        return a.id < b.id ? 1 : a.id > b.id ? -1 : 0\r\n      })[0] ?? null\r\n    )\r\n  }\r\n\r\n  const roundMoney = (value) => Math.round(value * 10000) / 10000\r\n  const sameId = (a, b) => {\r\n    if (a == null && b == null) return true\r\n    if (a == null || b == null) return false\r\n    return String(a) === String(b)\r\n  }\r\n  const sameMoney = (a, b) => (a == null ? false : Math.abs(a - b) < 1e-9)\r\n\r\n  const payloadRoot = inputs.payload || {}\r\n  const body =\r\n    payloadRoot.body && typeof payloadRoot.body === 'object' ? payloadRoot.body : payloadRoot\r\n  const timeZone = String(body.timeZone || inputs.timeZone || 'UTC')\r\n  const today =\r\n    typeof body.today === 'string' && body.today.trim()\r\n      ? body.today.trim().slice(0, 10)\r\n      : new Date().toISOString().slice(0, 10)\r\n\r\n  const promotions = asArray(inputs.promotions)\r\n  const items = asArray(inputs.items)\r\n  const prices = asArray(inputs.prices)\r\n\r\n  const activePromotions = []\r\n  for (const row of promotions) {\r\n    const id = fkId(row.id)\r\n    if (!id) continue\r\n    const dateStart = toDateString(row.date_start)\r\n    const dateEnd = toDateString(row.date_end)\r\n    if (!dateStart || !dateEnd) continue\r\n    if (dateStart > today || dateEnd < today) continue\r\n    const promoType = normalizePromoType(row.promo_type)\r\n    if (!promoType) continue\r\n    activePromotions.push({\r\n      id,\r\n      dateStart,\r\n      dateEnd,\r\n      itemId: fkId(row.item),\r\n      itemGroupId: fkId(row.item_group),\r\n      itemPriceGroupId: fkId(row.price_group) || fkId(row.item_price_group),\r\n      promoType,\r\n      fixedPrice: toNumber(row.fixed_price),\r\n      discountPercent: toNumber(row.discount_percent),\r\n    })\r\n  }\r\n\r\n  const itemGroupByItemId = new Map()\r\n  for (const row of items) {\r\n    const id = fkId(row.id)\r\n    if (!id) continue\r\n    itemGroupByItemId.set(id, fkId(row.group) || fkId(row.item_group))\r\n  }\r\n\r\n  const patches = []\r\n  let updated = 0\r\n  let cleared = 0\r\n  let unchanged = 0\r\n\r\n  for (const row of prices) {\r\n    const id = fkId(row.id)\r\n    if (!id) continue\r\n    const itemId = fkId(row.item)\r\n    const priceGroupId = fkId(row.price_group) || fkId(row.item_price_group)\r\n    const itemGroupId = itemId ? (itemGroupByItemId.get(itemId) ?? null) : null\r\n    const listPrice = toNumber(row.price) ?? 0\r\n    const currentPromotionId = fkId(row.promotion)\r\n    const currentPromoPrice = toNumber(row.promo_price)\r\n    const matches = activePromotions.filter((promo) =>\r\n      promotionMatchesRow(promo, itemId, itemGroupId, priceGroupId),\r\n    )\r\n    const winner = pickWinningPromotion(matches)\r\n    const nextPromotionId = winner ? winner.id : null\r\n    const nextPromoPrice = roundMoney(\r\n      winner ? computePromoPrice(listPrice, winner) : listPrice,\r\n    )\r\n    if (\r\n      sameId(currentPromotionId, nextPromotionId) &&\r\n      sameMoney(currentPromoPrice, nextPromoPrice)\r\n    ) {\r\n      unchanged += 1\r\n      continue\r\n    }\r\n    patches.push({ id, promo_price: nextPromoPrice, promotion: nextPromotionId })\r\n    if (!winner) cleared += 1\r\n    else updated += 1\r\n  }\r\n\r\n  return {\r\n    today,\r\n    timeZone,\r\n    patches,\r\n    hasPatches: patches.length > 0,\r\n    summary: {\r\n      activePromotions: activePromotions.length,\r\n      itemPrices: prices.length,\r\n      updated,\r\n      cleared,\r\n      unchanged,\r\n      patchCount: patches.length,\r\n    },\r\n  }\r\n}\r\n",
+                      "packageJson": "{}"
+                    },
+                    "errorHandlingOptions": {
+                      "continueOnFailure": {
+                        "value": false
+                      },
+                      "retryOnFailure": {
+                        "value": false
+                      }
+                    }
+                  },
+                  "nextAction": {
+                    "name": "apply_patches",
+                    "type": "LOOP_ON_ITEMS",
+                    "valid": true,
+                    "displayName": "Apply patches",
+                    "skip": false,
+                    "settings": {
+                      "items": "{{ sync_promo.patches }}",
+                      "inputUiInfo": {}
+                    },
+                    "firstLoopAction": {
+                      "name": "patch_item_price",
+                      "type": "PIECE",
+                      "valid": true,
+                      "displayName": "PATCH item_price",
+                      "skip": false,
+                      "settings": {
+                        "pieceName": "@activepieces/piece-http",
+                        "pieceVersion": "~0.13.3",
+                        "pieceType": "OFFICIAL",
+                        "packageType": "REGISTRY",
+                        "actionName": "send_request",
+                        "input": {
+                          "url": "{{variables['BFF_URL']}}/api/v1/item_price/{{ apply_patches.item.id }}",
+                          "method": "PATCH",
+                          "headers": {
+                            "Authorization": "Bearer {{ bff_login.body.access_token }}",
+                            "X-CRM-Automation": "activepieces",
+                            "Content-Type": "application/json"
+                          },
+                          "queryParams": {},
+                          "authType": "NONE",
+                          "body_type": "json",
+                          "body": {
+                            "data": {
+                              "promo_price": "{{ apply_patches.item.promo_price }}",
+                              "promotion": "{{ apply_patches.item.promotion }}"
+                            }
+                          },
+                          "failsafe": false,
+                          "timeout": 30
+                        },
+                        "propertySettings": {},
+                        "sampleData": {},
+                        "errorHandlingOptions": {
+                          "continueOnFailure": {
+                            "value": false
+                          },
+                          "retryOnFailure": {
+                            "value": false
+                          }
+                        }
+                      },
+                      "nextAction": null
+                    },
+                    "nextAction": {
+                      "name": "respond_ok",
+                      "type": "PIECE",
+                      "valid": true,
+                      "displayName": "Return summary",
+                      "skip": false,
+                      "settings": {
+                        "pieceName": "@activepieces/piece-webhook",
+                        "pieceVersion": "~0.1.43",
+                        "pieceType": "OFFICIAL",
+                        "packageType": "REGISTRY",
+                        "actionName": "return_response",
+                        "input": {
+                          "fields": {
+                            "status": 200,
+                            "headers": {},
+                            "body": {
+                              "ok": true,
+                              "today": "{{ sync_promo.today }}",
+                              "summary": "{{ sync_promo.summary }}"
+                            }
+                          },
+                          "respond": "stop",
+                          "responseType": "json"
+                        },
+                        "propertySettings": {},
+                        "sampleData": {},
+                        "errorHandlingOptions": {
+                          "continueOnFailure": {
+                            "value": false
+                          },
+                          "retryOnFailure": {
+                            "value": false
+                          }
+                        }
+                      },
+                      "nextAction": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

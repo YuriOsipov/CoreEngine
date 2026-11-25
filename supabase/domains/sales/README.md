@@ -90,15 +90,15 @@ Detailed seed and job notes live in [`../pricing/README.md`](../pricing/README.m
 
 ### Campaign → Promotion → promo prices
 
-- Hierarchy: one Campaign owns many Promotions; the scheduled job **Sync promo prices** (`sync_promo_prices`) evaluates active rules and writes the winner onto each matching `item_price`.
-- Sync uses **Promotion** `date_start` / `date_end` (not Campaign dates).
+- Hierarchy: one Campaign owns many Promotions; Setup → Tasks **Promo Price updates** (job type **Call connection**, `connectionKey: sync_promo_prices`) triggers Activepieces, which evaluates active rules and writes the winner onto each matching `item_price`.
+- Sync uses **Promotion** `date_start` / `date_end` (not Campaign dates). Algorithm lives in [`docs/activepieces/sync-promo-prices.flow.json`](../../../docs/activepieces/sync-promo-prices.flow.json) (parity with BFF helper specs in `crm-bff/src/tasks/syncPromoPrices.ts`).
 - Scope is an **AND** of every filled filter on the Promotion (`item`, `item_group`, `price_group`). Example: Item group = Cosmetic and Price group = Diller updates only Cosmetic items on the Diller list.
 - While a promotion matches: set `promo_price` and `promotion`.
 - When the window ends or no winner: clear `promotion` and set `promo_price = price` (list price remains the baseline).
 - Consumers (e.g. related-transfer value fields) can use `price` or switch to `promo_price` in Setup; the pack does not rewrite existing mappings.
 - Optional Setup: on Promotion date fields, **Default from parent field** from Campaign `date_start` / `date_end` when creating a Promotion from a Campaign related list.
 
-**Operational follow-up after apply:** create a scheduled task with job type **Sync promo prices** (hourly recommended) so `promo_price` and `promotion` stay current.
+**Operational follow-up after apply:** `npm run registry:seed-activepieces-flows` (imports template + writes `flowId` into Connection **`sync_promo_prices`**), then enable Task **Promo Price updates** (daily 02:00 UTC by default).
 
 ```powershell
 npm run platform:provision -- --domain pricing

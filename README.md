@@ -74,7 +74,7 @@ Vertical matrix (shipped vs example forks), apply/export, and how to build a pac
 | [`docs/setup.md`](docs/setup.md) | Docker / local install, environment, scripts, CI |
 | [`docs/oidc-sso.md`](docs/oidc-sso.md) | External OIDC IdP (Keycloak, Auth0, Entra, …) |
 | [`docs/n8n/README.md`](docs/n8n/README.md) | n8n profile, pack flows, Message outbox templates |
-| [`docs/activepieces/README.md`](docs/activepieces/README.md) | Activepieces (MIT) — starts with the minimal Compose stack (`restart: always`), Setup `target=activepieces` |
+| [`docs/activepieces/README.md`](docs/activepieces/README.md) | Activepieces (MIT) — minimal Compose (`restart: always`); headless seed `registry:seed-activepieces-flows` (CE JWT + project variables; no Platform API keys) |
 | [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md) | Webhook trigger + GraphQL write-back (n8n / Activepieces) |
 | [`docs/upgrading.md`](docs/upgrading.md) | Pull → migrate → rebuild |
 | [`docs/backup-restore.md`](docs/backup-restore.md) | Postgres dump / restore |

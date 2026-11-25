@@ -99,6 +99,8 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 | `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts) |
 | `N8N_BASE_URL` / `N8N_WEBHOOK_SECRET` / `N8N_ENCRYPTION_KEY` | Your n8n instance for Setup → Connections |
 | `ACTIVEPIECES_BASE_URL` / `ACTIVEPIECES_WEBHOOK_SECRET` | Optional MIT Activepieces (`target=activepieces` + flow id) |
+| `AP_EMAIL` / `AP_PASSWORD` | Activepieces admin for `registry:seed-activepieces-flows` (CE JWT; not Platform API keys) |
+| `ACTIVEPIECES_SEED_URL` / `AP_FRONTEND_URL` | Host URL the seed script reaches (default `http://127.0.0.1:8081`) |
 | `AP_ENCRYPTION_KEY` / `AP_JWT_SECRET` / `AP_POSTGRES_PASSWORD` | Required to start Activepieces with the minimal Compose stack |
 | `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP flow targets |
 | `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Integration user for n8n → BFF |
@@ -121,7 +123,8 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 | `npm run registry:smoke-upgrade` | Migrate twice + `/health` |
 | `npm run registry:smoke-backup-restore` | `pg_dump` archive check |
 | `npm run registry:seed-n8n-pack-flows` | Seed pack flow keys + Message outbox (`--pack=sales`) |
-| `npm run registry:seed-n8n-automation-user` | Create Integration user for n8n |
+| `npm run registry:seed-n8n-automation-user` | Create Integration user for n8n / Activepieces BFF login |
+| `npm run registry:seed-activepieces-flows` | Import AP templates, project vars, Connections `flowId` (CE JWT; `--only=sync_promo_prices`) |
 | `npm run platform:provision` | **New** customer DB (`--domain`, `--admin-password`) |
 | `npm run platform:apply-pack` | Apply a domain pack onto an existing kernel DB |
 | `npm run platform:export-pack` | Save live Setup config into `supabase/domains/<id>` |

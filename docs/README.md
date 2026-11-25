@@ -10,7 +10,7 @@ Active product/ops docs belong here.
 - [OIDC SSO](./oidc-sso.md) — external IdP (Keycloak, Auth0, Entra, …)
 - [n8n ↔ BFF flows](./n8n-bff-flows.md) — webhook trigger + GraphQL write-back (`target=n8n` → `/webhook/ce-{key}`; `target=activepieces` → `/api/v1/webhooks/{flowId}`)
 - [n8n templates](./n8n/README.md) — Docker profile `automation`, pack keys, quote/reminder write-back, failed-execution alert
-- [Activepieces (MIT)](./activepieces/README.md) — alternative orchestrator; Setup → Connections Destination **Your Activepieces**
+- [Activepieces (MIT)](./activepieces/README.md) — alternative orchestrator; Setup → Connections Destination **Your Activepieces**; headless import via `npm run registry:seed-activepieces-flows` (project variables, no Platform API keys)
 - [Backup and restore](./backup-restore.md)
 - [Upgrading](./upgrading.md)
 - [Generate Document API](./generate-document-api.md) — server DocEngine contract for automations / n8n

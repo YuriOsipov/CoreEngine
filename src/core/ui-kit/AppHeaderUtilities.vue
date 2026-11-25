@@ -22,6 +22,8 @@ import {
   resolveNavTarget,
 } from '@/core/navigation/navTargetRoute'
 import { currentUser } from '@/core/currentUser'
+import { fileAssetUrl } from '@/core/graphql/filesProxy'
+import { orgLogoFileId } from '@/core/orgLocale'
 import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import { canUseBffAuth, logoutWithBff } from '@/core/auth/session'
 import AppearanceMenu from './AppearanceMenu.vue'
@@ -113,6 +115,12 @@ const translationLanguageOptions = computed(() =>
 const brandLabel = computed(
   () => app.value?.label?.trim() || t('navigation.appFallback', 'CoreEngine'),
 )
+
+const brandLogoUrl = computed(() => {
+  const id = orgLogoFileId.value.trim()
+  if (!id) return ''
+  return fileAssetUrl(id, { width: 64, height: 64, fit: 'contain' })
+})
 
 const userInitials = computed(() => {
   const source = userName.value.trim()
@@ -280,7 +288,16 @@ defineExpose({ reload })
       @click="goHome"
     >
       <span class="app-top-bar__logo" aria-hidden="true">
-        <i class="pi pi-building" />
+        <img
+          v-if="brandLogoUrl"
+          :src="brandLogoUrl"
+          :alt="brandLabel"
+          class="app-top-bar__logo-img"
+        />
+        <i
+          v-else
+          class="pi pi-building"
+        />
       </span>
       <span class="app-top-bar__brand-text">{{ brandLabel }}</span>
     </button>
@@ -511,7 +528,19 @@ defineExpose({ reload })
   font-size: 0.95rem;
   height: 1.85rem;
   justify-content: center;
+  overflow: hidden;
   width: 1.85rem;
+}
+
+.app-top-bar__logo:has(.app-top-bar__logo-img) {
+  background: transparent;
+}
+
+.app-top-bar__logo-img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
 }
 
 .app-top-bar__brand-text {

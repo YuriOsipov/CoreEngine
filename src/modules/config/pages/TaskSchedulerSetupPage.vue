@@ -12,6 +12,10 @@ import { formatLocalizedDateTime } from '@/core/dateFormatting'
 import { featureFlags } from '@/core/graphql/featureFlags'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
 import {
+  fetchFlowTriggers,
+  type GraphQlFlowTrigger,
+} from '@/core/graphql/flowTriggersApi'
+import {
   deleteScheduledTask,
   fetchFailedScheduledTaskRuns,
   fetchScheduledTaskRuns,
@@ -28,6 +32,7 @@ import {
   type ScheduleRule,
 } from '@/core/taskSchedule'
 import { useTranslation } from '@/core/translation'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 
 const { t } = useTranslation()
 
@@ -36,7 +41,7 @@ function hintTooltip(value: string) {
 }
 
 const taskParamsHintDefault =
-  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. send_notification: { "flowKey": "notify" }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. sync_promo_prices: {}. dispatch_due_messages: { "flowKey": "dispatch_outbound_message", "limit": 50 }.'
+  'generate_slots: { "range": "next_month" }. verify_database: { "entity": "optional" }. call_connection: { "connectionKey": "sync_promo_prices", "payload": {} }. maintain_recent_views: { "retentionDays": 90, "maxPerUserCollection": 200 }. dispatch_due_messages: { "connectionKey": "dispatch_outbound_message", "limit": 50 }. purge_archived_records: { "retentionDays": 90, "limitPerEntity": 500 }.'
 const confirm = useConfirm()
 const toast = useToast()
 
@@ -46,6 +51,7 @@ const saving = ref(false)
 const runningId = ref<string | null>(null)
 const isAdmin = ref(false)
 const tasks = ref<GraphQlScheduledTask[]>([])
+const connections = ref<GraphQlFlowTrigger[]>([])
 const failedRuns = ref<GraphQlScheduledTaskRun[]>([])
 const failedVisible = ref(false)
 const failedLoading = ref(false)
@@ -70,23 +76,26 @@ const JOB_TYPES = [
     params: {},
   },
   {
-    id: 'send_notification',
-    params: { flowKey: 'notify', payload: {} },
+    id: 'call_connection',
+    params: { connectionKey: '', payload: {} },
   },
   {
     id: 'maintain_recent_views',
     params: { retentionDays: 90, maxPerUserCollection: 200 },
   },
   {
-    id: 'sync_promo_prices',
-    params: {},
-  },
-  {
     id: 'dispatch_due_messages',
     params: {
       collection: 'message',
-      flowKey: 'dispatch_outbound_message',
+      connectionKey: 'dispatch_outbound_message',
       limit: 50,
+    },
+  },
+  {
+    id: 'purge_archived_records',
+    params: {
+      retentionDays: 90,
+      limitPerEntity: 500,
     },
   },
 ] as const
@@ -98,8 +107,24 @@ const form = reactive({
   enabled: false,
   description: '',
   paramsText: '{\n  "range": "next_month"\n}',
+  connectionKey: '',
+  payloadText: '{\n}',
   rules: [defaultScheduleRule()] as ScheduleRule[],
 })
+
+const isCallConnectionJob = computed(
+  () => form.jobType === 'call_connection' || form.jobType === 'send_notification',
+)
+
+const connectionOptions = computed(() =>
+  connections.value.map((entry) => ({
+    label: entry.enabled
+      ? entry.key
+      : t('setup.tasks.connectionDisabled', '{key} (disabled)', { key: entry.key }),
+    value: entry.key,
+    description: entry.description,
+  })),
+)
 
 const jobTypeOptions = computed(() =>
   JOB_TYPES.map((entry) => ({
@@ -235,19 +260,37 @@ function jobTypeLabel(jobType: string): string {
   if (jobType === 'verify_database') {
     return t('setup.tasks.jobVerifyDatabase', 'Database verification')
   }
-  if (jobType === 'send_notification') {
-    return t('setup.tasks.jobSendNotification', 'Send notification')
+  if (jobType === 'call_connection' || jobType === 'send_notification') {
+    return t('setup.tasks.jobCallConnection', 'Call connection')
   }
   if (jobType === 'maintain_recent_views') {
     return t('setup.tasks.jobMaintainRecentViews', 'Maintain recently viewed')
   }
   if (jobType === 'sync_promo_prices') {
-    return t('setup.tasks.jobSyncPromoPrices', 'Sync promo prices')
+    return t('setup.tasks.jobCallConnection', 'Call connection')
   }
   if (jobType === 'dispatch_due_messages') {
     return t('setup.tasks.jobDispatchDueMessages', 'Dispatch due messages')
   }
+  if (jobType === 'purge_archived_records') {
+    return t('setup.tasks.jobPurgeArchivedRecords', 'Hard delete old archived records')
+  }
   return jobType
+}
+
+function applyCallConnectionFromParams(params: Record<string, unknown>): void {
+  const key =
+    typeof params.connectionKey === 'string'
+      ? params.connectionKey
+      : typeof params.flowKey === 'string'
+        ? params.flowKey
+        : ''
+  form.connectionKey = key
+  const payload =
+    params.payload && typeof params.payload === 'object' && !Array.isArray(params.payload)
+      ? (params.payload as Record<string, unknown>)
+      : {}
+  form.payloadText = JSON.stringify(payload, null, 2)
 }
 
 function statusSeverity(status: string | null): 'success' | 'danger' | 'info' | 'secondary' {
@@ -284,9 +327,15 @@ async function load(): Promise<void> {
     isAdmin.value = Boolean(me.adminAccess || me.roleAdminAccess)
     if (!isAdmin.value) {
       tasks.value = []
+      connections.value = []
       return
     }
-    tasks.value = await fetchScheduledTasks()
+    const [taskRows, connectionRows] = await Promise.all([
+      fetchScheduledTasks(),
+      fetchFlowTriggers().catch(() => [] as GraphQlFlowTrigger[]),
+    ])
+    tasks.value = taskRows
+    connections.value = connectionRows
     try {
       failedRuns.value = await fetchFailedScheduledTaskRuns(50)
     } catch (err) {
@@ -308,6 +357,8 @@ function openCreate(): void {
   form.enabled = false
   form.description = ''
   form.paramsText = defaultParamsText('generate_slots')
+  form.connectionKey = ''
+  form.payloadText = '{\n}'
   form.rules = [defaultScheduleRule()]
   paramsError.value = null
   dialogVisible.value = true
@@ -315,12 +366,22 @@ function openCreate(): void {
 
 function openEdit(task: GraphQlScheduledTask): void {
   editingId.value = task.id
+  const jobType =
+    task.jobType === 'send_notification' || task.jobType === 'sync_promo_prices'
+      ? 'call_connection'
+      : task.jobType
   form.name = task.name
-  form.jobType = task.jobType
+  form.jobType = jobType
   form.timezone = task.timezone || 'UTC'
   form.enabled = task.enabled
   form.description = task.description || ''
-  form.paramsText = JSON.stringify(task.params ?? {}, null, 2)
+  const params = { ...(task.params ?? {}) }
+  if (task.jobType === 'sync_promo_prices' && !params.connectionKey) {
+    params.connectionKey = 'sync_promo_prices'
+    params.payload = params.payload ?? {}
+  }
+  form.paramsText = JSON.stringify(params, null, 2)
+  applyCallConnectionFromParams(params)
   form.rules = parseScheduleSpec(task.schedule, task.cron).rules
   paramsError.value = null
   dialogVisible.value = true
@@ -328,9 +389,29 @@ function openEdit(task: GraphQlScheduledTask): void {
 
 function onJobTypeChange(jobType: string): void {
   form.paramsText = defaultParamsText(jobType)
+  if (jobType === 'call_connection') {
+    applyCallConnectionFromParams({ connectionKey: '', payload: {} })
+  }
 }
 
 function parseParams(): Record<string, unknown> {
+  if (isCallConnectionJob.value) {
+    const key = form.connectionKey.trim()
+    if (!key) {
+      throw new Error(
+        t('setup.tasks.connectionRequired', 'Select a Connection from Setup → Connections.'),
+      )
+    }
+    const raw = form.payloadText.trim() || '{}'
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(t('setup.tasks.paramsObject', 'Params must be a JSON object.'))
+    }
+    return {
+      connectionKey: key,
+      payload: parsed as Record<string, unknown>,
+    }
+  }
   const raw = form.paramsText.trim() || '{}'
   const parsed = JSON.parse(raw) as unknown
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -352,12 +433,14 @@ async function save(): Promise<void> {
     return
   }
   if (!form.name.trim()) return
+  const jobType =
+    form.jobType === 'send_notification' ? 'call_connection' : form.jobType
   saving.value = true
   try {
     await upsertScheduledTask({
       id: editingId.value,
       name: form.name.trim(),
-      jobType: form.jobType,
+      jobType,
       schedule: { rules: form.rules },
       timezone: form.timezone.trim() || 'UTC',
       enabled: form.enabled,
@@ -481,19 +564,17 @@ onMounted(() => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.tasks.title', 'Tasks') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{
-            t(
-              'setup.tasks.subtitle',
-              'Schedule background jobs: slot generation, database verification, and notifications.',
-            )
-          }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.tasks.title', 'Tasks')"
+      :meta="
+        t(
+          'setup.tasks.subtitle',
+          'Schedule background jobs: slot generation, database verification, and notifications.',
+        )
+      "
+      icon-class="pi pi-clock"
+    >
+      <template #actions>
         <IconField>
           <InputIcon class="pi pi-search" />
           <InputText
@@ -515,8 +596,8 @@ onMounted(() => {
           :disabled="!isAdmin || !graphqlEnabled"
           @click="openCreate"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <Message
       v-if="!graphqlEnabled"
@@ -561,7 +642,13 @@ onMounted(() => {
       >
         <template #body="{ data }">
           <div class="flex flex-col gap-1">
-            <span class="font-medium">{{ data.name }}</span>
+            <button
+              type="button"
+              class="setup-link setup-link--button font-medium text-left"
+              @click="openEdit(data)"
+            >
+              {{ data.name }}
+            </button>
             <span class="text-muted-color text-[0.8rem]">{{ jobTypeLabel(data.jobType) }}</span>
           </div>
         </template>
@@ -697,6 +784,42 @@ onMounted(() => {
               @update:model-value="onJobTypeChange"
             />
           </label>
+          <template v-if="isCallConnectionJob">
+            <label class="setup-task-field" for="task-connection">
+              <span class="setup-task-field__label">
+                {{ t('setup.tasks.connection', 'Connection') }}
+                <button
+                  type="button"
+                  class="setup-task-hint"
+                  :aria-label="t('common.hint', 'Hint')"
+                  v-tooltip.bottom="hintTooltip(t(
+                    'setup.tasks.connectionHint',
+                    'Key from Setup → Connections (n8n or Activepieces).',
+                  ))"
+                />
+              </span>
+              <Select
+                id="task-connection"
+                v-model="form.connectionKey"
+                :options="connectionOptions"
+                option-label="label"
+                option-value="value"
+                :placeholder="t('setup.tasks.connectionPlaceholder', 'Select connection')"
+                filter
+                fluid
+              />
+            </label>
+            <label class="setup-task-field" for="task-payload">
+              {{ t('setup.tasks.payload', 'Payload (JSON)') }}
+              <Textarea
+                id="task-payload"
+                v-model="form.payloadText"
+                rows="4"
+                class="font-mono text-sm"
+                fluid
+              />
+            </label>
+          </template>
         </section>
 
         <section class="setup-task-panel">
@@ -895,7 +1018,7 @@ onMounted(() => {
           </label>
         </section>
 
-        <section class="setup-task-panel">
+        <section v-if="!isCallConnectionJob" class="setup-task-panel">
           <label class="setup-task-field" for="task-params">
             <span class="setup-task-field__label">
               {{ t('setup.tasks.params', 'Params (JSON)') }}
@@ -917,14 +1040,16 @@ onMounted(() => {
               fluid
             />
           </label>
-          <Message
-            v-if="paramsError"
-            severity="error"
-            :closable="false"
-          >
-            {{ paramsError }}
-          </Message>
         </section>
+
+        <Message
+          v-if="paramsError"
+          severity="error"
+          :closable="false"
+          class="setup-task-params-error"
+        >
+          {{ paramsError }}
+        </Message>
       </div>
       <template #footer>
         <Button

@@ -241,7 +241,13 @@ function coerceUsingExpr(columnIdent: string, expectedPgType: string): string {
     return `${textExpr}::${expected}`
   }
   if (expected === 'jsonb' || expected === 'json') {
-    return `${textExpr}::${expected}`
+    // Plain scalars (e.g. picklist "viber") are not valid JSON text; wrap with
+    // to_jsonb. Values that already look like JSON objects/arrays cast directly.
+    return `CASE
+      WHEN ${textExpr} IS NULL THEN NULL
+      WHEN ${textExpr} ~ '^\\s*[\\[\\{]' THEN ${textExpr}::${expected}
+      ELSE to_jsonb(${textExpr})
+    END`
   }
   if (expected === 'text') {
     return `${columnIdent}::text`

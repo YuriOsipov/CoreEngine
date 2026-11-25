@@ -28,6 +28,7 @@ import {
   restoreObjectRecord,
 } from '@/modules/entities/services/recordDetails'
 import { formatDisplayValue } from '@/modules/entities/utils/recordDisplay'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 
 const ALL_OBJECTS_VALUE = '__all__'
 const ROW_KEY_FIELD = '__rowKey'
@@ -587,17 +588,16 @@ watch(
 
 <template>
   <section class="setup-tab-content flex flex-col gap-4">
-    <div class="flex flex-col gap-1">
-      <h2>{{ t('setup.archived.title', 'Archived records') }}</h2>
-      <p class="text-muted-color m-0">
-        {{
-          t(
-            'setup.archived.subtitle',
-            'Browse soft-deleted records by object and restore them when needed.',
-          )
-        }}
-      </p>
-    </div>
+    <SetupPageHeader
+      :title="t('setup.archived.title', 'Archived records')"
+      :meta="
+        t(
+          'setup.archived.subtitle',
+          'Browse soft-deleted records by object and restore them when needed.',
+        )
+      "
+      icon-class="pi pi-inbox"
+    />
 
     <div class="flex flex-wrap items-end gap-3">
       <div class="flex flex-col gap-1 min-w-[240px]">

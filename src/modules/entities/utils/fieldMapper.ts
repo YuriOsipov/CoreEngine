@@ -16,6 +16,7 @@ import {
   USERS_ASSET_COLLECTION,
 } from '@/core/usersField'
 import { keysEqual } from '@/core/utils/object'
+import { isMultiPicklistFieldDefinition } from '@/core/picklistField'
 import type { PaletteItem } from './fieldPalette'
 
 function fieldHasRollupCompute(field: FieldDefinition): boolean {
@@ -54,13 +55,14 @@ export function normalizeSpecial(
 function mapInterfaceToComponent(
   metaInterface: string | null | undefined,
   typeComponent: PrimeVueComponentType | null,
+  multiple = false,
 ): PrimeVueComponentType | null {
   if (!metaInterface) return null
   const i = metaInterface.toLowerCase()
 
   // List choices, e.g. patient.sex.
-  if (i.includes('select-dropdown')) return 'Select'
-  if (i.includes('select')) return 'Select'
+  if (i.includes('select-dropdown')) return multiple ? 'MultiSelect' : 'Select'
+  if (i.includes('select')) return multiple ? 'MultiSelect' : 'Select'
 
   if (i.includes('wysiwyg') || i.includes('rich-text-html')) {
     return typeComponent === 'InputText' || typeComponent === 'Textarea'
@@ -183,6 +185,7 @@ export function mapFieldTypeToComponent(
   const byInterface = mapInterfaceToComponent(
     field.meta?.interface,
     typeComponent,
+    isMultiPicklistFieldDefinition(field),
   )
 
   if (byInterface) return byInterface

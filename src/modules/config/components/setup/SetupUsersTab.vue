@@ -19,6 +19,7 @@ import {
 } from '@/core/graphql/userAdminApi'
 import { readCurrentUserBridge } from '@/core/graphql/currentUserApi'
 import { formatUserLabel } from '@/modules/entities/utils/recordDisplay'
+import SetupPageHeader from './SetupPageHeader.vue'
 
 const { t } = useTranslation()
 const toast = useToast()
@@ -228,19 +229,17 @@ onMounted(() => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.users.title', 'Users') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{
-            t(
-              'setup.users.hint',
-              'Create and manage app users, roles, and login passwords.',
-            )
-          }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.users.title', 'Users')"
+      :meta="
+        t(
+          'setup.users.hint',
+          'Create and manage app users, roles, and login passwords.',
+        )
+      "
+      icon-class="pi pi-users"
+    >
+      <template #actions>
         <div class="flex items-center gap-2">
           <Checkbox
             v-model="includeInactive"
@@ -267,8 +266,8 @@ onMounted(() => {
           :disabled="!isAdmin || loading"
           @click="openCreate"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <Message
       v-if="!loading && !isAdmin"

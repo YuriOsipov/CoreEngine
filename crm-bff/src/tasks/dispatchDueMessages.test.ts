@@ -87,6 +87,30 @@ describe('dispatchDueMessages', () => {
     expect(result.errors).toEqual(['m2: smtp down'])
   })
 
+  it('prefers connectionKey over legacy flowKey', async () => {
+    claimDueQueuedMessages.mockResolvedValue([
+      {
+        id: 'm4',
+        attempts: 1,
+        idempotencyKey: 'ce-message-m4',
+        record: { id: 'm4' },
+      },
+    ])
+    runLocalFlow.mockResolvedValue({ ok: true })
+
+    const result = await dispatchDueMessages({
+      connectionKey: 'custom_connection',
+      flowKey: 'legacy_flow',
+    })
+
+    expect(runLocalFlow).toHaveBeenCalledWith(
+      'custom_connection',
+      expect.anything(),
+      { kind: 'system' },
+    )
+    expect(result).toMatchObject({ connectionKey: 'custom_connection', dispatched: 1 })
+  })
+
   it('keeps going when the release itself throws', async () => {
     claimDueQueuedMessages.mockResolvedValue([
       { id: 'm3', attempts: 5, idempotencyKey: 'ce-message-m3', record: { id: 'm3' } },

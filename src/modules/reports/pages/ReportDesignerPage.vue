@@ -439,7 +439,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
       v-if="draft"
       class="bg-panel border border-line rounded-lg grid gap-3 grid-cols-[repeat(4,minmax(0,1fr))] items-end px-4 py-3 max-[1400px]:grid-cols-2 max-[640px]:grid-cols-1"
     >
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
+      <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('reports.reportTitle', 'Report title') }}
         <InputText
           :model-value="draft.title"
@@ -448,7 +448,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
           @update:model-value="updateTitle(String($event))"
         />
       </label>
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
+      <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('reports.sourceCollection', 'Source collection') }}
         <Select
           :model-value="draft.collection"
@@ -461,7 +461,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
           @update:model-value="updateCollection(String($event))"
         />
       </label>
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
+      <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('layoutRole.role', 'Role') }}
         <Select
           v-if="isAdmin"
@@ -483,7 +483,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
           disabled
         />
       </label>
-      <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
+      <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('reports.folder', 'Folder') }}
         <Select
           :model-value="draft.folderId ?? null"

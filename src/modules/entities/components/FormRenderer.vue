@@ -6,6 +6,7 @@ export default {
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { normalizeEntityFormDraft } from '@/core/entityFormValues'
 import {
   collectFormulaDependencies,
@@ -26,10 +27,13 @@ import CrmJsonListField from '@/core/ui-kit/CrmJsonListField.vue'
 import CrmJsonCodeField from '@/core/ui-kit/CrmJsonCodeField.vue'
 import CrmSensitivityMatrixField from '@/core/ui-kit/CrmSensitivityMatrixField.vue'
 import CrmDynamicPicklist from '@/core/ui-kit/CrmDynamicPicklist.vue'
+import CrmHtmlCell from '@/core/ui-kit/CrmHtmlCell.vue'
+import CrmTextareaCell from '@/core/ui-kit/CrmTextareaCell.vue'
 import {
   isDynamicPicklistSource,
   type DynamicPicklistSource,
 } from '@/core/dynamicPicklist'
+import { normalizeMultiPicklistValue } from '@/core/picklistField'
 import type { JsonListColumn } from '@/core/jsonField'
 import {
   defaultSensitivitySource,
@@ -63,14 +67,17 @@ import {
 import { loadChildLookupFieldSettings } from '@/modules/config/services/layoutSettings'
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 import {
+  coerceBooleanDisplayValue,
   gridStyle,
   isAutoCompleteField,
   isAddressField,
+  isBooleanColumn,
   isCheckboxField,
   isDataTableField,
   isFilesField,
   isFullWidthLayoutField,
   isGroupInlineLabels,
+  isHtmlEditorField,
   isJsonCodeField,
   isJsonListField,
   isSensitivityMatrixField,
@@ -80,10 +87,13 @@ import {
   isRepeaterField,
   isRegisteredCustomBlock,
   isSchedulerField,
+  isTextareaField,
   isTreeTableField,
+  relatedFieldValue,
   sectionLabel,
   treeTableValue,
 } from '@/core/fieldHelpers'
+import { fieldRelatedRecordRoute } from '@/core/compactRecordRoutes'
 import { useNarrowViewport } from '@/core/useNarrowViewport'
 import { resolveCustomBlockRender } from '@/core/customBlocks/registry'
 import { buildComponentProps } from '@/core/buildComponentProps'
@@ -99,6 +109,7 @@ import {
 } from '@/core/recordConditionMatch'
 import { useShowIfEvalRecord } from '@/core/useShowIfEvalRecord'
 import { isLayoutFieldReadonly } from '@/core/layoutFieldRules'
+import { useFieldDisplay } from '@/core/useFieldDisplay'
 import { keysEqual } from '@/core/utils/object'
 
 const props = defineProps<{
@@ -117,6 +128,7 @@ const props = defineProps<{
 const formState = defineModel<Record<string, unknown>>({ required: true })
 const { t } = useTranslation()
 const { isNarrow } = useNarrowViewport()
+const fieldDisplay = useFieldDisplay(() => props.schema.entity)
 
 function fieldGridStyle(field: LayoutFieldMetadata): Record<string, string> | undefined {
   if (isNarrow.value || isFullWidthLayoutField(field)) {
@@ -307,10 +319,13 @@ const previewValues = computed(() => {
 })
 
 function displayFieldValue(field: LayoutFieldMetadata): unknown {
-  if (hasPreviewValue(previewValues.value, field.field)) {
-    return previewValues.value[field.field]
+  const raw = hasPreviewValue(previewValues.value, field.field)
+    ? previewValues.value[field.field]
+    : formState.value[field.field]
+  if (field.component === 'MultiSelect') {
+    return normalizeMultiPicklistValue(raw)
   }
-  return formState.value[field.field]
+  return raw
 }
 
 function dynamicChoiceSource(field: LayoutFieldMetadata): DynamicPicklistSource | null {
@@ -337,6 +352,42 @@ function fieldComponentProps(field: LayoutFieldMetadata): Record<string, unknown
     runtimeMeta.runtimeReadonly[field.field] ||
       isLayoutFieldReadonly(field, showIfEvalRecord.value),
   )
+}
+
+function isFormFieldReadonly(field: LayoutFieldMetadata): boolean {
+  if (props.readonly) return true
+  if (readonlyFieldNames.value.has(field.field)) return true
+  if (field.readonly === true) return true
+  if (runtimeMeta.runtimeReadonly[field.field]) return true
+  if (isLayoutFieldReadonly(field, showIfEvalRecord.value)) return true
+  if (
+    props.parentName &&
+    field.field === props.parentName &&
+    props.parentId !== undefined &&
+    props.parentId !== null
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Scalar / relation fields: show page-layout static text instead of disabled inputs. */
+function shouldRenderStaticReadonly(field: LayoutFieldMetadata): boolean {
+  if (!isFormFieldReadonly(field)) return false
+  if (isTreeTableField(field)) return false
+  if (isSchedulerField(field)) return false
+  if (isRegisteredCustomBlock(field)) return false
+  if (isFilesField(field)) return false
+  if (isRepeaterField(field)) return false
+  if (isAddressField(field)) return false
+  if (isSensitivityMatrixField(field)) return false
+  if (isJsonListField(field)) return false
+  if (isJsonCodeField(field)) return false
+  return true
+}
+
+function staticFieldRawValue(field: LayoutFieldMetadata): unknown {
+  return displayFieldValue(field)
 }
 
 /** Runtime number/currency props for child lookup — never override modelValue. */
@@ -535,6 +586,14 @@ watch(visibleFields, (fields) => void syncFormState(fields), {
   deep: true,
 })
 
+watch(
+  [visibleFields, formState, () => props.schema.entity],
+  ([fields]) => {
+    fieldDisplay.sync(fields, (field) => formState.value[field.field])
+  },
+  { immediate: true, deep: true },
+)
+
 /** Required fields on currently visible tabs/groups (respects show-if). */
 function validateRequired(): FormRequiredValidationResult {
   const missingLabels: string[] = []
@@ -675,6 +734,59 @@ defineExpose({ validateRequired })
                   'justify-center min-h-[2.5rem]': isCheckboxField(field),
                 }"
               >
+                <template v-if="shouldRenderStaticReadonly(field)">
+                  <Checkbox
+                    v-if="isBooleanColumn(field)"
+                    class="pointer-events-none"
+                    :model-value="coerceBooleanDisplayValue(staticFieldRawValue(field))"
+                    binary
+                    :tabindex="-1"
+                    :aria-label="fieldLabels.getLabel(field)"
+                  />
+                  <CrmTextareaCell
+                    v-else-if="isTextareaField(field)"
+                    :value="
+                      staticFieldRawValue(field) == null
+                        ? ''
+                        : String(staticFieldRawValue(field))
+                    "
+                    :lines="3"
+                  />
+                  <CrmHtmlCell
+                    v-else-if="isHtmlEditorField(field)"
+                    :html="String(staticFieldRawValue(field) ?? '')"
+                  />
+                  <div
+                    v-else
+                    class="min-w-0 break-words text-ink text-[0.95rem] leading-[1.35] py-0.5"
+                  >
+                    <span
+                      v-if="
+                        relatedFieldValue(field, formState[field.field]) !== null &&
+                        fieldDisplay.isRelatedRestricted(field)
+                      "
+                      class="text-muted-color"
+                    >
+                      {{ fieldDisplay.displayValue(field, formState[field.field]) }}
+                    </span>
+                    <RouterLink
+                      v-else-if="relatedFieldValue(field, formState[field.field]) !== null"
+                      :to="
+                        fieldRelatedRecordRoute(
+                          field,
+                          relatedFieldValue(field, formState[field.field]),
+                        )
+                      "
+                      class="border-0 bg-transparent text-primary cursor-pointer font-[inherit] p-0 text-left underline decoration-dotted underline-offset-[3px]"
+                    >
+                      {{ fieldDisplay.displayValue(field, formState[field.field]) }}
+                    </RouterLink>
+                    <template v-else>
+                      {{ fieldDisplay.displayValue(field, staticFieldRawValue(field)) }}
+                    </template>
+                  </div>
+                </template>
+                <template v-else>
                 <CrmTreeTable
                   v-if="isTreeTableField(field)"
                   :model-value="treeTableValue(formState[field.field])"
@@ -808,6 +920,7 @@ defineExpose({ validateRequired })
                   :choice-source="dynamicChoiceSource(field)!"
                   :entity-collection="schema.entity"
                   :source-record="formState"
+                  :multiple="field.component === 'MultiSelect'"
                   :disabled="Boolean(fieldComponentProps(field).disabled)"
                   @update:model-value="updateFormField(field.field, $event)"
                 />
@@ -836,6 +949,7 @@ defineExpose({ validateRequired })
                 <p v-else class="m-0 text-[0.85rem] text-red-600">
                   {{ t('formRenderer.unknownComponent', 'Unknown component: {component}', { component: field.component }) }}
                 </p>
+                </template>
               </div>
               </template>
             </div>

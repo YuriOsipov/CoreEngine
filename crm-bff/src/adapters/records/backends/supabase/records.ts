@@ -507,15 +507,16 @@ function compileComparison(
   for (const [op, raw] of Object.entries(ops)) {
     switch (op) {
       case '_eq':
-        parts.push(`${column} = $${index}`)
+      case '_neq': {
+        // Jsonb path uses text extraction (`data->>'f'`). Comparing that to a
+        // boolean bind param fails (`text = boolean`). Cast like ORDER BY does.
+        const eqColumn =
+          jsonb && typeof raw === 'boolean' ? `(${column})::boolean` : column
+        parts.push(`${eqColumn} ${op === '_eq' ? '=' : '<>'} $${index}`)
         params.push(raw)
         index += 1
         break
-      case '_neq':
-        parts.push(`${column} <> $${index}`)
-        params.push(raw)
-        index += 1
-        break
+      }
       case '_in':
         if (Array.isArray(raw) && raw.length) {
           parts.push(`${column} = ANY($${index}::text[])`)

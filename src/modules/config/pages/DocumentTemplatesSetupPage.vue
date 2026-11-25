@@ -18,6 +18,7 @@ import {
 } from '@/modules/documents/services/docTemplateService'
 import { listUserCollections } from '@/modules/entities/services/collectionSchema'
 import SetupLayoutEditorDialog from '../components/setup/SetupLayoutEditorDialog.vue'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 
 const route = useRoute()
 const { t } = useTranslation()
@@ -181,14 +182,12 @@ onMounted(() => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.layoutType.documentTemplates', 'Document Templates') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{ itemSummary }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.layoutType.documentTemplates', 'Document Templates')"
+      :meta="itemSummary"
+      icon-class="pi pi-file"
+    >
+      <template #actions>
         <Select
           v-model="collectionFilter"
           :options="collectionOptions"
@@ -215,8 +214,8 @@ onMounted(() => {
           :disabled="loading"
           @click="openCreate"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <div
       v-if="loading"

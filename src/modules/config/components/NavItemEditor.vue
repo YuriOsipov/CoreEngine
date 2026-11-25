@@ -263,14 +263,14 @@ function save(): void {
   >
     <div v-if="draft" class="flex flex-col gap-4">
       <div class="flex flex-col gap-1">
-        <label class="text-surface-700 text-[0.8rem] font-semibold">
+        <label class="text-ink text-[0.8rem] font-semibold">
           {{ t('navigation.itemLabel', 'Label') }}
         </label>
         <InputText v-model="draftLabel" fluid />
       </div>
 
       <div class="flex flex-col gap-1">
-        <label class="text-surface-700 text-[0.8rem] font-semibold">
+        <label class="text-ink text-[0.8rem] font-semibold">
           {{ t('navigation.itemIcon', 'Icon') }}
         </label>
         <CrmIconPicker v-model="draftIcon" />
@@ -278,7 +278,7 @@ function save(): void {
 
       <template v-if="isLink">
         <div class="flex flex-col gap-1">
-          <label class="text-surface-700 text-[0.8rem] font-semibold">
+          <label class="text-ink text-[0.8rem] font-semibold">
             {{ t('navigation.targetType', 'Target type') }}
           </label>
           <Select
@@ -292,7 +292,7 @@ function save(): void {
 
         <div v-if="targetKind === 'object'" class="flex flex-col gap-3">
           <div class="flex flex-col gap-1">
-            <label class="text-surface-700 text-[0.8rem] font-semibold">
+            <label class="text-ink text-[0.8rem] font-semibold">
               {{ t('common.collection', 'Collection') }}
             </label>
             <Select
@@ -306,7 +306,7 @@ function save(): void {
             />
           </div>
           <div class="flex flex-col gap-1">
-            <label class="text-surface-700 text-[0.8rem] font-semibold">
+            <label class="text-ink text-[0.8rem] font-semibold">
               {{ t('navigation.viewId', 'View (optional)') }}
             </label>
             <Select
@@ -324,7 +324,7 @@ function save(): void {
         </div>
 
         <div v-else-if="targetKind === 'dashboard'" class="flex flex-col gap-1">
-          <label class="text-surface-700 text-[0.8rem] font-semibold">
+          <label class="text-ink text-[0.8rem] font-semibold">
             {{ t('navigation.dashboard', 'Dashboard') }}
           </label>
           <Select
@@ -339,7 +339,7 @@ function save(): void {
         </div>
 
         <div v-else-if="targetKind === 'reports'" class="flex flex-col gap-1">
-          <label class="text-surface-700 text-[0.8rem] font-semibold">
+          <label class="text-ink text-[0.8rem] font-semibold">
             {{ t('navigation.reports', 'Reports') }}
           </label>
           <MultiSelect
@@ -354,14 +354,14 @@ function save(): void {
         </div>
 
         <div v-else-if="targetKind === 'projects'" class="flex flex-col gap-1">
-          <p class="text-surface-600 text-[0.85rem] m-0">
+          <p class="text-muted-color text-[0.85rem] m-0">
             {{ t('navigation.projectsHint', 'Opens the Project Management workspace.') }}
           </p>
         </div>
 
         <div v-else-if="targetKind === 'url'" class="flex flex-col gap-3">
           <div class="flex flex-col gap-1">
-            <label class="text-surface-700 text-[0.8rem] font-semibold">
+            <label class="text-ink text-[0.8rem] font-semibold">
               {{ t('navigation.url', 'URL') }}
             </label>
             <InputText

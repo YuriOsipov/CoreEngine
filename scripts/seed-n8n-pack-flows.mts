@@ -202,7 +202,7 @@ if (pack === 'sales' || pack === 'all') {
           }),
           JSON.stringify({
             collection: 'message',
-            flowKey: 'dispatch_outbound_message',
+            connectionKey: 'dispatch_outbound_message',
             limit: 50,
             staleMinutes: 15,
             maxAttempts: 5,

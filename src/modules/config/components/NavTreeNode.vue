@@ -282,8 +282,8 @@ function onAddFolder(event: Event, folder: NavFolder): void {
 }
 
 .nav-node__action:hover:not(:disabled) {
-  background: var(--p-surface-100, #f3f4f6);
-  color: var(--p-text-color, #1f2937);
+  background: var(--app-hover, var(--p-content-hover-background, #f3f4f6));
+  color: var(--app-text, var(--p-text-color, #1f2937));
 }
 
 .nav-node__action:disabled {

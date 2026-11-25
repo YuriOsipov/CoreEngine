@@ -26,6 +26,8 @@ const navOpen = ref(false)
 const rolePreviewActive = ref(isRolePreviewActive())
 const rolePreviewLabel = ref(getRolePreviewDisplayLabel())
 const showGlobalChrome = computed(() => route.name !== 'login')
+const isSetupRoute = computed(() => route.path.startsWith('/setup'))
+const showAppSidebar = computed(() => showGlobalChrome.value && !isSetupRoute.value)
 const rolePreviewBannerText = computed(() => {
   if (!rolePreviewActive.value) return ''
   return t(
@@ -102,7 +104,7 @@ onErrorCaptured((error) => {
     <AppHeaderUtilities
       v-if="showGlobalChrome"
       ref="topBarRef"
-      :show-nav-toggle="isNarrow"
+      :show-nav-toggle="showAppSidebar && isNarrow"
       :nav-open="navOpen"
       @toggle-nav="toggleNav"
       @preview-active="handlePreviewActive"
@@ -111,14 +113,14 @@ onErrorCaptured((error) => {
 
     <div class="app-root__body flex min-h-0 flex-1 flex-row overflow-hidden">
       <div
-        v-if="showGlobalChrome && isNarrow && navOpen"
+        v-if="showAppSidebar && isNarrow && navOpen"
         class="app-root__nav-backdrop"
         aria-hidden="true"
         @click="closeNav"
       />
 
       <AppSidebar
-        v-if="showGlobalChrome"
+        v-if="showAppSidebar"
         ref="sidebarRef"
         :overlay="isNarrow"
         :open="navOpen"

@@ -907,6 +907,9 @@ function defaultConditionValue(field: FilterableField): unknown {
       return null
     case 'Checkbox':
     case 'ToggleSwitch':
+      // Prefer registry options.default (e.g. is_new → true). Hardcoding false
+      // made Unread-style filters persist the opposite of the field semantics.
+      if (typeof field.defaultValue === 'boolean') return field.defaultValue
       return false
     case 'DatePicker':
     case 'Calendar':

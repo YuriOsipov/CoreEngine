@@ -451,24 +451,257 @@ body {
   margin: 0;
 }
 
-.setup-tab-menu {
+.app-shell.setup-page {
+  padding: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.setup-page {
   display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid var(--p-surface-200);
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.setup-page__body {
+  display: grid;
+  gap: 0;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+
+.setup-page__main {
+  min-width: 0;
+  overflow: auto;
+  padding: 1.25rem 1.5rem 2rem;
+}
+
+.setup-sidebar {
+  background: var(--app-panel, var(--p-surface-0));
+  border-right: 1px solid var(--p-surface-200);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.85rem 0.65rem 1.25rem;
+}
+
+.setup-sidebar__back {
+  align-items: center;
+  color: var(--p-primary-color);
+  display: inline-flex;
+  font-size: 0.875rem;
+  font-weight: 600;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem 0.35rem;
+  text-decoration: none;
+}
+
+.setup-sidebar__back:hover {
+  text-decoration: underline;
+}
+
+.setup-sidebar__back .pi {
+  font-size: 0.75rem;
+}
+
+.setup-sidebar__search {
+  padding: 0 0.35rem;
+}
+
+.setup-sidebar__quick-find {
+  width: 100%;
+}
+
+.setup-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.setup-sidebar__group-toggle {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  gap: 0.35rem;
+  letter-spacing: 0.02em;
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.setup-sidebar__group-toggle:hover {
+  color: var(--p-text-color);
+}
+
+.setup-sidebar__chevron {
+  font-size: 0.7rem;
+  width: 0.85rem;
+}
+
+.setup-sidebar__items {
+  margin-bottom: 0.25rem;
+}
+
+.setup-sidebar__link {
+  display: block;
+  text-decoration: none;
+}
+
+.setup-sidebar__empty {
+  font-size: 0.85rem;
+  margin: 0.5rem 0.65rem;
+}
+
+.setup-page-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
   margin-bottom: 1.25rem;
 }
 
-.setup-tab-menu__link {
-  color: var(--p-text-muted-color);
-  font-weight: 600;
-  padding: 0.75rem 1rem;
-  text-decoration: none;
-  border-bottom: 2px solid transparent;
+.setup-page-header__main {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.85rem;
+  min-width: 0;
 }
 
-.setup-tab-menu__link--active {
+.setup-page-header__icon {
+  align-items: center;
+  background: var(--p-primary-color);
+  border-radius: 0.35rem;
+  color: var(--p-primary-contrast-color, #fff);
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  height: 2.5rem;
+  justify-content: center;
+  width: 2.5rem;
+}
+
+.setup-page-header__eyebrow {
   color: var(--p-primary-color);
-  border-bottom-color: var(--p-primary-color);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.setup-page-header__title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0.15rem 0 0;
+}
+
+.setup-page-header__meta {
+  color: var(--app-text-muted);
+  margin: 0.35rem 0 0;
+}
+
+.setup-page-header__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.setup-detail-section {
+  border-bottom: 1px solid var(--p-surface-200);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem 0;
+}
+
+.setup-detail-section:last-child {
+  border-bottom: none;
+}
+
+.setup-detail-section__title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.setup-detail-grid {
+  display: grid;
+  gap: 0.85rem 1.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-detail-field {
+  display: grid;
+  gap: 0.35rem 1rem;
+  grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr);
+  align-items: start;
+}
+
+.setup-detail-field__label {
+  color: var(--p-text-muted-color);
+  font-size: 0.85rem;
+  margin: 0;
+  padding-top: 0.35rem;
+  text-align: right;
+}
+
+.setup-detail-field__value {
+  font-size: 0.95rem;
+  margin: 0;
+  min-height: 1.5rem;
+  padding-top: 0.35rem;
+  word-break: break-word;
+}
+
+.setup-detail-field--edit .setup-detail-field__label {
+  padding-top: 0.65rem;
+}
+
+.setup-company-logo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.setup-company-logo__preview {
+  align-items: center;
+  background: var(--p-surface-100, var(--p-content-background));
+  border: 1px solid var(--p-surface-200);
+  border-radius: 0.35rem;
+  display: inline-flex;
+  height: 4.5rem;
+  justify-content: center;
+  overflow: hidden;
+  width: 4.5rem;
+}
+
+.setup-company-logo__preview img {
+  display: block;
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.setup-company-logo__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .setup-tab-content,
@@ -525,7 +758,7 @@ body {
 
 .setup-collection-page__breadcrumb {
   color: var(--app-text-muted);
-  margin: 0;
+  margin: 0 0 0.5rem;
 }
 
 .setup-collection-page__body {
@@ -538,6 +771,27 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+.setup-layout-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.5rem;
+}
+
+.setup-layout-nav__group-label {
+  color: var(--p-text-muted-color);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0.35rem 0.5rem 0.15rem;
+  text-transform: uppercase;
+}
+
+.setup-page__main .setup-reports-tab,
+.setup-page__main .setup-dashboards-tab {
+  margin-top: 0;
 }
 
 .setup-layout-nav__item {
@@ -755,9 +1009,24 @@ body.builder-splitter-resizing * {
 }
 
 @media (max-width: 960px) {
+  .setup-page__body,
   .setup-collection-page__body,
-  .setup-editor-dialog__workspace--preview {
+  .setup-editor-dialog__workspace--preview,
+  .setup-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .setup-page__main {
+    padding: 1rem;
+  }
+
+  .setup-detail-field,
+  .setup-detail-field--edit {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-detail-field__label {
+    text-align: left;
   }
 }
 

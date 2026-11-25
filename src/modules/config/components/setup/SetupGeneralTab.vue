@@ -6,8 +6,8 @@ export default {
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
+import { fileAssetUrl, uploadFile } from '@/core/graphql/filesProxy'
 import {
   getDataSource,
   getRecordsSource,
@@ -23,6 +23,7 @@ import {
   defaultCompanyProfile,
   formatOrgCurrencySample,
   loadCompanyProfile,
+  normalizeCompanyProfile,
   saveCompanyProfile,
   timeZoneSelectOptions,
 } from '@/core/orgLocale'
@@ -30,12 +31,14 @@ import {
   type OrgFilesUploadSettings,
   defaultOrgFilesUploadSettings,
   loadOrgFilesUploadSettings,
+  normalizeOrgFilesUploadSettings,
   saveOrgFilesUploadSettings,
 } from '@/core/orgFilesSettings'
 import {
   type OrgFailedRunNotifySettings,
   defaultFailedRunNotifySettings,
   loadFailedRunNotifySettings,
+  normalizeFailedRunNotifySettings,
   saveFailedRunNotifySettings,
 } from '@/core/orgFailedRunNotify'
 import { IMAGE_FORMAT_OPTIONS } from '@/interfaces'
@@ -44,11 +47,14 @@ import {
   applyOrgLanguageDefault,
   useTranslation,
 } from '@/core/translation'
-import { scheduleFeatureAvailable } from '../../services/scheduleFeature'
+import SetupPageHeader from './SetupPageHeader.vue'
 
 const { t } = useTranslation()
 const toast = useToast()
-const scheduleAvailable = ref(false)
+const companyEditing = ref(false)
+const companySnapshot = ref<CompanyProfile | null>(null)
+const filesSnapshot = ref<OrgFilesUploadSettings | null>(null)
+const notifySnapshot = ref<OrgFailedRunNotifySettings | null>(null)
 
 const dataSource = getDataSource()
 const recordsSource = getRecordsSource()
@@ -59,7 +65,6 @@ const healthOk = ref<boolean | null>(null)
 const healthDetail = ref<string | null>(null)
 
 const profileLoading = ref(false)
-const profileSaving = ref(false)
 const draft = ref<CompanyProfile>(defaultCompanyProfile())
 const timeZoneOptions = timeZoneSelectOptions()
 const languageOptions = TRANSLATION_LANGUAGE_OPTIONS
@@ -68,13 +73,32 @@ const dateFormatOptions = [...DATE_FORMAT_PRESETS]
 const dateTimeFormatOptions = [...DATE_TIME_FORMAT_PRESETS]
 
 const filesLoading = ref(false)
-const filesSaving = ref(false)
 const filesDraft = ref<OrgFilesUploadSettings>(defaultOrgFilesUploadSettings())
 const imageFormatOptions = IMAGE_FORMAT_OPTIONS
 
 const notifyLoading = ref(false)
-const notifySaving = ref(false)
 const notifyDraft = ref<OrgFailedRunNotifySettings>(defaultFailedRunNotifySettings())
+
+const pageLoading = computed(
+  () => profileLoading.value || filesLoading.value || notifyLoading.value,
+)
+const pageSaving = ref(false)
+const logoUploading = ref(false)
+const logoInputRef = ref<HTMLInputElement | null>(null)
+
+const logoPreviewUrl = computed(() => {
+  const id = draft.value.logoFileId?.trim()
+  if (!id) return ''
+  return fileAssetUrl(id, { width: 160, height: 160, fit: 'contain' })
+})
+
+const logoAccept = computed(() => {
+  const mimes = filesDraft.value.allowedMimeTypes
+  if (!mimes.length || mimes.every((mime) => mime === 'image' || mime === 'image/')) {
+    return 'image/*'
+  }
+  return mimes.join(',')
+})
 
 const filesImageFormats = computed({
   get: () => {
@@ -126,6 +150,160 @@ const previewSample = computed(() => {
   return `${currency} · ${datePart} · ${dateTimePart}`
 })
 
+function optionLabel(
+  options: Array<{ label: string; value: string }>,
+  value: string,
+): string {
+  return options.find((option) => option.value === value)?.label || value || '—'
+}
+
+function displayText(value: string | null | undefined): string {
+  const trimmed = String(value ?? '').trim()
+  return trimmed || '—'
+}
+
+const languageDisplay = computed(() =>
+  optionLabel(languageOptions, draft.value.language),
+)
+const timeZoneDisplay = computed(() =>
+  optionLabel(timeZoneOptions, draft.value.timeZone),
+)
+const dateFormatDisplay = computed(() =>
+  optionLabel(dateFormatOptions, draft.value.dateFormat),
+)
+const dateTimeFormatDisplay = computed(() =>
+  optionLabel(dateTimeFormatOptions, draft.value.dateTimeFormat),
+)
+const currencyDisplay = computed(() =>
+  optionLabel(currencyOptions, draft.value.currency),
+)
+
+const filesFormatDisplay = computed(() => {
+  const formats = filesImageFormats.value
+  if (!formats.length) {
+    return t('setup.filesUpload.formatAny', 'Any image format')
+  }
+  return formats
+    .map((value) => optionLabel(imageFormatOptions, value))
+    .join(', ')
+})
+
+const filesMaxSizeDisplay = computed(() => {
+  const size = filesDraft.value.maxFileSizeMb
+  if (size == null) {
+    return t('setup.filesUpload.maxFileSizeNone', 'No limit')
+  }
+  return String(size)
+})
+
+const notifyEnabledDisplay = computed(() =>
+  notifyDraft.value.enabled
+    ? t('common.enabled', 'Enabled')
+    : t('common.disabled', 'Disabled'),
+)
+
+function startCompanyEdit(): void {
+  companySnapshot.value = normalizeCompanyProfile(draft.value)
+  filesSnapshot.value = normalizeOrgFilesUploadSettings(filesDraft.value)
+  notifySnapshot.value = normalizeFailedRunNotifySettings(notifyDraft.value)
+  companyEditing.value = true
+}
+
+function openLogoPicker(): void {
+  logoInputRef.value?.click()
+}
+
+function clearLogo(): void {
+  draft.value = {
+    ...draft.value,
+    logoFileId: '',
+  }
+}
+
+function validateLogoFile(file: File): string | null {
+  const mimes = filesDraft.value.allowedMimeTypes
+  const allowAny =
+    !mimes.length || mimes.every((mime) => mime === 'image' || mime === 'image/')
+  if (!file.type.startsWith('image/')) {
+    return t('setup.company.logoNotImage', 'Company logo must be an image file.')
+  }
+  if (!allowAny && !mimes.includes(file.type)) {
+    return t(
+      'setup.company.logoTypeNotAllowed',
+      'This image format is not allowed by Image upload settings.',
+    )
+  }
+  const maxMb = filesDraft.value.maxFileSizeMb
+  if (
+    typeof maxMb === 'number' &&
+    Number.isFinite(maxMb) &&
+    maxMb > 0 &&
+    file.size > maxMb * 1024 * 1024
+  ) {
+    return t(
+      'setup.company.logoTooLarge',
+      'Company logo exceeds the max file size ({size} MB).',
+      { size: maxMb },
+    )
+  }
+  return null
+}
+
+async function onLogoSelected(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  const validationError = validateLogoFile(file)
+  if (validationError) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning', 'Warning'),
+      detail: validationError,
+      life: 4000,
+    })
+    return
+  }
+
+  logoUploading.value = true
+  try {
+    const uploaded = await uploadFile(file)
+    draft.value = {
+      ...draft.value,
+      logoFileId: uploaded.id,
+    }
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        error instanceof Error
+          ? error.message
+          : t('setup.company.logoUploadError', 'Failed to upload company logo.'),
+      life: 5000,
+    })
+  } finally {
+    logoUploading.value = false
+  }
+}
+
+function cancelCompanyEdit(): void {
+  if (companySnapshot.value) {
+    draft.value = normalizeCompanyProfile(companySnapshot.value)
+  }
+  if (filesSnapshot.value) {
+    filesDraft.value = normalizeOrgFilesUploadSettings(filesSnapshot.value)
+  }
+  if (notifySnapshot.value) {
+    notifyDraft.value = normalizeFailedRunNotifySettings(notifySnapshot.value)
+  }
+  companySnapshot.value = null
+  filesSnapshot.value = null
+  notifySnapshot.value = null
+  companyEditing.value = false
+}
+
 async function loadProfile(): Promise<void> {
   profileLoading.value = true
   try {
@@ -166,31 +344,6 @@ async function loadFilesSettings(): Promise<void> {
   }
 }
 
-async function saveFilesSettings(): Promise<void> {
-  filesSaving.value = true
-  try {
-    filesDraft.value = await saveOrgFilesUploadSettings(filesDraft.value)
-    toast.add({
-      severity: 'success',
-      summary: t('common.success', 'Success'),
-      detail: t('setup.filesUpload.saved', 'Image upload settings saved.'),
-      life: 3000,
-    })
-  } catch (error) {
-    toast.add({
-      severity: 'error',
-      summary: t('common.error', 'Error'),
-      detail:
-        error instanceof Error
-          ? error.message
-          : t('setup.filesUpload.saveError', 'Failed to save image upload settings.'),
-      life: 5000,
-    })
-  } finally {
-    filesSaving.value = false
-  }
-}
-
 async function saveProfile(): Promise<void> {
   if (!draft.value.organizationName.trim()) {
     toast.add({
@@ -205,10 +358,16 @@ async function saveProfile(): Promise<void> {
     return
   }
 
-  profileSaving.value = true
+  pageSaving.value = true
   try {
     draft.value = await saveCompanyProfile(draft.value)
     applyOrgLanguageDefault(draft.value.language)
+    filesDraft.value = await saveOrgFilesUploadSettings(filesDraft.value)
+    notifyDraft.value = await saveFailedRunNotifySettings(notifyDraft.value)
+    companySnapshot.value = null
+    filesSnapshot.value = null
+    notifySnapshot.value = null
+    companyEditing.value = false
     toast.add({
       severity: 'success',
       summary: t('common.success', 'Success'),
@@ -226,7 +385,7 @@ async function saveProfile(): Promise<void> {
       life: 5000,
     })
   } finally {
-    profileSaving.value = false
+    pageSaving.value = false
   }
 }
 
@@ -249,38 +408,10 @@ async function loadNotifySettings(): Promise<void> {
   }
 }
 
-async function saveNotifySettings(): Promise<void> {
-  notifySaving.value = true
-  try {
-    notifyDraft.value = await saveFailedRunNotifySettings(notifyDraft.value)
-    toast.add({
-      severity: 'success',
-      summary: t('common.success', 'Success'),
-      detail: t('setup.failedRunNotify.saved', 'Failed-run alerts saved.'),
-      life: 3000,
-    })
-  } catch (error) {
-    toast.add({
-      severity: 'error',
-      summary: t('common.error', 'Error'),
-      detail:
-        error instanceof Error
-          ? error.message
-          : t('setup.failedRunNotify.saveError', 'Failed to save failed-run alerts.'),
-      life: 5000,
-    })
-  } finally {
-    notifySaving.value = false
-  }
-}
-
 onMounted(async () => {
   void loadProfile()
   void loadFilesSettings()
   void loadNotifySettings()
-  void scheduleFeatureAvailable().then((available) => {
-    scheduleAvailable.value = available
-  })
 
   if (dataSource !== 'graphql') {
     healthOk.value = null
@@ -318,58 +449,469 @@ onMounted(async () => {
 
 <template>
   <section class="setup-tab-content flex flex-col gap-4">
-    <h2>{{ t('setup.generalTitle', 'General') }}</h2>
-
-    <div class="border border-surface-200 rounded-lg p-4 flex flex-col gap-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="font-semibold">
-          {{ t('setup.failedRunNotify.title', 'Failed-run alerts') }}
-        </div>
+    <SetupPageHeader
+      :title="t('setup.company.title', 'Company Information')"
+      icon-class="pi pi-building"
+    >
+      <template #actions>
+        <template v-if="companyEditing">
+          <Button
+            :label="t('common.cancel', 'Cancel')"
+            severity="secondary"
+            outlined
+            size="small"
+            :disabled="pageSaving || pageLoading || logoUploading"
+            @click="cancelCompanyEdit"
+          />
+          <Button
+            :label="t('setup.company.save', 'Save')"
+            icon="pi pi-save"
+            size="small"
+            :loading="pageSaving"
+            :disabled="pageLoading || logoUploading"
+            @click="saveProfile"
+          />
+        </template>
         <Button
-          :label="t('setup.failedRunNotify.save', 'Save')"
-          icon="pi pi-save"
+          v-else
+          :label="t('common.edit', 'Edit')"
+          icon="pi pi-pencil"
           size="small"
-          :loading="notifySaving"
-          :disabled="notifyLoading"
-          @click="saveNotifySettings"
+          :disabled="pageLoading"
+          @click="startCompanyEdit"
         />
-      </div>
-      <ProgressSpinner
-        v-if="notifyLoading"
-        class="self-center"
-        stroke-width="4"
-        style="width: 2rem; height: 2rem"
-      />
-      <template v-else>
-        <div class="flex items-center gap-2">
-          <ToggleSwitch v-model="notifyDraft.enabled" input-id="failed-run-notify" />
-          <label
-            for="failed-run-notify"
-            class="text-[0.9rem] cursor-pointer"
+      </template>
+    </SetupPageHeader>
+
+    <ProgressSpinner
+      v-if="pageLoading"
+      class="self-center"
+      stroke-width="4"
+      style="width: 2rem; height: 2rem"
+    />
+
+    <template v-else>
+      <section class="setup-detail-section">
+        <h3 class="setup-detail-section__title">
+          {{ t('setup.company.organizationDetail', 'Organization Detail') }}
+        </h3>
+        <div class="setup-detail-grid">
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
           >
-            {{
-              t(
-                'setup.failedRunNotify.enable',
-                'Email admins when a flow or scheduled task fails',
-              )
-            }}
-          </label>
+            <label class="setup-detail-field__label" for="org-name">
+              {{ t('setup.company.organizationName', 'Organization Name') }}
+            </label>
+            <InputText
+              v-if="companyEditing"
+              id="org-name"
+              v-model="draft.organizationName"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">
+              {{ displayText(draft.organizationName) }}
+            </p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <p class="setup-detail-field__label">
+              {{ t('setup.company.logo', 'Company Logo') }}
+            </p>
+            <div class="setup-company-logo">
+              <div
+                v-if="logoPreviewUrl"
+                class="setup-company-logo__preview"
+              >
+                <img
+                  :src="logoPreviewUrl"
+                  :alt="t('setup.company.logo', 'Company Logo')"
+                />
+              </div>
+              <p
+                v-else
+                class="setup-detail-field__value"
+              >
+                {{ t('setup.company.logoEmpty', 'No logo') }}
+              </p>
+              <div
+                v-if="companyEditing"
+                class="setup-company-logo__actions"
+              >
+                <input
+                  ref="logoInputRef"
+                  type="file"
+                  class="hidden"
+                  :accept="logoAccept"
+                  @change="onLogoSelected"
+                />
+                <Button
+                  :label="
+                    logoPreviewUrl
+                      ? t('setup.company.logoReplace', 'Replace')
+                      : t('setup.company.logoUpload', 'Upload')
+                  "
+                  :icon="logoPreviewUrl ? 'pi pi-refresh' : 'pi pi-upload'"
+                  size="small"
+                  severity="secondary"
+                  outlined
+                  :loading="logoUploading"
+                  :disabled="pageSaving"
+                  @click="openLogoPicker"
+                />
+                <Button
+                  v-if="logoPreviewUrl"
+                  :label="t('common.remove', 'Remove')"
+                  icon="pi pi-trash"
+                  size="small"
+                  severity="danger"
+                  text
+                  :disabled="logoUploading || pageSaving"
+                  @click="clearLogo"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <p class="text-muted-color text-[0.8rem] m-0">
+      </section>
+
+      <section class="setup-detail-section">
+        <h3 class="setup-detail-section__title">
+          {{ t('setup.company.address', 'Address') }}
+        </h3>
+        <div class="setup-detail-grid">
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-country">
+              {{ t('setup.company.country', 'Country') }}
+            </label>
+            <InputText
+              v-if="companyEditing"
+              id="org-country"
+              v-model="draft.address.country"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">
+              {{ displayText(draft.address.country) }}
+            </p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-street">
+              {{ t('setup.company.street', 'Street') }}
+            </label>
+            <Textarea
+              v-if="companyEditing"
+              id="org-street"
+              v-model="draft.address.street"
+              class="w-full"
+              rows="2"
+              auto-resize
+            />
+            <p v-else class="setup-detail-field__value">
+              {{ displayText(draft.address.street) }}
+            </p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-city">
+              {{ t('setup.company.city', 'City') }}
+            </label>
+            <InputText
+              v-if="companyEditing"
+              id="org-city"
+              v-model="draft.address.city"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">
+              {{ displayText(draft.address.city) }}
+            </p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-state">
+              {{ t('setup.company.state', 'State / Province') }}
+            </label>
+            <InputText
+              v-if="companyEditing"
+              id="org-state"
+              v-model="draft.address.state"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">
+              {{ displayText(draft.address.state) }}
+            </p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-postal">
+              {{ t('setup.company.postalCode', 'Zip / Postal Code') }}
+            </label>
+            <InputText
+              v-if="companyEditing"
+              id="org-postal"
+              v-model="draft.address.postalCode"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">
+              {{ displayText(draft.address.postalCode) }}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="setup-detail-section">
+        <h3 class="setup-detail-section__title">
+          {{ t('setup.company.localeSettings', 'Locale Settings') }}
+        </h3>
+        <div class="setup-detail-grid">
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-language">
+              {{ t('setup.company.language', 'Default Language') }}
+            </label>
+            <Select
+              v-if="companyEditing"
+              id="org-language"
+              v-model="draft.language"
+              :options="languageOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">{{ languageDisplay }}</p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-timezone">
+              {{ t('setup.company.timeZone', 'Default Time Zone') }}
+            </label>
+            <Select
+              v-if="companyEditing"
+              id="org-timezone"
+              v-model="draft.timeZone"
+              :options="timeZoneOptions"
+              option-label="label"
+              option-value="value"
+              filter
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">{{ timeZoneDisplay }}</p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-date">
+              {{ t('setup.company.dateFormat', 'Date') }}
+            </label>
+            <Select
+              v-if="companyEditing"
+              id="org-date"
+              v-model="draft.dateFormat"
+              :options="dateFormatOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">{{ dateFormatDisplay }}</p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-datetime">
+              {{ t('setup.company.dateTimeFormat', 'Date Time') }}
+            </label>
+            <Select
+              v-if="companyEditing"
+              id="org-datetime"
+              v-model="draft.dateTimeFormat"
+              :options="dateTimeFormatOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">{{ dateTimeFormatDisplay }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="setup-detail-section">
+        <h3 class="setup-detail-section__title">
+          {{ t('setup.company.currencySettings', 'Currency Settings') }}
+        </h3>
+        <div class="setup-detail-grid">
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-currency">
+              {{ t('setup.company.currency', 'Currency') }}
+            </label>
+            <Select
+              v-if="companyEditing"
+              id="org-currency"
+              v-model="draft.currency"
+              :options="currencyOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+            />
+            <p v-else class="setup-detail-field__value">{{ currencyDisplay }}</p>
+          </div>
+          <div class="setup-detail-field">
+            <p class="setup-detail-field__label">
+              {{ t('setup.company.preview', 'Preview') }}
+            </p>
+            <p class="setup-detail-field__value">{{ previewSample }}</p>
+          </div>
+        </div>
+      </section>
+      <section class="setup-detail-section">
+        <h3 class="setup-detail-section__title">
+          {{ t('setup.failedRunNotify.title', 'Failed-run alerts') }}
+        </h3>
+        <div class="setup-detail-grid">
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="failed-run-notify">
+              {{ t('setup.failedRunNotify.enableShort', 'Email on failure') }}
+            </label>
+            <div v-if="companyEditing" class="flex flex-col gap-2">
+              <div class="flex items-center gap-2">
+                <ToggleSwitch
+                  v-model="notifyDraft.enabled"
+                  input-id="failed-run-notify"
+                />
+                <label
+                  for="failed-run-notify"
+                  class="text-[0.9rem] cursor-pointer"
+                >
+                  {{
+                    t(
+                      'setup.failedRunNotify.enable',
+                      'Email admins when a flow or scheduled task fails',
+                    )
+                  }}
+                </label>
+              </div>
+              <p class="text-muted-color text-[0.8rem] m-0">
+                {{
+                  t(
+                    'setup.failedRunNotify.hint',
+                    'Uses platform SMTP (SMTP_HOST / SMTP_FROM). Recipients are active admin users, or FAILED_RUN_NOTIFY_EMAIL if set. Same key is not emailed again for 15 minutes. n8n failures stay in n8n — use its failed-execution alert template.',
+                  )
+                }}
+              </p>
+            </div>
+            <p v-else class="setup-detail-field__value">{{ notifyEnabledDisplay }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="setup-detail-section">
+        <h3 class="setup-detail-section__title">
+          {{ t('setup.filesUpload.title', 'Image upload') }}
+        </h3>
+        <p
+          v-if="companyEditing"
+          class="text-muted-color text-[0.85rem] m-0"
+        >
           {{
             t(
-              'setup.failedRunNotify.hint',
-              'Uses platform SMTP (SMTP_HOST / SMTP_FROM). Recipients are active admin users, or FAILED_RUN_NOTIFY_EMAIL if set. Same key is not emailed again for 15 minutes. n8n failures stay in n8n — use its failed-execution alert template.',
+              'setup.filesUpload.hint',
+              'Applies to all Image fields. Preview size is still configured per Block Layout.',
             )
           }}
         </p>
-      </template>
-    </div>
+        <div class="setup-detail-grid">
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-image-format">
+              {{ t('setup.filesUpload.format', 'Format') }}
+            </label>
+            <div v-if="companyEditing" class="flex flex-col gap-1">
+              <MultiSelect
+                id="org-image-format"
+                v-model="filesImageFormats"
+                :options="imageFormatOptions"
+                option-label="label"
+                option-value="value"
+                display="chip"
+                :show-toggle-all="true"
+                class="w-full"
+                :placeholder="t('setup.filesUpload.formatAny', 'Any image format')"
+              />
+              <small class="text-muted-color">
+                {{
+                  t(
+                    'setup.filesUpload.formatHint',
+                    'Leave empty to allow any image type.',
+                  )
+                }}
+              </small>
+            </div>
+            <p v-else class="setup-detail-field__value">{{ filesFormatDisplay }}</p>
+          </div>
+          <div
+            class="setup-detail-field"
+            :class="{ 'setup-detail-field--edit': companyEditing }"
+          >
+            <label class="setup-detail-field__label" for="org-image-max-size">
+              {{ t('setup.filesUpload.maxFileSize', 'Max file size (MB)') }}
+            </label>
+            <div v-if="companyEditing" class="flex flex-col gap-1">
+              <InputNumber
+                id="org-image-max-size"
+                v-model="filesMaxSizeMb"
+                class="w-full"
+                :min="0.1"
+                :max="100"
+                :min-fraction-digits="0"
+                :max-fraction-digits="1"
+                :placeholder="t('setup.filesUpload.maxFileSizeNone', 'No limit')"
+                show-buttons
+              />
+              <small class="text-muted-color">
+                {{
+                  t(
+                    'setup.filesUpload.maxFileSizeHint',
+                    'Optional upload limit for Image fields. Leave empty for no extra limit.',
+                  )
+                }}
+              </small>
+            </div>
+            <p v-else class="setup-detail-field__value">{{ filesMaxSizeDisplay }}</p>
+          </div>
+        </div>
+      </section>
+    </template>
 
-    <div class="border border-surface-200 rounded-lg p-4 flex flex-col gap-3">
-      <div class="font-semibold">
+    <section class="setup-detail-section">
+      <h3 class="setup-detail-section__title">
         {{ t('setup.dataSources.title', 'Data sources') }}
-      </div>
+      </h3>
       <div class="flex flex-wrap gap-2">
         <Tag
           severity="secondary"
@@ -417,387 +959,6 @@ onMounted(async () => {
       <p v-if="healthDetail" class="text-muted-color text-[0.8rem] m-0">
         {{ healthDetail }}
       </p>
-    </div>
-
-    <div class="border border-surface-200 rounded-lg p-4 flex flex-col gap-4">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="font-semibold">
-          {{ t('setup.company.title', 'Company Information') }}
-        </div>
-        <Button
-          :label="t('setup.company.save', 'Save')"
-          icon="pi pi-save"
-          size="small"
-          :loading="profileSaving"
-          :disabled="profileLoading"
-          @click="saveProfile"
-        />
-      </div>
-
-      <ProgressSpinner
-        v-if="profileLoading"
-        class="self-center"
-        stroke-width="4"
-        style="width: 2rem; height: 2rem"
-      />
-
-      <template v-else>
-        <div class="flex flex-col gap-3">
-          <div class="text-[0.9rem] font-medium text-muted-color">
-            {{ t('setup.company.generalInfo', 'General Information') }}
-          </div>
-          <div class="flex flex-col gap-1 max-w-xl">
-            <label class="text-[0.85rem]" for="org-name">
-              {{ t('setup.company.organizationName', 'Organization Name') }}
-            </label>
-            <InputText
-              id="org-name"
-              v-model="draft.organizationName"
-              class="w-full"
-            />
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-3">
-          <div class="text-[0.9rem] font-medium text-muted-color">
-            {{ t('setup.company.address', 'Address') }}
-          </div>
-          <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-country">
-                {{ t('setup.company.country', 'Country') }}
-              </label>
-              <InputText id="org-country" v-model="draft.address.country" class="w-full" />
-            </div>
-            <div class="flex flex-col gap-1 md:col-span-2">
-              <label class="text-[0.85rem]" for="org-street">
-                {{ t('setup.company.street', 'Street') }}
-              </label>
-              <Textarea
-                id="org-street"
-                v-model="draft.address.street"
-                class="w-full"
-                rows="2"
-                auto-resize
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-city">
-                {{ t('setup.company.city', 'City') }}
-              </label>
-              <InputText id="org-city" v-model="draft.address.city" class="w-full" />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-state">
-                {{ t('setup.company.state', 'State / Province') }}
-              </label>
-              <InputText id="org-state" v-model="draft.address.state" class="w-full" />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-postal">
-                {{ t('setup.company.postalCode', 'Zip / Postal Code') }}
-              </label>
-              <InputText
-                id="org-postal"
-                v-model="draft.address.postalCode"
-                class="w-full"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-3">
-          <div class="text-[0.9rem] font-medium text-muted-color">
-            {{ t('setup.company.localeSettings', 'Locale Settings') }}
-          </div>
-          <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-language">
-                {{ t('setup.company.language', 'Default Language') }}
-              </label>
-              <Select
-                id="org-language"
-                v-model="draft.language"
-                :options="languageOptions"
-                option-label="label"
-                option-value="value"
-                class="w-full"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-timezone">
-                {{ t('setup.company.timeZone', 'Default Time Zone') }}
-              </label>
-              <Select
-                id="org-timezone"
-                v-model="draft.timeZone"
-                :options="timeZoneOptions"
-                option-label="label"
-                option-value="value"
-                filter
-                class="w-full"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-date">
-                {{ t('setup.company.dateFormat', 'Date') }}
-              </label>
-              <Select
-                id="org-date"
-                v-model="draft.dateFormat"
-                :options="dateFormatOptions"
-                option-label="label"
-                option-value="value"
-                class="w-full"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem]" for="org-datetime">
-                {{ t('setup.company.dateTimeFormat', 'Date Time') }}
-              </label>
-              <Select
-                id="org-datetime"
-                v-model="draft.dateTimeFormat"
-                :options="dateTimeFormatOptions"
-                option-label="label"
-                option-value="value"
-                class="w-full"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-3">
-          <div class="text-[0.9rem] font-medium text-muted-color">
-            {{ t('setup.company.currencySettings', 'Currency Settings') }}
-          </div>
-          <div class="flex flex-col gap-1 max-w-md">
-            <label class="text-[0.85rem]" for="org-currency">
-              {{ t('setup.company.currency', 'Currency') }}
-            </label>
-            <Select
-              id="org-currency"
-              v-model="draft.currency"
-              :options="currencyOptions"
-              option-label="label"
-              option-value="value"
-              class="w-full"
-            />
-          </div>
-        </div>
-
-        <p class="text-muted-color text-[0.85rem] m-0">
-          <span class="font-medium">{{ t('setup.company.preview', 'Preview') }}:</span>
-          {{ previewSample }}
-        </p>
-      </template>
-    </div>
-
-    <div class="border border-surface-200 rounded-lg p-4 flex flex-col gap-4">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="font-semibold">
-          {{ t('setup.filesUpload.title', 'Image upload') }}
-        </div>
-        <Button
-          :label="t('setup.filesUpload.save', 'Save')"
-          icon="pi pi-save"
-          size="small"
-          :loading="filesSaving"
-          :disabled="filesLoading"
-          @click="saveFilesSettings"
-        />
-      </div>
-
-      <ProgressSpinner
-        v-if="filesLoading"
-        class="self-center"
-        stroke-width="4"
-        style="width: 2rem; height: 2rem"
-      />
-
-      <template v-else>
-        <p class="text-muted-color text-[0.85rem] m-0">
-          {{
-            t(
-              'setup.filesUpload.hint',
-              'Applies to all Image fields. Preview size is still configured per Block Layout.',
-            )
-          }}
-        </p>
-        <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-          <div class="flex flex-col gap-1">
-            <label class="text-[0.85rem]" for="org-image-format">
-              {{ t('setup.filesUpload.format', 'Format') }}
-            </label>
-            <MultiSelect
-              id="org-image-format"
-              v-model="filesImageFormats"
-              :options="imageFormatOptions"
-              option-label="label"
-              option-value="value"
-              display="chip"
-              :show-toggle-all="true"
-              class="w-full"
-              :placeholder="t('setup.filesUpload.formatAny', 'Any image format')"
-            />
-            <small class="text-muted-color">
-              {{
-                t(
-                  'setup.filesUpload.formatHint',
-                  'Leave empty to allow any image type.',
-                )
-              }}
-            </small>
-          </div>
-          <div class="flex flex-col gap-1 max-w-xs">
-            <label class="text-[0.85rem]" for="org-image-max-size">
-              {{ t('setup.filesUpload.maxFileSize', 'Max file size (MB)') }}
-            </label>
-            <InputNumber
-              id="org-image-max-size"
-              v-model="filesMaxSizeMb"
-              class="w-full"
-              :min="0.1"
-              :max="100"
-              :min-fraction-digits="0"
-              :max-fraction-digits="1"
-              :placeholder="t('setup.filesUpload.maxFileSizeNone', 'No limit')"
-              show-buttons
-            />
-            <small class="text-muted-color">
-              {{
-                t(
-                  'setup.filesUpload.maxFileSizeHint',
-                  'Optional upload limit for Image fields. Leave empty for no extra limit.',
-                )
-              }}
-            </small>
-          </div>
-        </div>
-      </template>
-    </div>
-
-    <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-      <RouterLink
-        v-if="scheduleAvailable"
-        :to="{ name: 'setup-schedule' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-calendar-clock text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('schedule.setupTitle', 'Schedule') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'schedule.setupLinkHint',
-                'Provider work-time templates and slot generation.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'setup-tasks' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-clock text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.tasks.title', 'Tasks') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'setup.tasks.linkHint',
-                'Schedule slot generation, database verification, and notifications.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'setup-connections' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-share-alt text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.flows.title', 'Connections') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'setup.flows.linkHint',
-                'Map connection keys to n8n or external HTTP webhooks for Automations.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'setup-schema-sync' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-sync text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.schemaSync.title', 'Schema sync') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'setup.schemaSync.linkHint',
-                'Review registry sync status for SUPABASE/PLATFORM entities.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'setup-archived' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-inbox text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.archived.title', 'Archived records') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'setup.archived.linkHint',
-                'Browse and restore soft-deleted records by object.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'setup-reports' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-chart-bar text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.reports.title', 'Reports') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'setup.reports.linkHint',
-                'Create and edit pivot reports for Navigation and dashboards.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'setup-dashboards' }"
-        class="border border-surface-200 rounded-lg flex items-start gap-3 no-underline p-4 text-inherit hover:border-primary"
-      >
-        <i class="pi pi-th-large text-primary text-xl mt-1" aria-hidden="true" />
-        <span class="flex flex-col gap-1">
-          <span class="font-semibold">{{ t('setup.dashboards.title', 'Dashboards') }}</span>
-          <span class="text-muted-color text-[0.8rem]">
-            {{
-              t(
-                'setup.dashboards.linkHint',
-                'Create and edit dashboards for Navigation and Home.',
-              )
-            }}
-          </span>
-        </span>
-      </RouterLink>
-    </div>
+    </section>
   </section>
 </template>

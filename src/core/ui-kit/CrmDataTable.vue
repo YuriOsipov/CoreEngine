@@ -137,6 +137,7 @@ const props = withDefaults(
     emptyMessage?: string
     showNewButton?: boolean
     newButtonLabel?: string
+    /** Enable the row ⋮ actions column (Edit/View/Delete gated by object ACL). */
     showDeleteButton?: boolean
     deleteButtonLabel?: string
     parentId?: string | number
@@ -172,10 +173,12 @@ const props = withDefaults(
      * (e.g. M2M junction related lists).
      */
     recordLinksEnabled?: boolean
-    /** Show Edit in the row ⋮ menu (default true). */
+    /** Show Edit in the row ⋮ menu (default true; still requires Update ACL). */
     showEditRecordAction?: boolean
     /** Show View in the row ⋮ menu (default true). */
     showViewRecordAction?: boolean
+    /** Show Delete/Restore in the row ⋮ menu (default true; still requires Delete ACL). */
+    showDeleteRecordAction?: boolean
     /** Enable PrimeVue row selection (list master/detail or multi-select). */
     selectionMode?: 'single' | 'multiple' | null
     /** Currently selected row(s) when selectionMode is set. */
@@ -223,6 +226,7 @@ const props = withDefaults(
     recordLinksEnabled: true,
     showEditRecordAction: true,
     showViewRecordAction: true,
+    showDeleteRecordAction: true,
     selectionMode: null,
     selection: null,
     showRowNumbers: true,
@@ -416,10 +420,34 @@ const displayedColumns = computed<CrmDataTableColumn[]>(() => {
     ...columns,
   ]
 })
+const emptyMessageText = computed(() =>
+  props.emptyMessage === 'No records found.'
+    ? t('datatable.defaultEmpty', 'No records found.')
+    : props.emptyMessage,
+)
+const newButtonText = computed(() =>
+  props.newButtonLabel === 'New'
+    ? t('common.new', 'New')
+    : props.newButtonLabel,
+)
+const { canCreate: canCreateRecords } = useEntityPermissions(
+  () => relatedCreateTarget.value?.createCollection || props.collection || managedCollection.value,
+)
+/** Row Edit/Delete ACL must follow the listed collection (not the create-target). */
+const {
+  canUpdate: canUpdateRecords,
+  canDelete: canDeleteRecords,
+} = useEntityPermissions(() => managedCollection.value)
+const canShowEditRecordAction = computed(
+  () => props.showEditRecordAction && canUpdateRecords.value,
+)
+const canShowDeleteRecordAction = computed(
+  () => props.showDeleteRecordAction && canDeleteRecords.value,
+)
 const actionMenuItems = computed(() => {
   const archived = isRecordArchived(selectedActionRow.value)
   const items: Array<{ label: string; command: () => void }> = []
-  if (props.showEditRecordAction) {
+  if (canShowEditRecordAction.value) {
     items.push({
       label: t('common.edit', 'Edit'),
       command: () => emitAction('editRecord'),
@@ -431,36 +459,21 @@ const actionMenuItems = computed(() => {
       command: () => emitAction('viewRecord'),
     })
   }
-  items.push(
-    archived
-      ? {
-          label: t('common.restore', 'Restore'),
-          command: () => emitAction('restoreRecord'),
-        }
-      : {
-          label: t('common.delete', 'Delete'),
-          command: () => emitAction('deleteRecord'),
-        },
-  )
+  if (canShowDeleteRecordAction.value) {
+    items.push(
+      archived
+        ? {
+            label: t('common.restore', 'Restore'),
+            command: () => emitAction('restoreRecord'),
+          }
+        : {
+            label: t('common.delete', 'Delete'),
+            command: () => emitAction('deleteRecord'),
+          },
+    )
+  }
   return items
 })
-const emptyMessageText = computed(() =>
-  props.emptyMessage === 'No records found.'
-    ? t('datatable.defaultEmpty', 'No records found.')
-    : props.emptyMessage,
-)
-const newButtonText = computed(() =>
-  props.newButtonLabel === 'New'
-    ? t('common.new', 'New')
-    : props.newButtonLabel,
-)
-const { canCreate: canCreateRecords, canDelete: canDeleteRecords } =
-  useEntityPermissions(
-    () => relatedCreateTarget.value?.createCollection || props.collection || managedCollection.value,
-  )
-const { canUpdate: canUpdateRecords } = useEntityPermissions(
-  () => managedCollection.value,
-)
 
 interface InlineEditingCell {
   rowKey: string
@@ -515,8 +528,11 @@ const inlineOverlayChildLookup = computed(() => {
 const showNewButtonEffective = computed(
   () => props.showNewButton && canCreateRecords.value,
 )
+/** Row ⋮ column: Update (Edit) or Delete — not Delete-only. */
 const showDeleteButtonEffective = computed(
-  () => props.showDeleteButton && canDeleteRecords.value,
+  () =>
+    props.showDeleteButton
+    && (canShowEditRecordAction.value || canShowDeleteRecordAction.value),
 )
 
 watch(

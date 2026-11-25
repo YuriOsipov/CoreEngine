@@ -66,10 +66,29 @@ export function isEmptyFilterValue(value: unknown): boolean {
   return false
 }
 
+function isBooleanFieldType(type: string | undefined): boolean {
+  return type?.toLowerCase() === 'boolean'
+}
+
+/**
+ * Coerce checkbox / boolean filter values. Non-binary OpenVue Checkbox can emit
+ * arrays like `[null]`; those must not become `_eq` predicates.
+ */
+export function coerceBooleanFilterValue(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1' || value === 'true') return true
+  if (value === 0 || value === '0' || value === 'false') return false
+  if (Array.isArray(value)) return null
+  return null
+}
+
 export function isApplicableFilterCondition(
   condition: ListFilterConditionInput,
 ): boolean {
   if (NO_VALUE_OPERATORS.has(condition.operator)) return true
+  if (isBooleanFieldType(condition.type)) {
+    return coerceBooleanFilterValue(condition.value) !== null
+  }
   return !isEmptyFilterValue(condition.value)
 }
 
@@ -78,14 +97,18 @@ export function isApplicableFilterCondition(
  * `_null` / `_nnull` never need a value, so they are never unsatisfied.
  */
 export function hasUnsatisfiedRequiredFilters(
-  conditions: Array<Pick<ListFilterCondition, 'required' | 'operator' | 'value'>>,
+  conditions: Array<
+    Pick<ListFilterCondition, 'required' | 'operator' | 'value'> & { type?: string }
+  >,
 ): boolean {
-  return conditions.some(
-    (condition) =>
-      condition.required === true &&
-      !NO_VALUE_OPERATORS.has(condition.operator) &&
-      isEmptyFilterValue(condition.value),
-  )
+  return conditions.some((condition) => {
+    if (condition.required !== true) return false
+    if (NO_VALUE_OPERATORS.has(condition.operator)) return false
+    if (isBooleanFieldType(condition.type)) {
+      return coerceBooleanFilterValue(condition.value) === null
+    }
+    return isEmptyFilterValue(condition.value)
+  })
 }
 
 function isDateLikeFieldType(type: string | undefined): boolean {
@@ -109,6 +132,9 @@ export function normalizeConditionValue(condition: ListFilterConditionInput): un
   if (isDynamicFilterValue(condition.value)) return condition.value
   // Number(null) === 0 — never coerce empty select/FK values into a real predicate.
   if (isEmptyFilterValue(condition.value)) return null
+  if (isBooleanFieldType(condition.type)) {
+    return coerceBooleanFilterValue(condition.value)
+  }
   if (isNumericFieldType(condition.type)) {
     const numeric = Number(condition.value)
     return Number.isNaN(numeric) ? condition.value : numeric
@@ -202,7 +228,7 @@ export function resolveFilterValueComponent(
   runtimeProps: Record<string, unknown> | undefined,
 ): string {
   if (
-    (component === 'Select' || component === 'Dropdown') &&
+    (component === 'Select' || component === 'Dropdown' || component === 'MultiSelect') &&
     isDynamicPicklistSource(runtimeProps?.choiceSource)
   ) {
     return 'InputText'
@@ -235,8 +261,28 @@ export function filterConditionComponentProps(
     base.appendTo = 'body'
   }
 
-  if (condition.component === 'Select' || condition.component === 'Dropdown') {
+  if (
+    condition.component === 'Select' ||
+    condition.component === 'Dropdown' ||
+    condition.component === 'MultiSelect'
+  ) {
     base.showClear = true
+  }
+
+  if (condition.component === 'MultiSelect') {
+    base.display = 'chip'
+    base.filter = true
+  }
+
+  // Boolean filters must use binary mode; without it OpenVue Checkbox treats
+  // modelValue as a multi-select list and cannot persist true/false.
+  // fluid stretches/clips the fixed-size control (same as form builders).
+  if (
+    condition.component === 'Checkbox' ||
+    condition.component === 'ToggleSwitch'
+  ) {
+    base.binary = true
+    delete base.fluid
   }
 
   return base
@@ -247,7 +293,11 @@ export function isAutoCompleteFilterComponent(component: string): boolean {
 }
 
 export function isSelectFilterComponent(component: string): boolean {
-  return component === 'Select' || component === 'Dropdown'
+  return (
+    component === 'Select' ||
+    component === 'Dropdown' ||
+    component === 'MultiSelect'
+  )
 }
 
 /**

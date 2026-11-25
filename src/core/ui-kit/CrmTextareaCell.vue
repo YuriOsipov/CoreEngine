@@ -91,7 +91,7 @@ watch(
   <div v-else class="crm-textarea-cell flex min-w-0 flex-col gap-1">
     <div
       ref="bodyRef"
-      class="crm-textarea-cell__body min-w-0 break-words whitespace-pre-wrap text-surface-900 text-[0.95rem] leading-[1.35]"
+      class="crm-textarea-cell__body min-w-0 break-words whitespace-pre-wrap text-ink text-[0.95rem] leading-[1.35]"
       :class="{ 'crm-textarea-cell__body--collapsed': !expanded }"
       :style="expanded ? undefined : { maxHeight: collapsedMaxHeight }"
     >

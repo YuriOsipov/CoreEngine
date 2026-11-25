@@ -3,16 +3,19 @@ import { generateScheduleSlots } from '../schedule/generateSlots.js'
 import { maintainRecentRecordViews } from '../services/recentRecordsService.js'
 import { runSchemaDriftCheck } from '../sync/schemaSyncService.js'
 import { monthRangeIso, nextDaysRangeIso } from './cron.js'
+import { resolveConnectionKey } from './connectionKey.js'
 import { dispatchDueMessages } from './dispatchDueMessages.js'
-import { syncPromoPrices } from './syncPromoPrices.js'
+import { purgeArchivedRecords } from './purgeArchivedRecords.js'
 
 export const JOB_TYPES = [
   'generate_slots',
   'verify_database',
+  'call_connection',
+  /** @deprecated Alias of call_connection — kept for existing rows. */
   'send_notification',
   'maintain_recent_views',
-  'sync_promo_prices',
   'dispatch_due_messages',
+  'purge_archived_records',
 ] as const
 
 export type JobType = (typeof JOB_TYPES)[number]
@@ -95,17 +98,19 @@ export async function executeJobType(
     }
   }
 
-  if (jobType === 'send_notification') {
-    const flowKey =
-      (typeof params.flowKey === 'string' && params.flowKey.trim()) ||
-      (typeof params.webhook === 'string' && params.webhook.trim()) ||
-      ''
-    if (!flowKey) {
-      throw new Error('send_notification requires params.flowKey')
+  if (jobType === 'call_connection' || jobType === 'send_notification') {
+    const connectionKey = resolveConnectionKey(params)
+    if (!connectionKey) {
+      throw new Error(
+        'call_connection requires params.connectionKey (Setup → Connections key)',
+      )
     }
-    const payload = asObject(params.payload)
-    const result = await runLocalFlow(flowKey, payload)
-    return { flowKey, ...result }
+    const payload = { ...asObject(params.payload) }
+    if (typeof payload.timeZone !== 'string' || !payload.timeZone.trim()) {
+      payload.timeZone = timeZone
+    }
+    const result = await runLocalFlow(connectionKey, payload)
+    return { connectionKey, ...result }
   }
 
   if (jobType === 'maintain_recent_views') {
@@ -116,12 +121,13 @@ export async function executeJobType(
     return { ...result }
   }
 
-  if (jobType === 'sync_promo_prices') {
-    return syncPromoPrices(params, timeZone)
-  }
-
   if (jobType === 'dispatch_due_messages') {
     return dispatchDueMessages(params)
+  }
+
+  if (jobType === 'purge_archived_records') {
+    const result = await purgeArchivedRecords(params)
+    return { ...result }
   }
 
   throw new Error(`Unsupported job type "${jobType}"`)

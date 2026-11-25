@@ -1,3 +1,4 @@
+import { ensurePlatformScheduledTasks } from './platformTasks.js'
 import {
   failStaleRuns,
   isMissingTasksTable,
@@ -89,7 +90,12 @@ export function startTaskScheduler(): void {
     console.info('[tasks] scheduler disabled (TASK_SCHEDULER_ENABLED=false)')
     return
   }
-  void hydrateNextRuns().then(() => void tick())
+  void ensurePlatformScheduledTasks()
+    .catch((error) => {
+      console.warn('[tasks] failed to ensure platform scheduled tasks', error)
+    })
+    .then(() => hydrateNextRuns())
+    .then(() => void tick())
   setInterval(() => {
     void tick()
   }, intervalMs())

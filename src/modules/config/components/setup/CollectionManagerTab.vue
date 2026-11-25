@@ -23,6 +23,7 @@ import {
 import CrmRegistryIcon from '@/core/ui-kit/CrmRegistryIcon.vue'
 import SetupEntityCreateDialog from './SetupEntityCreateDialog.vue'
 import SetupEntityDeleteDialog from './SetupEntityDeleteDialog.vue'
+import SetupPageHeader from './SetupPageHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -221,14 +222,12 @@ watch(
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.objectManager', 'Object Manager') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{ itemSummary }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.objectManager', 'Object Manager')"
+      :meta="itemSummary"
+      icon-class="pi pi-box"
+    >
+      <template #actions>
         <div class="flex items-center gap-2">
           <Checkbox
             v-model="showInternal"
@@ -256,8 +255,8 @@ watch(
           :disabled="loading || saving"
           @click="createVisible = true"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <div
       v-if="loading"

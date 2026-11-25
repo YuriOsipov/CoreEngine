@@ -136,6 +136,7 @@ const showBarcodeScan = computed(() => isBarcodeScanEnabled(barcodeScanSettings.
 const {
   ready: relatedPermissionsReady,
   canRead: canReadRelated,
+  canUpdate: canUpdateRelated,
   canDelete: canDeleteRelated,
 } = useEntityPermissions(() => props.field.relatedCollection)
 /** Junction create for M2M link; related-entity create for plain O2M New. */
@@ -435,7 +436,9 @@ function isUsableRelatedTransfer(
   )
 }
 const canShowDelete = computed(
-  () => props.showActions && canDeleteRelated.value,
+  () =>
+    props.showActions
+    && (canUpdateRelated.value || canDeleteRelated.value),
 )
 
 const linkExcludeIds = computed(() => {
@@ -902,6 +905,7 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
           :max-local-rows="rowLimit"
           :show-new-button="false"
           :show-delete-button="canShowDelete"
+          :show-delete-record-action="canDeleteRelated"
           :show-edit-record-action="!isM2MJunction"
           :show-view-record-action="!isM2MJunction"
           :record-links-enabled="!isM2MJunction"

@@ -5,12 +5,13 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { DynamicPicklistOption, DynamicPicklistSource } from '@/core/dynamicPicklist'
 import {
   isRelatedPicklistSource,
   loadDynamicPicklistOptions,
 } from '@/core/dynamicPicklist'
+import { normalizeMultiPicklistValue } from '@/core/picklistField'
 import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 import { useTranslation } from '@/core/translation'
 
@@ -27,9 +28,11 @@ const props = withDefaults(
     placeholder?: string
     size?: 'small' | 'large' | undefined
     appendTo?: string | HTMLElement | undefined
+    multiple?: boolean
   }>(),
   {
     fluid: true,
+    multiple: false,
   },
 )
 
@@ -43,6 +46,16 @@ const { t } = useTranslation()
 const loading = ref(false)
 const selectOptions = ref<DynamicPicklistOption[]>([])
 let requestId = 0
+
+const singleValue = computed(() => {
+  if (props.multiple) return null
+  return props.modelValue
+})
+
+const multiValue = computed(() => {
+  if (!props.multiple) return []
+  return normalizeMultiPicklistValue(props.modelValue)
+})
 
 watch(
   () => {
@@ -96,6 +109,16 @@ async function refresh(): Promise<void> {
     )
     if (current !== requestId) return
     selectOptions.value = next
+    if (props.multiple) {
+      const selected = normalizeMultiPicklistValue(props.modelValue)
+      if (selected.length === 0) return
+      const allowed = new Set(next.map((option) => String(option.value)))
+      const filtered = selected.filter((item) => allowed.has(String(item)))
+      if (filtered.length !== selected.length) {
+        emit('update:modelValue', filtered.length > 0 ? filtered : null)
+      }
+      return
+    }
     const value = props.modelValue
     if (
       next.length > 0 &&
@@ -112,6 +135,11 @@ async function refresh(): Promise<void> {
 }
 
 function updateValue(value: unknown): void {
+  if (props.multiple) {
+    const selected = normalizeMultiPicklistValue(value)
+    emit('update:modelValue', selected.length > 0 ? selected : null)
+    return
+  }
   emit('update:modelValue', value)
 }
 </script>
@@ -129,10 +157,31 @@ function updateValue(value: unknown): void {
     autocomplete="off"
     @update:model-value="updateValue"
   />
+  <MultiSelect
+    v-else-if="multiple"
+    :input-id="inputId"
+    :model-value="multiValue"
+    :options="selectOptions"
+    :loading="loading"
+    :disabled="disabled"
+    :placeholder="placeholder ?? t('datatable.inlineSelectPlaceholder', 'Select…')"
+    :size="size"
+    :append-to="appendTo"
+    option-label="label"
+    option-value="value"
+    display="chip"
+    filter
+    show-clear
+    :fluid="fluid"
+    :class="inputClass"
+    @show="emit('overlay-show')"
+    @hide="emit('overlay-hide')"
+    @update:model-value="updateValue"
+  />
   <Select
     v-else
     :input-id="inputId"
-    :model-value="modelValue"
+    :model-value="singleValue"
     :options="selectOptions"
     :loading="loading"
     :disabled="disabled"

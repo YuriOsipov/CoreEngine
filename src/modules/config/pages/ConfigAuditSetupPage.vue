@@ -20,6 +20,7 @@ import {
   computeConfigAuditChanges,
   type ConfigAuditChange,
 } from '@/modules/config/utils/configAuditDiff'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 
 const PAGE_SIZE = 50
 
@@ -263,19 +264,17 @@ onMounted(() => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.configAudit.title', 'Config audit') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{
-            t(
-              'setup.configAudit.subtitle',
-              'Append-only trail of Setup changes (entities, fields, roles, permissions, users, layouts).',
-            )
-          }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.configAudit.title', 'Config audit')"
+      :meta="
+        t(
+          'setup.configAudit.subtitle',
+          'Append-only trail of Setup changes (entities, fields, roles, permissions, users, layouts).',
+        )
+      "
+      icon-class="pi pi-history"
+    >
+      <template #actions>
         <Button
           :label="t('common.refresh', 'Refresh')"
           icon="pi pi-refresh"
@@ -284,8 +283,8 @@ onMounted(() => {
           :loading="loading"
           @click="load"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <Message
       v-if="!loading && !isAdmin"

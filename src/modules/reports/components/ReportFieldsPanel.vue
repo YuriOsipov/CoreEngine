@@ -131,7 +131,7 @@ function toggleCollapsed(): void {
       />
       <button
         type="button"
-        class="writing-mode-vertical border-0 bg-transparent text-surface-700 cursor-pointer text-[0.8rem] font-semibold tracking-wide px-1 py-2"
+        class="writing-mode-vertical border-0 bg-transparent text-ink cursor-pointer text-[0.8rem] font-semibold tracking-wide px-1 py-2"
         style="writing-mode: vertical-rl; text-orientation: mixed;"
         @click="toggleCollapsed"
       >
@@ -194,7 +194,7 @@ function toggleCollapsed(): void {
           <div
             v-for="field in paletteList"
             :key="field.field"
-            class="text-left border-0 rounded-md px-2 py-1.5 cursor-grab active:cursor-grabbing bg-transparent text-surface-700 hover:bg-canvas text-[0.85rem] flex items-center gap-2 select-none"
+            class="text-left border-0 rounded-md px-2 py-1.5 cursor-grab active:cursor-grabbing bg-transparent text-ink hover:bg-canvas text-[0.85rem] flex items-center gap-2 select-none"
             :title="t('reports.dragField', 'Drag to Outline or Filters')"
           >
             <i

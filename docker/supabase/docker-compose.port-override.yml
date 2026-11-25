@@ -1,0 +1,6 @@
+# Local override: avoid clashing with minimal-stack Postgres on host :5432.
+# Internal Docker hostname remains `db` / `supabase-db` for Storage and Rest.
+services:
+  db:
+    ports: !override
+      - "127.0.0.1:5433:5432"

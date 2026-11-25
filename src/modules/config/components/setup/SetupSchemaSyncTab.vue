@@ -19,6 +19,7 @@ import {
   type GraphQlSchemaDriftItem,
 } from '@/core/graphql/syncApi'
 import { useTranslation } from '@/core/translation'
+import SetupPageHeader from './SetupPageHeader.vue'
 
 const { t } = useTranslation()
 const confirm = useConfirm()
@@ -204,19 +205,16 @@ watch(selectedEntity, () => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.schemaSync.title', 'Schema sync') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{
-            t(
-              'setup.schemaSync.subtitle',
-              'Registry → crm_schema DDL: add missing columns, backfill from data JSON, indexes, M2O FKs, and unique groups.',
-            )
-          }}
-        </p>
-      </div>
-    </div>
+    <SetupPageHeader
+      :title="t('setup.schemaSync.title', 'Schema sync')"
+      :meta="
+        t(
+          'setup.schemaSync.subtitle',
+          'Registry → crm_schema DDL: add missing columns, backfill from data JSON, indexes, M2O FKs, and unique groups.',
+        )
+      "
+      icon-class="pi pi-sync"
+    />
 
     <Message
       v-if="!graphqlEnabled"

@@ -12,6 +12,7 @@ import SetupEntityParametersPanel from '../components/setup/SetupEntityParameter
 import SetupFieldsPanel from '../components/setup/SetupFieldsPanel.vue'
 import SetupLayoutEditorDialog from '../components/setup/SetupLayoutEditorDialog.vue'
 import SetupLayoutListPanel from '../components/setup/SetupLayoutListPanel.vue'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 import SetupRecordAutomationsPanel from '../components/setup/SetupRecordAutomationsPanel.vue'
 import { useSetupCollectionSectionSync } from '../composables/useSetupCollectionSectionSync'
 import { useSetupLayoutList } from '../composables/useSetupLayoutList'
@@ -108,25 +109,26 @@ function handleEditorSaved(): void {
 
 <template>
   <section class="setup-collection-page">
-    <header class="setup-collection-page__header">
-      <p class="setup-collection-page__breadcrumb">
-        <RouterLink
-          to="/setup/objects"
-          class="setup-link"
-        >
-          {{ t('setup.title', 'Setup') }}
-        </RouterLink>
-        <span> &gt; </span>
-        <RouterLink
-          to="/setup/objects"
-          class="setup-link"
-        >
-          {{ t('setup.objectManager', 'Object Manager') }}
-        </RouterLink>
-        <span> &gt; {{ collectionLabel }}</span>
-      </p>
-      <h2>{{ collectionLabel }}</h2>
-    </header>
+    <p class="setup-collection-page__breadcrumb">
+      <RouterLink
+        to="/setup/objects"
+        class="setup-link"
+      >
+        {{ t('setup.title', 'Setup') }}
+      </RouterLink>
+      <span> &gt; </span>
+      <RouterLink
+        to="/setup/objects"
+        class="setup-link"
+      >
+        {{ t('setup.objectManager', 'Object Manager') }}
+      </RouterLink>
+      <span> &gt; {{ collectionLabel }}</span>
+    </p>
+    <SetupPageHeader
+      :title="collectionLabel"
+      icon-class="pi pi-box"
+    />
 
     <Message
       v-if="error && showLayouts"

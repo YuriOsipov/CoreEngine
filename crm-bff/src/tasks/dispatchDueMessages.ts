@@ -14,9 +14,10 @@ import {
   failExhaustedMessageClaims,
   releaseClaimedMessage,
 } from './claimQueuedMessages.js'
+import { resolveConnectionKey } from './connectionKey.js'
 import { resolveMessageOutboxPolicy } from './messageOutbox.js'
 
-const DEFAULT_FLOW_KEY = 'dispatch_outbound_message'
+const DEFAULT_CONNECTION_KEY = 'dispatch_outbound_message'
 const DEFAULT_COLLECTION = 'message'
 const DEFAULT_LIMIT = 50
 
@@ -32,9 +33,7 @@ export async function dispatchDueMessages(
   const collection =
     (typeof params.collection === 'string' && params.collection.trim()) ||
     DEFAULT_COLLECTION
-  const flowKey =
-    (typeof params.flowKey === 'string' && params.flowKey.trim()) ||
-    DEFAULT_FLOW_KEY
+  const connectionKey = resolveConnectionKey(params, DEFAULT_CONNECTION_KEY)
   const limit = positiveInt(params.limit, DEFAULT_LIMIT)
   const policy = resolveMessageOutboxPolicy(params)
 
@@ -60,7 +59,7 @@ export async function dispatchDueMessages(
   for (const row of claimed) {
     try {
       await runLocalFlow(
-        flowKey,
+        connectionKey,
         {
           source: 'scheduled_task',
           trigger: 'dispatch_due_messages',
@@ -93,7 +92,7 @@ export async function dispatchDueMessages(
 
   return {
     collection,
-    flowKey,
+    connectionKey,
     scanned: claimed.length,
     claimed: claimed.length,
     dispatched,

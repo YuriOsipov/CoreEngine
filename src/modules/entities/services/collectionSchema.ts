@@ -992,6 +992,11 @@ export async function fetchFieldRuntimeMetadata(
     props.optionLabel = 'label'
     props.optionValue = 'value'
     props.placeholder = 'Select...'
+    if (component === 'MultiSelect') {
+      props.display = 'chip'
+      props.filter = true
+      props.showClear = true
+    }
     if (choiceSource) {
       props.choiceSource = choiceSource
       props.options = []

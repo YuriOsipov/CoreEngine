@@ -40,6 +40,7 @@ import {
 import { isOrgCurrencyPlaceholderAffix } from '@/core/orgLocale'
 import { FILES_ASSET_COLLECTION } from '@/core/filesField'
 import { clampSensitivity, sensitivityOptions } from '@/core/fieldSensitivity'
+import { isMultiPicklistOptions } from '@/core/picklistField'
 
 const DEFAULT_IMAGE_FILES_OPTIONS = {
   multiple: false,
@@ -121,7 +122,7 @@ const form = reactive({
   /** M2O FK ON DELETE — default RESTRICT. */
   onDelete: 'RESTRICT' as 'CASCADE' | 'SET NULL' | 'RESTRICT',
   applyDdl: true,
-  defaultValue: null as string | number | boolean | null,
+  defaultValue: null as string | number | boolean | unknown[] | null,
   /** `item.base_price` path (or legacy bare name) copied on create when source M2O / parent is set. */
   defaultFromParent: '',
   choices: [] as ChoiceRow[],
@@ -138,6 +139,8 @@ const form = reactive({
   ftsConfig: 'simple',
   jsonColumns: [] as JsonColumnRow[],
   picklistMode: 'static' as 'static' | 'dynamic',
+  /** Multi-select picklist; persisted as JSON array column. */
+  picklistMultiple: false,
   dynamicRelationField: '',
   dynamicJsonField: '',
   dynamicValueColumn: '',
@@ -551,6 +554,11 @@ const dateFormatOptions = computed(() => [
 const isPicklist = computed(
   () => normalizeFieldInterface(form.interface) === 'select-dropdown',
 )
+/** Choice coercion type — multi picklists store string values in a JSON array. */
+const picklistChoiceType = computed(() => {
+  if (form.picklistMultiple) return 'STRING'
+  return storageType.value
+})
 const isCurrency = computed(() => form.interface === 'currency')
 const isFloatStorage = computed(() => storageType.value === 'FLOAT')
 const isStringStorage = computed(() => storageType.value === 'STRING')
@@ -991,7 +999,7 @@ function coerceChoiceValue(raw: string, type: string): string | number {
 
 function readDefaultFromOptions(
   options: Record<string, unknown> | null | undefined,
-): string | number | boolean | null {
+): string | number | boolean | unknown[] | null {
   if (!options) return null
   const value =
     options.default !== undefined
@@ -1000,6 +1008,7 @@ function readDefaultFromOptions(
         ? options.defaultValue
         : undefined
   if (value === undefined || value === null) return null
+  if (Array.isArray(value)) return value
   if (
     typeof value === 'string' ||
     typeof value === 'number' ||
@@ -1011,10 +1020,15 @@ function readDefaultFromOptions(
 }
 
 function coerceDefaultValue(
-  raw: string | number | boolean | null,
+  raw: string | number | boolean | unknown[] | null,
   type: string,
 ): unknown {
   if (raw === null || raw === undefined) return undefined
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => coerceDefaultValue(entry as string | number | boolean | null, type))
+      .filter((entry) => entry !== undefined)
+  }
   if (typeof raw === 'boolean') return raw
   if (typeof raw === 'number') {
     return type === 'INTEGER' ? Math.trunc(raw) : raw
@@ -1558,6 +1572,15 @@ function resetFromProps(): void {
     form.choices = parseChoices(options)
     const choiceSource = parseDynamicPicklistSource(options.choiceSource)
     form.picklistMode = choiceSource ? 'dynamic' : 'static'
+    form.picklistMultiple = isMultiPicklistOptions(options)
+    // Multi picklists persist as JSON; keep Setup type as STRING for the familiar UX.
+    if (
+      form.picklistMultiple &&
+      String(props.field.type || '').toUpperCase() === 'JSON' &&
+      normalizeFieldInterface(form.interface) === 'select-dropdown'
+    ) {
+      form.type = 'STRING'
+    }
     form.dynamicRelationField = choiceSource?.relationField ?? ''
     form.dynamicJsonField = choiceSource?.jsonField ?? ''
     form.dynamicValueColumn =
@@ -1714,6 +1737,7 @@ function resetFromProps(): void {
   form.defaultFromParent = ''
   form.choices = []
   form.picklistMode = 'static'
+  form.picklistMultiple = false
   form.dynamicRelationField = ''
   form.dynamicJsonField = ''
   form.dynamicValueColumn = ''
@@ -1809,6 +1833,9 @@ function buildOptionsAndDisplay(): {
   const displayOptions: Record<string, unknown> = {}
 
   if (isPicklist.value) {
+    if (form.picklistMultiple) {
+      options.multiple = true
+    }
     if (form.picklistMode === 'dynamic' && dynamicPicklistReady.value) {
       if (selectedDynamicSourceKind.value === 'related-picklist') {
         options.choiceSource = {
@@ -1829,7 +1856,7 @@ function buildOptionsAndDisplay(): {
         .filter((row) => row.text.trim() || row.value.trim())
         .map((row) => ({
           text: row.text.trim() || row.value.trim(),
-          value: coerceChoiceValue(row.value, storageType.value),
+          value: coerceChoiceValue(row.value, picklistChoiceType.value),
         }))
     }
   }
@@ -1865,7 +1892,7 @@ function buildOptionsAndDisplay(): {
     options.maxFractionDigits = scale
   }
 
-  if (isLengthLimitedStorage.value) {
+  if (isLengthLimitedStorage.value && !(isPicklist.value && form.picklistMultiple)) {
     const maxLength = clampFieldMaxLength(form.maxLength, storageType.value)
     form.maxLength = maxLength
     options.maxLength = maxLength
@@ -1904,9 +1931,14 @@ function buildOptionsAndDisplay(): {
   }
 
   if (showDefaultValue.value) {
-    const coerced = coerceDefaultValue(form.defaultValue, storageType.value)
+    const coerced = coerceDefaultValue(form.defaultValue, picklistChoiceType.value)
     if (coerced !== undefined) {
-      options.default = coerced
+      options.default =
+        isPicklist.value && form.picklistMultiple
+          ? Array.isArray(coerced)
+            ? coerced
+            : [coerced]
+          : coerced
     }
     const fromParent = form.defaultFromParent.trim()
     if (fromParent) {
@@ -2094,6 +2126,9 @@ watch(
 watch(
   () => form.interface,
   (iface) => {
+    if (iface !== 'select-dropdown') {
+      form.picklistMultiple = false
+    }
     if (iface === 'select-dropdown' && form.picklistMode === 'static' && form.choices.length === 0) {
       form.choices = [
         {
@@ -2114,6 +2149,26 @@ watch(
       if (!form.sensitivityResistanceField.trim()) form.sensitivityResistanceField = 'resistance'
       if (!form.sensitivityValueColumn.trim()) form.sensitivityValueColumn = 'name'
       void loadSensitivityCatalog()
+    }
+  },
+)
+
+watch(
+  () => form.picklistMultiple,
+  (multiple) => {
+    if (multiple) {
+      form.isUnique = false
+      if (
+        form.defaultValue !== null &&
+        form.defaultValue !== undefined &&
+        form.defaultValue !== '' &&
+        !Array.isArray(form.defaultValue)
+      ) {
+        form.defaultValue = [form.defaultValue]
+      }
+    } else if (Array.isArray(form.defaultValue)) {
+      form.defaultValue =
+        (form.defaultValue[0] as string | number | boolean | undefined) ?? null
     }
   },
 )
@@ -2158,7 +2213,9 @@ function submit(): void {
             ? 'STRING'
             : isAddressType.value
               ? 'JSON'
-              : storageType.value
+              : isPicklist.value && form.picklistMultiple
+                ? 'JSON'
+                : storageType.value
 
   const input: RegistryFieldInputDto = {
     apiName,
@@ -2187,7 +2244,7 @@ function submit(): void {
     isUnique:
       isAutoNumberType.value
         ? true
-        : isTextStorage.value
+        : isTextStorage.value || (isPicklist.value && form.picklistMultiple)
           ? false
           : form.isUnique,
     isIndexed:
@@ -2745,6 +2802,34 @@ function submit(): void {
         v-if="isPicklist"
         class="setup-field-picklist flex flex-col gap-2"
       >
+        <div class="flex items-center gap-2">
+          <Checkbox
+            v-model="form.picklistMultiple"
+            binary
+            input-id="field-picklist-multiple"
+          />
+          <label
+            class="inline-flex items-center gap-1"
+            for="field-picklist-multiple"
+          >
+            {{ t('setup.fields.picklistMultiple', 'Allow multiple') }}
+            <button
+              type="button"
+              class="setup-field-editor__hint"
+              v-tooltip.bottom="
+                hintTooltip(
+                  t(
+                    'setup.fields.picklistMultipleHint',
+                    'Lets users select more than one value. Stored as a JSON array.',
+                  ),
+                )
+              "
+              :aria-label="t('common.moreInfo', 'More information')"
+            >
+              i
+            </button>
+          </label>
+        </div>
         <div class="flex flex-col gap-1">
           <label>{{ t('setup.fields.picklistSource', 'Picklist source') }}</label>
           <SelectButton
@@ -2936,7 +3021,7 @@ function submit(): void {
       </div>
 
       <div
-        v-if="isLengthLimitedStorage && !form.isLookup"
+        v-if="isLengthLimitedStorage && !form.isLookup && !(isPicklist && form.picklistMultiple)"
         class="setup-field-editor__length flex flex-col gap-1"
       >
         <label class="inline-flex items-center gap-1">
@@ -3001,8 +3086,21 @@ function submit(): void {
         class="flex flex-col gap-1"
       >
         <label>{{ t('setup.fields.defaultValue', 'Default Value') }}</label>
+        <MultiSelect
+          v-if="isPicklist && form.picklistMultiple && form.picklistMode !== 'dynamic' && choiceDefaultOptions.length"
+          :model-value="Array.isArray(form.defaultValue) ? form.defaultValue : form.defaultValue == null || form.defaultValue === '' ? [] : [form.defaultValue]"
+          :options="choiceDefaultOptions"
+          option-label="label"
+          option-value="value"
+          display="chip"
+          filter
+          show-clear
+          class="w-full"
+          :placeholder="t('setup.fields.defaultValueNone', 'None')"
+          @update:model-value="form.defaultValue = $event?.length ? $event : null"
+        />
         <Select
-          v-if="isPicklist && form.picklistMode !== 'dynamic' && choiceDefaultOptions.length"
+          v-else-if="isPicklist && form.picklistMode !== 'dynamic' && choiceDefaultOptions.length"
           v-model="form.defaultValue"
           :options="choiceDefaultOptions"
           option-label="label"
@@ -3109,7 +3207,7 @@ function submit(): void {
             v-model="form.isUnique"
             binary
             input-id="field-unique"
-            :disabled="isAutoNumberType || isTextStorage"
+            :disabled="isAutoNumberType || isTextStorage || (isPicklist && form.picklistMultiple)"
           />
           <label for="field-unique">{{ t('setup.fields.unique', 'Unique') }}</label>
         </div>

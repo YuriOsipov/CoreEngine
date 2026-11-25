@@ -271,7 +271,7 @@ async function remove(): Promise<void> {
   <div class="flex flex-col gap-5">
     <div class="flex items-end flex-wrap gap-3">
       <div class="flex flex-col gap-1">
-        <label class="text-surface-700 text-[0.8rem] font-semibold">
+        <label class="text-ink text-[0.8rem] font-semibold">
           {{ t('navigation.app', 'Navigation app') }}
         </label>
         <Select
@@ -287,14 +287,14 @@ async function remove(): Promise<void> {
       </div>
 
       <div class="flex flex-col gap-1">
-        <label class="text-surface-700 text-[0.8rem] font-semibold">
+        <label class="text-ink text-[0.8rem] font-semibold">
           {{ t('navigation.appName', 'App name') }}
         </label>
         <InputText v-model="appName" class="min-w-[220px]" :disabled="loading" />
       </div>
 
       <div class="flex flex-col gap-1">
-        <label class="text-surface-700 text-[0.8rem] font-semibold">
+        <label class="text-ink text-[0.8rem] font-semibold">
           {{ t('layoutRole.role', 'Role') }}
         </label>
         <Select
@@ -309,7 +309,7 @@ async function remove(): Promise<void> {
       </div>
 
       <div class="flex flex-col gap-1">
-        <label class="text-surface-700 text-[0.8rem] font-semibold">
+        <label class="text-ink text-[0.8rem] font-semibold">
           {{ t('navigation.defaultForRole', 'Default for role') }}
         </label>
         <ToggleSwitch v-model="isDefault" :disabled="loading" />
@@ -342,8 +342,8 @@ async function remove(): Promise<void> {
       </div>
     </div>
 
-    <div class="bg-surface-50 border border-surface-200 rounded-lg flex items-center gap-3 p-3">
-      <i class="pi pi-home" />
+    <div class="bg-canvas border border-line rounded-lg flex items-center gap-3 p-3 text-ink">
+      <i class="pi pi-home text-muted-color" />
       <div class="flex-1">
         <div class="font-semibold">{{ t('navigation.home', 'Home') }}</div>
         <div class="text-muted-color text-[0.8rem]">

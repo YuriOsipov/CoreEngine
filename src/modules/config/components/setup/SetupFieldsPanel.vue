@@ -146,7 +146,17 @@ function dataTypeLabel(row: RegistryFieldListRow): string {
     return `${t('setup.fields.typeJson', 'JSON')} · ${t('setup.fields.ifaceJsonCode', 'JSON (raw)')}`
   }
   if (iface === 'select-dropdown') {
-    return `${row.type} · ${t('setup.fields.ifacePicklist', 'Picklist')}`
+    const multiple = row.options && typeof row.options === 'object'
+      ? (row.options as Record<string, unknown>).multiple === true
+      : false
+    const picklistLabel = multiple
+      ? `${t('setup.fields.ifacePicklist', 'Picklist')} (${t('setup.fields.picklistMultipleSuffix', 'Multiple')})`
+      : t('setup.fields.ifacePicklist', 'Picklist')
+    // Multi picklists persist as JSON; show STRING so Setup stays familiar.
+    const typeLabel = multiple && String(row.type || '').toUpperCase() === 'JSON'
+      ? 'STRING'
+      : row.type
+    return `${typeLabel} · ${picklistLabel}`
   }
   return row.type
 }

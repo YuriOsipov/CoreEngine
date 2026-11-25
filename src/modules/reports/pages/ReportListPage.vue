@@ -395,7 +395,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
         <button
           type="button"
           class="text-left border-0 rounded-md px-3 py-2 cursor-pointer"
-          :class="selectedFolderId === 'all' ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-surface-700'"
+          :class="selectedFolderId === 'all' ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-ink'"
           @click="selectedFolderId = 'all'"
         >
           {{ t('reports.allReports', 'All reports') }}
@@ -404,7 +404,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
         <button
           type="button"
           class="text-left border-0 rounded-md px-3 py-2 cursor-pointer"
-          :class="selectedFolderId === 'unfiled' ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-surface-700'"
+          :class="selectedFolderId === 'unfiled' ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-ink'"
           @click="selectedFolderId = 'unfiled'"
         >
           {{ t('reports.unfiled', 'Unfiled') }}
@@ -438,7 +438,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
             <button
               type="button"
               class="text-left border-0 rounded-md px-2 py-2 cursor-pointer truncate"
-              :class="selectedFolderId === row.folder.id ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-surface-700'"
+              :class="selectedFolderId === row.folder.id ? 'bg-primary-50 text-primary font-semibold' : 'bg-transparent text-ink'"
               @click="selectedFolderId = row.folder.id"
             >
               {{ row.folder.name }}
@@ -552,7 +552,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
       :style="{ width: 'min(420px, 94vw)' }"
     >
       <div class="grid gap-3">
-        <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
+        <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem]">
           {{ t('reports.folderName', 'Folder name') }}
           <InputText
             v-model="folderName"
@@ -561,7 +561,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
             @keyup.enter="saveFolder"
           />
         </label>
-        <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
+        <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem]">
           {{ t('reports.parentFolder', 'Parent folder') }}
           <Select
             v-model="folderParentId"

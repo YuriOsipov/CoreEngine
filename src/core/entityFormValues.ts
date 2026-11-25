@@ -29,6 +29,10 @@ import {
   isRepeaterFieldDefinition,
 } from '@/core/repeaterField'
 import { serializeDateFieldValue } from '@/core/dateFormatting'
+import {
+  isMultiPicklistFieldDefinition,
+  normalizeMultiPicklistValue,
+} from '@/core/picklistField'
 
 function isNumericFieldType(type: string): boolean {
   return ['float', 'decimal', 'integer', 'bigInteger'].includes(type)
@@ -65,6 +69,11 @@ export async function normalizeEntityFormFieldValue(
 
   if (definition && isJsonListFieldDefinition(definition)) {
     return normalizeJsonListValue(value, getJsonListColumns(definition))
+  }
+
+  if (definition && isMultiPicklistFieldDefinition(definition)) {
+    const selected = normalizeMultiPicklistValue(value)
+    return selected.length > 0 ? selected : null
   }
 
   if (definition && definition.type === 'json') {

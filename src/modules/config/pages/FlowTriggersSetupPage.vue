@@ -20,6 +20,7 @@ import {
   type GraphQlFlowTrigger,
 } from '@/core/graphql/flowTriggersApi'
 import { useTranslation } from '@/core/translation'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 
 const { t } = useTranslation()
 const confirm = useConfirm()
@@ -518,19 +519,17 @@ onMounted(() => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.flows.title', 'Connections') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{
-            t(
-              'setup.flows.subtitle',
-              'Map a connection key to your n8n or an external HTTP webhook (or update record). Use the key in Automations → Call connection.',
-            )
-          }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.flows.title', 'Connections')"
+      :meta="
+        t(
+          'setup.flows.subtitle',
+          'Map a connection key to your n8n or an external HTTP webhook (or update record). Use the key in Automations → Call connection.',
+        )
+      "
+      icon-class="pi pi-link"
+    >
+      <template #actions>
         <IconField>
           <InputIcon class="pi pi-search" />
           <InputText
@@ -552,8 +551,8 @@ onMounted(() => {
           :disabled="!isAdmin || !graphqlEnabled"
           @click="openCreate"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <Message
       v-if="!graphqlEnabled"

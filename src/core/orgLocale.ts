@@ -17,6 +17,8 @@ export interface OrgAddress {
 
 export interface CompanyProfile {
   organizationName: string
+  /** BFF file id for the company logo (empty when unset). */
+  logoFileId: string
   address: OrgAddress
   language: TranslationLanguage
   currency: string
@@ -94,6 +96,7 @@ export const TIME_ZONE_OPTIONS = [
 
 const DEFAULT_PROFILE: CompanyProfile = {
   organizationName: '',
+  logoFileId: '',
   address: {
     country: '',
     street: '',
@@ -117,6 +120,7 @@ export const orgDateFormat = computed(() => profile.value.dateFormat || '')
 export const orgDateTimeFormat = computed(() => profile.value.dateTimeFormat || '')
 export const orgTimeZone = computed(() => profile.value.timeZone || 'UTC')
 export const orgLanguage = computed(() => profile.value.language || 'en-US')
+export const orgLogoFileId = computed(() => profile.value.logoFileId || '')
 export const orgLocaleLoaded = computed(() => loaded.value)
 
 export function getCompanyProfile(): CompanyProfile {
@@ -185,9 +189,17 @@ export function normalizeCompanyProfile(raw: unknown): CompanyProfile {
       ? row.timeZone.trim()
       : base.timeZone
 
+  const logoRaw =
+    typeof row.logoFileId === 'string'
+      ? row.logoFileId.trim()
+      : typeof row.logo === 'string'
+        ? row.logo.trim()
+        : ''
+
   return {
     organizationName:
       typeof row.organizationName === 'string' ? row.organizationName.trim() : '',
+    logoFileId: logoRaw,
     address: {
       country: stringField(addressRaw.country),
       street: stringField(addressRaw.street),
@@ -319,6 +331,7 @@ function stringField(value: unknown): string {
 function cloneProfile(value: CompanyProfile): CompanyProfile {
   return {
     organizationName: value.organizationName,
+    logoFileId: value.logoFileId || '',
     address: { ...value.address },
     language: value.language,
     currency: value.currency,

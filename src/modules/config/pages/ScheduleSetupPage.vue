@@ -15,6 +15,7 @@ import {
   SCHEDULE_TEMPLATE_COLLECTION,
 } from '@/core/scheduleGeneration'
 import { scheduleFeatureAvailable } from '../services/scheduleFeature'
+import SetupPageHeader from '../components/setup/SetupPageHeader.vue'
 
 const { t } = useTranslation()
 const generatorVisible = ref(false)
@@ -45,17 +46,18 @@ onMounted(() => {
     />
 
     <template v-else-if="ready">
-      <h2>{{ t('schedule.setupTitle', 'Schedule') }}</h2>
-      <p class="text-muted-color m-0">
-        {{
+      <SetupPageHeader
+        :title="t('schedule.setupTitle', 'Schedule')"
+        :meta="
           t(
             'schedule.setupSubtitle',
             'Manage provider work-time templates and generate real time slots for a period.',
           )
-        }}
-      </p>
+        "
+        icon-class="pi pi-calendar"
+      />
 
-      <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(240px,1fr))] mt-4">
+      <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
         <div class="border border-surface-200 rounded-lg flex flex-col gap-3 p-4">
           <div class="flex flex-col gap-1">
             <h3 class="text-[0.95rem] m-0">

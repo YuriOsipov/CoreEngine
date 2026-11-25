@@ -357,7 +357,7 @@ function resetToDefaults(): void {
       :key="condition.id"
       class="grid gap-1 content-start w-full max-w-[14rem]"
     >
-      <label class="text-[0.8rem] font-semibold text-surface-700">
+      <label class="text-[0.8rem] font-semibold text-ink">
         {{ fieldLabel(condition) }}
         <span class="text-muted-color font-normal">· {{ operatorLabel(condition) }}</span>
       </label>

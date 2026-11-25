@@ -199,7 +199,12 @@ export function mapRepeaterSubFieldToComponent(subField: RepeaterSubField): Prim
   const type = (subField.type ?? 'string').toLowerCase()
 
   if (iface.includes('wysiwyg') || iface.includes('rich-text-html')) return 'Editor'
-  if (iface.includes('select-dropdown') || iface.includes('select')) return 'Select'
+  if (iface.includes('select-dropdown') || iface.includes('select')) {
+    const options = subField.meta?.options
+    const multiple =
+      options && typeof options === 'object' && (options as Record<string, unknown>).multiple === true
+    return multiple ? 'MultiSelect' : 'Select'
+  }
   if (iface.includes('multiline') || iface.includes('textarea') || type === 'text') return 'Textarea'
   if (iface.includes('number') || iface.includes('numeric') || ['integer', 'float', 'decimal', 'biginteger'].includes(type)) {
     return 'InputNumber'

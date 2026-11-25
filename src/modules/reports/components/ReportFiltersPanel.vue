@@ -438,7 +438,7 @@ async function syncAutoCompleteSelection(
     </div>
 
     <template v-else>
-      <label class="text-surface-700 grid text-[0.8rem] font-semibold gap-[0.35rem]">
+      <label class="text-ink grid text-[0.8rem] font-semibold gap-[0.35rem]">
         {{ t('filter.logic', 'Logic') }}
         <Select
           :model-value="report.filterLogic"
@@ -568,7 +568,7 @@ async function syncAutoCompleteSelection(
                 @update:model-value="updateCondition(item, { value: String($event) })"
               />
 
-              <label class="inline-flex items-center gap-2 text-[0.8rem] text-surface-700">
+              <label class="inline-flex items-center gap-2 text-[0.8rem] text-ink">
                 <Checkbox
                   :model-value="Boolean(item.visibleInRuntime)"
                   binary

@@ -28,6 +28,7 @@ import {
   sensitivityOptions,
   SENSITIVITY_NONE,
 } from '@/core/fieldSensitivity'
+import SetupPageHeader from './SetupPageHeader.vue'
 
 type PermissionFlag =
   | 'canCreate'
@@ -352,19 +353,17 @@ onMounted(() => {
 
 <template>
   <section class="setup-tab-content">
-    <div class="setup-panel-header">
-      <div>
-        <h2>{{ t('setup.roles.title', 'Roles') }}</h2>
-        <p class="setup-panel-header__meta">
-          {{
-            t(
-              'setup.roles.hint',
-              'User groups with object CRUD, Import / Export, field sensitivity, and optional View All / Modify All for owner row security.',
-            )
-          }}
-        </p>
-      </div>
-      <div class="setup-panel-header__actions">
+    <SetupPageHeader
+      :title="t('setup.roles.title', 'Roles')"
+      :meta="
+        t(
+          'setup.roles.hint',
+          'User groups with object CRUD, Import / Export, field sensitivity, and optional View All / Modify All for owner row security.',
+        )
+      "
+      icon-class="pi pi-shield"
+    >
+      <template #actions>
         <IconField>
           <InputIcon class="pi pi-search" />
           <InputText
@@ -379,8 +378,8 @@ onMounted(() => {
           :disabled="!isAdmin || loading"
           @click="openCreate"
         />
-      </div>
-    </div>
+      </template>
+    </SetupPageHeader>
 
     <Message
       v-if="!loading && !isAdmin"

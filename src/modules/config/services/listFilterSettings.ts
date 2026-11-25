@@ -62,6 +62,8 @@ export interface FilterableField {
   type: string
   component: PrimeVueComponentType
   relatedCollection?: string
+  /** Registry `options.default` when present (drives boolean filter defaults). */
+  defaultValue?: unknown
 }
 
 interface ListFilterSettingsBody {
@@ -143,16 +145,24 @@ export async function listFilterableFields(
       if (!component) return false
       return true
     })
-    .map(({ field, relation, component }) => ({
-      field: field.field,
-      label: field.meta?.note?.trim() || humanizeFieldName(field.field),
-      type: field.type,
-      component: component as PrimeVueComponentType,
-      relatedCollection:
-        component === 'AutoComplete' && relation?.related_collection
-          ? relation.related_collection
-          : undefined,
-    }))
+    .map(({ field, relation, component }) => {
+      const options = field.meta?.options
+      const hasDefault =
+        options != null &&
+        typeof options === 'object' &&
+        Object.prototype.hasOwnProperty.call(options, 'default')
+      return {
+        field: field.field,
+        label: field.meta?.note?.trim() || humanizeFieldName(field.field),
+        type: field.type,
+        component: component as PrimeVueComponentType,
+        relatedCollection:
+          component === 'AutoComplete' && relation?.related_collection
+            ? relation.related_collection
+            : undefined,
+        ...(hasDefault ? { defaultValue: (options as { default: unknown }).default } : {}),
+      }
+    })
 
   const translatedFields = await Promise.all(
     filterableFields.map(async (field) => ({

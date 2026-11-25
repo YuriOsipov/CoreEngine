@@ -74,14 +74,14 @@ watch(
       v-else-if="render?.kind === 'metric'"
       class="flex flex-1 flex-col items-center justify-center text-center"
     >
-      <span class="text-gray-500 text-sm">{{ render.label }}</span>
+      <span class="text-ink-muted text-sm">{{ render.label }}</span>
       <strong class="text-2xl leading-none my-1">{{ render.value }}</strong>
-      <small v-if="render.detail" class="text-gray-500">{{ render.detail }}</small>
+      <small v-if="render.detail" class="text-ink-muted">{{ render.detail }}</small>
     </div>
 
     <div
       v-else-if="render?.kind === 'note'"
-      class="text-gray-600 text-sm whitespace-pre-wrap"
+      class="text-ink-muted text-sm whitespace-pre-wrap"
     >
       {{ render.text || t('dashboard.noPanelText', 'No panel text configured.') }}
     </div>

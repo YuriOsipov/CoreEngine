@@ -195,6 +195,11 @@ function handleScroll(): void {
   }
 }
 
+async function refreshActivityLog(): Promise<void> {
+  await loadActivityLog(true)
+  await nextTick(handleScroll)
+}
+
 watch(
   [watchKey, () => props.active],
   () => {
@@ -218,20 +223,38 @@ watch(scrollPanel, (panel, previous) => {
     class="activity-log-field flex flex-col gap-2"
     :class="{ 'activity-log-field--full': isFullMode }"
   >
-    <div
-      v-if="!isFullMode"
-      class="flex items-center justify-between gap-3"
-    >
-      <div class="text-ink text-sm font-medium">
+    <div class="flex items-center justify-between gap-3">
+      <div
+        v-if="!isFullMode"
+        class="text-ink text-sm font-medium"
+      >
         {{ field.label || t('activityLog.title', 'Activity history') }}
       </div>
-      <RouterLink
-        v-if="showViewAll && hasParent"
-        class="text-sm font-semibold text-primary no-underline hover:underline shrink-0"
-        :to="viewAllTo"
-      >
-        {{ t('common.viewAll', 'View all') }}
-      </RouterLink>
+      <div
+        v-else
+        class="flex-1"
+      />
+      <div class="flex items-center gap-2 shrink-0">
+        <Button
+          type="button"
+          icon="pi pi-refresh"
+          size="small"
+          severity="secondary"
+          outlined
+          :loading="loading"
+          :disabled="!active || !hasParent"
+          :aria-label="t('common.refresh', 'Refresh')"
+          v-tooltip.bottom="t('common.refresh', 'Refresh')"
+          @click="refreshActivityLog"
+        />
+        <RouterLink
+          v-if="!isFullMode && showViewAll && hasParent"
+          class="text-sm font-semibold text-primary no-underline hover:underline shrink-0"
+          :to="viewAllTo"
+        >
+          {{ t('common.viewAll', 'View all') }}
+        </RouterLink>
+      </div>
     </div>
 
     <div

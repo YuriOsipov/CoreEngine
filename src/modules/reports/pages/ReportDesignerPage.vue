@@ -437,7 +437,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
 
     <div
       v-if="draft"
-      class="bg-surface-0 border border-surface-200 rounded-lg grid gap-3 grid-cols-[repeat(4,minmax(0,1fr))] items-end px-4 py-3 max-[1400px]:grid-cols-2 max-[640px]:grid-cols-1"
+      class="bg-panel border border-line rounded-lg grid gap-3 grid-cols-[repeat(4,minmax(0,1fr))] items-end px-4 py-3 max-[1400px]:grid-cols-2 max-[640px]:grid-cols-1"
     >
       <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem] min-w-0">
         {{ t('reports.reportTitle', 'Report title') }}
@@ -514,7 +514,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
         @fields-loaded="onPaletteFieldsLoaded"
       />
 
-      <aside class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-3 grid gap-3 overflow-x-hidden w-[minmax(280px,360px)] max-w-[360px] flex-[0_0_360px] max-[1100px]:flex-none max-[1100px]:max-w-none max-[1100px]:w-full">
+      <aside class="bg-panel border border-line rounded-lg min-w-0 p-3 grid gap-3 overflow-x-hidden w-[minmax(280px,360px)] max-w-[360px] flex-[0_0_360px] max-[1100px]:flex-none max-[1100px]:max-w-none max-[1100px]:w-full">
         <SelectButton
           v-model="activeTab"
           :options="tabOptions"
@@ -534,7 +534,7 @@ function onPaletteFieldsLoaded(fields: ReportFieldOption[]): void {
         />
       </aside>
 
-      <section class="bg-surface-0 border border-surface-200 rounded-lg min-w-0 p-4 grid gap-3 flex-1 max-h-[calc(100vh-10rem)] overflow-auto">
+      <section class="bg-panel border border-line rounded-lg min-w-0 p-4 grid gap-3 flex-1 max-h-[calc(100vh-10rem)] overflow-auto">
         <div class="flex items-center justify-between gap-2">
           <h3 class="m-0">{{ previewTitle }}</h3>
           <small v-if="draft.name" class="text-muted-color">{{ draft.name }}</small>

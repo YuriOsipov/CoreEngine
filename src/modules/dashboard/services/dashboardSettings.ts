@@ -451,21 +451,10 @@ function buildChartFromReportSeries(
         },
       ],
     },
-    options: {
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: showLegend ?? isCircular,
-        },
-      },
-      scales: isCircular
-        ? undefined
-        : {
-            y: {
-              beginAtZero: true,
-            },
-          },
-    },
+    options: chartThemeOptions({
+      showLegend: showLegend ?? isCircular,
+      isCircular,
+    }),
   }
 }
 
@@ -622,21 +611,10 @@ function buildChartRender(
         },
       ],
     },
-    options: {
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: query.showLegend ?? isCircular,
-        },
-      },
-      scales: isCircular
-        ? undefined
-        : {
-            y: {
-              beginAtZero: true,
-            },
-          },
-    },
+    options: chartThemeOptions({
+      showLegend: query.showLegend ?? isCircular,
+      isCircular,
+    }),
   }
 }
 
@@ -904,6 +882,50 @@ function arrayOption(
   }
 
   return []
+}
+
+function readCssToken(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim()
+  return value || fallback
+}
+
+/** Chart.js colors that follow OpenVue / app surface tokens (dark + light). */
+function chartThemeOptions(input: {
+  showLegend: boolean
+  isCircular: boolean
+}): Record<string, unknown> {
+  const text = readCssToken('--app-text-muted', '#64748b')
+  const line = readCssToken('--app-border', 'rgba(148, 163, 184, 0.35)')
+  return {
+    maintainAspectRatio: false,
+    color: text,
+    plugins: {
+      legend: {
+        display: input.showLegend,
+        labels: {
+          color: text,
+        },
+      },
+    },
+    scales: input.isCircular
+      ? undefined
+      : {
+          x: {
+            ticks: { color: text },
+            grid: { color: line },
+            border: { color: line },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: text },
+            grid: { color: line },
+            border: { color: line },
+          },
+        },
+  }
 }
 
 function transparentColor(color: string): string {

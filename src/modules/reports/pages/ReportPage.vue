@@ -422,9 +422,9 @@ async function exportCurrentReport(format: ReportExportFormat): Promise<void> {
       </div>
 
       <div
-        class="bg-surface-0 border border-surface-200 rounded-lg grid gap-4 grid-cols-[minmax(240px,420px)_minmax(0,1fr)] items-end px-4 py-[0.85rem] mt-4 max-[1100px]:grid-cols-1"
+        class="bg-panel border border-line rounded-lg grid gap-4 grid-cols-[minmax(240px,420px)_minmax(0,1fr)] items-end px-4 py-[0.85rem] mt-4 max-[1100px]:grid-cols-1"
       >
-        <label class="text-surface-700 grid text-[0.85rem] font-semibold gap-[0.35rem]">
+        <label class="text-ink grid text-[0.85rem] font-semibold gap-[0.35rem]">
           {{ t('reports.chooseReport', 'Choose report') }}
           <Select
             :model-value="selectedSettingId"
@@ -476,7 +476,7 @@ async function exportCurrentReport(format: ReportExportFormat): Promise<void> {
 
     <section
       v-else
-      class="report-page__panel bg-surface-0 border border-surface-200 rounded-lg min-h-0 min-w-0 flex flex-1 flex-col gap-3 p-4 mt-4 overflow-hidden"
+      class="report-page__panel bg-panel border border-line rounded-lg min-h-0 min-w-0 flex flex-1 flex-col gap-3 p-4 mt-4 overflow-hidden"
     >
       <div class="report-page__panel-chrome flex flex-none flex-col gap-3">
         <div class="flex items-center gap-3 justify-between">

@@ -288,7 +288,6 @@ defineExpose({ reload, toggleCollapsed, collapsed })
   overflow: hidden;
   flex-shrink: 0;
   padding: 0.5rem;
-  border-right: 1px solid var(--app-border, var(--p-content-border-color, #e5e7eb));
   background: var(--app-panel, var(--p-content-background, #fff));
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -299,7 +298,6 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 }
 
 .app-sidebar--overlay {
-  border-right: 1px solid var(--app-border, var(--p-content-border-color, #e5e7eb));
   bottom: 0;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
   left: 0;
@@ -420,9 +418,29 @@ defineExpose({ reload, toggleCollapsed, collapsed })
   color: var(--p-primary-color, #10b981);
 }
 
+/* PanelMenu: strip default panel chrome (Home + Workspace groups) */
+.app-sidebar__menu {
+  --p-panelmenu-panel-border-width: 0;
+  --p-panelmenu-panel-first-border-width: 0;
+  --p-panelmenu-panel-last-border-width: 0;
+  --p-panelmenu-panel-border-radius: 0;
+  --p-panelmenu-panel-first-top-border-radius: 0;
+  --p-panelmenu-panel-last-bottom-border-radius: 0;
+  --p-panelmenu-panel-background: transparent;
+  --p-panelmenu-panel-padding: 0;
+  gap: 0.15rem;
+}
+
+.app-sidebar__menu :deep(.p-panelmenu-panel) {
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
 /* Menu items */
-  .app-sidebar__item {
-    cursor: pointer;
+.app-sidebar__item {
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 0.5rem;

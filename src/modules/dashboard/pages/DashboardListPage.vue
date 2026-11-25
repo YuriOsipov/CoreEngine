@@ -189,7 +189,7 @@ async function refreshRow(row: DashboardListRow): Promise<void> {
       />
     </div>
 
-    <section class="bg-surface-0 border border-surface-200 rounded-lg p-4 grid gap-3 min-w-0">
+    <section class="bg-panel border border-line rounded-lg p-4 grid gap-3 min-w-0">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <IconField>
           <InputIcon class="pi pi-search" />

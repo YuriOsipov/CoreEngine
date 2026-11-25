@@ -92,6 +92,10 @@ const HIDDEN_DELTA_FIELDS = new Set([
   'date_updated',
   'created_at',
   'updated_at',
+  // Storage envelope — not business fields on the Path / form surface.
+  'status',
+  'is_active',
+  'is_deleted',
 ])
 
 const ACTIVITY_LOG_FIELDS = [

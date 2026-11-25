@@ -3,6 +3,7 @@ import {
   updatePreset,
   updateSurfacePalette,
   usePreset,
+  type Preset,
 } from '@openvue/themes'
 import {
   findSurfaceColor,
@@ -38,16 +39,23 @@ const DEFAULT_APPEARANCE: AppearanceSettings = {
   surface: 'zinc',
 }
 
-type ThemePreset = Awaited<typeof import('@openvue/themes/aura')>['default']
-
-const presetLoaders: Record<OpenVuePresetId, () => Promise<ThemePreset>> = {
-  aura: () => import('@openvue/themes/aura').then((mod) => mod.default),
-  lara: () => import('@openvue/themes/lara').then((mod) => mod.default),
-  material: () => import('@openvue/themes/material').then((mod) => mod.default),
-  nora: () => import('@openvue/themes/nora').then((mod) => mod.default),
+/** Runtime modules export `default`; @openvue/themes/*.d.ts omit it. */
+function unwrapPreset(mod: unknown): Preset {
+  if (mod && typeof mod === 'object' && 'default' in mod) {
+    const value = (mod as { default: unknown }).default
+    if (value && typeof value === 'object') return value as Preset
+  }
+  return mod as Preset
 }
 
-const presetCache = new Map<OpenVuePresetId, ThemePreset>()
+const presetLoaders: Record<OpenVuePresetId, () => Promise<Preset>> = {
+  aura: () => import('@openvue/themes/aura').then((mod) => unwrapPreset(mod)),
+  lara: () => import('@openvue/themes/lara').then((mod) => unwrapPreset(mod)),
+  material: () => import('@openvue/themes/material').then((mod) => unwrapPreset(mod)),
+  nora: () => import('@openvue/themes/nora').then((mod) => unwrapPreset(mod)),
+}
+
+const presetCache = new Map<OpenVuePresetId, Preset>()
 const appearance = ref<AppearanceSettings>(DEFAULT_APPEARANCE)
 const systemDark = ref(false)
 let activePreset: OpenVuePresetId | null = null
@@ -109,7 +117,7 @@ export function applyColorScheme(colorScheme: ColorSchemePreference): void {
   )
 }
 
-export async function loadPreset(preset: OpenVuePresetId): Promise<ThemePreset> {
+export async function loadPreset(preset: OpenVuePresetId): Promise<Preset> {
   const cached = presetCache.get(preset)
   if (cached) return cached
   const loaded = await presetLoaders[preset]()

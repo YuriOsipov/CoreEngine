@@ -21,6 +21,7 @@ import {
   extractRecordIdsFromCellRecords,
 } from '@/modules/reports/services/reportVTableAdapter'
 import type { NumberDisplayOptions } from '@/modules/entities/utils/recordDisplay'
+import { useAppearance } from '@/core/theme/appearance'
 import { useTranslation } from '@/core/translation'
 
 const props = withDefaults(
@@ -42,6 +43,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useTranslation()
+const { isDark, primary, surface, colorScheme } = useAppearance()
+/** Force VTable option rebuild + remount when appearance tokens change. */
+const appearanceThemeKey = computed(
+  () => `${isDark.value}:${colorScheme.value}:${primary.value}:${surface.value}`,
+)
 const useFallback = ref(false)
 const renderError = ref<string | null>(null)
 const tableInstance = ref<PivotTableApi | null>(null)
@@ -91,8 +97,9 @@ watch(
   },
 )
 
-const vtableOptions = computed(() =>
-  buildReportVTableOptions(
+const vtableOptions = computed(() => {
+  void appearanceThemeKey.value
+  return buildReportVTableOptions(
     props.rows,
     props.pivot,
     {
@@ -108,8 +115,8 @@ const vtableOptions = computed(() =>
     },
     valueDisplayByField.value,
     widthsForOptions.value,
-  ),
-)
+  )
+})
 
 const pivotRenderKey = computed(() =>
   JSON.stringify({
@@ -118,6 +125,7 @@ const pivotRenderKey = computed(() =>
     values: props.pivot.values,
     sortRowsByTotal: props.pivot.sortRowsByTotal ?? null,
     valueDisplayByField: valueDisplayByField.value,
+    appearanceThemeKey: appearanceThemeKey.value,
     // Intentionally omit columnWidths — resizing must not remount / reflow neighbors.
   }),
 )
@@ -297,7 +305,7 @@ function widthKeyFromHeaderToken(token: unknown): string | null {
 <template>
   <div
     ref="hostRef"
-    class="bg-surface-0 rounded-lg h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+    class="bg-panel rounded-lg h-full min-h-0 min-w-0 flex-1 overflow-hidden"
   >
     <p v-if="rows.length === 0" class="text-muted-color m-0">
       {{ emptyMessage || t('datatable.defaultEmpty', 'No records found.') }}

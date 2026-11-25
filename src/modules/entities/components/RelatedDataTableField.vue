@@ -198,6 +198,7 @@ const tableSortOrder = computed<1 | -1 | null>(
 const {
   runtime,
   loading,
+  refreshing,
   hasMore,
   pageSize,
   reload,
@@ -806,6 +807,18 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
           toggle-only
           :settings="barcodeScanSettings"
           :busy="barcodeScanBusy"
+        />
+        <Button
+          type="button"
+          icon="pi pi-refresh"
+          size="small"
+          severity="secondary"
+          outlined
+          :loading="refreshing || loading"
+          :disabled="!props.active || !canReadRelated"
+          :aria-label="t('common.refresh', 'Refresh')"
+          v-tooltip.bottom="t('common.refresh', 'Refresh')"
+          @click="refreshRuntime"
         />
         <slot name="actions" :has-more="hasMore" />
         <Button

@@ -12,6 +12,9 @@ function field(apiName: string, pgType: string): CrmPromotedField {
     relatedEntityApiName: null,
     onDelete: null,
     useInSearch: false,
+    needsFtsIndex: false,
+    ftsConfig: 'simple',
+    sensitivity: 0,
   }
 }
 

@@ -149,7 +149,7 @@ function panelTitle(panel: DesignerPanelDraft): string {
 <template>
   <div
     ref="canvasEl"
-    class="relative min-h-[24rem] rounded border border-dashed border-[#d0d5dd] bg-[linear-gradient(to_right,rgba(0,0,0,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(0,0,0,0.03)_1px,transparent_1px)] bg-[length:calc(100%/60)_18px] p-1"
+    class="dashboard-canvas relative min-h-[24rem] rounded border border-dashed border-line bg-canvas p-1"
     @click.self="emit('select', null)"
   >
     <div
@@ -158,11 +158,11 @@ function panelTitle(panel: DesignerPanelDraft): string {
       <article
         v-for="panel in sortedPanels"
         :key="panel.id"
-        class="relative flex min-h-0 min-w-0 cursor-move flex-col overflow-hidden rounded border bg-surface-0 p-2 shadow-sm"
+        class="relative flex min-h-0 min-w-0 cursor-move flex-col overflow-hidden rounded border bg-panel p-2 shadow-sm"
         :class="
           selectedId === panel.id
             ? 'border-primary z-10 ring-1 ring-primary'
-            : 'border-[#eef0f4]'
+            : 'border-line'
         "
         :style="panelGridStyle(panel)"
         @pointerdown="onPanelPointerDown($event, panel)"
@@ -173,7 +173,7 @@ function panelTitle(panel: DesignerPanelDraft): string {
         >
           <div class="min-w-0">
             <h4 class="m-0 truncate text-sm">{{ panelTitle(panel) }}</h4>
-            <p v-if="panel.note" class="m-0 truncate text-xs text-gray-500">
+            <p v-if="panel.note" class="m-0 truncate text-xs text-ink-muted">
               {{ panel.note }}
             </p>
           </div>
@@ -202,7 +202,7 @@ function panelTitle(panel: DesignerPanelDraft): string {
           @pointerdown="onResizePointerDown($event, panel)"
         >
           <span
-            class="absolute bottom-1 right-1 block h-2 w-2 border-b-2 border-r-2 border-gray-400"
+            class="absolute bottom-1 right-1 block h-2 w-2 border-b-2 border-r-2 border-line"
           />
         </div>
       </article>
@@ -218,3 +218,20 @@ function panelTitle(panel: DesignerPanelDraft): string {
     </Message>
   </div>
 </template>
+
+<style scoped>
+.dashboard-canvas {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--app-border, #94a3b8) 35%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--app-border, #94a3b8) 35%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: calc(100% / 60) 18px;
+}
+</style>

@@ -346,7 +346,7 @@ function resetToDefaults(): void {
 <template>
   <section
     v-if="visibleConditions.length > 0"
-    class="bg-surface-50 border border-surface-200 rounded-lg px-3 py-2 flex items-end gap-3 flex-wrap"
+    class="bg-canvas border border-line rounded-lg px-3 py-2 flex items-end gap-3 flex-wrap"
   >
     <h3 class="m-0 text-[0.95rem] leading-8 shrink-0">
       {{ t('reports.runtimeFilters', 'Filters') }}

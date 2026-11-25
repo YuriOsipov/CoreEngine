@@ -104,7 +104,7 @@ function patchRow(id: string, patch: Partial<PanelFilterRow>): void {
     <div
       v-for="row in rows"
       :key="row.id"
-      class="grid grid-cols-[1fr_auto] gap-1 rounded border border-[#eef0f4] p-2"
+      class="grid grid-cols-[1fr_auto] gap-1 rounded border border-line p-2 bg-panel"
     >
       <div class="grid gap-1">
         <Select

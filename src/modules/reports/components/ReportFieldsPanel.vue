@@ -113,7 +113,7 @@ function toggleCollapsed(): void {
 
 <template>
   <aside
-    class="bg-surface-0 border border-surface-200 rounded-lg min-h-[24rem] overflow-hidden"
+    class="bg-panel border border-line rounded-lg min-h-[24rem] overflow-hidden"
     :class="collapsed ? 'w-10' : 'w-[min(260px,100%)]'"
   >
     <div
@@ -194,7 +194,7 @@ function toggleCollapsed(): void {
           <div
             v-for="field in paletteList"
             :key="field.field"
-            class="text-left border-0 rounded-md px-2 py-1.5 cursor-grab active:cursor-grabbing bg-transparent text-surface-700 hover:bg-surface-50 text-[0.85rem] flex items-center gap-2 select-none"
+            class="text-left border-0 rounded-md px-2 py-1.5 cursor-grab active:cursor-grabbing bg-transparent text-surface-700 hover:bg-canvas text-[0.85rem] flex items-center gap-2 select-none"
             :title="t('reports.dragField', 'Drag to Outline or Filters')"
           >
             <i

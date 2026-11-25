@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cleanAuditSnapshot,
   hasVisibleAuditChanges,
+  shouldSeedBeforeRevisionParent,
 } from './auditService.js'
 
 describe('audit snapshot visibility', () => {
@@ -46,6 +47,39 @@ describe('audit snapshot visibility', () => {
         { account: 'acc-1', stage: 'Proposal' },
         { account: { id: 'acc-1', name: 'Hofmann Elena' }, stage: 'Proposal' },
       ),
+    ).toBe(false)
+  })
+
+  it('seeds before parent when latest revision is sparse vs mutation before', () => {
+    const beforeSnapshot = {
+      stage: 'Won',
+      terminal: 'Cancel',
+      amount: 5000,
+      owner_id: 'admin-1',
+      close_date: '2026-09-15',
+      status: 'published',
+    }
+    const sparseParent = { stage: 'Won', terminal: 'Cancel', status: 'published' }
+    expect(
+      shouldSeedBeforeRevisionParent({
+        parentSnapshot: sparseParent,
+        beforeSnapshot,
+      }),
+    ).toBe(true)
+  })
+
+  it('does not seed when latest revision already matches mutation before', () => {
+    const beforeSnapshot = {
+      stage: 'Won',
+      terminal: 'Cancel',
+      amount: 5000,
+      owner_id: 'admin-1',
+    }
+    expect(
+      shouldSeedBeforeRevisionParent({
+        parentSnapshot: { ...beforeSnapshot },
+        beforeSnapshot,
+      }),
     ).toBe(false)
   })
 })

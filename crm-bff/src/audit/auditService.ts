@@ -38,6 +38,10 @@ const HIDDEN_AUDIT_FIELDS = new Set([
   'date_updated',
   'created_at',
   'updated_at',
+  // Storage envelope — not business fields on the Path / form surface.
+  'status',
+  'is_active',
+  'is_deleted',
 ])
 
 function relationRecordId(value: unknown): string | null {
@@ -162,6 +166,22 @@ function hasComparableAuditSnapshot(
   )
 }
 
+/**
+ * Activity diffs parent revision vs after. The parent must match the mutation
+ * `before` snapshot — a sparse parent that merely differs from `after` produces
+ * phantom field additions (owner/amount/close_date appearing as — → value).
+ */
+export function shouldSeedBeforeRevisionParent(options: {
+  parentSnapshot: Record<string, unknown> | null
+  beforeSnapshot: Record<string, unknown>
+}): boolean {
+  const beforeAlreadyStored =
+    options.parentSnapshot != null &&
+    hasComparableAuditSnapshot(options.parentSnapshot) &&
+    !hasVisibleAuditChanges(options.beforeSnapshot, options.parentSnapshot)
+  return !beforeAlreadyStored
+}
+
 function parseSnapshot(value: unknown): Record<string, unknown> {
   if (value == null) return {}
   if (typeof value === 'string') {
@@ -270,31 +290,22 @@ export async function writeAuditEntry(options: {
       ? cleanAuditSnapshot(parseSnapshot(parentRows[0].snapshot))
       : null
 
-    // Seed a before-snapshot parent when the chain cannot produce field deltas:
-    // missing parent, stamp-only parent, or parent that already equals `after`
-    // while this update still has visible before→after changes.
+    // Seed a before-snapshot parent whenever the latest revision is not the
+    // mutation `before`. Do not treat "differs from after" as usable — sparse
+    // parents inflate Activity with false field changes.
     if (
       options.action === 'UPDATE' &&
       beforeSnapshot &&
-      hasVisibleAuditChanges(beforeSnapshot, afterSnapshot)
+      hasVisibleAuditChanges(beforeSnapshot, afterSnapshot) &&
+      shouldSeedBeforeRevisionParent({ parentSnapshot, beforeSnapshot })
     ) {
-      const parentUsable =
-        parentRevisionId != null &&
-        hasComparableAuditSnapshot(parentSnapshot) &&
-        hasVisibleAuditChanges(parentSnapshot, afterSnapshot)
-      const beforeAlreadyStored =
-        parentSnapshot != null &&
-        hasComparableAuditSnapshot(parentSnapshot) &&
-        !hasVisibleAuditChanges(beforeSnapshot, parentSnapshot)
-      if (!parentUsable && !beforeAlreadyStored) {
-        parentRevisionId = await insertRevision({
-          activityId: null,
-          entityApiName: options.entityApiName,
-          recordId: options.recordId,
-          snapshot: beforeSnapshot,
-          parentRevisionId,
-        })
-      }
+      parentRevisionId = await insertRevision({
+        activityId: null,
+        entityApiName: options.entityApiName,
+        recordId: options.recordId,
+        snapshot: beforeSnapshot,
+        parentRevisionId,
+      })
     }
 
     revisionId = await insertRevision({

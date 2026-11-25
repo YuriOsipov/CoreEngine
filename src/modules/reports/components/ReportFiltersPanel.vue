@@ -451,7 +451,7 @@ async function syncAutoCompleteSelection(
         />
       </label>
 
-      <div class="relative min-h-[4.5rem] rounded-md border border-dashed border-surface-300 p-2 bg-surface-0">
+      <div class="relative min-h-[4.5rem] rounded-md border border-dashed border-line p-2 bg-panel">
         <p
           v-if="report.conditions.length === 0"
           class="absolute inset-0 flex items-center justify-center px-3 text-muted-color text-[0.8rem] m-0 pointer-events-none text-center"
@@ -466,14 +466,14 @@ async function syncAutoCompleteSelection(
           class="grid gap-[0.6rem] min-h-[3.5rem]"
           handle=".rsd-filter-drag-handle"
           ghost-class="opacity-[0.45]"
-          chosen-class="bg-surface-50"
+          chosen-class="bg-canvas"
           @add="syncDroppedConditions"
           @update="syncDroppedConditions"
         >
           <div
             v-for="(item, index) in dndConditions"
             :key="isFilterCondition(item) ? item.id : `drop_${index}_${item.field}`"
-            class="grid gap-1.5 border border-surface-100 rounded-md p-2 bg-surface-0 text-[0.8rem]"
+            class="grid gap-1.5 border border-line rounded-md p-2 bg-panel text-[0.8rem]"
           >
             <template v-if="isFilterCondition(item)">
               <div class="grid gap-1.5 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto] items-center">
@@ -578,7 +578,7 @@ async function syncAutoCompleteSelection(
                 <span>{{ t('reports.visibleInRuntime', 'Visible in runtime') }}</span>
                 <button
                   type="button"
-                  class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-surface-300 text-[0.65rem] text-muted-color bg-transparent cursor-help"
+                  class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-line text-[0.65rem] text-muted-color bg-transparent cursor-help"
                   v-tooltip.bottom="
                     t(
                       'reports.visibleInRuntimeHint',

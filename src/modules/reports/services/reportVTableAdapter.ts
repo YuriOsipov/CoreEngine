@@ -33,12 +33,125 @@ export const ALL_ROWS_FIELD = '__crmAllRows'
 export const CRM_RECORD_ID_FIELD = '__crmRecordId'
 
 const CRM_FONT_FAMILY = 'Inter, system-ui, sans-serif'
-const CRM_BORDER_COLOR = '#e2e8f0'
-const CRM_HEADER_BG = '#f1f5f9'
-const CRM_ROW_HEADER_BG = '#f8fafc'
-const CRM_BODY_BG = '#ffffff'
-const CRM_PRIMARY_TEXT = '#1e293b'
-const CRM_SECONDARY_TEXT = '#334155'
+
+function readCssToken(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+/** VisActor canvas theme from live `--app-*` / OpenVue tokens (light + dark). */
+function buildCrmVTableTheme(): TYPES.ITableThemeDefine {
+  const bodyBg = readCssToken('--app-panel', '#ffffff')
+  const headerBg = readCssToken('--app-canvas', '#f1f5f9')
+  const rowHeaderBg = readCssToken('--app-canvas', '#f8fafc')
+  const borderColor = readCssToken('--app-border', '#e2e8f0')
+  const primaryText = readCssToken('--app-text', '#1e293b')
+  const secondaryText = readCssToken('--app-text-muted', '#334155')
+  const hoverBg = readCssToken('--app-hover', 'rgba(100, 116, 139, 0.10)')
+  const primaryColor = readCssToken('--p-primary-color', '#64748b')
+  const scrollRail = readCssToken('--app-canvas', '#f8fafc')
+  const scrollSlider = readCssToken('--p-surface-400', '#cbd5e1')
+
+  return {
+    underlayBackgroundColor: bodyBg,
+    defaultStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      color: secondaryText,
+      bgColor: bodyBg,
+      borderColor,
+      borderLineWidth: 1,
+      padding: [8, 10, 8, 10],
+      textBaseline: 'middle',
+    },
+    headerStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      fontWeight: 700,
+      color: primaryText,
+      bgColor: headerBg,
+      borderColor,
+      borderLineWidth: 1,
+      padding: [8, 10, 8, 10],
+      textBaseline: 'middle',
+    },
+    rowHeaderStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      fontWeight: 600,
+      color: secondaryText,
+      bgColor: rowHeaderBg,
+      borderColor,
+      borderLineWidth: 1,
+      padding: [8, 10, 8, 10],
+      textBaseline: 'middle',
+    },
+    cornerHeaderStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      fontWeight: 700,
+      color: primaryText,
+      bgColor: headerBg,
+      borderColor,
+      borderLineWidth: 1,
+      padding: [8, 10, 8, 10],
+      textBaseline: 'middle',
+    },
+    bodyStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      color: secondaryText,
+      bgColor: bodyBg,
+      borderColor,
+      borderLineWidth: 1,
+      padding: [8, 10, 8, 10],
+      textAlign: 'right',
+      textBaseline: 'middle',
+      cursor: 'pointer',
+    },
+    bottomFrozenStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      fontWeight: 700,
+      color: primaryText,
+      bgColor: rowHeaderBg,
+      borderColor,
+      borderLineWidth: 1,
+      padding: [8, 10, 8, 10],
+      textAlign: 'right',
+    },
+    frameStyle: {
+      borderColor,
+      borderLineWidth: 1,
+      cornerRadius: 8,
+    },
+    scrollStyle: {
+      scrollRailColor: scrollRail,
+      scrollSliderColor: scrollSlider,
+      scrollSliderCornerRadius: 6,
+      width: 8,
+      visible: 'scrolling',
+      hoverOn: true,
+    },
+    selectionStyle: {
+      cellBorderColor: primaryColor,
+      cellBorderLineWidth: 2,
+      cellBgColor: hoverBg,
+      inlineRowBgColor: hoverBg,
+      inlineColumnBgColor: hoverBg,
+      selectionFillMode: 'replace',
+    },
+    tooltipStyle: {
+      fontFamily: CRM_FONT_FAMILY,
+      fontSize: 12,
+      color: secondaryText,
+      bgColor: bodyBg,
+      padding: [8, 10],
+      maxWidth: 320,
+    },
+  }
+}
 
 interface VTableFieldBinding {
   sourceField: string
@@ -185,7 +298,7 @@ export function buildReportVTableOptions(
     ),
     indicatorsAsCol: true,
     hideIndicatorName: valueBindings.length === 1,
-    theme: CRM_VTABLE_THEME,
+    theme: buildCrmVTableTheme(),
     // Cell-only selection — avoid full row/column green washes that look like empty gaps.
     select: {
       highlightMode: 'cell',
@@ -300,106 +413,6 @@ function normalizeCellRecords(raw: unknown): Record<string, unknown>[] {
     return [record]
   }
   return []
-}
-
-const CRM_VTABLE_THEME: TYPES.ITableThemeDefine = {
-  underlayBackgroundColor: CRM_BODY_BG,
-  defaultStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    color: CRM_SECONDARY_TEXT,
-    bgColor: CRM_BODY_BG,
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    padding: [8, 10, 8, 10],
-    textBaseline: 'middle',
-  },
-  headerStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    fontWeight: 700,
-    color: CRM_PRIMARY_TEXT,
-    bgColor: CRM_HEADER_BG,
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    padding: [8, 10, 8, 10],
-    textBaseline: 'middle',
-  },
-  rowHeaderStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    fontWeight: 600,
-    color: CRM_SECONDARY_TEXT,
-    bgColor: CRM_ROW_HEADER_BG,
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    padding: [8, 10, 8, 10],
-    textBaseline: 'middle',
-  },
-  cornerHeaderStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    fontWeight: 700,
-    color: CRM_PRIMARY_TEXT,
-    bgColor: CRM_HEADER_BG,
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    padding: [8, 10, 8, 10],
-    textBaseline: 'middle',
-  },
-  bodyStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    color: CRM_SECONDARY_TEXT,
-    bgColor: CRM_BODY_BG,
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    padding: [8, 10, 8, 10],
-    textAlign: 'right',
-    textBaseline: 'middle',
-    cursor: 'pointer',
-  },
-  bottomFrozenStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    fontWeight: 700,
-    color: CRM_PRIMARY_TEXT,
-    bgColor: CRM_ROW_HEADER_BG,
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    padding: [8, 10, 8, 10],
-    textAlign: 'right',
-  },
-  frameStyle: {
-    borderColor: CRM_BORDER_COLOR,
-    borderLineWidth: 1,
-    cornerRadius: 8,
-  },
-  scrollStyle: {
-    scrollRailColor: '#f8fafc',
-    scrollSliderColor: '#cbd5e1',
-    scrollSliderCornerRadius: 6,
-    width: 8,
-    visible: 'scrolling',
-    hoverOn: true,
-  },
-  selectionStyle: {
-    cellBorderColor: '#64748b',
-    cellBorderLineWidth: 2,
-    // Low-alpha fill only — solid emerald washes looked like empty green columns.
-    cellBgColor: 'rgba(100, 116, 139, 0.10)',
-    inlineRowBgColor: 'rgba(100, 116, 139, 0.04)',
-    inlineColumnBgColor: 'rgba(100, 116, 139, 0.04)',
-    selectionFillMode: 'replace',
-  },
-  tooltipStyle: {
-    fontFamily: CRM_FONT_FAMILY,
-    fontSize: 12,
-    color: CRM_SECONDARY_TEXT,
-    bgColor: CRM_BODY_BG,
-    padding: [8, 10],
-    maxWidth: 320,
-  },
 }
 
 function flattenReportRow(

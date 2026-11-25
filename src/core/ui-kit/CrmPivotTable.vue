@@ -257,7 +257,7 @@ function handleCellClick(row: PivotRow, column: PivotColumn): void {
     <p v-if="rows.length === 0" class="text-muted-color m-0">
       {{ emptyMessage || t('datatable.defaultEmpty', 'No records found.') }}
     </p>
-    <div v-else class="crm-pivot-table__scroll border border-surface-200 rounded-lg overflow-auto">
+    <div v-else class="crm-pivot-table__scroll border border-line rounded-lg overflow-auto">
       <table>
         <thead>
           <tr>
@@ -371,7 +371,7 @@ function handleCellClick(row: PivotRow, column: PivotColumn): void {
 
 .crm-pivot-table tfoot th,
 .crm-pivot-table tfoot td {
-  background: #f8fafc;
+  background: var(--app-canvas, #f8fafc);
   border-bottom: 0;
   font-weight: 700;
 }

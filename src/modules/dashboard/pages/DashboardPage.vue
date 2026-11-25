@@ -208,14 +208,14 @@ function formattedPanelOptions(panel: DashboardPanel): string {
       <article
         v-for="dashboard in visibleDashboards"
         :key="dashboard.id"
-        class="bg-surface-0 border border-[#eef0f4] rounded-md p-4"
+        class="bg-panel border border-line rounded-md p-4"
       >
         <header class="flex items-start gap-4 justify-between mb-4 max-[900px]:flex-col">
           <div>
             <h2 class="m-0">{{ dashboard.name }}</h2>
-            <p v-if="dashboard.note" class="text-gray-500 mt-1 mb-0">{{ dashboard.note }}</p>
+            <p v-if="dashboard.note" class="text-ink-muted mt-1 mb-0">{{ dashboard.note }}</p>
           </div>
-          <span class="bg-gray-100 rounded-full text-gray-600 shrink-0 text-[0.8rem] px-[0.6rem] py-1">
+          <span class="bg-soft rounded-full text-ink-muted shrink-0 text-[0.8rem] px-[0.6rem] py-1">
             {{ dashboard.panels.length === 1
               ? t('dashboard.panelCount', '{count} panel', { count: dashboard.panels.length })
               : t('dashboard.panelCountPlural', '{count} panels', { count: dashboard.panels.length })
@@ -235,7 +235,7 @@ function formattedPanelOptions(panel: DashboardPanel): string {
           <article
             v-for="panel in dashboard.panels"
             :key="panel.id"
-            class="bg-surface-0 border border-[#eef0f4] rounded flex flex-col min-h-[10rem] min-w-0 p-3 max-[900px]:mb-4"
+            class="bg-panel border border-line rounded flex flex-col min-h-[10rem] min-w-0 p-3 max-[900px]:mb-4"
             :style="panelGridStyle(panel)"
           >
             <header
@@ -244,9 +244,9 @@ function formattedPanelOptions(panel: DashboardPanel): string {
             >
               <div>
                 <h3 class="m-0">{{ panelTitle(panel) }}</h3>
-                <p v-if="panel.note" class="text-gray-500 mt-1 mb-0">{{ panel.note }}</p>
+                <p v-if="panel.note" class="text-ink-muted mt-1 mb-0">{{ panel.note }}</p>
               </div>
-              <span class="bg-gray-100 rounded-full text-gray-600 shrink-0 text-[0.8rem] px-[0.6rem] py-1">{{ panel.type }}</span>
+              <span class="bg-soft rounded-full text-ink-muted shrink-0 text-[0.8rem] px-[0.6rem] py-1">{{ panel.type }}</span>
             </header>
 
             <div v-if="chartRender(panel)" class="flex-1 min-h-[8rem]">
@@ -259,16 +259,16 @@ function formattedPanelOptions(panel: DashboardPanel): string {
             </div>
 
             <div v-else-if="metricRender(panel)" class="flex flex-1 flex-col items-center justify-center text-center">
-              <span class="text-gray-500 text-[0.9rem]">
+              <span class="text-ink-muted text-[0.9rem]">
                 {{ metricRender(panel)?.label }}
               </span>
-              <strong class="text-gray-900 text-[clamp(2rem,8vw,4rem)] leading-none my-2">{{ metricRender(panel)?.value }}</strong>
-              <small v-if="metricRender(panel)?.detail" class="text-gray-500">
+              <strong class="text-ink text-[clamp(2rem,8vw,4rem)] leading-none my-2">{{ metricRender(panel)?.value }}</strong>
+              <small v-if="metricRender(panel)?.detail" class="text-ink-muted">
                 {{ metricRender(panel)?.detail }}
               </small>
             </div>
 
-            <div v-else-if="noteRender(panel)" class="text-gray-500 text-base leading-[1.6] whitespace-pre-wrap">
+            <div v-else-if="noteRender(panel)" class="text-ink-muted text-base leading-[1.6] whitespace-pre-wrap">
               {{ noteRender(panel)?.text || t('dashboard.noPanelText', 'No panel text configured.') }}
             </div>
 

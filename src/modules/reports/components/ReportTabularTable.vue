@@ -197,9 +197,9 @@ const displayRows = computed(() =>
 )
 
 function rowClass(data: { kind?: string }): string | undefined {
-  if (data.kind === 'group') return 'font-semibold bg-surface-50'
-  if (data.kind === 'subtotal') return 'font-medium bg-surface-50'
-  if (data.kind === 'grandtotal') return 'font-semibold bg-surface-100'
+  if (data.kind === 'group') return 'font-semibold bg-canvas'
+  if (data.kind === 'subtotal') return 'font-medium bg-canvas'
+  if (data.kind === 'grandtotal') return 'font-semibold bg-canvas'
   return undefined
 }
 

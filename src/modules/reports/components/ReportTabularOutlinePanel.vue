@@ -571,7 +571,7 @@ function summaryBadge(column: ReportTabularColumn): string {
           <h4 class="m-0 text-[0.85rem] uppercase text-muted-color tracking-wide">
             {{ t('reports.groupRows', 'Group Rows') }}
           </h4>
-          <div class="relative min-h-[2.75rem] rounded-md border border-dashed border-surface-300 p-2 bg-surface-0">
+          <div class="relative min-h-[2.75rem] rounded-md border border-dashed border-line p-2 bg-panel">
             <p
               v-if="report.tabular.groupRows.length === 0"
               class="absolute inset-0 flex items-center px-3 text-muted-color text-[0.8rem] m-0 pointer-events-none"
@@ -585,7 +585,7 @@ function summaryBadge(column: ReportTabularColumn): string {
               class="grid gap-[0.6rem] min-h-[2.25rem]"
               handle=".rsd-drag-handle"
               ghost-class="opacity-[0.45]"
-              chosen-class="bg-surface-50"
+              chosen-class="bg-canvas"
               @add="syncGroupRows"
               @update="syncGroupRows"
             >
@@ -696,7 +696,7 @@ function summaryBadge(column: ReportTabularColumn): string {
           <h4 class="m-0 text-[0.85rem] uppercase text-muted-color tracking-wide">
             {{ t('reports.groupColumns', 'Group Columns') }}
           </h4>
-          <div class="relative min-h-[2.75rem] rounded-md border border-dashed border-surface-300 p-2 bg-surface-0">
+          <div class="relative min-h-[2.75rem] rounded-md border border-dashed border-line p-2 bg-panel">
             <p
               v-if="report.tabular.groupColumns.length === 0"
               class="absolute inset-0 flex items-center px-3 text-muted-color text-[0.8rem] m-0 pointer-events-none"
@@ -710,7 +710,7 @@ function summaryBadge(column: ReportTabularColumn): string {
               class="grid gap-[0.6rem] min-h-[2.25rem]"
               handle=".rsd-drag-handle"
               ghost-class="opacity-[0.45]"
-              chosen-class="bg-surface-50"
+              chosen-class="bg-canvas"
               @add="syncGroupColumns"
               @update="syncGroupColumns"
             >
@@ -808,7 +808,7 @@ function summaryBadge(column: ReportTabularColumn): string {
 
       <section class="grid gap-3">
         <h3 class="m-0">{{ t('reports.columns', 'Columns') }}</h3>
-        <div class="relative min-h-[2.75rem] rounded-md border border-dashed border-surface-300 p-2 bg-surface-0">
+        <div class="relative min-h-[2.75rem] rounded-md border border-dashed border-line p-2 bg-panel">
           <p
             v-if="report.tabular.columns.length === 0"
             class="absolute inset-0 flex items-center px-3 text-muted-color text-[0.8rem] m-0 pointer-events-none"
@@ -822,7 +822,7 @@ function summaryBadge(column: ReportTabularColumn): string {
             class="grid gap-[0.6rem] min-h-[2.25rem]"
             handle=".rsd-drag-handle"
             ghost-class="opacity-[0.45]"
-            chosen-class="bg-surface-50"
+            chosen-class="bg-canvas"
             @add="syncColumns"
             @update="syncColumns"
           >
@@ -914,7 +914,7 @@ function summaryBadge(column: ReportTabularColumn): string {
         />
       </section>
 
-      <section class="grid gap-2 border-t border-surface-200 pt-3">
+      <section class="grid gap-2 border-t border-line pt-3">
         <div class="grid gap-1">
           <label class="text-[0.85rem] m-0">
             {{ t('reports.sortRowsByTotal', 'Sort rows by total') }}

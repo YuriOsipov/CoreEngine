@@ -391,7 +391,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
     </div>
 
     <div class="grid gap-4 grid-cols-[minmax(200px,260px)_minmax(0,1fr)] max-[900px]:grid-cols-1">
-      <aside class="bg-surface-0 border border-surface-200 rounded-lg p-3 grid gap-2 content-start">
+      <aside class="bg-panel border border-line rounded-lg p-3 grid gap-2 content-start">
         <button
           type="button"
           class="text-left border-0 rounded-md px-3 py-2 cursor-pointer"
@@ -410,7 +410,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
           {{ t('reports.unfiled', 'Unfiled') }}
           <span class="text-muted-color ml-1">({{ folderCounts.unfiled }})</span>
         </button>
-        <div class="border-t border-surface-200 my-1" />
+        <div class="border-t border-line my-1" />
         <p class="text-muted-color text-[0.75rem] uppercase m-0 px-3">
           {{ t('reports.folders', 'Folders') }}
         </p>
@@ -460,7 +460,7 @@ async function removeReport(report: ReportWithSetting): Promise<void> {
         </div>
       </aside>
 
-      <section class="bg-surface-0 border border-surface-200 rounded-lg p-4 grid gap-3 min-w-0">
+      <section class="bg-panel border border-line rounded-lg p-4 grid gap-3 min-w-0">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <IconField>
             <InputIcon class="pi pi-search" />

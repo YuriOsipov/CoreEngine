@@ -257,7 +257,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 </script>
 
 <template>
-  <div class="record-page-runtime flex min-h-full flex-col gap-3">
+  <div class="record-page-runtime flex min-h-full flex-col gap-4">
     <section
       v-if="headerRegion && headerRegion.components.length > 0"
       class="record-page-runtime__region record-page-runtime__region--header grid grid-cols-12 content-start gap-3"
@@ -396,22 +396,99 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
 <style scoped>
 .record-page-runtime {
-  background: var(--p-surface-50, #f8fafc);
+  background: var(--app-canvas, var(--p-surface-50, #f8fafc));
   box-sizing: border-box;
   flex: 1 1 auto;
   min-height: 100%;
-  padding: 0.65rem 0.75rem 1rem;
+  padding: 0.75rem 1rem 1.25rem;
+}
+
+.record-page-runtime__region--header {
+  background: linear-gradient(
+    to bottom,
+    var(--app-canvas, var(--p-surface-50)) 70%,
+    color-mix(in srgb, var(--app-canvas, var(--p-surface-50)) 0%, transparent)
+  );
+  gap: 0.75rem;
+  margin: -0.15rem -0.25rem 0;
+  padding: 0.15rem 0.25rem 0.35rem;
+  position: sticky;
+  top: 0;
+  z-index: 8;
+}
+
+.record-page-runtime__body {
+  align-items: start;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .record-page-runtime__body--with-sidebar {
+  gap: 1rem;
   grid-template-columns:
-    minmax(0, var(--record-page-main-pct, 50%))
-    minmax(0, var(--record-page-sidebar-pct, 50%));
+    minmax(16rem, var(--record-page-main-pct, 42%))
+    minmax(0, var(--record-page-sidebar-pct, 58%));
+}
+
+.record-page-runtime__body--with-sidebar > .record-page-runtime__region {
+  min-height: 0;
+}
+
+/* Related / Activity column: use leftover height instead of a short card strip. */
+.record-page-runtime__body--with-sidebar > .record-page-runtime__region:last-child {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  min-height: min(70vh, 42rem);
+}
+
+.record-page-runtime__body--with-sidebar
+  > .record-page-runtime__region:last-child
+  > .min-w-0 {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.record-page-runtime__body--with-sidebar
+  > .record-page-runtime__region:last-child
+  :deep(.record-page-component-view) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.record-page-runtime__body--with-sidebar
+  > .record-page-runtime__region:last-child
+  :deep(.record-page-component-view > .rounded-lg),
+.record-page-runtime__body--with-sidebar
+  > .record-page-runtime__region:last-child
+  :deep(.record-page-component-view > .flex.flex-col) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (max-width: 1023px) {
+  .record-page-runtime__body--with-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .record-page-runtime__body--with-sidebar > .record-page-runtime__region:last-child {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 767px) {
-  .record-page-runtime__body--with-sidebar {
-    grid-template-columns: minmax(0, 1fr);
+  .record-page-runtime {
+    padding: 0.65rem 0.75rem 1rem;
+  }
+
+  .record-page-runtime__region--header {
+    position: static;
   }
 }
 </style>

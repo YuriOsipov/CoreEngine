@@ -1164,7 +1164,7 @@ defineExpose({
     <div class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
         v-if="layoutLoading"
-        class="page-loading absolute inset-0 z-10 bg-surface-0/80"
+        class="page-loading absolute inset-0 z-10 bg-canvas/80"
       >
         <ProgressSpinner stroke-width="4" />
         <span>{{ t('documents.loadingEditor', 'Loading document editor...') }}</span>

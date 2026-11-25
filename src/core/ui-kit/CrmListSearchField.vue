@@ -84,6 +84,20 @@ function clear(): void {
   width: 14rem;
 }
 
+.crm-list-search-field :deep(.p-inputtext) {
+  background: var(--p-form-field-background, var(--app-canvas, var(--p-content-background)));
+  border-color: var(--p-form-field-border-color, var(--app-border));
+  color: var(--p-form-field-color, var(--app-text));
+}
+
+.crm-list-search-field :deep(.p-inputtext::placeholder) {
+  color: var(--p-form-field-placeholder-color, var(--app-text-muted));
+}
+
+.crm-list-search-field :deep(.p-inputicon) {
+  color: var(--p-form-field-icon-color, var(--app-text-muted));
+}
+
 .crm-list-search-field__clear {
   flex-shrink: 0;
   height: 1.75rem;

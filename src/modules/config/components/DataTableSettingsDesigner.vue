@@ -2140,10 +2140,13 @@ const batchInsertHint = computed(() =>
 
 <style scoped>
 .table-settings-designer {
-  --list-wash: #edf3f4;
-  --list-ink: #37352f;
-  --list-line: #8fa3a8;
-  --list-line-strong: #6f868c;
+  --list-wash: var(--app-canvas, #edf3f4);
+  --list-card: var(--app-panel, #fff);
+  --list-ink: var(--app-text, #37352f);
+  --list-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.45));
+  --list-line: var(--app-border, #8fa3a8);
+  --list-line-strong: var(--app-border, #6f868c);
+  --list-hover: var(--app-hover, rgba(55, 53, 47, 0.08));
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -2190,7 +2193,7 @@ const batchInsertHint = computed(() =>
 .table-settings-collapse__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--list-ink);
 }
 
 .table-settings-collapse__body {
@@ -2216,7 +2219,7 @@ const batchInsertHint = computed(() =>
 .table-settings-batch-row .table-settings-inline-options__label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #111;
+  color: var(--list-ink);
 }
 
 .table-settings-batch-row .p-button {
@@ -2273,7 +2276,7 @@ const batchInsertHint = computed(() =>
   height: 2.5rem;
   width: 3px;
   border-radius: 999px;
-  background: #8fa3a8;
+  background: var(--list-line);
 }
 
 .table-settings-panel {
@@ -2291,12 +2294,12 @@ const batchInsertHint = computed(() =>
 .table-settings-panel__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--list-ink);
 }
 
 .table-settings-panel__search :deep(.p-inputtext) {
-  background: #fff;
-  border-color: rgba(55, 53, 47, 0.12);
+  background: var(--list-card);
+  border-color: var(--list-line);
   border-radius: 8px;
 }
 
@@ -2311,7 +2314,7 @@ const batchInsertHint = computed(() =>
 
 .table-settings-panel__empty {
   font-size: 0.85rem;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--list-ink-muted);
 }
 
 .table-settings-tree {
@@ -2334,14 +2337,14 @@ const batchInsertHint = computed(() =>
 }
 
 .table-settings-tree :deep(.p-tree-node-toggle-button) {
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--list-ink-muted);
 }
 
 .table-settings-field-card {
   padding: 0.4rem 0.5rem;
   border: 1px solid rgba(55, 53, 47, 0.1);
   border-radius: 8px;
-  background: #fff;
+  background: var(--list-card);
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--list-ink);
@@ -2355,12 +2358,12 @@ const batchInsertHint = computed(() =>
   padding: 0.4rem 0.5rem;
   border: 1px solid rgba(55, 53, 47, 0.1);
   border-radius: 8px;
-  background: #fff;
+  background: var(--list-card);
 }
 
 .table-settings-selected-row__field {
   font-size: 0.75rem;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--list-ink-muted);
 }
 
 .table-settings-inline-options {
@@ -2456,7 +2459,7 @@ const batchInsertHint = computed(() =>
   margin: 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--app-text-muted, rgba(55, 53, 47, 0.55));
 }
 
 .table-settings-hint {
@@ -2467,10 +2470,10 @@ const batchInsertHint = computed(() =>
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--app-border, rgba(55, 53, 47, 0.4));
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--app-text-muted, rgba(55, 53, 47, 0.55));
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;
@@ -2491,7 +2494,7 @@ const batchInsertHint = computed(() =>
   padding: 0.3rem 0.5rem;
   border: 1px solid rgba(55, 53, 47, 0.1);
   border-radius: 8px;
-  background: #fff;
+  background: var(--list-card);
 }
 
 .table-settings-action-card__name {
@@ -2510,7 +2513,7 @@ const batchInsertHint = computed(() =>
 }
 
 .table-settings-action-card__name:hover {
-  color: #111;
+  color: var(--list-ink);
 }
 
 @media (max-width: 1100px) {

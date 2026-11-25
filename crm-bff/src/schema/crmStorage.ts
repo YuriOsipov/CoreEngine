@@ -738,8 +738,23 @@ export function coercePromotedValue(
     }
     case 'jsonb':
       return typeof value === 'string' ? value : JSON.stringify(value)
-    case 'date':
-    case 'timestamptz':
+    case 'date': {
+      if (value instanceof Date) {
+        // pg DATE values arrive as Date; bind as YYYY-MM-DD using UTC parts
+        // (node-pg parses DATE as UTC midnight).
+        const y = value.getUTCFullYear()
+        const m = String(value.getUTCMonth() + 1).padStart(2, '0')
+        const d = String(value.getUTCDate()).padStart(2, '0')
+        return `${y}-${m}-${d}`
+      }
+      if (typeof value === 'object') return null
+      return String(value)
+    }
+    case 'timestamptz': {
+      if (value instanceof Date) return value.toISOString()
+      if (typeof value === 'object') return null
+      return String(value)
+    }
     case 'text':
     case 'uuid':
     default:

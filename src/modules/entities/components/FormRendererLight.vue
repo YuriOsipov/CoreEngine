@@ -209,7 +209,7 @@ watch(
     <div v-if="visibleSections.length > 0" class="flex flex-col gap-4">
       <div
         v-if="showSectionTabs"
-        class="flex gap-[0.4rem] border-b border-surface-200"
+        class="flex gap-[0.4rem] border-b border-line"
         role="tablist"
       >
         <button
@@ -218,7 +218,7 @@ watch(
           type="button"
           class="border border-transparent border-b-0 rounded-t-lg bg-transparent text-muted-color cursor-pointer px-3 py-2 font-[inherit]"
           :class="{
-            'border-surface-200 bg-surface-0 text-primary font-semibold': activeSectionIndex === sectionIndex,
+            'border-line bg-panel text-primary font-semibold': activeSectionIndex === sectionIndex,
           }"
           role="tab"
           :aria-selected="activeSectionIndex === sectionIndex"
@@ -230,12 +230,12 @@ watch(
 
       <h2
         v-else-if="embedded && activeSection?.title"
-        class="m-0 text-base font-semibold text-surface-900"
+        class="m-0 text-base font-semibold text-ink"
       >
         {{ activeSection.title }}
       </h2>
 
-      <section v-if="activeSection" class="flex flex-col gap-4">
+      <section v-if="activeSection" class="flex flex-col gap-3">
         <p v-if="activeSection.description" class="m-0 text-muted-color text-sm">
           {{ activeSection.description }}
         </p>
@@ -246,12 +246,12 @@ watch(
           class="overflow-hidden"
           :class="embedded && !group.title
             ? ''
-            : 'border border-surface-200 rounded-lg bg-surface-0'"
+            : 'app-elevated-panel border border-line rounded-lg bg-panel'"
         >
           <button
             v-if="group.title"
             type="button"
-            class="w-full flex items-center justify-between m-0 px-4 py-3 bg-primary-50 text-surface-900 text-[0.95rem] font-semibold border-0 cursor-pointer font-[inherit] text-left"
+            class="app-section-header w-full flex items-center justify-between m-0 px-3.5 py-2.5 text-[0.9rem] font-semibold border-0 cursor-pointer font-[inherit] text-left"
             @click="groupCollapsed[group.id] = !groupCollapsed[group.id]"
           >
             {{ group.title }}
@@ -262,8 +262,8 @@ watch(
             v-show="!groupCollapsed[group.id]"
             class="grid grid-cols-12 gap-x-3"
             :class="[
-              group.title ? 'p-4' : (embedded ? 'p-0' : 'p-4'),
-              isGroupInlineLabels(group) ? 'gap-y-0 layout-fields--inline' : 'gap-y-4',
+              group.title ? 'px-3.5 py-3' : (embedded ? 'p-0' : 'px-3.5 py-3'),
+              isGroupInlineLabels(group) ? 'gap-y-0 layout-fields--inline' : 'gap-y-3',
             ]"
           >
             <div
@@ -273,7 +273,7 @@ watch(
               :key="field.id"
               class="min-w-0"
               :class="{
-                'layout-field--inline flex w-full flex-col gap-1 border-b border-surface-200 py-2 md:flex-row md:items-center md:gap-3':
+                'layout-field--inline flex w-full flex-col gap-1 border-b border-line py-2 md:flex-row md:items-center md:gap-3':
                   isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
                 'flex flex-col gap-1': !isGroupInlineLabels(group) || isFullWidthLayoutField(field),
                 '!col-span-12': isFullWidthLayoutField(field) || isNarrow,
@@ -298,13 +298,13 @@ watch(
 
               <template v-else-if="isTreeTableField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="min-h-[2.35rem] break-words text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
+                  class="min-h-[2.35rem] break-words text-ink px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem]': !embedded,
+                    'border border-line rounded-md bg-canvas px-[0.65rem]': !embedded,
                     'flex-1 min-w-0 w-full': isGroupInlineLabels(group),
                   }"
                 >{{ treeTableSummary(props.modelValue[field.field]) }}</div>
@@ -312,13 +312,13 @@ watch(
 
               <template v-else-if="isSchedulerField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="min-h-[2.35rem] break-words text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
+                  class="min-h-[2.35rem] break-words text-ink px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem]': !embedded,
+                    'border border-line rounded-md bg-canvas px-[0.65rem]': !embedded,
                     'flex-1 min-w-0 w-full': isGroupInlineLabels(group),
                   }"
                 >{{ t('formRenderer.scheduler', 'Scheduler') }}</div>
@@ -327,7 +327,7 @@ watch(
               <template v-else-if="isFilesField(field)">
                 <div
                   v-if="isSingleFileField(field)"
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
@@ -378,7 +378,7 @@ watch(
 
               <template v-else-if="isRepeaterField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div :class="{ 'flex-1 min-w-0 w-full': isGroupInlineLabels(group) }">
@@ -391,13 +391,13 @@ watch(
 
               <template v-else-if="isAddressField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="layout-field__value min-w-0 whitespace-pre-line break-words text-surface-900 text-[0.95rem] leading-[1.35]"
+                  class="layout-field__value min-w-0 whitespace-pre-line break-words text-ink text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'min-h-[2.35rem] border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
@@ -406,13 +406,13 @@ watch(
 
               <template v-else-if="isSensitivityMatrixField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
                   class="layout-field__value min-w-0 w-full"
                   :class="{
-                    'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
@@ -423,13 +423,13 @@ watch(
 
               <template v-else-if="isJsonListField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="layout-field__value min-w-0 break-words text-surface-900 text-[0.95rem] leading-[1.35]"
+                  class="layout-field__value min-w-0 break-words text-ink text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'min-h-[2.35rem] border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
@@ -438,13 +438,13 @@ watch(
 
               <template v-else-if="isJsonCodeField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="layout-field__value min-w-0 break-words font-mono text-sm text-surface-900 leading-[1.35]"
+                  class="layout-field__value min-w-0 break-words font-mono text-sm text-ink leading-[1.35]"
                   :class="{
-                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'min-h-[2.35rem] border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
@@ -453,13 +453,13 @@ watch(
 
               <template v-else-if="isHtmlEditorField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="min-h-[2.35rem] break-words text-surface-900 px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
+                  class="min-h-[2.35rem] break-words text-ink px-0 py-[0.55rem] text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'border border-surface-200 rounded-md bg-surface-50 px-[0.65rem]': !embedded,
+                    'border border-line rounded-md bg-canvas px-[0.65rem]': !embedded,
                     'flex-1 min-w-0 w-full': isGroupInlineLabels(group),
                   }"
                 >
@@ -469,13 +469,13 @@ watch(
 
               <template v-else-if="isTextareaField(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >{{ fieldLabels.getLabel(field) }}</div>
                 <div
-                  class="layout-field__value min-w-0 break-words text-surface-900 text-[0.95rem] leading-[1.35]"
+                  class="layout-field__value min-w-0 break-words text-ink text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'min-h-[2.35rem] border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"
@@ -489,15 +489,15 @@ watch(
 
               <template v-else-if="isBooleanColumn(field)">
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >
                   {{ fieldLabels.getLabel(field) }}
                 </div>
                 <div
-                  class="layout-field__value flex min-w-0 items-center text-surface-900"
+                  class="layout-field__value flex min-w-0 items-center text-ink"
                   :class="{
-                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'min-h-[2.35rem] border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 w-full min-w-0 min-h-[2.5rem] py-0.5':
                       embedded || isGroupInlineLabels(group),
@@ -515,15 +515,15 @@ watch(
 
               <template v-else>
                 <div
-                  class="text-muted-color text-xs font-medium leading-tight"
+                  class="text-ink-muted text-xs font-medium leading-tight"
                   :class="{ 'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) }"
                 >
                   {{ fieldLabels.getLabel(field) }}
                 </div>
                 <div
-                  class="layout-field__value min-w-0 break-words text-surface-900 text-[0.95rem] leading-[1.35]"
+                  class="layout-field__value min-w-0 break-words text-ink text-[0.95rem] leading-[1.35]"
                   :class="{
-                    'min-h-[2.35rem] border border-surface-200 rounded-md bg-surface-50 px-[0.65rem] py-[0.55rem]':
+                    'min-h-[2.35rem] border border-line rounded-md bg-canvas px-[0.65rem] py-[0.55rem]':
                       !embedded && !isGroupInlineLabels(group),
                     'flex-1 w-full min-w-0 py-0.5': embedded || isGroupInlineLabels(group),
                   }"

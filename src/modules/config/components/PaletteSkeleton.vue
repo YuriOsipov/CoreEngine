@@ -15,7 +15,7 @@ defineProps<{
     <div
       v-for="n in rows ?? 6"
       :key="n"
-      class="flex items-center gap-[0.65rem] py-[0.7rem] px-[0.75rem] bg-surface-0 border border-surface-200 rounded-lg"
+      class="flex items-center gap-[0.65rem] py-[0.7rem] px-[0.75rem] bg-panel border border-line rounded-lg"
     >
       <span class="skeleton-pulse w-8 h-8 shrink-0 rounded-md" />
       <span class="flex-1 flex flex-col gap-[0.35rem]">

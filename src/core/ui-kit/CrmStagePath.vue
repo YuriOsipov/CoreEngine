@@ -274,12 +274,12 @@ function toggleTerminalMenu(event: Event): void {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.65rem 0.85rem;
 }
 
 .crm-stage-path__track {
   display: flex;
-  flex: 1 1 12rem;
+  flex: 1 1 14rem;
   width: 100%;
   min-width: 0;
 }
@@ -294,14 +294,14 @@ function toggleTerminalMenu(event: Event): void {
   width: 0;
   min-width: 0;
   margin: 0;
-  padding: 0.55rem 1.25rem 0.55rem 1.1rem;
+  padding: 0.65rem 1.35rem 0.65rem 1.2rem;
   border: 0;
-  background: var(--p-surface-200);
+  background: var(--app-hover, var(--p-content-hover-background));
   color: var(--p-text-muted-color);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   white-space: nowrap;
   cursor: pointer;
   clip-path: polygon(
@@ -348,29 +348,31 @@ function toggleTerminalMenu(event: Event): void {
 }
 
 .crm-stage-path__step--completed {
-  background: var(--p-green-500, #22c55e);
-  color: #fff;
+  background: color-mix(in srgb, var(--p-primary-color) 32%, var(--app-panel, var(--p-content-background)));
+  color: var(--app-text, var(--p-text-color));
 }
 
 .crm-stage-path__step--current {
-  background: var(--p-primary-color);
-  color: var(--p-primary-contrast-color, #fff);
+  background: color-mix(in srgb, var(--p-primary-color) 48%, var(--app-panel, var(--p-content-background)));
+  box-shadow: inset 0 0 0 1px var(--p-primary-color);
+  color: var(--app-text, var(--p-text-color));
+  font-weight: 700;
 }
 
 .crm-stage-path__step--upcoming {
-  background: var(--p-surface-100);
-  color: var(--p-primary-color);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-primary-color) 35%, transparent);
+  background: var(--app-hover, var(--p-content-hover-background));
+  box-shadow: inset 0 0 0 1px var(--app-border, var(--p-content-border-color));
+  color: var(--app-text-muted, var(--p-text-muted-color));
 }
 
 .crm-stage-path__step--terminal-success {
-  background: var(--p-green-600, #16a34a);
-  color: #fff;
+  background: color-mix(in srgb, var(--p-green-500, #22c55e) 40%, var(--app-panel, var(--p-content-background)));
+  color: var(--app-text, var(--p-text-color));
 }
 
 .crm-stage-path__step--terminal-failure {
-  background: var(--p-red-500, #ef4444);
-  color: #fff;
+  background: color-mix(in srgb, var(--p-red-500, #ef4444) 38%, var(--app-panel, var(--p-content-background)));
+  color: var(--app-text, var(--p-text-color));
 }
 
 .crm-stage-path__label {

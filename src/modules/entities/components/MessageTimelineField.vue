@@ -464,7 +464,7 @@ watch(
 
     <div
       v-if="!configured"
-      class="rounded-lg border border-dashed border-surface-200 bg-surface-50 px-4 py-6 text-sm text-muted-color"
+      class="rounded-lg border border-dashed border-line bg-canvas px-4 py-6 text-sm text-ink-muted"
     >
       {{
         t(
@@ -476,7 +476,7 @@ watch(
 
     <div
       v-else-if="loading"
-      class="flex items-center justify-center gap-2 border border-surface-200 rounded-lg bg-surface-50 px-4 py-8 text-muted-color text-sm"
+      class="flex items-center justify-center gap-2 rounded-lg border border-line bg-canvas px-4 py-8 text-sm text-ink-muted"
     >
       <ProgressSpinner
         class="w-8 h-8"
@@ -496,14 +496,14 @@ watch(
 
     <div
       v-else-if="entries.length === 0 && !filtering"
-      class="rounded-lg border border-surface-200 bg-surface-50 px-4 py-6 text-sm text-muted-color"
+      class="rounded-lg border border-line bg-canvas px-4 py-6 text-sm text-ink-muted"
     >
       {{ t('messageTimeline.empty', 'No messages yet.') }}
     </div>
 
     <div
       v-else-if="filtering && entries.length === 0"
-      class="rounded-lg border border-surface-200 bg-surface-50 px-4 py-6 text-sm text-muted-color"
+      class="rounded-lg border border-line bg-canvas px-4 py-6 text-sm text-ink-muted"
     >
       {{ t('messageTimeline.loading', 'Loading messages…') }}
     </div>
@@ -519,7 +519,7 @@ watch(
             :class="
               item.direction === 'outgoing'
                 ? 'bg-primary text-primary-contrast'
-                : 'bg-surface-300 text-surface-800'
+                : 'bg-soft text-ink'
             "
             :title="typeLabel(item.type)"
           >
@@ -536,7 +536,7 @@ watch(
             <div class="flex items-center justify-between gap-2 mb-2">
               <RouterLink
                 :to="entryDetailRoute(item)"
-                class="message-timeline-bubble__title text-xs font-semibold text-surface-700 hover:underline truncate min-w-0"
+                class="message-timeline-bubble__title truncate text-xs font-semibold text-ink hover:underline min-w-0"
               >
                 {{ entryDisplayLabel(item) }}
               </RouterLink>
@@ -562,7 +562,7 @@ watch(
             <div class="flex items-center justify-between gap-2 mb-2">
               <RouterLink
                 :to="entryDetailRoute(item)"
-                class="message-timeline-bubble__title text-xs font-semibold text-primary-700 hover:underline truncate min-w-0"
+                class="message-timeline-bubble__title truncate text-xs font-semibold text-primary hover:underline min-w-0"
               >
                 {{ entryDisplayLabel(item) }}
                 <span
@@ -609,7 +609,7 @@ watch(
 <style scoped>
 .message-timeline-bubble {
   border-radius: 0.75rem;
-  border: 1px solid var(--p-surface-200);
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   padding: 0.65rem 0.85rem;
 }
 
@@ -618,11 +618,17 @@ watch(
 }
 
 .message-timeline-bubble--outgoing {
-  background: color-mix(in srgb, var(--p-primary-100) 80%, var(--p-surface-0));
+  background: color-mix(
+    in srgb,
+    var(--p-primary-color) 18%,
+    var(--app-panel, var(--p-content-background))
+  );
+  border-color: color-mix(in srgb, var(--p-primary-color) 35%, var(--app-border, transparent));
 }
 
 .message-timeline-bubble--incoming {
-  background: var(--p-surface-100);
+  background: var(--app-panel, var(--p-content-background));
+  color: var(--app-text, var(--p-text-color));
 }
 
 .message-timeline-field__timeline :deep(.p-timeline-event-opposite),

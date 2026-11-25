@@ -32,7 +32,7 @@ function onUpdate(value: string): void {
   <div
     v-if="disabled"
     :id="id"
-    class="html-editor-readonly min-h-[2.35rem] break-words border border-surface-200 rounded-md bg-surface-50 text-surface-900 px-[0.65rem] py-[0.55rem] text-[0.95rem] leading-[1.35]"
+    class="html-editor-readonly min-h-[2.35rem] break-words border border-line rounded-md bg-canvas text-ink px-[0.65rem] py-[0.55rem] text-[0.95rem] leading-[1.35]"
     v-html="readonlyHtml"
   />
   <Editor

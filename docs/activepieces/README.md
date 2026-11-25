@@ -1,6 +1,6 @@
 # Activepieces (MIT) ↔ CoreEngine
 
-[Activepieces](https://www.activepieces.com/) is an **optional** MIT-licensed alternative to n8n for durable multi-step flows. CoreEngine does **not** bake Activepieces into its image or installer — profile `automation-activepieces` in `docker-compose.minimal.yml` only names the upstream image `ghcr.io/activepieces/activepieces`. You pull it yourself.
+[Activepieces](https://www.activepieces.com/) is the MIT-licensed orchestrator that starts with the lightweight Docker stack. CoreEngine does **not** bake it into its image — `docker-compose.minimal.yml` pulls `ghcr.io/activepieces/activepieces`. The app, worker, Postgres, and Redis use `restart: always`, so Docker starts them again whenever the daemon starts.
 
 **Same contract as n8n:** CoreEngine stays the only write path into Postgres. Activepieces orchestrates; it must not write `crm_schema` with a Postgres piece / service role. Use BFF GraphQL or REST + the Integration user (`CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` from `npm run registry:seed-n8n-automation-user`).
 
@@ -25,7 +25,7 @@ n8n webhooks can use a stable path `/webhook/ce-{key}`. Activepieces Catch Webho
 | Client admin | Setup → Connections keys on/off — Destination **Your Activepieces (MIT)** + flow id (no raw full URL) |
 | You / partner | Activepieces canvas, credentials, SMTP / Slack connections |
 
-## Optional upstream Activepieces (minimal stack)
+## Activepieces in the minimal stack
 
 Uses a **dedicated** Postgres + Redis (not CoreEngine `db`). UI on **127.0.0.1:8081** so it does not clash with CoreEngine web on `:8080`.
 
@@ -41,13 +41,13 @@ npm run registry:seed-n8n-automation-user   # note printed password → .env CRM
 #   ACTIVEPIECES_WEBHOOK_SECRET=…               # or reuse N8N_WEBHOOK_SECRET
 # Optional: ACTIVEPIECES_PUBLISH_PORT=8082, AP_FRONTEND_URL=http://127.0.0.1:8082
 
-docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
+docker compose -f docker-compose.minimal.yml up -d activepieces activepieces-worker
 # Open http://127.0.0.1:8081 → create first admin → Catch Webhook flows
 # Restart BFF after setting ACTIVEPIECES_BASE_URL so production secret checks apply:
 docker compose -f docker-compose.minimal.yml up -d bff
 ```
 
-The lightweight installer does not pull or start these containers (`--with-activepieces` / `-WithActivepieces` are refused).
+`scripts/install-minimal.sh` / `install-minimal.ps1` generate the `AP_*` keys and `ACTIVEPIECES_WEBHOOK_SECRET` when they are empty, then start these containers. `--with-activepieces` / `-WithActivepieces` are accepted and do nothing extra.
 
 | Compose service | Role |
 |-----------------|------|
@@ -75,7 +75,7 @@ Production BFF refuses to start if `ACTIVEPIECES_BASE_URL` is set without a webh
 
 ## Setup → Connections
 
-1. Start profile `automation-activepieces` (or any reachable Activepieces). Set `AP_FRONTEND_URL` to the URL you open in the browser.
+1. Start the minimal stack (Activepieces comes up with it). Set `AP_FRONTEND_URL` to the URL you open in the browser.
 2. Create a flow: **Catch Webhook** → auth **Header** → header name `X-CRM-Flow-Secret` → value = shared secret.
 3. Copy the Live URL id → Setup → Connections → Destination **Your Activepieces (MIT)** → paste flow id. Optional: **Wait for response (/sync)**.
 4. Add HTTP pieces: `POST {BFF_URL}/auth/login`, then GraphQL / REST with `Authorization: Bearer {{…body.access_token}}` and `X-CRM-Automation: activepieces`.

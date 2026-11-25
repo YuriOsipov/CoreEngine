@@ -1015,10 +1015,10 @@ async function syncAutoCompleteSelections(
 
 <template>
   <section
-    class="rounded-lg bg-surface-0"
+    class="rounded-lg"
     :class="setupMode || props.showBuilder === false
-      ? 'list-view-filter-shell'
-      : 'mt-6 border border-surface-200 p-4'"
+      ? 'list-view-filter-shell bg-transparent'
+      : 'mt-6 border border-line bg-panel p-4'"
   >
     <div
       v-if="(props.showBuilder === true || loading) && !setupMode"
@@ -1251,7 +1251,7 @@ async function syncAutoCompleteSelections(
             class="relative rounded-lg border-2 border-dashed min-h-[10rem] transition-colors"
             :class="conditions.length === 0
               ? 'border-primary-300 bg-primary-50/40'
-              : 'border-surface-300 bg-surface-50/50'"
+              : 'border-line bg-canvas/50'"
           >
             <p
               v-if="conditions.length === 0"
@@ -1273,7 +1273,7 @@ async function syncAutoCompleteSelections(
               <div
                 v-for="(condition, index) in conditions"
                 :key="condition.id"
-                class="list-filter-condition flex flex-wrap items-center gap-2 border border-surface-300 rounded-md bg-surface-0 p-[0.4rem_0.55rem]"
+                class="list-filter-condition flex flex-wrap items-center gap-2 rounded-md border border-line bg-panel p-[0.4rem_0.55rem]"
               >
                 <button
                   type="button"
@@ -1424,20 +1424,27 @@ async function syncAutoCompleteSelections(
   margin: 0;
   padding: 0;
   border: 0;
+  background: transparent;
 }
 
 /* Salesforce-style list view name: bold label, no chrome. */
-.list-view-picker--plain :deep(.p-select) {
+.list-view-picker--plain :deep(.p-select),
+.list-view-picker--plain :deep(.p-select.p-variant-filled),
+.list-view-picker--plain :deep(.p-select .p-select-label) {
   background: transparent;
   border: 0;
   box-shadow: none;
+  color: var(--app-text, var(--p-text-color));
+}
+
+.list-view-picker--plain :deep(.p-select) {
   min-width: 0;
   padding-inline: 0.15rem;
 }
 
 .list-view-picker--plain :deep(.p-select:not(.p-disabled):hover),
 .list-view-picker--plain :deep(.p-select.p-focus) {
-  background: var(--p-content-hover-background, rgba(15, 23, 42, 0.04));
+  background: var(--app-hover, var(--p-content-hover-background));
   border: 0;
   box-shadow: none;
 }
@@ -1452,6 +1459,7 @@ async function syncAutoCompleteSelections(
 }
 
 .list-view-picker--plain :deep(.p-select-dropdown) {
+  color: var(--app-text-muted, var(--p-text-muted-color));
   width: 1.65rem;
 }
 
@@ -1459,14 +1467,19 @@ async function syncAutoCompleteSelections(
   font-size: 0.95rem;
 }
 
+.list-view-picker--plain :deep(.p-button) {
+  color: var(--app-text-muted, var(--p-text-muted-color));
+}
+
 .list-view-toolbar {
   width: 100%;
   box-sizing: border-box;
-  background: #edf3f4;
+  background: var(--app-canvas, var(--p-content-background));
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 8px;
   padding: 0.4rem 0.5rem;
   font-family: Inter, system-ui, sans-serif;
-  color: #37352f;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .list-view-toolbar__field {
@@ -1483,17 +1496,18 @@ async function syncAutoCompleteSelections(
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.25;
-  color: var(--p-surface-600, rgba(55, 53, 47, 0.55));
+  color: var(--app-text-muted, var(--p-text-muted-color));
 }
 
 .list-filter-panel {
   width: 100%;
   box-sizing: border-box;
   margin-top: 0;
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--app-canvas, var(--p-content-background));
   font-family: Inter, system-ui, sans-serif;
-  color: #37352f;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .list-filter-panel__header {
@@ -1513,13 +1527,13 @@ async function syncAutoCompleteSelections(
 }
 
 .list-filter-panel__header:hover {
-  background: rgba(55, 53, 47, 0.04);
+  background: var(--app-hover, var(--p-content-hover-background));
 }
 
 .list-filter-panel__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .list-filter-panel__body {
@@ -1532,40 +1546,40 @@ async function syncAutoCompleteSelections(
 
 .list-filter-designer {
   font-family: Inter, system-ui, sans-serif;
-  color: #37352f;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .list-filter-designer__panel {
   border: 0;
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--app-canvas, var(--p-content-background));
   padding: 0.75rem 0.65rem;
 }
 
 .list-filter-panel .list-filter-designer__panel {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--app-panel, var(--p-content-background));
 }
 
 .list-filter-designer__title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #111;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .list-filter-designer__field {
   padding: 0.4rem 0.5rem;
-  border: 1px solid rgba(55, 53, 47, 0.1);
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-panel, var(--p-content-background));
 }
 
 .list-filter-designer__field:hover {
-  background: rgba(55, 53, 47, 0.06);
+  background: var(--app-hover, var(--p-content-hover-background));
 }
 
 .list-filter-designer__meta {
   font-size: 0.75rem;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--app-text-muted, var(--p-text-muted-color));
 }
 
 .list-filter-condition__field {
@@ -1574,7 +1588,7 @@ async function syncAutoCompleteSelections(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #111;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .list-filter-condition__operator {

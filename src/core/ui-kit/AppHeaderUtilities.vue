@@ -24,6 +24,7 @@ import {
 import { currentUser } from '@/core/currentUser'
 import { getEffectiveSetupAccess } from '@/core/setupAccess'
 import { canUseBffAuth, logoutWithBff } from '@/core/auth/session'
+import AppearanceMenu from './AppearanceMenu.vue'
 import CrmRegistryIcon from './CrmRegistryIcon.vue'
 import FavoriteLabelDialog from './FavoriteLabelDialog.vue'
 import RolePreviewSelector from './RolePreviewSelector.vue'
@@ -393,6 +394,8 @@ defineExpose({ reload })
         @click="openSetup"
       />
 
+      <AppearanceMenu />
+
       <button
         type="button"
         class="app-top-bar__avatar-btn"
@@ -470,8 +473,8 @@ defineExpose({ reload })
 <style scoped>
 .app-top-bar {
   align-items: center;
-  background: var(--p-surface-0, #fff);
-  border-bottom: 1px solid var(--p-content-border-color, #e2e8f0);
+  background: var(--app-panel, var(--p-content-background, #fff));
+  border-bottom: 1px solid var(--app-border, var(--p-content-border-color, #e2e8f0));
   display: flex;
   flex: 0 0 auto;
   gap: 0.75rem;
@@ -486,7 +489,7 @@ defineExpose({ reload })
   background: transparent;
   border: 0;
   border-radius: 0.4rem;
-  color: var(--p-surface-900, #0f172a);
+  color: var(--app-text, var(--p-text-color, #0f172a));
   cursor: pointer;
   display: inline-flex;
   gap: 0.55rem;
@@ -495,7 +498,7 @@ defineExpose({ reload })
 }
 
 .app-top-bar__brand:hover {
-  background: var(--p-content-hover-background, rgba(15, 23, 42, 0.04));
+  background: var(--app-hover, var(--p-content-hover-background, rgba(15, 23, 42, 0.04)));
 }
 
 .app-top-bar__logo {

@@ -527,8 +527,11 @@ async function saveSettings(): Promise<void> {
 
 <style scoped>
 .tree-settings-designer {
-  --tree-wash: #edf3f4;
-  --tree-ink: #37352f;
+  --tree-wash: var(--app-canvas, #edf3f4);
+  --tree-card: var(--app-panel, #fff);
+  --tree-ink: var(--app-text, #37352f);
+  --tree-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.55));
+  --tree-line: var(--app-border, rgba(55, 53, 47, 0.28));
   font-family: Inter, system-ui, sans-serif;
   color: var(--tree-ink);
 }
@@ -551,7 +554,7 @@ async function saveSettings(): Promise<void> {
 .tree-settings-panel__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--tree-ink);
 }
 
 .tree-settings-panel__grid {
@@ -566,11 +569,20 @@ async function saveSettings(): Promise<void> {
   min-width: 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--tree-ink-muted);
 }
 
 .tree-settings-field--wide {
   grid-column: 1 / -1;
+}
+
+.tree-settings-field :deep(.p-select),
+.tree-settings-field :deep(.p-dropdown),
+.tree-settings-field :deep(.p-inputtext),
+.tree-settings-field :deep(.p-multiselect) {
+  background: var(--tree-card);
+  border-color: var(--tree-line);
+  color: var(--tree-ink);
 }
 
 .tree-settings-hint {
@@ -580,10 +592,10 @@ async function saveSettings(): Promise<void> {
   width: 1rem;
   height: 1rem;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.28);
+  border: 1px solid var(--tree-line);
   border-radius: 999px;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--tree-ink-muted);
   font-size: 0.65rem;
   font-weight: 600;
   line-height: 1;

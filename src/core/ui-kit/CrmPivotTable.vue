@@ -327,16 +327,16 @@ function handleCellClick(row: PivotRow, column: PivotColumn): void {
 
 .crm-pivot-table th,
 .crm-pivot-table td {
-  border-bottom: 1px solid #e2e8f0;
-  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--app-border, var(--p-content-border-color, #e2e8f0));
+  border-right: 1px solid var(--app-border, var(--p-content-border-color, #e2e8f0));
   padding: 0.55rem 0.7rem;
   text-align: right;
   white-space: nowrap;
 }
 
 .crm-pivot-table th:first-child {
-  background: #f8fafc;
-  color: #334155;
+  background: var(--app-canvas, #f8fafc);
+  color: var(--app-text, #334155);
   left: 0;
   position: sticky;
   text-align: left;
@@ -344,25 +344,25 @@ function handleCellClick(row: PivotRow, column: PivotColumn): void {
 }
 
 .crm-pivot-table__dimension {
-  background: #fff;
-  color: #334155;
+  background: var(--app-panel, #fff);
+  color: var(--app-text, #334155);
   text-align: left;
 }
 
 .crm-pivot-table__value {
-  color: #1d4ed8;
+  color: var(--p-primary-color, #1d4ed8);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .crm-pivot-table__value:hover {
-  background: #f8fafc;
+  background: var(--app-hover, var(--p-content-hover-background, #f8fafc));
 }
 
 .crm-pivot-table thead th {
-  background: #f1f5f9;
-  color: #1e293b;
+  background: var(--app-canvas, #f1f5f9);
+  color: var(--app-text, #1e293b);
   font-weight: 700;
   position: sticky;
   top: 0;

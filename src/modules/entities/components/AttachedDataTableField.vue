@@ -530,7 +530,7 @@ function clearCurrentFile(): void {
   <!-- Multi-file attachments -->
   <template v-else>
     <div class="flex items-center justify-between mb-2 w-full gap-2">
-      <span class="text-surface-700 text-sm font-medium">{{ field.label }}</span>
+      <span class="text-ink-muted text-sm font-medium">{{ field.label }}</span>
       <div
         v-if="!readonly"
         class="flex items-center gap-1"
@@ -568,7 +568,7 @@ function clearCurrentFile(): void {
       </template>
       <div
         class="flex flex-col items-center justify-center gap-2 min-h-[1.5rem] rounded-lg border-2 border-dashed p-4 text-center transition-colors"
-        :class="isDraggingFiles ? 'border-primary bg-primary-50 text-primary' : 'border-surface-300 bg-surface-50 text-surface-600'"
+        :class="isDraggingFiles ? 'border-primary bg-accent-soft text-primary' : 'border-line bg-canvas text-ink-muted'"
         role="button"
         tabindex="0"
         :aria-label="t('filePreview.dropFiles', 'Drop files here to upload')"
@@ -715,9 +715,9 @@ function clearCurrentFile(): void {
 .crm-image-field__thumb {
   display: block;
   padding: 0;
-  border: 1px solid var(--p-content-border-color, var(--p-surface-200));
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 0.5rem;
-  background: var(--p-surface-50);
+  background: var(--app-canvas, var(--p-content-background));
   overflow: hidden;
   cursor: pointer;
   max-width: 16rem;
@@ -771,10 +771,10 @@ function clearCurrentFile(): void {
   max-width: 16rem;
   width: 100%;
   padding: 1rem;
-  border: 2px dashed var(--p-surface-300);
+  border: 2px dashed var(--app-border, var(--p-content-border-color));
   border-radius: 0.5rem;
-  background: var(--p-surface-50);
-  color: var(--p-text-muted-color);
+  background: var(--app-canvas, var(--p-content-background));
+  color: var(--app-text-muted, var(--p-text-muted-color));
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;

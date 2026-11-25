@@ -1304,8 +1304,12 @@ function uniqueFields(fields: string[]): string[] {
 
 <style scoped>
 .bulk-insert-builder {
-  --bulk-wash: #edf3f4;
-  --bulk-ink: #37352f;
+  --bulk-wash: var(--app-canvas, #edf3f4);
+  --bulk-card: var(--app-panel, #fff);
+  --bulk-ink: var(--app-text, #37352f);
+  --bulk-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.55));
+  --bulk-line: var(--app-border, rgba(55, 53, 47, 0.1));
+  --bulk-hover: var(--app-hover, rgba(55, 53, 47, 0.06));
   font-family: Inter, system-ui, sans-serif;
   color: var(--bulk-ink);
 }
@@ -1323,19 +1327,19 @@ function uniqueFields(fields: string[]): string[] {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
-  color: #111;
+  color: var(--bulk-ink);
 }
 
 .bulk-insert-subpanel {
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.55);
+  background: color-mix(in srgb, var(--bulk-card) 55%, transparent);
   padding: 0.65rem 0.7rem;
 }
 
 .bulk-insert-subpanel__title {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #111;
+  color: var(--bulk-ink);
 }
 
 .bulk-insert-field {
@@ -1344,26 +1348,26 @@ function uniqueFields(fields: string[]): string[] {
   min-width: 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--bulk-ink-muted);
 }
 
 .bulk-insert-card {
   padding: 0.4rem 0.5rem;
-  border: 1px solid rgba(55, 53, 47, 0.1);
+  border: 1px solid var(--bulk-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bulk-card);
 }
 
 .bulk-insert-mapping-header {
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--bulk-ink-muted);
 }
 
 .bulk-insert-hint {
   font-size: 0.75rem;
   font-weight: 400;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--bulk-ink-muted);
 }
 
 .bulk-insert-chip {
@@ -1371,7 +1375,7 @@ function uniqueFields(fields: string[]): string[] {
   margin-right: 0.25rem;
   padding: 0.05rem 0.3rem;
   border-radius: 4px;
-  background: rgba(55, 53, 47, 0.06);
+  background: var(--bulk-hover);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.7rem;
   color: var(--bulk-ink);

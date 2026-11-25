@@ -68,11 +68,11 @@ function toggleCollapsed(): void {
 <template>
   <section
     v-if="hasContent"
-    class="overflow-hidden border border-surface-200 rounded-lg bg-surface-0"
+    class="app-elevated-panel overflow-hidden rounded-lg border border-line bg-panel"
   >
     <button
       type="button"
-      class="w-full flex items-center justify-between m-0 px-4 py-3 bg-primary-50 text-surface-900 text-[0.95rem] font-semibold border-0 cursor-pointer font-[inherit] text-left"
+      class="app-section-header w-full flex items-center justify-between m-0 px-3.5 py-2.5 text-[0.9rem] font-semibold border-0 cursor-pointer font-[inherit] text-left"
       @click="toggleCollapsed"
     >
       {{ blockTitle }}
@@ -91,7 +91,7 @@ function toggleCollapsed(): void {
           v-if="showCreatedBy"
           class="flex min-w-0 flex-col gap-2"
         >
-          <span class="text-surface-700 text-sm font-medium">
+          <span class="text-ink-muted text-sm font-medium">
             {{ t('formRenderer.createdBy', 'Created By') }}
           </span>
           <div class="flex items-center gap-3 min-w-0">
@@ -105,7 +105,7 @@ function toggleCollapsed(): void {
             <div class="min-w-0 flex flex-col gap-0.5">
               <span
                 v-if="createdByName"
-                class="text-surface-900 text-[0.95rem] font-medium truncate"
+                class="text-ink text-[0.95rem] font-medium truncate"
               >
                 {{ createdByName }}
               </span>
@@ -123,7 +123,7 @@ function toggleCollapsed(): void {
           v-if="showUpdatedBy"
           class="flex min-w-0 flex-col gap-2"
         >
-          <span class="text-surface-700 text-sm font-medium">
+          <span class="text-ink-muted text-sm font-medium">
             {{ t('formRenderer.lastModifiedBy', 'Last Modified By') }}
           </span>
           <div class="flex items-center gap-3 min-w-0">
@@ -137,7 +137,7 @@ function toggleCollapsed(): void {
             <div class="min-w-0 flex flex-col gap-0.5">
               <span
                 v-if="updatedByName"
-                class="text-surface-900 text-[0.95rem] font-medium truncate"
+                class="text-ink text-[0.95rem] font-medium truncate"
               >
                 {{ updatedByName }}
               </span>

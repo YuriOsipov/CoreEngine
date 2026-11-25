@@ -834,8 +834,11 @@ watch(
 
 <style scoped>
 .setup-automation-editor {
-  --auto-wash: #edf3f4;
-  --auto-ink: #37352f;
+  --auto-wash: var(--app-canvas, #edf3f4);
+  --auto-card: var(--app-panel, #fff);
+  --auto-ink: var(--app-text, #37352f);
+  --auto-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.55));
+  --auto-line: var(--app-border, rgba(55, 53, 47, 0.4));
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -863,7 +866,7 @@ watch(
 .setup-automation-panel__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--auto-ink);
 }
 
 .setup-automation-panel__grid {
@@ -878,7 +881,7 @@ watch(
   min-width: 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--auto-ink-muted);
 }
 
 .setup-automation-field__label {
@@ -893,7 +896,7 @@ watch(
   gap: 0.4rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.7);
+  color: var(--auto-ink-muted);
   cursor: pointer;
 }
 
@@ -951,10 +954,10 @@ watch(
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--auto-line);
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--auto-ink-muted);
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;

@@ -78,27 +78,42 @@ function selectColumns(relation: CrmRecordRelation): string {
   return cols.join(', ')
 }
 
+/**
+ * Overlay typed promoted columns onto JSONB `data` (columns win when non-null).
+ * Skip Date instances when preparing a write payload — JSON round-trips can shift
+ * calendar dates; reads already treat columns as authoritative for those fields.
+ */
+function withPromotedColumnAuthority(
+  data: Record<string, unknown>,
+  row: BusinessRecordRow,
+  relation: CrmRecordRelation,
+  opts?: { skipDates?: boolean },
+): Record<string, unknown> {
+  const rowBag = row as BusinessRecordRow & Record<string, unknown>
+  const merged: Record<string, unknown> = { ...data }
+  for (const field of relation.promoted) {
+    if (!Object.prototype.hasOwnProperty.call(rowBag, field.apiName)) continue
+    const colVal = rowBag[field.apiName]
+    // Prefer typed column when present; keep JSONB when column is still null (legacy).
+    if (colVal === null || colVal === undefined) continue
+    if (opts?.skipDates && colVal instanceof Date) continue
+    merged[field.apiName] = colVal
+  }
+  return merged
+}
+
 function toPublicRecord(
   row: BusinessRecordRow,
   relation: CrmRecordRelation,
   fields?: string[] | null,
 ): Record<string, unknown> {
   const data = asObject(row.data)
-  const rowBag = row as BusinessRecordRow & Record<string, unknown>
   const merged: Record<string, unknown> = {
-    ...data,
+    ...withPromotedColumnAuthority(data, row, relation),
     id: row.record_id,
     // Envelope timestamps always win — JSONB date_* mirrors go stale on update.
     date_created: row.created_at ?? data.date_created ?? null,
     date_updated: row.updated_at ?? data.date_updated ?? null,
-  }
-  for (const field of relation.promoted) {
-    if (!Object.prototype.hasOwnProperty.call(rowBag, field.apiName)) continue
-    const colVal = rowBag[field.apiName]
-    // Prefer typed column when present; keep JSONB when column is still null (legacy).
-    if (colVal !== null && colVal !== undefined) {
-      merged[field.apiName] = colVal
-    }
   }
   if (relation.hasStatus) merged.status = row.status ?? null
   else delete merged.status
@@ -1164,11 +1179,18 @@ export async function postgresUpdate(
   const row = existing[0]
   if (!row) throw new Error(`Record not found: ${collection}/${id}`)
 
-  const current = asObject(row.data)
+  // Reads prefer promoted columns over JSONB. Partial patches (e.g. Path stage-only)
+  // must not rebuild every promoted column from stale/missing JSONB keys — that
+  // cleared owner_id and resynced close_date on stage changes.
+  const current = withPromotedColumnAuthority(asObject(row.data), row, relation, {
+    skipDates: true,
+  })
   const merged = { ...current, ...data }
   const envelope = envelopeAssignments(relation, merged, row)
+  const patchKeys = new Set(Object.keys(data))
+  const promotedPatch = relation.promoted.filter((field) => patchKeys.has(field.apiName))
   const promoted = promotedWriteFragments(
-    relation.promoted,
+    promotedPatch,
     envelope.payload,
     2 + envelope.values.length,
   )

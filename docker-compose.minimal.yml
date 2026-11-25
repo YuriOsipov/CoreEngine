@@ -11,14 +11,14 @@
 #   docker compose -f docker-compose.minimal.yml up -d bff
 #   docker compose -f docker-compose.minimal.yml --profile ui up -d --build web
 #   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
-#   docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
 #
 # BFF: http://localhost:4000/health
 # UI (optional): http://localhost:8080
 # n8n (optional): http://127.0.0.1:5678 only (not LAN) — import docs/n8n/*.workflow.json
 #   BFF reaches n8n on the Docker network (http://n8n:5678). Hardening: docs/n8n/README.md
-# Activepieces MIT (optional): http://127.0.0.1:8081 — profile automation-activepieces
-#   Set ACTIVEPIECES_BASE_URL=http://activepieces:80 + AP_* keys. docs/activepieces/README.md
+# Activepieces MIT (always, restart: always): http://127.0.0.1:8081
+#   Required in .env: AP_ENCRYPTION_KEY, AP_JWT_SECRET, AP_POSTGRES_PASSWORD,
+#   ACTIVEPIECES_WEBHOOK_SECRET. docs/activepieces/README.md
 
 services:
   db:
@@ -72,9 +72,8 @@ services:
       # Optional upstream n8n (profile automation; customers pull n8nio/n8n). Setup → Flows target=n8n → http://n8n:5678/webhook/ce-{key}
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
       N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:-}
-      # Optional MIT Activepieces (profile automation-activepieces). Setup → Flows target=activepieces + flowId.
-      # Leave empty until you start that profile; then set ACTIVEPIECES_BASE_URL=http://activepieces:80 in .env.
-      ACTIVEPIECES_BASE_URL: ${ACTIVEPIECES_BASE_URL:-}
+      # Activepieces starts with this stack. Setup → Flows target=activepieces + flowId.
+      ACTIVEPIECES_BASE_URL: ${ACTIVEPIECES_BASE_URL:-http://activepieces:80}
       ACTIVEPIECES_WEBHOOK_SECRET: ${ACTIVEPIECES_WEBHOOK_SECRET:-}
       FLOWS_HTTP_ALLOWED_HOSTS: ${FLOWS_HTTP_ALLOWED_HOSTS:-n8n,n8n:5678,activepieces,activepieces:80}
     ports:
@@ -139,12 +138,13 @@ services:
     depends_on:
       - bff
 
-  # Optional MIT Activepieces. Not part of the CoreEngine image or installer — you pull ghcr.io yourself.
+  # MIT Activepieces. Upstream image ghcr.io/activepieces/activepieces (not baked into CoreEngine).
   # Own Postgres + Redis (do not reuse CoreEngine db). UI on 127.0.0.1:8081 (avoids clash with web:8080).
+  # restart: always — Docker starts these again whenever the daemon starts.
   # Before start: AP_ENCRYPTION_KEY (32 hex), AP_JWT_SECRET, AP_POSTGRES_PASSWORD,
-  # ACTIVEPIECES_BASE_URL=http://activepieces:80, ACTIVEPIECES_WEBHOOK_SECRET (or N8N_WEBHOOK_SECRET).
+  # ACTIVEPIECES_WEBHOOK_SECRET (or N8N_WEBHOOK_SECRET).
   activepieces-db:
-    profiles: ["automation-activepieces"]
+    restart: always
     image: pgvector/pgvector:0.8.0-pg14
     environment:
       POSTGRES_DB: ${AP_POSTGRES_DATABASE:-activepieces}
@@ -163,7 +163,7 @@ services:
       retries: 10
 
   activepieces-redis:
-    profiles: ["automation-activepieces"]
+    restart: always
     image: redis:7.0.7
     volumes:
       - coreengine_activepieces_redis:/data
@@ -174,7 +174,7 @@ services:
       retries: 10
 
   activepieces:
-    profiles: ["automation-activepieces"]
+    restart: always
     image: ghcr.io/activepieces/activepieces:0.93.0
     environment:
       AP_CONTAINER_TYPE: APP
@@ -213,7 +213,7 @@ services:
         condition: service_healthy
 
   activepieces-worker:
-    profiles: ["automation-activepieces"]
+    restart: always
     image: ghcr.io/activepieces/activepieces:0.93.0
     environment:
       AP_CONTAINER_TYPE: WORKER

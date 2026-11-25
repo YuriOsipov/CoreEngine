@@ -137,4 +137,53 @@ describe('activityLogService owner reassignment', () => {
     expect(ownerDelta!.valuePreview).toMatch(/Bea Owner|new-owner/)
     expect(entries[0]!.summary).not.toBe('Record updated')
   })
+
+  it('walks past stamp-only parent revisions to compute update deltas', async () => {
+    readRecordRevisionsBridge.mockResolvedValue([
+      {
+        id: 1,
+        data: { id: 'rec-1', name: 'Acme', owner_id: 'old-owner' },
+        parent: null,
+      },
+      {
+        // Stamp-only snapshot — not comparable for field deltas.
+        id: 2,
+        data: {
+          id: 'rec-1',
+          user_updated: 'actor-1',
+          date_updated: '2026-11-24T09:59:00.000Z',
+        },
+        parent: 1,
+      },
+      {
+        id: 3,
+        data: { id: 'rec-1', name: 'Acme', owner_id: 'new-owner' },
+        parent: 2,
+      },
+    ])
+    readRecordActivitiesBridge.mockResolvedValue({
+      nodes: [
+        {
+          id: 11,
+          action: 'update',
+          timestamp: '2026-11-24T10:01:00.000Z',
+          user: { id: 'actor-1' },
+          comment: null,
+          revisions: [{ id: 3 }],
+        },
+      ],
+      totalCount: 1,
+    })
+
+    const entries = await fetchRecordActivityLog({
+      collection: 'account',
+      recordId: 'rec-1',
+      settings: { showDeltas: true, maxItems: 20, actions: ['update'] },
+    })
+
+    expect(entries).toHaveLength(1)
+    const ownerDelta = entries[0]!.deltas.find((d) => d.field === 'owner_id')
+    expect(ownerDelta).toBeTruthy()
+    expect(entries[0]!.summary).not.toBe('Record updated')
+  })
 })

@@ -528,12 +528,23 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
           )
           await auditAfterMutation({
             audit: async () => {
+              let after: Record<string, unknown> = updated
+              try {
+                after = await findOneRecord(
+                  collection,
+                  recordId,
+                  null,
+                  SYSTEM_RECORD_ACCESS,
+                )
+              } catch {
+                after = updated
+              }
               await writeAuditEntry({
                 entityApiName: collection,
                 recordId,
                 action: 'UPDATE',
                 before,
-                after: updated,
+                after,
                 userId: actorIdFromMe(me),
               })
             },
@@ -642,12 +653,18 @@ export async function registerRecordsRestApi(app: FastifyInstance): Promise<void
       })
       await auditAfterMutation({
         audit: async () => {
+          let after: Record<string, unknown> = updated
+          try {
+            after = await findOneRecord(collection, id, null, SYSTEM_RECORD_ACCESS)
+          } catch {
+            after = updated
+          }
           await writeAuditEntry({
             entityApiName: collection,
             recordId: id,
             action: 'UPDATE',
             before,
-            after: updated,
+            after,
             userId: actorIdFromMe(me),
           })
         },

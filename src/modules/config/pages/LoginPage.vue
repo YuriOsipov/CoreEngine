@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTranslation } from '@/core/translation'
+import AppearanceMenu from '@/core/ui-kit/AppearanceMenu.vue'
 import {
   changePasswordWithBff,
   fetchOidcStatus,
@@ -186,16 +187,19 @@ function signInWithSso(): void {
 </script>
 
 <template>
-  <div class="login-page flex min-h-screen items-center justify-center p-4">
+  <div class="login-page relative flex min-h-screen items-center justify-center p-4">
+    <div class="login-page__appearance">
+      <AppearanceMenu />
+    </div>
     <div class="login-page__card w-full max-w-md">
       <p class="mb-1 text-2xl font-semibold">{{ t('auth.brand', 'CoreEngine') }}</p>
-      <p class="mb-4 text-sm text-surface-600">
+      <p class="mb-4 text-sm text-muted-color">
         {{ t('auth.brandSubtitle', 'Multi-purpose platform') }}
       </p>
       <h1 class="mb-1 text-lg font-semibold">
         {{ title }}
       </h1>
-      <p class="mb-6 text-sm text-surface-600">
+      <p class="mb-6 text-sm text-muted-color">
         {{ hint }}
       </p>
 
@@ -325,13 +329,19 @@ function signInWithSso(): void {
 .login-page {
   background:
     radial-gradient(circle at top left, color-mix(in srgb, var(--p-primary-color) 16%, transparent), transparent 42%),
-    var(--p-surface-50);
+    var(--app-canvas, var(--p-surface-50));
+}
+
+.login-page__appearance {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
 }
 
 .login-page__card {
-  border: 1px solid var(--p-content-border-color);
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 1rem;
-  background: var(--p-surface-0);
+  background: var(--app-panel, var(--p-content-background));
   padding: 1.75rem;
   box-shadow: 0 18px 40px color-mix(in srgb, var(--p-surface-900) 8%, transparent);
 }

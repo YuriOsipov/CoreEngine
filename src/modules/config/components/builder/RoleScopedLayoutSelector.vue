@@ -218,9 +218,10 @@ function confirmDeleteLayout(): void {
 .role-scoped-layout-selector {
   width: 100%;
   box-sizing: border-box;
-  background: #edf3f4;
+  background: var(--app-canvas, #edf3f4);
   border-radius: 8px;
   padding: 0.45rem 0.5rem;
+  color: var(--app-text, #37352f);
 }
 
 .layout-name__label {
@@ -241,10 +242,10 @@ function confirmDeleteLayout(): void {
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--app-border, rgba(55, 53, 47, 0.4));
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--app-text-muted, rgba(55, 53, 47, 0.55));
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;

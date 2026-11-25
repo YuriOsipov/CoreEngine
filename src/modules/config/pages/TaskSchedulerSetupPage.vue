@@ -1079,8 +1079,11 @@ onMounted(() => {
 
 <style scoped>
 .setup-task-editor {
-  --task-wash: #edf3f4;
-  --task-ink: #37352f;
+  --task-wash: var(--app-canvas, #edf3f4);
+  --task-card: var(--app-panel, #fff);
+  --task-ink: var(--app-text, #37352f);
+  --task-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.55));
+  --task-line: var(--app-border, rgba(55, 53, 47, 0.4));
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -1108,7 +1111,7 @@ onMounted(() => {
 .setup-task-panel__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--task-ink);
 }
 
 .setup-task-panel__grid {
@@ -1123,7 +1126,7 @@ onMounted(() => {
   min-width: 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--task-ink-muted);
 }
 
 .setup-task-field__label {
@@ -1138,7 +1141,7 @@ onMounted(() => {
   gap: 0.4rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.7);
+  color: var(--task-ink-muted);
   cursor: pointer;
 }
 
@@ -1147,7 +1150,7 @@ onMounted(() => {
   gap: 0.5rem;
   padding: 0.45rem;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.65);
+  background: color-mix(in srgb, var(--task-card) 65%, transparent);
 }
 
 .setup-task-rule__remove {
@@ -1164,10 +1167,10 @@ onMounted(() => {
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--task-line);
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--task-ink-muted);
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;
@@ -1176,7 +1179,7 @@ onMounted(() => {
 }
 
 .setup-task-hint:focus-visible {
-  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline: 2px solid var(--task-line);
   outline-offset: 2px;
 }
 

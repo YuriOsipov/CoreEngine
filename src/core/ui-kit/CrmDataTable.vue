@@ -3117,7 +3117,7 @@ function compareRowsByField(
 
 .crm-inline-edit-overlay {
   align-items: stretch;
-  background: var(--p-surface-0, #fff);
+  background: var(--app-panel, var(--p-content-background, #fff));
   box-shadow: inset 0 0 0 2px var(--p-primary-color, #0f766e);
   box-sizing: border-box;
   display: flex;
@@ -3195,8 +3195,8 @@ function compareRowsByField(
 }
 
 .crm-data-table__scroll-panel :deep(.p-datatable-row-group-header > td) {
-  background: var(--p-surface-100);
-  border-block: 1px solid var(--p-surface-200);
+  background: var(--app-hover, var(--p-content-hover-background));
+  border-block: 1px solid var(--app-border, var(--p-content-border-color));
   padding-block: 0.45rem;
 }
 
@@ -3211,7 +3211,7 @@ function compareRowsByField(
 
 .crm-data-table__loading-more {
   align-items: center;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--app-panel, var(--p-content-background)) 70%, transparent);
   bottom: 0;
   display: flex;
   justify-content: center;

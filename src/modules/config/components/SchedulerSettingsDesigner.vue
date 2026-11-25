@@ -1269,8 +1269,12 @@ function hintTooltip(value: string) {
 
 <style scoped>
 .scheduler-settings-designer {
-  --sched-wash: #edf3f4;
-  --sched-ink: #37352f;
+  --sched-wash: var(--app-canvas, #edf3f4);
+  --sched-card: var(--app-panel, #fff);
+  --sched-ink: var(--app-text, #37352f);
+  --sched-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.62));
+  --sched-line: var(--app-border, rgba(55, 53, 47, 0.08));
+  --sched-hover: var(--app-hover, rgba(255, 255, 255, 0.55));
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -1307,19 +1311,19 @@ function hintTooltip(value: string) {
   background: transparent;
   font-size: 0.82rem;
   font-weight: 600;
-  color: rgba(55, 53, 47, 0.62);
+  color: var(--sched-ink-muted);
 }
 
 .scheduler-settings-tabs :deep(.p-tab:hover) {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--sched-hover);
   color: var(--sched-ink);
 }
 
 .scheduler-settings-tabs :deep(.p-tab-active),
 .scheduler-settings-tabs :deep(.p-tab[data-p-active='true']) {
-  background: #fff;
+  background: var(--sched-card);
   color: var(--sched-ink);
-  box-shadow: 0 0 0 1px rgba(55, 53, 47, 0.08), 0 1px 2px rgba(55, 53, 47, 0.08);
+  box-shadow: 0 0 0 1px var(--sched-line), 0 1px 2px color-mix(in srgb, var(--sched-ink) 8%, transparent);
 }
 
 .scheduler-settings-tabs {
@@ -1382,7 +1386,7 @@ function hintTooltip(value: string) {
 .scheduler-settings-panel__title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #111;
+  color: var(--sched-ink);
 }
 
 .scheduler-settings-panel__grid {
@@ -1407,7 +1411,7 @@ function hintTooltip(value: string) {
   min-width: 0;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--sched-ink-muted);
 }
 
 .scheduler-settings-field--wide {
@@ -1417,12 +1421,12 @@ function hintTooltip(value: string) {
 .scheduler-settings-subhead {
   font-size: 0.75rem;
   font-weight: 600;
-  color: rgba(55, 53, 47, 0.7);
+  color: var(--sched-ink-muted);
 }
 
 .scheduler-settings-muted {
   font-size: 0.75rem;
-  color: rgba(55, 53, 47, 0.5);
+  color: var(--sched-ink-muted);
 }
 
 .scheduler-settings-meta {
@@ -1432,9 +1436,9 @@ function hintTooltip(value: string) {
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.65);
+  background: color-mix(in srgb, var(--sched-card) 65%, transparent);
   font-size: 0.75rem;
-  color: rgba(55, 53, 47, 0.65);
+  color: var(--sched-ink-muted);
 }
 
 .scheduler-settings-meta strong {
@@ -1448,7 +1452,7 @@ function hintTooltip(value: string) {
   gap: 0.4rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.7);
+  color: var(--sched-ink-muted);
   cursor: pointer;
 }
 
@@ -1459,7 +1463,7 @@ function hintTooltip(value: string) {
   align-items: end;
   padding: 0.4rem 0.45rem;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.65);
+  background: color-mix(in srgb, var(--sched-card) 65%, transparent);
 }
 
 .scheduler-settings-level__remove {
@@ -1475,7 +1479,7 @@ function hintTooltip(value: string) {
   align-items: center;
   padding: 0.35rem 0.45rem;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.65);
+  background: color-mix(in srgb, var(--sched-card) 65%, transparent);
 }
 
 .scheduler-settings-status-row__label {

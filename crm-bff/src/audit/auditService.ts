@@ -29,6 +29,183 @@ export interface AuditRevisionRow {
   createdAt: string
 }
 
+/** Mirror activity-log UI: stamps / ephemeral keys never count as field deltas. */
+const HIDDEN_AUDIT_FIELDS = new Set([
+  'id',
+  'user_created',
+  'user_updated',
+  'date_created',
+  'date_updated',
+  'created_at',
+  'updated_at',
+])
+
+function relationRecordId(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).id
+  if (typeof id === 'string' && id.trim()) return id.trim()
+  if (typeof id === 'number' && Number.isFinite(id)) return String(id)
+  return null
+}
+
+function normalizeAuditValue(value: unknown): unknown {
+  if (value === null || value === undefined || value === '') return null
+
+  // Expanded M2O → stable id token (scalar FKs stay plain strings; equality
+  // below matches them to this token).
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    'id' in (value as object)
+  ) {
+    const relationId = relationRecordId(value)
+    if (relationId !== null) return `id:${relationId}`
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      const parsed = Date.parse(trimmed)
+      if (!Number.isNaN(parsed)) return new Date(parsed).toISOString()
+    }
+    return trimmed
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') return value
+
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeAuditValue(item))
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const normalized: Record<string, unknown> = {}
+    for (const [key, nested] of Object.entries(record).sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      if (key.startsWith('_')) continue
+      normalized[key] = normalizeAuditValue(nested)
+    }
+    return normalized
+  }
+
+  return String(value)
+}
+
+function auditValuesEqual(left: unknown, right: unknown): boolean {
+  const leftId = relationRecordId(left)
+  const rightId = relationRecordId(right)
+  if (leftId !== null && rightId !== null && leftId === rightId) {
+    const leftExpanded =
+      typeof left === 'object' && left !== null && !Array.isArray(left)
+    const rightExpanded =
+      typeof right === 'object' && right !== null && !Array.isArray(right)
+    // Scalar FK vs expanded `{ id }` (or both expanded) → same relation.
+    if (leftExpanded || rightExpanded) return true
+  }
+
+  const normalizedLeft = normalizeAuditValue(left)
+  const normalizedRight = normalizeAuditValue(right)
+  if (normalizedLeft === normalizedRight) return true
+  if (
+    typeof normalizedLeft === 'object' &&
+    normalizedLeft !== null &&
+    typeof normalizedRight === 'object' &&
+    normalizedRight !== null
+  ) {
+    try {
+      return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight)
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+/** Strip ephemeral keys (`__automationToasts`, etc.) before persisting snapshots. */
+export function cleanAuditSnapshot(
+  record: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (!key || key.startsWith('_')) continue
+    if (value === undefined) continue
+    out[key] = value
+  }
+  return out
+}
+
+export function hasVisibleAuditChanges(
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown> | null | undefined,
+): boolean {
+  const previous = cleanAuditSnapshot(before)
+  const next = cleanAuditSnapshot(after)
+  const fields = new Set([...Object.keys(previous), ...Object.keys(next)])
+  for (const field of fields) {
+    if (HIDDEN_AUDIT_FIELDS.has(field) || field.startsWith('_')) continue
+    if (!auditValuesEqual(previous[field], next[field])) return true
+  }
+  return false
+}
+
+function hasComparableAuditSnapshot(
+  data: Record<string, unknown> | null | undefined,
+): boolean {
+  const snapshot = cleanAuditSnapshot(data)
+  return Object.keys(snapshot).some(
+    (field) => !HIDDEN_AUDIT_FIELDS.has(field) && !field.startsWith('_'),
+  )
+}
+
+function parseSnapshot(value: unknown): Record<string, unknown> {
+  if (value == null) return {}
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return {}
+    }
+    return {}
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
+async function insertRevision(options: {
+  activityId: string | null
+  entityApiName: string
+  recordId: string
+  snapshot: Record<string, unknown>
+  parentRevisionId: string | null
+}): Promise<string> {
+  const rows = await query<{ id: string }>(
+    `INSERT INTO public.revisions (
+       activity_id, entity_api_name, record_id, snapshot, parent_revision_id
+     ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5::bigint)
+     RETURNING id::text AS id`,
+    [
+      options.activityId,
+      options.entityApiName,
+      options.recordId,
+      JSON.stringify(options.snapshot),
+      options.parentRevisionId,
+    ],
+  )
+  const id = rows[0]?.id
+  if (!id) throw new Error('Failed to write revision')
+  return id
+}
+
 export async function writeAuditEntry(options: {
   entityApiName: string
   recordId: string
@@ -39,8 +216,20 @@ export async function writeAuditEntry(options: {
   comment?: string | null
   /** When true, write activity only (no revision snapshot). */
   skipRevisions?: boolean
-}): Promise<{ activityId: string; revisionId: string | null }> {
-  const snapshot = options.after ?? options.before ?? {}
+}): Promise<{ activityId: string | null; revisionId: string | null }> {
+  const afterSnapshot = cleanAuditSnapshot(options.after ?? options.before ?? {})
+  const beforeSnapshot = options.before ? cleanAuditSnapshot(options.before) : null
+
+  // Stamp-only / identical writes (common for on-open automations) must not
+  // create empty "Record updated" rows with no field-level deltas.
+  if (
+    options.action === 'UPDATE' &&
+    beforeSnapshot &&
+    !hasVisibleAuditChanges(beforeSnapshot, afterSnapshot)
+  ) {
+    return { activityId: null, revisionId: null }
+  }
+
   const activityRows = await query<{ id: string }>(
     `INSERT INTO public.activities (
        entity_api_name, record_id, action, user_id, comment
@@ -64,28 +253,57 @@ export async function writeAuditEntry(options: {
     !options.skipRevisions &&
     (options.action !== 'SOFT_DELETE' || options.before)
   ) {
-    const parentRows = await query<{ id: string }>(
-      `SELECT id::text AS id
+    const parentRows = await query<{
+      id: string
+      snapshot: Record<string, unknown> | string | null
+    }>(
+      `SELECT id::text AS id, snapshot
        FROM public.revisions
        WHERE entity_api_name = $1 AND record_id = $2
        ORDER BY id DESC
        LIMIT 1`,
       [options.entityApiName, options.recordId],
     )
-    const revisionRows = await query<{ id: string }>(
-      `INSERT INTO public.revisions (
-         activity_id, entity_api_name, record_id, snapshot, parent_revision_id
-       ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5::bigint)
-       RETURNING id::text AS id`,
-      [
-        activityId,
-        options.entityApiName,
-        options.recordId,
-        JSON.stringify(snapshot),
-        parentRows[0]?.id ?? null,
-      ],
-    )
-    revisionId = revisionRows[0]?.id ?? null
+
+    let parentRevisionId = parentRows[0]?.id ?? null
+    const parentSnapshot = parentRows[0]
+      ? cleanAuditSnapshot(parseSnapshot(parentRows[0].snapshot))
+      : null
+
+    // Seed a before-snapshot parent when the chain cannot produce field deltas:
+    // missing parent, stamp-only parent, or parent that already equals `after`
+    // while this update still has visible before→after changes.
+    if (
+      options.action === 'UPDATE' &&
+      beforeSnapshot &&
+      hasVisibleAuditChanges(beforeSnapshot, afterSnapshot)
+    ) {
+      const parentUsable =
+        parentRevisionId != null &&
+        hasComparableAuditSnapshot(parentSnapshot) &&
+        hasVisibleAuditChanges(parentSnapshot, afterSnapshot)
+      const beforeAlreadyStored =
+        parentSnapshot != null &&
+        hasComparableAuditSnapshot(parentSnapshot) &&
+        !hasVisibleAuditChanges(beforeSnapshot, parentSnapshot)
+      if (!parentUsable && !beforeAlreadyStored) {
+        parentRevisionId = await insertRevision({
+          activityId: null,
+          entityApiName: options.entityApiName,
+          recordId: options.recordId,
+          snapshot: beforeSnapshot,
+          parentRevisionId,
+        })
+      }
+    }
+
+    revisionId = await insertRevision({
+      activityId,
+      entityApiName: options.entityApiName,
+      recordId: options.recordId,
+      snapshot: afterSnapshot,
+      parentRevisionId,
+    })
   }
 
   return { activityId, revisionId }

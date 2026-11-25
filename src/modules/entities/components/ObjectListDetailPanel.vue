@@ -296,7 +296,7 @@ function emitViewRecord(row: Record<string, unknown>, relatedCollection: string)
       <template v-if="!useTabs">
         <div
           v-if="resolvedActions.length > 0"
-          class="object-list-detail-panel__actions flex flex-shrink-0 flex-wrap items-center justify-end gap-1 border-b border-surface-200 px-2 py-1 dark:border-surface-700"
+          class="object-list-detail-panel__actions flex flex-shrink-0 flex-wrap items-center justify-end gap-1 border-b border-line px-2 py-1"
         >
           <Button
             v-for="action in resolvedActions"

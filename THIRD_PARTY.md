@@ -18,7 +18,7 @@ Managed hosting or a true bundle needs a commercial agreement. n8n’s license c
 
 | Component | How it shows up | License |
 |-----------|-----------------|--------|
-| [Activepieces](https://github.com/activepieces/activepieces) `ghcr.io/activepieces/activepieces` | Optional Compose profile `automation-activepieces` in `docker-compose.minimal.yml` (app + worker + dedicated Postgres/Redis). You pull the upstream image. It is not copied into the CoreEngine or BFF image, and `scripts/install-minimal.sh` / `install-minimal.ps1` refuse to start it. Setup → Connections `config.target=activepieces` → `{ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}`. | [MIT](https://github.com/activepieces/activepieces/blob/main/LICENSE) (community edition) |
+| [Activepieces](https://github.com/activepieces/activepieces) `ghcr.io/activepieces/activepieces` | Started by `docker-compose.minimal.yml` (app + worker + dedicated Postgres/Redis, `restart: always`). You pull the upstream image. It is not copied into the CoreEngine or BFF image. The lightweight installer generates `AP_*` keys and starts it. Setup → Connections `config.target=activepieces` → `{ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}`. | [MIT](https://github.com/activepieces/activepieces/blob/main/LICENSE) (community edition) |
 
 Use Activepieces when you want an OSI-permissive orchestrator for the same BFF write-back pattern as n8n. Pack flow JSON under `docs/n8n/` remains n8n-native; rebuild equivalent Catch Webhook + HTTP steps in Activepieces (see [`docs/activepieces/README.md`](docs/activepieces/README.md)).
 

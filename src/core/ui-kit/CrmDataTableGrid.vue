@@ -589,7 +589,7 @@ function rowNumberLabel(index: number): number {
 }
 
 .crm-data-table__cell--editable:hover {
-  background: var(--p-surface-50, #f8fafc);
+  background: var(--app-hover, var(--p-content-hover-background, #f8fafc));
   box-shadow: inset 0 0 0 1px var(--p-primary-200, #99f6e4);
 }
 
@@ -611,14 +611,14 @@ function rowNumberLabel(index: number): number {
 }
 
 .crm-data-table__group-header-label {
-  color: var(--p-surface-700);
+  color: var(--app-text, var(--p-text-color));
   font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
 .crm-data-table__m2o {
-  color: #2563eb;
+  color: var(--p-primary-color);
   font-weight: 600;
   text-decoration: none;
 }
@@ -636,15 +636,15 @@ function rowNumberLabel(index: number): number {
 }
 
 .crm-data-table__actions-button {
-  background: #f8fafc;
-  border-color: #0f766e;
-  color: #0f766e;
+  background: var(--app-hover, var(--p-content-hover-background));
+  border-color: var(--p-primary-color);
+  color: var(--p-primary-color);
   font-weight: 700;
 }
 
 .crm-data-table__actions-button:hover {
-  background: #ccfbf1;
-  border-color: #0d9488;
-  color: #0f766e;
+  background: var(--p-highlight-background);
+  border-color: var(--p-primary-color);
+  color: var(--p-primary-color);
 }
 </style>

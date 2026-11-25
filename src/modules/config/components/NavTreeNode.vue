@@ -222,9 +222,10 @@ function onAddFolder(event: Event, folder: NavFolder): void {
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
-  border: 1px solid var(--p-surface-200, #e5e7eb);
+  border: 1px solid var(--app-border, var(--p-content-border-color, #e5e7eb));
   border-radius: 6px;
-  background: var(--p-surface-0, #fff);
+  background: var(--app-panel, var(--p-content-background, #fff));
+  color: var(--app-text, var(--p-text-color));
   min-width: 0;
 }
 

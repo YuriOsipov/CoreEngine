@@ -99,7 +99,7 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 | `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts) |
 | `N8N_BASE_URL` / `N8N_WEBHOOK_SECRET` / `N8N_ENCRYPTION_KEY` | Your n8n instance for Setup → Connections |
 | `ACTIVEPIECES_BASE_URL` / `ACTIVEPIECES_WEBHOOK_SECRET` | Optional MIT Activepieces (`target=activepieces` + flow id) |
-| `AP_ENCRYPTION_KEY` / `AP_JWT_SECRET` / `AP_POSTGRES_PASSWORD` | Required to start Compose profile `automation-activepieces` |
+| `AP_ENCRYPTION_KEY` / `AP_JWT_SECRET` / `AP_POSTGRES_PASSWORD` | Required to start Activepieces with the minimal Compose stack |
 | `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP flow targets |
 | `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Integration user for n8n → BFF |
 | `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` | Optional email on flow/task failure |

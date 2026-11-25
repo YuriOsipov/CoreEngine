@@ -52,7 +52,7 @@ Product surface for operators and implementers. For security layers see [`securi
 - **Setup → Connections** — `app_flow_triggers` (`http` to your n8n via `ce-{key}`, Activepieces via `flowId`, custom URL, or `update_record`). Failed runs in Setup.
 - **Setup → Tasks** — scheduled jobs (e.g. Sync promo prices, **Dispatch due messages**). Runner is in-process with a **Postgres advisory lock** per task; still set `TASK_SCHEDULER_ENABLED=false` on extra BFF replicas.
 - **Sales Message outbox** — one Message row per send; due rows are claimed with **`FOR UPDATE SKIP LOCKED`** (`sending_since` + `attempts`). Stale `sending` rows are reclaimed after `staleMinutes` and stop after `maxAttempts`. Flow payload carries `idempotencyKey` (`ce-message-{id}`). Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales`. See [`n8n/README.md`](./n8n/README.md) and [`n8n-bff-flows.md`](./n8n-bff-flows.md).
-- Complex visual orchestration: optional **n8n** (compose profile `automation`) or **Activepieces** (MIT; profile `automation-activepieces`). License notes: [`THIRD_PARTY.md`](../THIRD_PARTY.md) — n8n Sustainable Use limits hosting/resale; Activepieces is MIT — see [`activepieces/README.md`](./activepieces/README.md). A built-in Postgres queue remains an option for “reliable ops” without an external designer.
+- Complex visual orchestration: optional **n8n** (compose profile `automation`) or **Activepieces** (MIT; starts with the minimal Compose stack). License notes: [`THIRD_PARTY.md`](../THIRD_PARTY.md) — n8n Sustainable Use limits hosting/resale; Activepieces is MIT — see [`activepieces/README.md`](./activepieces/README.md). A built-in Postgres queue remains an option for “reliable ops” without an external designer.
 
 ## Reliable operations
 

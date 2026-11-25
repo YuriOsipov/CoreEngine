@@ -222,7 +222,7 @@ watch(scrollPanel, (panel, previous) => {
       v-if="!isFullMode"
       class="flex items-center justify-between gap-3"
     >
-      <div class="text-surface-700 text-sm font-medium">
+      <div class="text-ink text-sm font-medium">
         {{ field.label || t('activityLog.title', 'Activity history') }}
       </div>
       <RouterLink
@@ -236,7 +236,7 @@ watch(scrollPanel, (panel, previous) => {
 
     <div
       v-if="loading"
-      class="flex items-center justify-center gap-2 border border-surface-200 rounded-lg bg-surface-50 px-4 py-8 text-muted-color text-sm"
+      class="flex items-center justify-center gap-2 rounded-lg border border-line bg-canvas px-4 py-8 text-ink-muted text-sm"
     >
       <ProgressSpinner class="w-8 h-8" stroke-width="4" />
       {{ t('activityLog.loading', 'Loading activity history…') }}
@@ -253,7 +253,7 @@ watch(scrollPanel, (panel, previous) => {
 
     <div
       v-else-if="entries.length === 0"
-      class="border border-surface-200 rounded-lg bg-surface-50 px-4 py-6 text-muted-color text-sm text-center"
+      class="rounded-lg border border-line bg-canvas px-4 py-6 text-center text-sm text-ink-muted"
     >
       {{ t('activityLog.empty', 'No activity recorded for this record yet.') }}
     </div>
@@ -270,7 +270,7 @@ watch(scrollPanel, (panel, previous) => {
         data-key="id"
         size="small"
         striped-rows
-        class="activity-log-table border border-surface-200 rounded-lg overflow-hidden"
+        class="activity-log-table overflow-hidden rounded-lg border border-line"
       >
         <Column
           v-if="showDeltas"
@@ -431,9 +431,9 @@ watch(scrollPanel, (panel, previous) => {
   max-height: 8rem;
   overflow: auto;
   padding: 0.35rem 0.5rem;
-  border: 1px solid var(--p-content-border-color, #e5e7eb);
+  border: 1px solid var(--app-border, var(--p-content-border-color, #e5e7eb));
   border-radius: 0.35rem;
-  background: var(--p-surface-50, #f8fafc);
+  background: var(--app-canvas, var(--p-content-background));
   font-size: 0.75rem;
   line-height: 1.35;
   white-space: pre-wrap;

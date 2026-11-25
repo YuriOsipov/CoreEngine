@@ -1592,11 +1592,11 @@ watch(
                 class="palette-card__icon"
                 aria-hidden="true"
               >{{ element.icon }}</span>
-              <span class="min-w-0 flex-1 truncate text-[0.875rem] font-semibold leading-tight text-surface-950">
+              <span class="min-w-0 flex-1 truncate text-[0.875rem] font-semibold leading-tight text-ink">
                 {{ element.label }}
               </span>
               <span
-                class="shrink-0 text-[0.9rem] tracking-[-0.15em] text-surface-300"
+                class="shrink-0 text-[0.9rem] tracking-[-0.15em] text-ink-muted"
                 aria-hidden="true"
               >⠿</span>
             </div>
@@ -1604,9 +1604,9 @@ watch(
 
           <div
             v-if="paletteTab === 'fields' && assignedFieldCards.length > 0"
-            class="mt-4 flex flex-col gap-[0.45rem] border-t border-dashed border-surface-300 pt-3"
+            class="mt-4 flex flex-col gap-[0.45rem] border-t border-dashed border-line pt-3"
           >
-            <p class="mb-1 mt-0 text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-surface-400">
+            <p class="mb-1 mt-0 text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-ink-muted">
               {{ t('formBuilder.onCanvas', 'On canvas') }}
             </p>
             <div
@@ -1618,7 +1618,7 @@ watch(
                 class="palette-card__icon"
                 aria-hidden="true"
               >{{ element.icon }}</span>
-              <span class="min-w-0 flex-1 truncate text-[0.875rem] font-semibold leading-tight text-surface-950">
+              <span class="min-w-0 flex-1 truncate text-[0.875rem] font-semibold leading-tight text-ink">
                 {{ element.label }}
               </span>
             </div>
@@ -2213,7 +2213,7 @@ watch(
               <div
                 v-for="tab in selectedTabs"
                 :key="tab.id"
-                class="record-page-tab-item flex items-center gap-2 rounded-md border border-surface-200 bg-surface-0 px-2 py-1.5"
+                class="record-page-tab-item flex items-center gap-2 rounded-md border border-line bg-panel px-2 py-1.5"
                 :class="{ 'record-page-tab-item--selected': activeTabIdFor(selectedComponent.id) === tab.id }"
               >
                 <span
@@ -3158,10 +3158,13 @@ watch(
 
 <style scoped>
 .record-page-builder {
-  --page-wash: #edf3f4;
-  --page-ink: #37352f;
-  --page-line: #8fa3a8;
-  --page-line-strong: #6f868c;
+  --page-wash: var(--app-canvas, #edf3f4);
+  --page-card: var(--app-panel, #fff);
+  --page-ink: var(--app-text, #37352f);
+  --page-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.55));
+  --page-line: var(--app-border, #8fa3a8);
+  --page-line-strong: var(--app-border, #6f868c);
+  --page-hover: var(--app-hover, rgba(55, 53, 47, 0.08));
   font-family: Inter, system-ui, sans-serif;
   color: var(--page-ink);
   display: flex;
@@ -3205,7 +3208,7 @@ watch(
 .record-page-builder__main :deep(.p-splitter-gutter-resizing),
 .record-page-builder__workspace :deep(.p-splitter-gutter:hover),
 .record-page-builder__workspace :deep(.p-splitter-gutter-resizing) {
-  background: rgba(143, 163, 168, 0.45);
+  background: color-mix(in srgb, var(--page-line) 45%, transparent);
 }
 
 .record-page-builder__main :deep(.p-splitter-gutter-handle),
@@ -3213,7 +3216,7 @@ watch(
   height: 2.5rem;
   width: 3px;
   border-radius: 999px;
-  background: #8fa3a8;
+  background: var(--page-line);
 }
 
 .record-page-builder__workspace-pane {
@@ -3259,9 +3262,9 @@ watch(
 }
 
 .palette-tabs__tab {
-  border: 1px solid rgba(55, 53, 47, 0.12);
+  border: 1px solid var(--page-line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--page-card);
   color: var(--page-ink);
   padding: 0.45rem 0.55rem;
   font: inherit;
@@ -3272,8 +3275,8 @@ watch(
 
 .palette-tabs__tab--active {
   border-color: var(--page-line-strong);
-  background: #fff;
-  color: #191918;
+  background: var(--page-card);
+  color: var(--page-ink);
   font-weight: 600;
   box-shadow: 0 0 0 1px var(--page-line-strong);
 }
@@ -3283,8 +3286,8 @@ watch(
   align-items: center;
   gap: 0.45rem;
   padding: 0.48rem 0.55rem;
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.1);
+  background: var(--page-card);
+  border: 1px solid var(--page-line);
   border-radius: 8px;
   cursor: grab;
   user-select: none;
@@ -3293,7 +3296,7 @@ watch(
 }
 
 .palette-card:hover {
-  background: rgba(55, 53, 47, 0.08);
+  background: var(--page-hover);
 }
 
 .palette-card:active {
@@ -3309,40 +3312,40 @@ watch(
   height: 1.1rem;
   border-radius: 0;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--page-ink-muted);
   font-size: 0.7rem;
   font-weight: 600;
 }
 
 .palette-card--assigned {
   cursor: default;
-  background: rgba(55, 53, 47, 0.05);
+  background: var(--page-hover);
   border-color: transparent;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--page-ink-muted);
 }
 
 .palette-card--assigned:hover {
-  background: rgba(55, 53, 47, 0.08);
+  background: var(--page-hover);
 }
 
 .palette-card--assigned .palette-card__icon {
   background: transparent;
-  color: rgba(55, 53, 47, 0.4);
+  color: var(--page-ink-muted);
 }
 
 .record-page-canvas-panel {
-  border: 1px solid rgba(55, 53, 47, 0.08);
+  border: 1px solid var(--page-line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--page-card);
 }
 
 .record-page-canvas-toolbar {
-  border-bottom: 1px solid rgba(55, 53, 47, 0.08);
+  border-bottom: 1px solid var(--page-line);
   background: var(--page-wash);
 }
 
 .record-page-canvas-viewport {
-  background: #fff;
+  background: var(--page-card);
 }
 
 .record-page-canvas-stage {
@@ -3374,14 +3377,14 @@ watch(
 
 .record-page-body-splitter :deep(.p-splitter-gutter:hover),
 .record-page-body-splitter :deep(.p-splitter-gutter-resizing) {
-  background: rgba(143, 163, 168, 0.45);
+  background: color-mix(in srgb, var(--page-line) 45%, transparent);
 }
 
 .record-page-body-splitter :deep(.p-splitter-gutter-handle) {
   height: 2.5rem;
   width: 3px;
   border-radius: 999px;
-  background: #8fa3a8;
+  background: var(--page-line);
 }
 
 .record-page-region {
@@ -3415,7 +3418,7 @@ watch(
   margin: 0;
   text-align: center;
   font-size: 0.8rem;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--page-ink-muted);
   pointer-events: none;
 }
 
@@ -3448,13 +3451,13 @@ watch(
 .properties-panel :deep(.p-inputnumber),
 .properties-panel :deep(.p-inputnumber-input),
 .properties-panel :deep(.p-multiselect) {
-  --p-select-background: #fff;
-  --p-select-filled-background: #fff;
-  --p-select-hover-background: #fff;
-  --p-select-focus-background: #fff;
-  --p-inputtext-background: #fff;
-  background: #fff !important;
-  border: 1px solid rgba(55, 53, 47, 0.12);
+  --p-select-background: var(--page-card);
+  --p-select-filled-background: var(--page-card);
+  --p-select-hover-background: var(--page-card);
+  --p-select-focus-background: var(--page-card);
+  --p-inputtext-background: var(--page-card);
+  background: var(--page-card) !important;
+  border: 1px solid var(--page-line);
   box-shadow: none;
   border-radius: 6px;
   color: var(--page-ink);
@@ -3463,22 +3466,22 @@ watch(
 .properties-panel :deep(.p-inputtext:enabled:focus),
 .properties-panel :deep(.p-select:not(.p-disabled).p-focus),
 .properties-panel :deep(.p-dropdown:not(.p-disabled).p-focus) {
-  background: #fff !important;
-  border-color: rgba(55, 53, 47, 0.28);
+  background: var(--page-card) !important;
+  border-color: var(--page-line-strong);
   box-shadow: none;
 }
 
 .record-page-builder :deep(.p-button.p-button-outlined),
 .record-page-builder :deep(.p-button:not(.p-button-text):not(.p-button-danger)) {
-  background: #fff;
-  border-color: rgba(55, 53, 47, 0.16);
+  background: var(--page-card);
+  border-color: var(--page-line);
   color: var(--page-ink);
 }
 
 .record-page-builder :deep(.p-button.p-button-outlined:hover),
 .record-page-builder :deep(.p-button:not(.p-button-text):not(.p-button-danger):hover) {
-  background: rgba(55, 53, 47, 0.06);
-  border-color: rgba(55, 53, 47, 0.16);
+  background: var(--page-hover);
+  border-color: var(--page-line);
   color: var(--page-ink);
 }
 
@@ -3489,8 +3492,8 @@ watch(
 }
 
 .record-page-tab-item--selected {
-  border-color: #6f868c !important;
-  box-shadow: 0 0 0 1px #6f868c;
+  border-color: var(--page-line-strong) !important;
+  box-shadow: 0 0 0 1px var(--page-line-strong);
 }
 
 .record-page-hint {
@@ -3501,10 +3504,10 @@ watch(
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--page-line);
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--page-ink-muted);
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;
@@ -3513,7 +3516,7 @@ watch(
 }
 
 .record-page-hint:focus-visible {
-  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline: 2px solid var(--page-line-strong);
   outline-offset: 2px;
 }
 

@@ -1352,11 +1352,22 @@ export const resolvers = {
       if (recordId) {
         await auditAfterMutation({
           audit: async () => {
+            let after: Record<string, unknown> = created
+            try {
+              after = await findOneRecord(
+                args.entity,
+                recordId,
+                null,
+                SYSTEM_RECORD_ACCESS,
+              )
+            } catch {
+              after = created
+            }
             await writeEntityAudit({
               entityApiName: args.entity,
               recordId,
               action: 'CREATE',
-              after: created,
+              after,
               userId: actorUserId,
             })
           },
@@ -1405,12 +1416,24 @@ export const resolvers = {
       )
       await auditAfterMutation({
         audit: async () => {
+          // Full system snapshot so Activity deltas are not FLS-/fields-sparse.
+          let after: Record<string, unknown> = updated
+          try {
+            after = await findOneRecord(
+              args.entity,
+              String(args.id),
+              null,
+              SYSTEM_RECORD_ACCESS,
+            )
+          } catch {
+            after = updated
+          }
           await writeEntityAudit({
             entityApiName: args.entity,
             recordId: String(args.id),
             action: 'UPDATE',
             before,
-            after: updated,
+            after,
             userId: actorUserId,
           })
         },
@@ -1465,12 +1488,24 @@ export const resolvers = {
       if (applied) {
         await auditAfterMutation({
           audit: async () => {
+            let after: Record<string, unknown> = { ...result }
+            delete after[OPEN_AUTOMATIONS_APPLIED_KEY]
+            try {
+              after = await findOneRecord(
+                args.entity,
+                String(args.id),
+                null,
+                SYSTEM_RECORD_ACCESS,
+              )
+            } catch {
+              // keep cleaned result
+            }
             await writeEntityAudit({
               entityApiName: args.entity,
               recordId: String(args.id),
               action: 'UPDATE',
               before,
-              after: result,
+              after,
               userId: actorUserId,
             })
           },

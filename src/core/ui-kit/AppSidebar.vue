@@ -288,8 +288,8 @@ defineExpose({ reload, toggleCollapsed, collapsed })
   overflow: hidden;
   flex-shrink: 0;
   padding: 0.5rem;
-  border-right: 1px solid var(--p-surface-200, #e5e7eb);
-  background: var(--p-surface-0, #fff);
+  border-right: 1px solid var(--app-border, var(--p-content-border-color, #e5e7eb));
+  background: var(--app-panel, var(--p-content-background, #fff));
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -299,7 +299,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 }
 
 .app-sidebar--overlay {
-  border-right: 1px solid var(--p-surface-200, #e5e7eb);
+  border-right: 1px solid var(--app-border, var(--p-content-border-color, #e5e7eb));
   bottom: 0;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
   left: 0;
@@ -354,7 +354,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 }
 
 .app-sidebar__toggle:hover {
-  background: var(--p-surface-100, #f3f4f6);
+  background: var(--app-hover, var(--p-content-hover-background, #f3f4f6));
 }
 
 .app-sidebar__toggle:focus-visible {
@@ -509,7 +509,7 @@ defineExpose({ reload, toggleCollapsed, collapsed })
 }
 
 .app-sidebar__rail-item:hover {
-  background: var(--p-surface-100, #f3f4f6);
+  background: var(--app-hover, var(--p-content-hover-background, #f3f4f6));
 }
 
 .app-sidebar__rail-item--active {

@@ -567,13 +567,24 @@ const gridItemStyle = computed((): Record<string, string> => {
 </template>
 
 <style scoped>
+.record-page-canvas-field,
+.record-page-canvas-component {
+  --canvas-wash: var(--app-canvas, #edf3f4);
+  --canvas-card: var(--app-panel, #fff);
+  --canvas-ink: var(--app-text, #111);
+  --canvas-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.45));
+  --canvas-line: var(--app-border, #8fa3a8);
+  --canvas-line-strong: var(--app-border, #6f868c);
+  --canvas-hover: var(--app-hover, #e4eef0);
+}
+
 .record-page-canvas-field {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 0.65rem;
   padding: 0.4rem 0.6rem;
-  background: #fff;
+  background: var(--canvas-card);
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
@@ -593,8 +604,8 @@ const gridItemStyle = computed((): Record<string, string> => {
 }
 
 .record-page-canvas-field--selected {
-  border-color: #6f868c;
-  box-shadow: 0 0 0 1px #6f868c;
+  border-color: var(--canvas-line-strong);
+  box-shadow: 0 0 0 1px var(--canvas-line-strong);
 }
 
 .record-page-canvas-field__label-row {
@@ -605,7 +616,7 @@ const gridItemStyle = computed((): Record<string, string> => {
   gap: 0.35rem;
   font-size: 0.82rem;
   font-weight: 700;
-  color: #111;
+  color: var(--canvas-ink);
 }
 
 .record-page-canvas-field--inline .record-page-canvas-field__label-row {
@@ -626,30 +637,30 @@ const gridItemStyle = computed((): Record<string, string> => {
   padding: 0.35rem 0.75rem;
   border: 0;
   border-radius: 6px;
-  background: #edf3f4;
-  color: #9ca3af;
+  background: var(--canvas-wash);
+  color: var(--canvas-ink-muted);
   font-size: 0.8rem;
   font-weight: 500;
   line-height: 1.35;
 }
 
 .record-page-canvas-field--selected .record-page-canvas-field__placeholder {
-  color: #374151;
+  color: var(--canvas-ink);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px #8fa3a8;
+  box-shadow: inset 0 0 0 1px var(--canvas-line);
 }
 
 .record-page-canvas-component {
-  border: 1px solid #8fa3a8;
+  border: 1px solid var(--canvas-line);
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--canvas-wash);
   overflow: hidden;
 }
 
 .record-page-canvas-component--selected {
-  background: #e4eef0;
-  border-color: #6f868c;
-  box-shadow: 0 0 0 1px #6f868c;
+  background: var(--canvas-hover);
+  border-color: var(--canvas-line-strong);
+  box-shadow: 0 0 0 1px var(--canvas-line-strong);
 }
 
 .record-page-canvas-component__chrome {
@@ -661,7 +672,7 @@ const gridItemStyle = computed((): Record<string, string> => {
   background: transparent;
   cursor: pointer;
   font-weight: 700;
-  color: #111;
+  color: var(--canvas-ink);
 }
 
 .record-page-canvas-component__chrome--compact {
@@ -684,7 +695,7 @@ const gridItemStyle = computed((): Record<string, string> => {
 .record-page-canvas-component__placeholder {
   padding: 0.85rem 0.75rem;
   font-size: 0.8rem;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--canvas-ink-muted);
 }
 
 .record-page-canvas-component__highlights {
@@ -715,12 +726,12 @@ const gridItemStyle = computed((): Record<string, string> => {
   display: inline-flex;
   align-items: center;
   padding: 0.38rem 0.7rem;
-  border: 1px solid rgba(55, 53, 47, 0.14);
+  border: 1px solid var(--canvas-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--canvas-card);
   font-size: 0.8rem;
   font-weight: 500;
-  color: #37352f;
+  color: var(--canvas-ink);
 }
 
 .record-page-canvas-component__action-chip--overflow {
@@ -740,16 +751,16 @@ const gridItemStyle = computed((): Record<string, string> => {
   margin-bottom: 0.5rem;
   border-bottom: 0;
   padding: 0.4rem 0.55rem;
-  border: 1px solid #8fa3a8;
+  border: 1px solid var(--canvas-line);
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--canvas-wash);
 }
 
 .record-page-canvas-component__tab {
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  color: #37352f;
+  color: var(--canvas-ink);
   padding: 0.28rem 0.5rem;
   font: inherit;
   font-size: 0.8rem;
@@ -757,11 +768,11 @@ const gridItemStyle = computed((): Record<string, string> => {
 }
 
 .record-page-canvas-component__tab--active {
-  border-color: #6f868c;
-  background: #fff;
-  color: #191918;
+  border-color: var(--canvas-line-strong);
+  background: var(--canvas-card);
+  color: var(--canvas-ink);
   font-weight: 600;
-  box-shadow: 0 0 0 1px #6f868c;
+  box-shadow: 0 0 0 1px var(--canvas-line-strong);
 }
 
 .record-page-canvas-component__tab-body {
@@ -793,9 +804,9 @@ const gridItemStyle = computed((): Record<string, string> => {
 
 .record-page-canvas-component__field-group-card {
   overflow: hidden;
-  border: 1px solid #8fa3a8;
+  border: 1px solid var(--canvas-line);
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--canvas-wash);
 }
 
 .record-page-canvas-component__field-group-header {
@@ -808,7 +819,7 @@ const gridItemStyle = computed((): Record<string, string> => {
   padding: 0.75rem 0.9rem 0.35rem;
   border: 0;
   background: transparent;
-  color: #111;
+  color: var(--canvas-ink);
   font: inherit;
   font-size: 0.95rem;
   font-weight: 700;

@@ -270,7 +270,7 @@ defineExpose({
         $slots['toolbar-filters'] ||
         $slots['toolbar-tools']
       "
-      class="object-list-compact-cards__toolbar flex flex-shrink-0 flex-col gap-2 border-b border-surface-200 px-2 py-2 dark:border-surface-700"
+      class="object-list-compact-cards__toolbar flex flex-shrink-0 flex-col gap-2 border-b border-line px-2 py-2"
     >
       <div class="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div class="min-w-0 flex-1">
@@ -423,16 +423,17 @@ defineExpose({
   cursor: pointer;
   padding: 0.65rem 0.85rem;
   border-bottom: 1px solid var(--p-content-border-color, var(--p-surface-200));
-  background: var(--p-surface-0);
+  background: var(--app-panel, var(--p-content-background));
   transition: background-color 0.12s ease;
 }
 
 .object-list-compact-cards__item:hover {
-  background: var(--p-surface-50);
+  background: var(--app-hover, var(--p-content-hover-background));
 }
 
 .object-list-compact-cards__item--selected {
-  background: color-mix(in srgb, var(--p-primary-color) 12%, var(--p-surface-0));
+  background: color-mix(in srgb, var(--p-primary-color) 12%, var(--app-panel, var(--p-content-background)));
+  color: var(--app-text, var(--p-text-color));
   box-shadow: inset 3px 0 0 var(--p-primary-color);
 }
 
@@ -450,6 +451,16 @@ defineExpose({
   color: var(--p-primary-color);
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+.object-list-compact-cards__item--selected .object-list-compact-cards__title {
+  color: var(--app-text, var(--p-text-color));
+  font-weight: 700;
+}
+
+.object-list-compact-cards__item--selected .object-list-compact-cards__secondary,
+.object-list-compact-cards__item--selected .object-list-compact-cards__meta-row {
+  color: var(--app-text-muted, var(--p-text-muted-color));
 }
 
 .object-list-compact-cards__secondary {

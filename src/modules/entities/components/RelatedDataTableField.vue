@@ -778,10 +778,10 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
   <!-- No related-collection Read: omit the related list entirely. -->
   <div
     v-if="relatedPermissionsReady && canReadRelated"
-    class="border border-surface-200 rounded-lg overflow-x-auto overflow-y-hidden"
+    class="related-data-table-field flex min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-panel"
   >
-    <div class="flex items-center justify-between bg-surface-100 border-b border-surface-200 px-3 py-2">
-      <span class="flex items-center gap-[0.35rem] text-surface-700 text-[0.9rem] font-semibold">
+    <div class="app-section-header flex items-center justify-between px-3 py-2">
+      <span class="flex items-center gap-[0.35rem] text-[0.9rem] font-semibold">
         <i
           v-if="collectionIcon && isPrimeCollectionIcon"
           :class="collectionIcon"
@@ -842,7 +842,7 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
 
     <div
       v-if="showBarcodeScan && barcodeScanModeOn"
-      class="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-surface-200"
+      class="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-line"
     >
       <CrmBarcodeScanToolbar
         ref="barcodeToolbarRef"
@@ -869,7 +869,7 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
         class="related-file-drop-target rounded-md transition-colors"
         :class="
           isDraggingCoreEngineFile
-            ? 'ring-2 ring-primary ring-offset-1 bg-primary-50/40'
+            ? 'ring-2 ring-primary ring-offset-1 ring-offset-panel bg-accent-soft'
             : ''
         "
         @dragenter.prevent="handleCoreEngineFileDragOver"
@@ -963,3 +963,28 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
     />
   </div>
 </template>
+
+<style scoped>
+.related-data-table-field {
+  min-height: 12rem;
+}
+
+.related-data-table-field :deep(.related-file-drop-target) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.related-data-table-field :deep(.crm-data-table-wrap) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.related-data-table-field :deep(.crm-data-table__scroll-panel) {
+  flex: 1 1 auto;
+  min-height: 10rem;
+}
+</style>

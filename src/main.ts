@@ -2,7 +2,13 @@ import { createApp } from 'vue'
 import PrimeVue from 'openvue/config'
 import ConfirmationService from 'openvue/confirmationservice'
 import ToastService from 'openvue/toastservice'
-import Aura from '@openvue/themes/aura'
+import {
+  applyColorScheme,
+  loadPreset,
+  markPresetApplied,
+  readAppearance,
+  watchSystemColorScheme,
+} from '@/core/theme/appearance'
 import FloatingVue from 'floating-vue'
 import App from './App.vue'
 import { router } from './core/router'
@@ -38,11 +44,20 @@ async function bootstrap(): Promise<void> {
   const language = getTranslationLanguage()
   await preloadTranslations(language)
 
+  const appearance = readAppearance()
+  applyColorScheme(appearance.colorScheme)
+  watchSystemColorScheme()
+  const preset = await loadPreset(appearance.preset)
+  markPresetApplied(appearance.preset)
+
   const app = createApp(App)
 
   app.use(PrimeVue, {
     theme: {
-      preset: Aura,
+      preset,
+      options: {
+        darkModeSelector: '.app-dark',
+      },
     },
     locale: primeVueLocale(language),
   })

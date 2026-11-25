@@ -2,9 +2,9 @@
 # Usage (repo root):
 #   powershell -File ./scripts/install-minimal.ps1
 #   powershell -File ./scripts/install-minimal.ps1 -Domain sales -WithUi
-# n8n / Activepieces are not started here. Customers pull upstream images themselves:
+# n8n is not started here. Customers pull that upstream image themselves:
 #   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
-#   docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
+# Activepieces starts with this stack (restart: always). -WithActivepieces is accepted and ignored.
 #   powershell -File ./scripts/install-minimal.ps1 -AdminPassword 'ChooseAUniqueSecret!'
 param(
   [ValidateSet('none', 'sales', 'clinic', 'pricing', 'documents')]
@@ -25,15 +25,7 @@ This installer does not start n8n. Pull the upstream image yourself:
 See THIRD_PARTY.md. Sell implementation and support, not n8n access.
 "@
 }
-if ($WithActivepieces) {
-  throw @"
-This installer does not start Activepieces. Pull the upstream image yourself:
-
-  docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
-
-See docs/activepieces/README.md and THIRD_PARTY.md.
-"@
-}
+# Activepieces is part of the default stack. Keep -WithActivepieces so older commands still run.
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
 Set-Location $Root
 
@@ -41,6 +33,12 @@ function Get-RandSecret {
   $bytes = New-Object byte[] 24
   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '').Replace('/', '').Substring(0, [Math]::Min(32, 32))
+}
+
+function Get-RandHex([int]$ByteCount) {
+  $bytes = New-Object byte[] $ByteCount
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  return ([BitConverter]::ToString($bytes) -replace '-', '').ToLower()
 }
 
 function Set-EnvKv([string]$Path, [string]$Key, [string]$Value) {
@@ -85,6 +83,19 @@ if (-not $appPw) {
   Write-Host '==> Generated POSTGRES_APP_PASSWORD in .env'
 }
 
+function Set-EnvKvIfEmpty([string]$Path, [string]$Key, [string]$Value) {
+  $cur = Get-EnvKv $Path $Key
+  if ($cur) { return }
+  Set-EnvKv $Path $Key $Value
+  Write-Host "==> Generated $Key in .env"
+}
+
+Set-EnvKvIfEmpty '.env' 'AP_ENCRYPTION_KEY' (Get-RandHex 16)
+Set-EnvKvIfEmpty '.env' 'AP_JWT_SECRET' (Get-RandHex 32)
+Set-EnvKvIfEmpty '.env' 'AP_POSTGRES_PASSWORD' (Get-RandSecret)
+Set-EnvKvIfEmpty '.env' 'ACTIVEPIECES_WEBHOOK_SECRET' (Get-RandSecret)
+Set-EnvKvIfEmpty '.env' 'ACTIVEPIECES_BASE_URL' 'http://activepieces:80'
+
 Copy-Item '.env' 'supabase/.env' -Force
 Write-Host '==> Synced supabase/.env from .env'
 
@@ -116,6 +127,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Provision failed' }
 Write-Host '==> Starting BFF'
 & docker @compose up -d bff
 
+Write-Host '==> Starting Activepieces (restart: always)'
+& docker @compose up -d activepieces activepieces-worker
+if ($LASTEXITCODE -ne 0) { throw 'Activepieces did not start' }
+
 if ($WithUi) {
   Write-Host '==> Building optional web UI (@docengine/* from npm, or npm run docengine:use-local)'
   & docker @compose --profile ui up -d --build web
@@ -127,8 +142,7 @@ Write-Host '  BFF health: http://localhost:4000/health'
 if ($WithUi) { Write-Host '  UI:         http://localhost:8080' }
 Write-Host '  n8n:        not started. Pull upstream yourself if you want it (see THIRD_PARTY.md):'
 Write-Host '              docker compose -f docker-compose.minimal.yml --profile automation up -d n8n'
-Write-Host '  Activepieces (MIT): not started. See docs/activepieces/README.md:'
-Write-Host '              docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d'
+Write-Host '  Activepieces: http://127.0.0.1:8081 (restarts with Docker)'
 Write-Host '  Login:      admin@example.com (password from provision output above)'
 Write-Host '  Upgrade:    see docs/upgrading.md'
 Write-Host '  Backup:     see docs/backup-restore.md'

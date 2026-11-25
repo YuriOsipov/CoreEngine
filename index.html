@@ -6,6 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CoreEngine</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('crm.appearance')
+          var mode = 'system'
+          if (raw) {
+            var parsed = JSON.parse(raw)
+            if (parsed && (parsed.colorScheme === 'light' || parsed.colorScheme === 'dark' || parsed.colorScheme === 'system')) {
+              mode = parsed.colorScheme
+            }
+          }
+          var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          var dark = mode === 'dark' || (mode === 'system' && systemDark)
+          if (dark) document.documentElement.classList.add('app-dark')
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

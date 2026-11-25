@@ -182,7 +182,7 @@ const isPanelLike = computed(
   gap: 0.65rem;
   min-width: 240px;
   max-width: 340px;
-  color: var(--p-surface-900);
+  color: var(--app-text, var(--p-text-color));
   font-size: 0.85rem;
 }
 
@@ -218,14 +218,14 @@ const isPanelLike = computed(
   align-items: center;
   gap: 0.4rem;
   border-radius: 999px;
-  background: var(--p-primary-50);
-  color: #1e40af;
+  background: var(--p-highlight-background);
+  color: var(--p-highlight-color, var(--p-primary-color));
   padding: 0.25rem 0.55rem;
 }
 
 .compact-record--panel {
   width: 100%;
-  color: var(--p-surface-900);
+  color: var(--app-text, var(--p-text-color));
   font-size: 0.875rem;
 }
 
@@ -281,8 +281,8 @@ const isPanelLike = computed(
   align-items: center;
   gap: 0.4rem;
   border-radius: 999px;
-  background: var(--p-primary-50);
-  color: #1e40af;
+  background: var(--p-highlight-background);
+  color: var(--p-highlight-color, var(--p-primary-color));
   padding: 0.25rem 0.55rem;
   font-size: 0.8rem;
 }
@@ -290,28 +290,27 @@ const isPanelLike = computed(
 /* Single-line header strip (Highlights). */
 .compact-record--inline {
   width: 100%;
-  color: var(--p-surface-900);
+  color: var(--app-text, var(--p-text-color));
   font-size: 0.875rem;
   min-width: 0;
 }
 
 .compact-record--inline .compact-record__fields {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: baseline;
-  gap: 0.65rem 1.35rem;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem 1.75rem;
   min-width: 0;
-  padding-bottom: 0.1rem;
+  padding-top: 0.15rem;
 }
 
 .compact-record--inline .compact-record__field {
   display: inline-flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 0.35rem;
-  flex: 0 0 auto;
-  max-width: 18rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  flex: 0 1 auto;
+  max-width: 16rem;
   min-width: 0;
 }
 
@@ -320,18 +319,20 @@ const isPanelLike = computed(
 }
 
 .compact-record--inline .compact-record__label {
-  color: var(--p-text-muted-color);
-  font-size: 0.75rem;
-  font-weight: 500;
+  color: var(--app-text-muted, var(--p-text-muted-color));
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   line-height: 1.2;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .compact-record--inline .compact-record__value {
   margin: 0;
-  font-size: 0.9rem;
-  font-weight: 500;
-  line-height: 1.35;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
   min-width: 0;
 }
 

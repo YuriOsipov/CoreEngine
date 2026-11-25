@@ -585,7 +585,7 @@ defineExpose({ validateRequired })
     <div v-if="visibleSections.length > 0" class="flex flex-col gap-4">
       <div
         v-if="showSectionTabs"
-        class="layout-tabs flex gap-[0.4rem] border-b border-surface-200"
+        class="layout-tabs flex gap-[0.4rem] border-b border-line"
         role="tablist"
       >
         <button
@@ -594,7 +594,7 @@ defineExpose({ validateRequired })
           type="button"
           class="layout-tab border border-transparent border-b-0 rounded-t-lg bg-transparent text-muted-color cursor-pointer px-3 py-2 font-[inherit]"
           :class="{
-            'layout-tab--active border-surface-200 bg-surface-0 text-primary font-semibold':
+            'layout-tab--active border-line bg-panel text-primary font-semibold':
               activeSectionIndex === index,
           }"
           role="tab"
@@ -616,7 +616,7 @@ defineExpose({ validateRequired })
           :header="group.title"
           toggleable
           v-model:collapsed="groupCollapsed[group.id]"
-          class="layout-group-panel mt-4 border border-surface-200 rounded-lg overflow-hidden"
+          class="layout-group-panel mt-4 border border-line rounded-lg overflow-hidden"
         >
           <div
             class="grid grid-cols-12 gap-x-3"
@@ -658,7 +658,7 @@ defineExpose({ validateRequired })
               </template>
               <template v-else>
               <label
-                class="text-[0.85rem] font-medium text-surface-700"
+                class="text-[0.85rem] font-medium text-ink-muted"
                 :class="{
                   'md:w-[7.5rem] md:shrink-0 md:grow-0': isGroupInlineLabels(group) && !isFullWidthLayoutField(field),
                 }"
@@ -867,8 +867,8 @@ defineExpose({ validateRequired })
 }
 
 .layout-tab--active {
-  border-color: var(--p-surface-200);
-  background: var(--p-surface-0);
+  border-color: var(--app-border, var(--p-content-border-color));
+  background: var(--app-panel, var(--p-content-background));
   color: var(--p-primary-color);
   font-weight: 600;
 }
@@ -878,14 +878,15 @@ defineExpose({ validateRequired })
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1rem;
-  background: var(--p-primary-50);
-  color: var(--p-surface-900);
+  background: var(--app-hover, var(--p-content-hover-background));
+  border-bottom: 1px solid var(--app-border, var(--p-content-border-color));
+  color: var(--app-text, var(--p-text-color));
   font-weight: 600;
 }
 
 .layout-group-panel :deep(.p-panel-content) {
   padding: 1rem;
-  background: var(--p-surface-0);
+  background: var(--app-panel, var(--p-content-background));
 }
 
 .files-field {
@@ -893,9 +894,9 @@ defineExpose({ validateRequired })
   flex-wrap: wrap;
   gap: 0.65rem;
   padding: 0.75rem;
-  border: 1px solid var(--p-surface-200);
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 8px;
-  background: var(--p-surface-50);
+  background: var(--app-canvas, var(--p-surface-950));
   min-height: 3.5rem;
 }
 
@@ -912,11 +913,11 @@ defineExpose({ validateRequired })
   align-items: center;
   gap: 0.65rem;
   padding: 0.45rem 0.65rem;
-  background: var(--p-surface-0);
-  border: 1px solid var(--p-surface-200);
+  background: var(--app-panel, var(--p-content-background));
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 6px;
   font-size: 0.82rem;
-  color: var(--p-surface-700);
+  color: var(--app-text, var(--p-text-color));
   max-width: 100%;
 }
 

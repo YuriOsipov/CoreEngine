@@ -12,7 +12,7 @@ const { t } = useTranslation()
 </script>
 
 <template>
-  <section class="bg-surface-0 border border-surface-200 rounded-lg mt-6 p-5">
+  <section class="bg-panel border border-line rounded-lg mt-6 p-5">
     <header class="mb-4">
       <h2 class="m-0">{{ t('navigation.designerTitle', 'Navigation designer') }}</h2>
       <p class="text-muted-color mt-1 mb-0">

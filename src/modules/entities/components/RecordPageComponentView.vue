@@ -613,35 +613,35 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
   <div class="record-page-component-view">
     <div
       v-if="component.type === 'highlights'"
-      class="record-page-highlights rounded-lg border border-surface-200 bg-surface-0 p-4"
+      class="record-page-highlights rounded-lg border border-line bg-panel px-4 py-3"
       :class="{ 'record-page-highlights--narrow': isNarrow }"
     >
-      <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div class="record-page-highlights__identity flex min-w-0 items-start gap-3">
+      <div class="record-page-highlights__top mb-2.5 flex flex-wrap items-center justify-between gap-3">
+        <div class="record-page-highlights__identity flex min-w-0 items-center gap-3">
           <div
-            class="record-page-highlights__icon flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary"
+            class="record-page-highlights__icon flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary"
             aria-hidden="true"
           >
             <i
               v-if="collectionIcon && isPrimeCollectionIcon"
               :class="collectionIcon"
-              class="text-lg"
+              class="text-xl"
             />
             <span
               v-else-if="collectionIcon"
               class="material-icons"
-              style="font-size: 1.35rem; line-height: 1"
+              style="font-size: 1.5rem; line-height: 1"
             >{{ collectionIcon }}</span>
             <i
               v-else
-              class="pi pi-box text-lg"
+              class="pi pi-box text-xl"
             />
           </div>
           <div class="min-w-0">
-            <div class="record-page-highlights__object-name m-0 text-xs font-semibold uppercase tracking-wide text-muted-color">
+            <div class="record-page-highlights__object-name m-0 text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-ink-muted">
               {{ collectionLabel }}
             </div>
-            <h1 class="record-page-highlights__record-title m-0 truncate text-xl font-bold leading-tight text-surface-900">
+            <h1 class="record-page-highlights__record-title m-0 truncate text-2xl font-bold leading-tight text-ink">
               {{ recordTitle }}
             </h1>
           </div>
@@ -726,12 +726,12 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'relatedList' && relatedListFieldsFor(component).length > 0"
-      class="flex flex-col gap-3"
+      class="record-page-related-stack flex min-h-0 flex-1 flex-col gap-3"
     >
       <div
         v-for="field in relatedListFieldsFor(component)"
         :key="field.id"
-        class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+        class="record-page-related-card min-h-0 rounded-lg border border-line bg-panel p-2.5"
       >
         <RelatedListFieldHost
           :field="field"
@@ -754,7 +754,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'files' && pageFilesField"
-      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+      class="rounded-lg border border-line bg-panel p-3"
     >
       <AttachedDataTableField
         :field="pageFilesField"
@@ -767,7 +767,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'activityLog' && pageActivityLogField"
-      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+      class="rounded-lg border border-line bg-panel p-3"
     >
       <ActivityLogField
         :field="pageActivityLogField"
@@ -778,7 +778,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'messageTimeline' && pageMessageTimelineField"
-      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+      class="rounded-lg border border-line bg-panel p-3"
     >
       <MessageTimelineField
         :field="pageMessageTimelineField"
@@ -789,11 +789,11 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'path'"
-      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+      class="record-page-path rounded-lg border border-line bg-panel px-3 py-2.5"
     >
       <div
         v-if="component.label"
-        class="mb-2 text-sm font-semibold text-surface-700"
+        class="mb-2 text-sm font-semibold text-ink"
       >
         {{ component.label }}
       </div>
@@ -832,7 +832,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'tabs'"
-      class="rounded-lg border border-surface-200 bg-surface-0 p-3"
+      class="record-page-tabs flex min-h-0 flex-1 flex-col rounded-lg border border-line bg-panel p-3"
     >
       <Tabs v-model:value="tabPanelValue">
         <TabList>
@@ -898,6 +898,10 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 </template>
 
 <style scoped>
+.record-page-highlights {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--app-border, var(--p-content-border-color)) 65%, transparent);
+}
+
 .record-page-highlights__icon {
   color: var(--p-primary-contrast-color, #fff);
 }
@@ -907,13 +911,30 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 }
 
 .record-page-highlights__actions--sticky {
-  background: var(--p-surface-0, #fff);
-  border-top: 1px solid var(--p-surface-200, #e5e7eb);
+  background: var(--app-panel, var(--p-content-background));
+  border-top: 1px solid var(--app-border, var(--p-content-border-color));
   bottom: 0;
   left: 0;
   padding: 0.65rem 0.75rem;
   position: sticky;
   right: 0;
   z-index: 12;
+}
+
+.record-page-related-stack > .record-page-related-card:first-child {
+  flex: 1 1 auto;
+}
+
+.record-page-tabs :deep(.p-tabpanels),
+.record-page-tabs :deep(.p-tabpanel) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.record-page-tabs :deep(.p-tabpanel > .grid) {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 </style>

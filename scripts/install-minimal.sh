@@ -3,9 +3,9 @@
 # Usage (repo root):
 #   ./scripts/install-minimal.sh
 #   ./scripts/install-minimal.sh --domain sales --with-ui
-# n8n / Activepieces are not started here. Customers pull upstream images themselves:
+# n8n is not started here. Customers pull that upstream image themselves:
 #   docker compose -f docker-compose.minimal.yml --profile automation up -d n8n
-#   docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d
+# Activepieces starts with this stack (restart: always). --with-activepieces is accepted and ignored.
 #   ./scripts/install-minimal.sh --admin-password 'ChooseAUniqueSecret!'
 set -euo pipefail
 
@@ -34,10 +34,8 @@ while [[ $# -gt 0 ]]; do
       exit 1
       ;;
     --with-activepieces)
-      echo "This installer does not start Activepieces. Pull the upstream image yourself:" >&2
-      echo "  docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d" >&2
-      echo "See docs/activepieces/README.md and THIRD_PARTY.md." >&2
-      exit 1
+      # Activepieces is part of the default stack. Keep the flag so older commands still run.
+      shift
       ;;
     --admin-password)
       ADMIN_PASSWORD="${2:-}"
@@ -98,6 +96,27 @@ ensure_env() {
     echo "==> Generated POSTGRES_APP_PASSWORD in .env"
   fi
 
+  ensure_kv() {
+    local key="$1" val="$2" cur
+    cur="$(grep -E "^${key}=" .env | head -1 | cut -d= -f2- || true)"
+    if [[ -z "${cur}" ]]; then
+      set_kv "$key" "$val"
+      echo "==> Generated ${key} in .env"
+    fi
+  }
+  rand_hex() {
+    if command -v openssl >/dev/null 2>&1; then
+      openssl rand -hex "$1"
+    else
+      head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'
+    fi
+  }
+  ensure_kv AP_ENCRYPTION_KEY "$(rand_hex 16)"
+  ensure_kv AP_JWT_SECRET "$(rand_hex 32)"
+  ensure_kv AP_POSTGRES_PASSWORD "$(rand_secret)"
+  ensure_kv ACTIVEPIECES_WEBHOOK_SECRET "$(rand_secret)"
+  ensure_kv ACTIVEPIECES_BASE_URL "http://activepieces:80"
+
   cp .env supabase/.env
   echo "==> Synced supabase/.env from .env"
 }
@@ -128,6 +147,9 @@ echo "==> Provisioning kernel + pack (${DOMAIN})"
 echo "==> Starting BFF"
 "${COMPOSE[@]}" up -d bff
 
+echo "==> Starting Activepieces (restart: always)"
+"${COMPOSE[@]}" up -d activepieces activepieces-worker
+
 if [[ "$WITH_UI" -eq 1 ]]; then
   echo "==> Building optional web UI (@docengine/* from npm, or npm run docengine:use-local)"
   "${COMPOSE[@]}" --profile ui up -d --build web
@@ -141,8 +163,7 @@ if [[ "$WITH_UI" -eq 1 ]]; then
 fi
 echo "  n8n:        not started. Pull upstream yourself if you want it (see THIRD_PARTY.md):"
 echo "              docker compose -f docker-compose.minimal.yml --profile automation up -d n8n"
-echo "  Activepieces (MIT): not started. See docs/activepieces/README.md:"
-echo "              docker compose -f docker-compose.minimal.yml --profile automation-activepieces up -d"
+echo "  Activepieces: http://127.0.0.1:8081 (restarts with Docker)"
 echo "  Login:      admin@example.com (password from provision output above)"
 echo "  Upgrade:    see docs/upgrading.md"
 echo "  Backup:     see docs/backup-restore.md"

@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 export default {
   name: 'FormBuilder',
 }
@@ -2573,7 +2573,7 @@ function hintTooltip(value: string) {
             >
               <span class="palette-card__drag" aria-hidden="true">⠿</span>
               <i class="palette-card__icon pi" :class="paletteIcon(element)" aria-hidden="true" />
-              <span class="flex-1 min-w-0 truncate text-[0.84rem] text-surface-800 leading-tight">
+              <span class="flex-1 min-w-0 truncate text-[0.84rem] text-ink leading-tight">
                 {{ element.label }}
               </span>
             </div>
@@ -3963,14 +3963,17 @@ function hintTooltip(value: string) {
 
 <style scoped>
 .form-builder {
-  --notion-wash: #f7f7f5;
-  --notion-block: #f1f1ef;
-  --notion-ink: #37352f;
-  --notion-hover: rgba(55, 53, 47, 0.06);
-  --notion-line: rgba(55, 53, 47, 0.16);
-  --notion-card: #fff;
-  --notion-muted: #f1f1ef;
-  --notion-input: #f1f1ef;
+  --notion-wash: var(--app-canvas, #edf3f4);
+  --notion-block: var(--app-hover, #f1f1ef);
+  --notion-ink: var(--app-text, #37352f);
+  --notion-hover: var(--app-hover, rgba(55, 53, 47, 0.06));
+  --notion-line: var(--app-border, rgba(55, 53, 47, 0.16));
+  --notion-card: var(--app-panel, #fff);
+  --notion-muted: var(--app-hover, #f1f1ef);
+  --notion-input: var(--app-panel, #f1f1ef);
+  --notion-accent-line: var(--app-border, #8fa3a8);
+  --notion-line-strong: var(--app-border, #6f868c);
+  --notion-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.45));
   font-family: Inter, system-ui, sans-serif;
   color: var(--notion-ink);
 }
@@ -4007,7 +4010,7 @@ function hintTooltip(value: string) {
 .form-builder__main :deep(.p-splitter-gutter-resizing),
 .form-builder__workspace :deep(.p-splitter-gutter:hover),
 .form-builder__workspace :deep(.p-splitter-gutter-resizing) {
-  background: rgba(143, 163, 168, 0.45);
+  background: color-mix(in srgb, var(--notion-accent-line) 45%, transparent);
 }
 
 .form-builder__main :deep(.p-splitter-gutter-handle),
@@ -4015,7 +4018,7 @@ function hintTooltip(value: string) {
   height: 2.5rem;
   width: 3px;
   border-radius: 999px;
-  background: #8fa3a8;
+  background: var(--notion-accent-line);
 }
 
 .form-builder__workspace-pane {
@@ -4051,7 +4054,7 @@ function hintTooltip(value: string) {
 .palette {
   border: 0;
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--notion-wash);
   padding: 0.75rem 0.55rem;
 }
 
@@ -4066,7 +4069,7 @@ function hintTooltip(value: string) {
 }
 
 .palette-search :deep(.p-inputtext::placeholder) {
-  color: rgba(55, 53, 47, 0.4);
+  color: var(--notion-ink-muted);
   opacity: 1;
 }
 
@@ -4089,8 +4092,8 @@ function hintTooltip(value: string) {
   gap: 0.45rem;
   width: 100%;
   padding: 0.48rem 0.55rem;
-  background: #fff;
-  border: 1px solid rgba(55, 53, 47, 0.1);
+  background: var(--notion-card);
+  border: 1px solid var(--notion-line);
   border-radius: 8px;
   cursor: grab;
   user-select: none;
@@ -4104,7 +4107,7 @@ function hintTooltip(value: string) {
 
 .palette-card:hover,
 .palette-card--assigned:hover {
-  background: rgba(55, 53, 47, 0.08);
+  background: var(--notion-hover);
 }
 
 .palette-card__icon {
@@ -4112,7 +4115,7 @@ function hintTooltip(value: string) {
   width: 1rem;
   font-size: 0.75rem;
   line-height: 1;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--notion-ink-muted);
   background: transparent;
 }
 
@@ -4130,9 +4133,9 @@ function hintTooltip(value: string) {
 
 .palette-card--assigned {
   cursor: default;
-  background: rgba(55, 53, 47, 0.05);
+  background: var(--notion-hover);
   border-color: transparent;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--notion-ink-muted);
 }
 
 .canvas-panel {
@@ -4147,7 +4150,7 @@ function hintTooltip(value: string) {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: rgba(55, 53, 47, 0.45);
+  color: var(--notion-ink-muted);
 }
 
 .canvas-sheet {
@@ -4155,9 +4158,9 @@ function hintTooltip(value: string) {
   flex-direction: column;
   gap: 0.85rem;
   padding: 0.85rem;
-  border: 1px solid rgba(55, 53, 47, 0.08);
+  border: 1px solid var(--notion-line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--notion-card);
 }
 
 .canvas-sheet__bar {
@@ -4167,9 +4170,9 @@ function hintTooltip(value: string) {
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.4rem 0.65rem;
-  border: 1px solid #8fa3a8;
+  border: 1px solid var(--notion-accent-line);
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--notion-wash);
 }
 
 .canvas-sheet__title {
@@ -4205,18 +4208,18 @@ function hintTooltip(value: string) {
 }
 
 .tab-builder__tab--active {
-  border-color: #6f868c;
-  background: #fff;
+  border-color: var(--notion-line-strong);
+  background: var(--notion-card);
   color: var(--notion-ink);
   font-size: 0.92rem;
   font-weight: 600;
-  box-shadow: 0 0 0 1px #6f868c;
+  box-shadow: 0 0 0 1px var(--notion-line-strong);
 }
 
 .tab-builder__tab--selected {
-  border-color: #6f868c;
-  background: #fff;
-  box-shadow: 0 0 0 1px #6f868c;
+  border-color: var(--notion-line-strong);
+  background: var(--notion-card);
+  box-shadow: 0 0 0 1px var(--notion-line-strong);
 }
 
 .tab-builder__tab--ghost {
@@ -4230,17 +4233,17 @@ function hintTooltip(value: string) {
 
 .action-builder {
   padding: 0.55rem 0.65rem;
-  border: 1px solid #8fa3a8;
+  border: 1px solid var(--notion-accent-line);
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--notion-wash);
 }
 
 .action-builder__item {
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(55, 53, 47, 0.14);
+  border: 1px solid var(--notion-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--notion-card);
   color: var(--notion-ink);
   cursor: pointer;
   font: inherit;
@@ -4273,29 +4276,29 @@ function hintTooltip(value: string) {
 }
 
 .action-builder__item--selected {
-  border-color: #6f868c;
-  background: #fff;
+  border-color: var(--notion-line-strong);
+  background: var(--notion-card);
   color: #191918;
   font-weight: 600;
-  box-shadow: 0 0 0 1px #6f868c;
+  box-shadow: 0 0 0 1px var(--notion-line-strong);
 }
 
 .group-block {
-  border: 1px solid #8fa3a8;
+  border: 1px solid var(--notion-accent-line);
   border-radius: 8px;
-  background: #edf3f4;
+  background: var(--notion-wash);
   overflow: hidden;
   user-select: none;
 }
 
 .group-block--selected {
-  background: #e4eef0;
-  border-color: #6f868c;
-  box-shadow: 0 0 0 1px #6f868c;
+  background: var(--notion-hover);
+  border-color: var(--notion-line-strong);
+  box-shadow: 0 0 0 1px var(--notion-line-strong);
 }
 
 .group-block--selected .group-block__title {
-  color: #111;
+  color: var(--notion-ink);
 }
 
 .group-block--ghost {
@@ -4315,7 +4318,7 @@ function hintTooltip(value: string) {
   padding: 0.85rem 0.9rem 0.35rem;
   border: 0;
   background: transparent;
-  color: #111;
+  color: var(--notion-ink);
   font: inherit;
   cursor: pointer;
 }
@@ -4329,7 +4332,7 @@ function hintTooltip(value: string) {
   min-width: 0;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #111;
+  color: var(--notion-ink);
 }
 
 .group-block__arrow {
@@ -4338,7 +4341,7 @@ function hintTooltip(value: string) {
   width: 0.85rem;
   border: 0;
   background: transparent;
-  color: rgba(55, 53, 47, 0.4);
+  color: var(--notion-ink-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.62rem;
@@ -4362,7 +4365,7 @@ function hintTooltip(value: string) {
 .group-block .canvas-field {
   padding: 0.4rem 0.6rem;
   gap: 0.65rem;
-  background: #fff;
+  background: var(--notion-card);
   border: 1px solid transparent;
   box-shadow: none;
   border-radius: 6px;
@@ -4371,7 +4374,7 @@ function hintTooltip(value: string) {
 .group-block .canvas-field__label {
   font-size: 0.82rem;
   font-weight: 700;
-  color: #111;
+  color: var(--notion-ink);
 }
 
 .group-block .canvas-field--inline .canvas-field__label-row {
@@ -4382,7 +4385,7 @@ function hintTooltip(value: string) {
 .group-block .canvas-datatable {
   min-height: 2rem;
   border-radius: 6px;
-  background: #edf3f4;
+  background: var(--notion-wash);
   color: #9ca3af;
   font-weight: 500;
   padding: 0.35rem 0.75rem;
@@ -4390,33 +4393,33 @@ function hintTooltip(value: string) {
 }
 
 .group-block .canvas-field--selected {
-  background: #fff;
-  border-color: #6f868c;
-  box-shadow: 0 0 0 1px #6f868c;
+  background: var(--notion-card);
+  border-color: var(--notion-line-strong);
+  box-shadow: 0 0 0 1px var(--notion-line-strong);
 }
 
 .group-block .canvas-field:hover {
-  background: #fff;
+  background: var(--notion-card);
   box-shadow: none;
 }
 
 .group-block .canvas-field--selected .canvas-field__label,
 .group-block .canvas-field:hover .canvas-field__label {
-  color: #111;
+  color: var(--notion-ink);
   font-weight: 700;
 }
 
 .group-block .canvas-field--selected .canvas-placeholder,
 .group-block .canvas-field--selected .canvas-datatable {
-  background: #edf3f4;
+  background: var(--notion-wash);
   color: #374151;
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px #8fa3a8;
+  box-shadow: inset 0 0 0 1px var(--notion-accent-line);
 }
 
 .group-block .canvas-field:hover .canvas-placeholder,
 .group-block .canvas-field:hover .canvas-datatable {
-  background: #edf3f4;
+  background: var(--notion-wash);
   color: #6b7280;
   font-weight: 500;
   box-shadow: none;
@@ -4512,7 +4515,7 @@ function hintTooltip(value: string) {
 
 .canvas-field:hover .canvas-placeholder,
 .canvas-field:hover .canvas-datatable {
-  background: #fff;
+  background: var(--notion-card);
 }
 
 .canvas-field--ghost {
@@ -4539,7 +4542,7 @@ function hintTooltip(value: string) {
   width: 100%;
   padding: 0.4rem 0.8rem;
   border-radius: 8px;
-  background: #e7edf2;
+  background: var(--notion-hover);
   color: rgba(55, 53, 47, 0.62);
   font-size: 0.8rem;
   line-height: 1.2;
@@ -4572,7 +4575,7 @@ function hintTooltip(value: string) {
 .canvas-datatable {
   border: 0;
   border-radius: 8px;
-  background: #e7edf2;
+  background: var(--notion-hover);
   color: rgba(55, 53, 47, 0.72);
   padding: 0.5rem 0.8rem;
   min-height: 2.4rem;
@@ -4584,7 +4587,7 @@ function hintTooltip(value: string) {
 }
 
 .properties-panel {
-  background: #edf3f4;
+  background: var(--notion-wash);
   border: 0;
   border-radius: 12px;
   padding: 0.9rem 0.8rem 1rem;
@@ -4637,7 +4640,7 @@ function hintTooltip(value: string) {
 .properties-panel :deep(.p-inputtext::placeholder),
 .properties-panel :deep(.p-textarea::placeholder),
 .properties-panel :deep(.p-placeholder) {
-  color: rgba(55, 53, 47, 0.4);
+  color: var(--notion-ink-muted);
   opacity: 1;
 }
 
@@ -4653,7 +4656,7 @@ function hintTooltip(value: string) {
   border: 1px solid rgba(55, 53, 47, 0.4);
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--notion-ink-muted);
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;
@@ -4695,20 +4698,20 @@ function hintTooltip(value: string) {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  --p-select-background: #fff;
-  --p-select-filled-background: #fff;
-  --p-select-filled-hover-background: #fff;
-  --p-select-filled-focus-background: #fff;
-  --p-select-hover-background: #fff;
-  --p-select-focus-background: #fff;
+  --p-select-background: var(--notion-card);
+  --p-select-filled-background: var(--notion-card);
+  --p-select-filled-hover-background: var(--notion-card);
+  --p-select-filled-focus-background: var(--notion-card);
+  --p-select-hover-background: var(--notion-card);
+  --p-select-focus-background: var(--notion-card);
   --p-select-border-color: rgba(55, 53, 47, 0.12);
   --p-select-hover-border-color: rgba(55, 53, 47, 0.2);
-  --p-select-focus-border-color: rgba(55, 53, 47, 0.28);
-  --p-select-color: #37352f;
-  --p-inputtext-background: #fff;
-  --p-inputtext-filled-background: #fff;
-  background: #fff !important;
-  border: 1px solid rgba(55, 53, 47, 0.12);
+  --p-select-focus-border-color: var(--notion-line-strong);
+  --p-select-color: var(--notion-ink);
+  --p-inputtext-background: var(--notion-card);
+  --p-inputtext-filled-background: var(--notion-card);
+  background: var(--notion-card) !important;
+  border: 1px solid var(--notion-line);
   box-shadow: none;
   border-radius: 6px;
   color: var(--notion-ink);
@@ -4730,8 +4733,8 @@ function hintTooltip(value: string) {
 .properties-panel :deep(.p-dropdown:not(.p-disabled).p-focus),
 .properties-panel :deep(.p-inputnumber-input:enabled:focus),
 .properties-panel :deep(.p-multiselect:not(.p-disabled).p-focus) {
-  background: #fff !important;
-  border-color: rgba(55, 53, 47, 0.28);
+  background: var(--notion-card) !important;
+  border-color: var(--notion-line-strong);
   box-shadow: none;
 }
 
@@ -4782,14 +4785,14 @@ function hintTooltip(value: string) {
 
 <style>
 .property-select-overlay {
-  border: 1px solid rgba(55, 53, 47, 0.12);
+  border: 1px solid var(--notion-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--notion-card);
   box-shadow: 0 8px 24px rgba(15, 15, 15, 0.08);
 }
 
 .property-select-overlay .p-select-option {
-  color: #37352f;
+  color: var(--notion-ink);
   border-radius: 4px;
 }
 
@@ -4797,7 +4800,7 @@ function hintTooltip(value: string) {
 .property-select-overlay .p-select-option.p-select-option-selected.p-focus,
 .property-select-overlay .p-select-option:not(.p-disabled).p-focus,
 .property-select-overlay .p-select-option:not(.p-disabled):hover {
-  background: #edf3f4;
+  background: var(--notion-wash);
   color: #191918;
 }
 </style>

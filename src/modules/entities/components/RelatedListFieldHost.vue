@@ -69,7 +69,7 @@ function onViewRecord(row: Record<string, unknown>): void {
 </script>
 
 <template>
-  <div class="related-list-field-host h-full min-h-0">
+  <div class="related-list-field-host flex h-full min-h-0 flex-col">
     <RelatedDataTableField
       v-if="isDataTableField(field) && field.relatedCollection"
       :field="field"
@@ -125,3 +125,10 @@ function onViewRecord(row: Record<string, unknown>): void {
     </p>
   </div>
 </template>
+
+<style scoped>
+.related-list-field-host > :deep(.related-data-table-field) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+</style>

@@ -293,6 +293,18 @@ function revisionId(value: unknown): number | null {
 function normalizeComparableValue(value: unknown): unknown {
   if (value === null || value === undefined || value === '') return null
 
+  // Expanded M2O `{ id }` and scalar FK must compare equal.
+  const asRelationId = relationRecordId(value)
+  if (
+    asRelationId !== null &&
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    'id' in (value as object)
+  ) {
+    return `id:${asRelationId}`
+  }
+
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
@@ -318,6 +330,7 @@ function normalizeComparableValue(value: unknown): unknown {
     for (const [key, nestedValue] of Object.entries(record).sort(([a], [b]) =>
       a.localeCompare(b),
     )) {
+      if (key.startsWith('_')) continue
       normalized[key] = normalizeComparableValue(nestedValue)
     }
     return normalized
@@ -326,7 +339,30 @@ function normalizeComparableValue(value: unknown): unknown {
   return String(value)
 }
 
+function valuesEqualAsRelationOrScalar(left: unknown, right: unknown): boolean {
+  const leftId = relationRecordId(left)
+  const rightId = relationRecordId(right)
+  if (leftId !== null && rightId !== null && String(leftId) === String(rightId)) {
+    const leftIsRelationShape =
+      typeof left === 'object' || typeof left === 'string' || typeof left === 'number'
+    const rightIsRelationShape =
+      typeof right === 'object' || typeof right === 'string' || typeof right === 'number'
+    if (leftIsRelationShape && rightIsRelationShape) {
+      // Same FK id (scalar or expanded) — ignore extra expanded label fields.
+      if (
+        (typeof left === 'object' && left !== null) ||
+        (typeof right === 'object' && right !== null)
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 function valuesEqual(left: unknown, right: unknown): boolean {
+  if (valuesEqualAsRelationOrScalar(left, right)) return true
+
   const normalizedLeft = normalizeComparableValue(left)
   const normalizedRight = normalizeComparableValue(right)
 
@@ -346,6 +382,22 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   }
 
   return false
+}
+
+function resolveComparableParent(
+  current: RevisionSnapshot,
+  revisionIndex: Map<number, RevisionSnapshot>,
+): RevisionSnapshot | null {
+  let parentId = current.parentId
+  const seen = new Set<number>()
+  while (parentId !== null && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = revisionIndex.get(parentId)
+    if (!parent) return null
+    if (hasComparableSnapshot(parent.data)) return parent
+    parentId = parent.parentId
+  }
+  return null
 }
 
 function buildDeltaEntry(
@@ -423,9 +475,8 @@ function revisionChanges(
   const current = revisionIndex.get(id)
   if (!current) return []
 
-  const parent =
-    current.parentId !== null ? revisionIndex.get(current.parentId) : undefined
-  if (!parent || !hasComparableSnapshot(parent.data)) return []
+  const parent = resolveComparableParent(current, revisionIndex)
+  if (!parent) return []
 
   return computeDataDiff(parent.data, current.data, context)
 }

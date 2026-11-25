@@ -255,27 +255,31 @@ export function filterSetupNavGroups(options: {
 }): SetupNavGroupView[] {
   const { isFullSetupAdmin, canAuthorReports, projectTemplateExists, translate } = options
 
-  return SETUP_NAV_GROUPS.map((group) => {
-    const items = group.items
+  const groups: SetupNavGroupView[] = []
+  for (const group of SETUP_NAV_GROUPS) {
+    const items: SetupNavItemView[] = group.items
       .filter((item) => {
         if (item.requiresProjectTemplate && !projectTemplateExists) return false
         if (isFullSetupAdmin) return true
         if (canAuthorReports) return Boolean(item.reportsAuthor)
         return false
       })
-      .map((item) => ({
-        id: item.id,
-        label: translate(item.labelKey, item.defaultLabel),
-        to: item.to,
-        external: item.external,
-      }))
+      .map((item) => {
+        const view: SetupNavItemView = {
+          id: item.id,
+          label: translate(item.labelKey, item.defaultLabel),
+          to: item.to,
+        }
+        if (item.external) view.external = true
+        return view
+      })
 
-    if (!items.length) return null
-
-    return {
+    if (!items.length) continue
+    groups.push({
       id: group.id,
       label: translate(group.labelKey, group.defaultLabel),
       items,
-    }
-  }).filter((group): group is SetupNavGroupView => group != null)
+    })
+  }
+  return groups
 }

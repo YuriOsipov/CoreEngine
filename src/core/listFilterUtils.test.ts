@@ -26,14 +26,14 @@ describe('boolean list filters', () => {
   it('builds _eq predicates for true and false', () => {
     expect(
       buildListFilter(
-        [{ id: 'a', field: 'is_new', operator: '_eq', value: true, type: 'boolean' }],
+        [{ field: 'is_new', operator: '_eq', value: true, type: 'boolean' }],
         'and',
       ),
     ).toEqual({ is_new: { _eq: true } })
 
     expect(
       buildListFilter(
-        [{ id: 'a', field: 'is_new', operator: '_eq', value: false, type: 'boolean' }],
+        [{ field: 'is_new', operator: '_eq', value: false, type: 'boolean' }],
         'and',
       ),
     ).toEqual({ is_new: { _eq: false } })
@@ -60,7 +60,7 @@ describe('boolean list filters', () => {
 
     expect(
       buildListFilter(
-        [{ id: 'a', field: 'is_new', operator: '_eq', value: [null], type: 'boolean' }],
+        [{ field: 'is_new', operator: '_eq', value: [null], type: 'boolean' }],
         'and',
       ),
     ).toEqual({})

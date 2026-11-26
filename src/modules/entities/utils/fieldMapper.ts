@@ -233,9 +233,8 @@ export function isCalculatedFieldInterface(interfaceName: string | null | undefi
   return CALCULATED_INTERFACE_HINTS.some((hint) => normalized.includes(hint))
 }
 
-/** Fields that must not be edited in entity forms (meta.readonly, calculated UI, etc.). */
-export function isFieldReadonly(field: FieldDefinition): boolean {
-  if (field.meta?.readonly === true) return true
+/** Server-owned computed columns — never client-written (formula / rollup / autoNumber). */
+export function isFieldServerOwned(field: FieldDefinition): boolean {
   if (isCalculatedFieldInterface(field.meta?.interface)) return true
   const options = field.meta?.options
   if (options && typeof options === 'object') {
@@ -249,6 +248,12 @@ export function isFieldReadonly(field: FieldDefinition): boolean {
     if (mode === 'formula' || mode === 'rollup' || mode === 'autonumber') return true
   }
   return false
+}
+
+/** Fields that must not be edited in entity forms (meta.readonly, calculated UI, etc.). */
+export function isFieldReadonly(field: FieldDefinition): boolean {
+  if (field.meta?.readonly === true) return true
+  return isFieldServerOwned(field)
 }
 
 export function findRelationForField(

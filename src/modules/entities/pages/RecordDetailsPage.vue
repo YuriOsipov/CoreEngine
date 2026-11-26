@@ -1275,7 +1275,24 @@ async function handleRelatedChanged(): Promise<void> {
       detailRecordId.value,
       layoutSchema.value,
     )
-    recordData.value = record
+    // Merge so unchanged nested M2O payloads keep identity where possible and
+    // Highlights/FormRenderer can patch without a full blank refresh.
+    const prev = recordData.value
+    const next: Record<string, unknown> = { ...prev }
+    let changed = false
+    for (const [key, value] of Object.entries(record)) {
+      if (prev[key] === value) continue
+      if (
+        typeof prev[key] !== 'object'
+        && typeof value !== 'object'
+        && String(prev[key] ?? '') === String(value ?? '')
+      ) {
+        continue
+      }
+      next[key] = value
+      changed = true
+    }
+    if (changed) recordData.value = next
   } catch {
     // Keep the current record if the silent rollup refresh fails.
   }

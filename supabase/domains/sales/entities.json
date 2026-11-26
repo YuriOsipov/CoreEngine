@@ -1153,6 +1153,244 @@
       }
     },
     {
+      "apiName": "quote",
+      "label": "Quote",
+      "icon": "pi pi-file",
+      "group": "Sales",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "opportunity_id",
+          "label": "Opportunity",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "required": true,
+          "isIndexed": true,
+          "relationKind": "M2O",
+          "relatedEntity": "opportunity",
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "opportunity"
+          }
+        },
+        {
+          "apiName": "account_id",
+          "label": "Account",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "isIndexed": true,
+          "options": {
+            "useInSearch": true
+          },
+          "relationKind": "M2O",
+          "relatedEntity": "account",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "account"
+          }
+        },
+        {
+          "apiName": "status",
+          "label": "Status",
+          "type": "STRING",
+          "interface": "select-dropdown",
+          "options": {
+            "choices": [
+              {
+                "text": "Draft",
+                "value": "draft"
+              },
+              {
+                "text": "Sent",
+                "value": "sent"
+              },
+              {
+                "text": "Accepted",
+                "value": "accepted"
+              },
+              {
+                "text": "Rejected",
+                "value": "rejected"
+              },
+              {
+                "text": "Expired",
+                "value": "expired"
+              }
+            ],
+            "default": "draft"
+          }
+        },
+        {
+          "apiName": "valid_until",
+          "label": "Valid until",
+          "type": "DATE",
+          "interface": "datetime",
+          "displayOptions": {
+            "format": "short"
+          }
+        },
+        {
+          "apiName": "total",
+          "label": "Total",
+          "type": "ALIAS",
+          "interface": "currency",
+          "readonly": true,
+          "options": {
+            "scale": 2,
+            "rollup": {
+              "op": "SUM",
+              "live": true,
+              "valueField": "total",
+              "childEntity": "quote_item",
+              "parentField": "quote"
+            },
+            "precision": 18,
+            "resultType": "FLOAT",
+            "computeMode": "rollup",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "notes",
+          "label": "Notes",
+          "type": "STRING",
+          "interface": "textarea"
+        }
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner",
+        "inheritOwnerFrom": "opportunity_id"
+      }
+    },
+    {
+      "apiName": "quote_item",
+      "label": "Quote item",
+      "icon": "pi pi-list",
+      "displayTemplate": "{{name}}",
+      "fields": [
+        {
+          "apiName": "quote",
+          "label": "Quote",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "required": true,
+          "isIndexed": true,
+          "relationKind": "M2O",
+          "relatedEntity": "quote",
+          "relationMeta": {
+            "on_delete": "CASCADE",
+            "one_collection": "quote"
+          }
+        },
+        {
+          "apiName": "item",
+          "label": "Item",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "required": true,
+          "relationKind": "M2O",
+          "relatedEntity": "item",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "item"
+          }
+        },
+        {
+          "apiName": "variant",
+          "label": "Variant",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "variant",
+          "relationMeta": {
+            "on_delete": "RESTRICT",
+            "one_collection": "variant"
+          }
+        },
+        {
+          "apiName": "promotion",
+          "label": "Promotion",
+          "type": "UUID",
+          "interface": "select-dropdown-m2o",
+          "relationKind": "M2O",
+          "relatedEntity": "promotion",
+          "relationMeta": {
+            "on_delete": "SET NULL",
+            "one_collection": "promotion"
+          }
+        },
+        {
+          "apiName": "quantity",
+          "label": "Quantity",
+          "type": "FLOAT",
+          "interface": "input",
+          "required": true,
+          "options": {
+            "default": 1
+          }
+        },
+        {
+          "apiName": "base_price",
+          "label": "Base price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "defaultFromParent": "base_price",
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "main_price",
+          "label": "Main price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "options": {
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "price",
+          "label": "Price",
+          "type": "FLOAT",
+          "interface": "currency",
+          "required": true,
+          "options": {
+            "suffix": "USD",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        },
+        {
+          "apiName": "total",
+          "label": "Total",
+          "type": "FLOAT",
+          "interface": "currency",
+          "readonly": true,
+          "options": {
+            "scale": 2,
+            "template": "{{ MULTIPLY(price, quantity) }}",
+            "precision": 18,
+            "computeMode": "formula",
+            "decimalPlaces": 2,
+            "maxFractionDigits": 2,
+            "minFractionDigits": 2
+          }
+        }
+      ],
+      "backendConfig": {
+        "rowLevelSecurity": "owner",
+        "inheritOwnerFrom": "quote"
+      }
+    },
+    {
       "apiName": "price_group",
       "label": "Price group",
       "icon": "pi pi-dollar",

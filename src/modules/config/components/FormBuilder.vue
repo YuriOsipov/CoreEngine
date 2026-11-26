@@ -42,6 +42,11 @@ import {
 } from '@/interfaces'
 import { useTranslation } from '@/core/translation'
 import {
+  fetchFlowTriggers,
+  type GraphQlFlowTrigger,
+} from '@/core/graphql/flowTriggersApi'
+import { flowTriggerKeyFromWebhook } from '@/core/graphql/flowsProxy'
+import {
   isSystemAuditLayoutField,
   isSystemInfoEnabled,
 } from '@/core/layoutFieldRules'
@@ -230,7 +235,7 @@ const ACTION_DISPLAY_OPTIONS = computed(() => [
   { label: t('formBuilder.document', 'Document'), value: 'document' },
 ])
 const ACTION_BEHAVIOR_OPTIONS = computed(() => [
-  { label: t('formBuilder.actionBehaviorFlow', 'Connection'), value: 'flow' },
+  { label: t('formBuilder.actionBehaviorFlow', 'External Flow'), value: 'flow' },
   {
     label: t('formBuilder.actionBehaviorCloneRelated', 'Clone structure'),
     value: 'cloneRelated',
@@ -522,6 +527,15 @@ const isBulkUpdateRelatedAction = computed(
 const isCreateRecordAction = computed(
   () => selectedAction.value?.behavior === 'createRecord',
 )
+const isFlowAction = computed(
+  () =>
+    Boolean(selectedAction.value)
+    && !isDocumentAction.value
+    && !isCloneRelatedAction.value
+    && !isBulkUpdateRelatedAction.value
+    && !isCreateRecordAction.value,
+)
+const connections = ref<GraphQlFlowTrigger[]>([])
 
 function updateSelectedActionCreateRecord(
   patch: Partial<NonNullable<EntityAction['createRecord']>>,
@@ -824,6 +838,35 @@ async function loadBulkSourceNestedFields(
   }
 }
 
+function connectionKeyFromAction(): string {
+  const raw = selectedAction.value?.flow?.webhook?.trim() ?? ''
+  if (!raw) return ''
+  return flowTriggerKeyFromWebhook(raw) || raw
+}
+
+const connectionOptions = computed(() => {
+  const options = connections.value.map((entry) => ({
+    label: entry.enabled
+      ? entry.key
+      : t('setup.tasks.connectionDisabled', '{key} (disabled)', { key: entry.key }),
+    value: entry.key,
+  }))
+  const known = new Set(options.map((option) => option.value))
+  const current = connectionKeyFromAction()
+  if (current && !known.has(current)) {
+    options.push({ label: current, value: current })
+  }
+  return options
+})
+
+async function loadConnectionOptions(): Promise<void> {
+  try {
+    connections.value = await fetchFlowTriggers()
+  } catch {
+    connections.value = []
+  }
+}
+
 async function loadDocTemplateOptionsForBuilder(): Promise<void> {
   if (!collectionName.value) {
     docTemplateOptions.value = []
@@ -842,13 +885,16 @@ async function loadDocTemplateOptionsForBuilder(): Promise<void> {
 }
 
 watch(
-  [collectionName, selectedActionId, isDocumentAction, isCreateRecordAction],
+  [collectionName, selectedActionId, isDocumentAction, isCreateRecordAction, isFlowAction],
   () => {
     if (isDocumentAction.value) {
       void loadDocTemplateOptionsForBuilder()
     }
     if (isCreateRecordAction.value) {
       void ensureBulkUserCollectionsLoaded()
+    }
+    if (isFlowAction.value) {
+      void loadConnectionOptions()
     }
   },
 )
@@ -1395,7 +1441,7 @@ const canSkipInteractiveFill = computed(
   () => Boolean(selectedAction.value?.document?.templateId),
 )
 const configActionWebhook = computed({
-  get: () => selectedAction.value?.flow?.webhook ?? '',
+  get: () => connectionKeyFromAction(),
   set: (webhook: string) => {
     updateSelectedActionFlow({ webhook })
   },
@@ -2479,7 +2525,7 @@ function hintTooltip(value: string) {
         class="form-builder__palette-pane min-h-0 min-w-0"
       >
     <aside class="palette flex w-full h-full min-h-0 flex-col">
-      <h2 class="m-0 mb-2 text-[0.95rem] font-semibold text-surface-900">{{ t('formBuilder.available', 'Available') }}</h2>
+      <h2 class="m-0 mb-2 text-[0.95rem] font-semibold text-ink">{{ t('formBuilder.available', 'Available') }}</h2>
 
       <IconField class="palette-search mb-3 shrink-0">
         <InputIcon class="pi pi-search" />
@@ -2514,7 +2560,7 @@ function hintTooltip(value: string) {
       <template v-else>
         <p
           v-if="!paletteHasItems"
-          class="mt-3 mb-0 text-[0.8rem] text-surface-400 text-center"
+          class="mt-3 mb-0 text-[0.8rem] text-ink-muted text-center"
         >
           {{
             t(
@@ -2527,7 +2573,7 @@ function hintTooltip(value: string) {
 
         <p
           v-else-if="visiblePaletteSections.length === 0"
-          class="mt-3 mb-0 text-[0.8rem] text-surface-400 text-center"
+          class="mt-3 mb-0 text-[0.8rem] text-ink-muted text-center"
         >
           {{ t('formBuilder.noSearchResults', 'No fields match your search.') }}
         </p>
@@ -2609,7 +2655,7 @@ function hintTooltip(value: string) {
         class="action-builder"
       >
         <div class="flex gap-3 items-center justify-between mb-2">
-          <h3 class="m-0 text-surface-700 text-[0.8rem] font-medium">{{ t('formBuilder.recordActions', 'Record actions') }}</h3>
+          <h3 class="m-0 text-ink text-[0.8rem] font-medium">{{ t('formBuilder.recordActions', 'Record actions') }}</h3>
           <Button
             :label="t('formBuilder.addAction', '+ Action')"
             size="small"
@@ -2677,7 +2723,7 @@ function hintTooltip(value: string) {
               :aria-selected="section.id === activeSection.id"
               @click="selectTab(section.id)"
             >
-              <span class="tab-builder__drag inline-block mr-[0.35rem] text-surface-400 cursor-grab tracking-[-0.15em] active:cursor-grabbing" aria-hidden="true">⠿</span>
+              <span class="tab-builder__drag inline-block mr-[0.35rem] text-ink-muted cursor-grab tracking-[-0.15em] active:cursor-grabbing" aria-hidden="true">⠿</span>
               {{ section.title || t('formBuilder.untitledTab', 'Untitled tab') }}
             </button>
           </VueDraggableNext>
@@ -2898,14 +2944,14 @@ function hintTooltip(value: string) {
 
             <p
               v-if="!group.collapsed && group.fields.length === 0"
-              class="mt-2 mb-0 text-[0.85rem] text-surface-400 text-center"
+              class="mt-2 mb-0 text-[0.85rem] text-ink-muted text-center"
             >
               {{ t('formBuilder.dragFieldsGroup', 'Drag fields into this group.') }}
             </p>
         </div>
       </VueDraggableNext>
 
-      <p v-if="activeSection.groups.length === 0" class="mt-2 mb-0 text-[0.85rem] text-surface-400 text-center">
+      <p v-if="activeSection.groups.length === 0" class="mt-2 mb-0 text-[0.85rem] text-ink-muted text-center">
         {{ t('formBuilder.addGroupToStart', 'Add a group to start building this tab.') }}
       </p>
 
@@ -2922,7 +2968,7 @@ function hintTooltip(value: string) {
         </div>
         <div class="grid grid-cols-12 gap-3 p-3">
           <div class="col-span-12 md:col-span-6 flex flex-col gap-1">
-            <span class="text-[0.8rem] font-medium text-surface-700">
+            <span class="text-[0.8rem] font-medium text-ink">
               {{ t('formRenderer.createdBy', 'Created By') }}
             </span>
             <span class="text-[0.8rem] text-muted-color">
@@ -2930,7 +2976,7 @@ function hintTooltip(value: string) {
             </span>
           </div>
           <div class="col-span-12 md:col-span-6 flex flex-col gap-1">
-            <span class="text-[0.8rem] font-medium text-surface-700">
+            <span class="text-[0.8rem] font-medium text-ink">
               {{ t('formRenderer.lastModifiedBy', 'Last Modified By') }}
             </span>
             <span class="text-[0.8rem] text-muted-color">
@@ -3355,7 +3401,7 @@ function hintTooltip(value: string) {
                 @click="applyBulkFormulaPreset(preset.value)"
               />
             </div>
-            <code class="m-0 rounded border border-surface-200 bg-surface-50 px-2 py-1.5 text-[0.8rem] text-surface-700 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200">
+            <code class="m-0 rounded border border-line bg-soft px-2 py-1.5 text-[0.8rem] text-ink">
               {{ bulkFormulaPreview }}
             </code>
           </div>
@@ -3484,11 +3530,16 @@ function hintTooltip(value: string) {
           />
         </div>
         <div class="flex flex-col gap-[0.35rem]">
-          <label for="action-webhook" class="text-[0.85rem] font-medium">{{ t('formBuilder.flowWebhook', 'Connection key') }}</label>
-          <InputText
+          <label for="action-webhook" class="text-[0.85rem] font-medium">{{ t('formBuilder.flowWebhook', 'External flow key') }}</label>
+          <Select
+            overlay-class="property-select-overlay"
             id="action-webhook"
             v-model="configActionWebhook"
-            :placeholder="t('formBuilder.flowWebhookPlaceholder', 'my-webhook-key or /flows/trigger/my-webhook-key')"
+            :options="connectionOptions"
+            option-label="label"
+            option-value="value"
+            :placeholder="t('formBuilder.flowWebhookPlaceholder', 'Select external flow')"
+            filter
             fluid
           />
         </div>
@@ -3505,7 +3556,7 @@ function hintTooltip(value: string) {
           <ToggleSwitch v-model="configActionConfirmBeforeRun" />
         </div>
         <div class="properties-switch">
-          <span>{{ t('formBuilder.refreshAfterRun', 'Refresh record after flow runs') }}</span>
+          <span>{{ t('formBuilder.refreshAfterRun', 'Refresh record after external flow runs') }}</span>
           <ToggleSwitch v-model="configActionRefreshAfterRun" />
         </div>
         <div class="properties-switch">
@@ -3689,7 +3740,7 @@ function hintTooltip(value: string) {
         </div>
         <label
           v-if="selectedFieldSupportsReadonly"
-          class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-surface-700"
+          class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-ink"
         >
           {{ t('formBuilder.readOnlyField', 'Read-only in edit forms') }}
           <ToggleSwitch v-model="configReadonly" />
@@ -3719,9 +3770,9 @@ function hintTooltip(value: string) {
 
         <section
           v-if="selectedFieldSupportsCloneRelated"
-          class="flex min-w-0 flex-col gap-3 border-t border-surface-200 pt-3"
+          class="flex min-w-0 flex-col gap-3 border-t border-line pt-3"
         >
-          <label class="flex min-w-0 items-center justify-between gap-3 text-[0.85rem] font-medium text-surface-700">
+          <label class="flex min-w-0 items-center justify-between gap-3 text-[0.85rem] font-medium text-ink">
             {{ t('formBuilder.cloneRelatedFrom', 'Clone related from this record') }}
             <ToggleSwitch
               class="shrink-0"
@@ -3749,12 +3800,12 @@ function hintTooltip(value: string) {
 
         <section
           v-if="selectedField && isActivityLogField(selectedField)"
-          class="border-t border-surface-200 grid gap-3 pt-3"
+          class="border-t border-line grid gap-3 pt-3"
         >
           <h3 class="text-[0.9rem] m-0">
             {{ t('activityLog.settingsTitle', 'Activity log settings') }}
           </h3>
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{ t('activityLog.maxItems', 'Maximum entries') }}
             <InputNumber
               :model-value="selectedActivityLogSettings.maxItems"
@@ -3764,7 +3815,7 @@ function hintTooltip(value: string) {
               @update:model-value="updateActivityLogSettings({ maxItems: Number($event ?? 50) })"
             />
           </label>
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{ t('activityLog.actions', 'Actions to show') }}
             <MultiSelect
               :model-value="selectedActivityLogSettings.actions"
@@ -3776,7 +3827,7 @@ function hintTooltip(value: string) {
               @update:model-value="updateActivityLogSettings({ actions: ($event as ActivityLogAction[]) ?? [] })"
             />
           </label>
-          <label class="flex items-center justify-between gap-3 text-[0.8rem] font-semibold text-surface-700">
+          <label class="flex items-center justify-between gap-3 text-[0.8rem] font-semibold text-ink">
             {{ t('activityLog.showDeltas', 'Show field-level changes') }}
             <ToggleSwitch
               :model-value="selectedActivityLogSettings.showDeltas"
@@ -3790,12 +3841,12 @@ function hintTooltip(value: string) {
 
         <section
           v-if="selectedField && isDocEngineField(selectedField)"
-          class="border-t border-surface-200 grid gap-3 pt-3"
+          class="border-t border-line grid gap-3 pt-3"
         >
           <h3 class="text-[0.9rem] m-0">
             {{ t('formBuilder.docEngineSettings', 'DocEngine settings') }}
           </h3>
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{ t('formBuilder.docEngineTemplate', 'Template') }}
             <Select
               overlay-class="property-select-overlay"
@@ -3826,7 +3877,7 @@ function hintTooltip(value: string) {
 
         <section
           v-if="selectedField && canConfigureRelatedField(selectedField)"
-          class="border-t border-surface-200 grid gap-3 pt-3"
+          class="border-t border-line grid gap-3 pt-3"
         >
           <div class="flex items-center justify-between gap-3">
             <h3 class="text-[0.9rem] m-0">
@@ -3853,7 +3904,7 @@ function hintTooltip(value: string) {
 
         <div
           v-if="isFilesField(selectedField)"
-          class="border-t border-surface-200 grid gap-3 pt-3"
+          class="border-t border-line grid gap-3 pt-3"
         >
           <h3 class="text-[0.9rem] m-0">
             {{
@@ -3870,7 +3921,7 @@ function hintTooltip(value: string) {
 
         <div
           v-if="selectedField && isM2ABuilderField(selectedField)"
-          class="border-t border-surface-200 grid gap-3 pt-3"
+          class="border-t border-line grid gap-3 pt-3"
         >
           <h3 class="text-[0.9rem] m-0">{{ t('m2aSettings.title', 'M2A settings') }}</h3>
           <M2ASettingsDesigner
@@ -3893,7 +3944,7 @@ function hintTooltip(value: string) {
       <div v-else class="flex flex-col gap-4">
         <section
           v-if="showRecordActions"
-          class="border border-surface-200 rounded-lg p-4 grid gap-3"
+          class="border border-line rounded-lg p-4 grid gap-3"
         >
           <h3 class="text-[0.9rem] m-0">
             {{ t('formBuilder.systemInformation', 'System information') }}
@@ -3904,20 +3955,20 @@ function hintTooltip(value: string) {
             v-tooltip.bottom="hintTooltip(t('formBuilder.systemInformationHint', 'Shows Created By and Last Modified By at the bottom of the record detail view.'))"
             :aria-label="t('formBuilder.systemInformationHint', 'Shows Created By and Last Modified By at the bottom of the record detail view.')"
           />
-          <label class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-surface-700">
+          <label class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-ink">
             {{ t('formBuilder.showSystemInfo', 'Show system block on detail view') }}
             <ToggleSwitch v-model="systemInfoEnabled" />
           </label>
           <label
             v-if="systemInfoEnabled"
-            class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-surface-700"
+            class="flex items-center justify-between gap-3 text-[0.85rem] font-medium text-ink"
           >
             {{ t('formBuilder.systemInfoCollapsedDefault', 'Collapsed by default') }}
             <ToggleSwitch v-model="systemInfoCollapsedDefault" />
           </label>
         </section>
 
-        <p class="m-0 border border-dashed border-surface-300 rounded-lg text-surface-400 p-4 text-center">
+        <p class="m-0 border border-dashed border-line rounded-lg text-ink-muted p-4 text-center">
           {{ t('formBuilder.selectTypeToEdit', 'Select a tab, group, or field to edit parameters.') }}
         </p>
       </div>
@@ -4064,7 +4115,7 @@ function hintTooltip(value: string) {
 
 .palette-search :deep(.p-inputtext) {
   background: var(--notion-card);
-  border-color: color-mix(in srgb, var(--p-surface-300) 70%, transparent);
+  border-color: var(--notion-line);
   border-radius: 8px;
 }
 
@@ -4083,7 +4134,7 @@ function hintTooltip(value: string) {
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--p-surface-500);
+  color: var(--notion-ink-muted);
 }
 
 .palette-card {
@@ -4121,7 +4172,7 @@ function hintTooltip(value: string) {
 
 .palette-card__drag {
   flex-shrink: 0;
-  color: var(--p-surface-300);
+  color: var(--notion-ink-muted);
   font-size: 0.85rem;
   letter-spacing: -0.15em;
   line-height: 1;
@@ -4182,7 +4233,7 @@ function hintTooltip(value: string) {
   font: inherit;
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--p-surface-900);
+  color: var(--notion-ink);
   cursor: pointer;
   border-radius: 6px;
 }
@@ -4224,7 +4275,7 @@ function hintTooltip(value: string) {
 
 .tab-builder__tab--ghost {
   opacity: 0.4;
-  background: var(--p-surface-100);
+  background: var(--notion-hover);
 }
 
 .tab-builder__tab--chosen {
@@ -4261,7 +4312,7 @@ function hintTooltip(value: string) {
 
 .action-builder__drag {
   margin-right: 0.35rem;
-  color: var(--p-surface-400);
+  color: var(--notion-ink-muted);
   cursor: grab;
   letter-spacing: -0.15em;
   line-height: 1;
@@ -4278,7 +4329,7 @@ function hintTooltip(value: string) {
 .action-builder__item--selected {
   border-color: var(--notion-line-strong);
   background: var(--notion-card);
-  color: #191918;
+  color: var(--notion-ink);
   font-weight: 600;
   box-shadow: 0 0 0 1px var(--notion-line-strong);
 }
@@ -4303,7 +4354,7 @@ function hintTooltip(value: string) {
 
 .group-block--ghost {
   opacity: 0.4;
-  background: var(--p-surface-200);
+  background: var(--notion-hover);
 }
 
 .group-block--chosen {
@@ -4350,7 +4401,7 @@ function hintTooltip(value: string) {
 }
 
 .group-block__drag {
-  color: #9ca3af;
+  color: var(--notion-ink-muted);
   cursor: grab;
   letter-spacing: -0.14em;
   font-size: 0.9rem;
@@ -4386,7 +4437,7 @@ function hintTooltip(value: string) {
   min-height: 2rem;
   border-radius: 6px;
   background: var(--notion-wash);
-  color: #9ca3af;
+  color: var(--notion-ink-muted);
   font-weight: 500;
   padding: 0.35rem 0.75rem;
   box-shadow: none;
@@ -4412,7 +4463,7 @@ function hintTooltip(value: string) {
 .group-block .canvas-field--selected .canvas-placeholder,
 .group-block .canvas-field--selected .canvas-datatable {
   background: var(--notion-wash);
-  color: #374151;
+  color: var(--notion-ink);
   font-weight: 600;
   box-shadow: inset 0 0 0 1px var(--notion-accent-line);
 }
@@ -4420,7 +4471,7 @@ function hintTooltip(value: string) {
 .group-block .canvas-field:hover .canvas-placeholder,
 .group-block .canvas-field:hover .canvas-datatable {
   background: var(--notion-wash);
-  color: #6b7280;
+  color: var(--notion-ink-muted);
   font-weight: 500;
   box-shadow: none;
 }
@@ -4469,7 +4520,7 @@ function hintTooltip(value: string) {
 .canvas-field__label {
   font-size: 0.82rem;
   font-weight: 500;
-  color: #2f2e2a;
+  color: var(--notion-ink);
 }
 
 .canvas-field--inline {
@@ -4497,7 +4548,7 @@ function hintTooltip(value: string) {
 .canvas-field--selected .canvas-field__label,
 .canvas-field--selected .canvas-placeholder,
 .canvas-field--selected .canvas-datatable {
-  color: #191918;
+  color: var(--notion-ink);
   font-weight: 600;
 }
 
@@ -4509,7 +4560,7 @@ function hintTooltip(value: string) {
 .canvas-field:hover .canvas-field__label,
 .canvas-field:hover .canvas-placeholder,
 .canvas-field:hover .canvas-datatable {
-  color: #191918;
+  color: var(--notion-ink);
   font-weight: 600;
 }
 
@@ -4520,7 +4571,7 @@ function hintTooltip(value: string) {
 
 .canvas-field--ghost {
   opacity: 0.4;
-  background: var(--p-surface-100);
+  background: var(--notion-hover);
 }
 
 .canvas-field--chosen {
@@ -4543,7 +4594,7 @@ function hintTooltip(value: string) {
   padding: 0.4rem 0.8rem;
   border-radius: 8px;
   background: var(--notion-hover);
-  color: rgba(55, 53, 47, 0.62);
+  color: var(--notion-ink-muted);
   font-size: 0.8rem;
   line-height: 1.2;
   transition: background-color 0.12s, color 0.12s;
@@ -4563,20 +4614,20 @@ function hintTooltip(value: string) {
   background: var(--notion-muted);
   border-color: transparent;
   box-shadow: none;
-  color: var(--p-surface-600);
+  color: var(--notion-ink-muted);
   min-height: 2rem;
 }
 
 .canvas-field__control :deep(.p-select-label),
 .canvas-field__control :deep(.p-datepicker-input) {
-  color: var(--p-surface-500);
+  color: var(--notion-ink-muted);
 }
 
 .canvas-datatable {
   border: 0;
   border-radius: 8px;
   background: var(--notion-hover);
-  color: rgba(55, 53, 47, 0.72);
+  color: var(--notion-ink-muted);
   padding: 0.5rem 0.8rem;
   min-height: 2.4rem;
   font-size: 0.8rem;
@@ -4622,18 +4673,18 @@ function hintTooltip(value: string) {
   font-size: 0.95rem;
   font-weight: 600;
   line-height: 1.3;
-  color: var(--p-surface-900);
+  color: var(--notion-ink);
   text-decoration: none;
 }
 
 .properties-panel__setup {
-  color: var(--p-surface-600);
+  color: var(--notion-ink-muted);
 }
 
 .properties-panel label {
   font-size: 0.8rem;
   font-weight: 500;
-  color: var(--p-surface-800);
+  color: var(--notion-ink);
 }
 
 .properties-panel .text-muted-color,
@@ -4653,7 +4704,7 @@ function hintTooltip(value: string) {
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--notion-line);
   border-radius: 50%;
   background: transparent;
   color: var(--notion-ink-muted);
@@ -4665,7 +4716,7 @@ function hintTooltip(value: string) {
 }
 
 .properties-panel .property-hint:focus-visible {
-  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline: 2px solid var(--notion-line-strong);
   outline-offset: 2px;
 }
 
@@ -4685,7 +4736,7 @@ function hintTooltip(value: string) {
   font-size: inherit;
   background: none;
   padding: 0;
-  color: var(--p-surface-500);
+  color: var(--notion-ink-muted);
 }
 
 .properties-panel :deep(.p-inputtext),
@@ -4704,8 +4755,8 @@ function hintTooltip(value: string) {
   --p-select-filled-focus-background: var(--notion-card);
   --p-select-hover-background: var(--notion-card);
   --p-select-focus-background: var(--notion-card);
-  --p-select-border-color: rgba(55, 53, 47, 0.12);
-  --p-select-hover-border-color: rgba(55, 53, 47, 0.2);
+  --p-select-border-color: var(--notion-line);
+  --p-select-hover-border-color: var(--notion-line-strong);
   --p-select-focus-border-color: var(--notion-line-strong);
   --p-select-color: var(--notion-ink);
   --p-inputtext-background: var(--notion-card);
@@ -4785,14 +4836,14 @@ function hintTooltip(value: string) {
 
 <style>
 .property-select-overlay {
-  border: 1px solid var(--notion-line);
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 8px;
-  background: var(--notion-card);
+  background: var(--app-panel, var(--p-content-background));
   box-shadow: 0 8px 24px rgba(15, 15, 15, 0.08);
 }
 
 .property-select-overlay .p-select-option {
-  color: var(--notion-ink);
+  color: var(--app-text, var(--p-text-color));
   border-radius: 4px;
 }
 
@@ -4800,7 +4851,7 @@ function hintTooltip(value: string) {
 .property-select-overlay .p-select-option.p-select-option-selected.p-focus,
 .property-select-overlay .p-select-option:not(.p-disabled).p-focus,
 .property-select-overlay .p-select-option:not(.p-disabled):hover {
-  background: var(--notion-wash);
-  color: #191918;
+  background: var(--app-hover, var(--p-content-hover-background));
+  color: var(--app-text, var(--p-text-color));
 }
 </style>

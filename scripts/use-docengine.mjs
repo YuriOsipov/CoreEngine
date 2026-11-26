@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const MODE = String(process.argv[2] || '').trim().toLowerCase()
-const VERSION = '0.0.105'
+const VERSION = '0.0.107'
 
 const ROOT_PACKAGES = ['@docengine/editor', '@docengine/field-date']
 const BFF_PACKAGES = [

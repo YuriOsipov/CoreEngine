@@ -487,7 +487,7 @@ function sanitizePair(pair: CloneRelatedChildPair): CloneRelatedChildPair {
       <div
         v-for="(pair, index) in draft.children"
         :key="`pair-${index}`"
-        class="grid gap-3 rounded border border-surface-200 p-3"
+        class="grid gap-3 rounded border border-line p-3"
       >
         <div class="flex items-center justify-between gap-2">
           <h4 class="m-0 text-[0.9rem]">
@@ -658,7 +658,7 @@ function sanitizePair(pair: CloneRelatedChildPair): CloneRelatedChildPair {
           </div>
         </div>
 
-        <details class="rounded border border-surface-100 p-2">
+        <details class="rounded border border-line p-2">
           <summary class="cursor-pointer text-[0.85rem] font-semibold">
             {{ t('formBuilder.cloneRelatedSplitBy', 'Split into multiple targets (optional)') }}
           </summary>
@@ -708,7 +708,7 @@ function sanitizePair(pair: CloneRelatedChildPair): CloneRelatedChildPair {
           </div>
         </details>
 
-        <details class="rounded border border-surface-100 p-2">
+        <details class="rounded border border-line p-2">
           <summary class="cursor-pointer text-[0.85rem] font-semibold">
             {{ t('formBuilder.cloneRelatedNested', 'Nested child pairs (optional)') }}
           </summary>
@@ -716,7 +716,7 @@ function sanitizePair(pair: CloneRelatedChildPair): CloneRelatedChildPair {
           <div
             v-for="(nested, nestedIndex) in nestedChildren(pair)"
             :key="`nested-${index}-${nestedIndex}`"
-            class="mt-3 grid gap-3 rounded border border-surface-200 p-3"
+            class="mt-3 grid gap-3 rounded border border-line p-3"
           >
             <div class="flex items-center justify-between gap-2">
               <h5 class="m-0 text-[0.85rem]">

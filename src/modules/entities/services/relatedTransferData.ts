@@ -210,7 +210,19 @@ export async function mergeChildLookupFieldSettings(
   const sourceCollection = await resolveCollectionKey(baseSettings.source.itemCollection || '')
   const sourcePrimaryKey = baseSettings.source.itemPrimaryKey || 'id'
 
+  const copyFromSource = baseSettings.mapping?.copyFromSource ?? {}
+  const copyFromSourceTargets = Object.keys(copyFromSource)
+
   for (const [targetField, childLookup] of entries) {
+    // Explicit Batch-insert copy wins — do not re-resolve via Child value lookup
+    // (e.g. opportunity_item.price → quote_item.price must not require
+    // $parent.account_id.price_group from item_price).
+    if (
+      copyFromSourceTargets.some((field) => keysEqual(field, targetField)) &&
+      !existingLookups[targetField]
+    ) {
+      continue
+    }
     const lookupCollection = childLookup.collection
       ? await resolveCollectionKey(childLookup.collection)
       : ''
@@ -1244,6 +1256,20 @@ export async function resolveLookupValue(
     if (matched) {
       return matched[lookup.valueField]
     }
+    // Prefer the lookup value that matches the same-named source field
+    // (e.g. item_variant.variant ← opportunity_item.variant "Long").
+    const sourceSameField =
+      scalarId(sourceRecord[targetField])
+      ?? Object.entries(sourceRecord).find(([key]) => keysEqual(key, targetField))?.[1]
+    const sourceSameId = scalarId(sourceSameField)
+    if (sourceSameId !== null) {
+      const matchedByValue = rows.find(
+        (row) => String(scalarId(row[lookup.valueField]) ?? '') === String(sourceSameId),
+      )
+      if (matchedByValue) {
+        return matchedByValue[lookup.valueField]
+      }
+    }
     throw new Error(
       ctx.t(
         'relatedTransfer.lookupMultipleMatches',
@@ -1260,12 +1286,24 @@ export async function resolveLookupPayload(
   currentSettings: RelatedTransferSettings,
   sourceRecord: Record<string, unknown>,
   ctx: RelatedTransferDataContext,
+  /**
+   * Fields already filled by copyFromSource / same-named source columns.
+   * Those are kept — skip lookup resolve (avoids null overwrite and
+   * “multiple item_variant rows” errors when Variant is already on the source).
+   */
+  existingPayload: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
   const payload: Record<string, unknown> = {}
   const sourceCollection = currentSettings.source.itemCollection
 
   for (const [targetField, lookup] of Object.entries(currentSettings.mapping?.lookups ?? {})) {
     if (lookup.selectable) continue
+    const existing =
+      existingPayload[targetField]
+      ?? Object.entries(existingPayload).find(([key]) => keysEqual(key, targetField))?.[1]
+    if (existing !== undefined && existing !== null && existing !== '') {
+      continue
+    }
     const value = await resolveLookupValue(
       targetField,
       lookup,
@@ -1273,7 +1311,9 @@ export async function resolveLookupPayload(
       ctx,
       sourceCollection,
     )
-    if (value !== undefined) {
+    // Never write null/empty — that would wipe copyFromSource / same-named
+    // source copies (e.g. Variant "Long" from opportunity_item).
+    if (value !== undefined && value !== null && value !== '') {
       payload[targetField] = value
     }
   }

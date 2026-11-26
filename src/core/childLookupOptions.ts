@@ -59,7 +59,17 @@ export async function lookupLabelMetadata(
       const nestedDefinition = relatedFields?.find((field) =>
         keysEqual(field.field, nestedSegment),
       )
-      const template = fieldDisplayTemplate(nestedDefinition)
+      const nestedRelated = await relationCollectionForField(
+        relatedCollection,
+        nestedDefinition?.field ?? nestedSegment,
+        relatedFields,
+      )
+      // Prefer field options.template, then related object's Display Template.
+      const template =
+        fieldDisplayTemplate(nestedDefinition) ||
+        (nestedRelated
+          ? await fetchCollectionDisplayTemplate(nestedRelated)
+          : undefined)
       const templateFields = template ? extractTemplateFields(template) : []
       const displayField = relatedRecordDisplayField(relatedFields ?? [])
       const nestedFields = templateFields.length > 0 ? templateFields : [displayField]
@@ -87,7 +97,10 @@ export async function lookupLabelMetadata(
 
   if (relatedCollection) {
     const relatedFields = await collectionFields(relatedCollection)
-    const template = fieldTemplate
+    // M2O value fields (e.g. opportunity.account_id) must use the related
+    // object's Display Template — not the fallback `name` auto-number.
+    const template =
+      fieldTemplate || (await fetchCollectionDisplayTemplate(relatedCollection))
     const templateFields = template ? extractTemplateFields(template) : []
     const displayField = relatedRecordDisplayField(relatedFields ?? [])
     const nestedFields = templateFields.length > 0 ? templateFields : [displayField]

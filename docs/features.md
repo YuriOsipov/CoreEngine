@@ -76,7 +76,7 @@ Product surface for operators and implementers. For security layers see [`securi
 
 ## Tree price lists
 
-- Virtual payload: `$payload.item_group_tree_rows` (+ `$children`), DFS group shells, Tree `main.sort` within groups, currency formatting in docs.
+- Virtual payload: `item_group_tree_rows` (+ `$children`), DFS group shells, Tree `main.sort` within groups, currency formatting in docs. Legacy `$payload…` mapping paths still resolve.
 
 ## Platform kernel & packs
 

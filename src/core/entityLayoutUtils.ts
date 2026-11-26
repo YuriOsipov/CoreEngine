@@ -1,3 +1,4 @@
+import { toRaw } from 'vue'
 import type {
   EntityLayoutSchema,
   LayoutFieldMetadata,
@@ -17,6 +18,7 @@ import {
   relationRelatedCollection,
 } from '@/core/relationHelpers'
 import { isRegisteredCustomBlock } from '@/core/customBlocks/registry'
+import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 
 const FILES_ASSET_COLLECTION = 'files'
 
@@ -188,8 +190,27 @@ export function normalizeDefaultValue(
     return Number.isFinite(numericValue) ? numericValue : null
   }
 
-  if (Array.isArray(value) || typeof value === 'object') {
-    return structuredClone(value)
+  // M2O / picklist defaults must be PKs — parent records often carry hydrated
+  // display objects (Vue proxies) that structuredClone cannot clone.
+  if (
+    field.component === 'AutoComplete' ||
+    field.component === 'Select' ||
+    Boolean(field.relatedCollection)
+  ) {
+    const id = extractRelationFieldId(value)
+    if (id !== null) return id
+  }
+
+  if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
+    try {
+      return structuredClone(toRaw(value))
+    } catch {
+      try {
+        return JSON.parse(JSON.stringify(value)) as unknown
+      } catch {
+        return value
+      }
+    }
   }
 
   return value

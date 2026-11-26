@@ -15,6 +15,7 @@ export function useRuntimeFieldMetadata(entity: () => string) {
   const runtimeFieldProps = reactive<Record<string, Record<string, unknown>>>({})
   const runtimeRequired = reactive<Record<string, boolean>>({})
   const runtimeReadonly = reactive<Record<string, boolean>>({})
+  const runtimeServerOwned = reactive<Record<string, boolean>>({})
   const runtimeFormula = reactive<Record<string, string>>({})
   const metadataKeys = reactive<Record<string, string>>({})
   const metadataRequests = new Set<string>()
@@ -30,6 +31,7 @@ export function useRuntimeFieldMetadata(entity: () => string) {
         delete runtimeFieldProps[key]
         delete runtimeRequired[key]
         delete runtimeReadonly[key]
+        delete runtimeServerOwned[key]
         delete runtimeFormula[key]
         delete metadataKeys[key]
       }
@@ -63,6 +65,7 @@ export function useRuntimeFieldMetadata(entity: () => string) {
         runtimeFieldProps[field.field] = metadata.props
         runtimeRequired[field.field] = metadata.required
         runtimeReadonly[field.field] = metadata.readonly
+        runtimeServerOwned[field.field] = metadata.serverOwned
         const formula = metadata.formula ?? metadata.template
         if (formula) {
           runtimeFormula[field.field] = formula
@@ -87,5 +90,12 @@ export function useRuntimeFieldMetadata(entity: () => string) {
     }
   }
 
-  return { runtimeFieldProps, runtimeRequired, runtimeReadonly, runtimeFormula, sync }
+  return {
+    runtimeFieldProps,
+    runtimeRequired,
+    runtimeReadonly,
+    runtimeServerOwned,
+    runtimeFormula,
+    sync,
+  }
 }

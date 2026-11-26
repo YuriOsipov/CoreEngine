@@ -33,6 +33,19 @@ function numericCellStyle(field: string): Record<string, string> | undefined {
   if (!props.isNumericSourceField(field)) return undefined
   return { textAlign: 'right' }
 }
+
+/**
+ * First column (Item) stays fluid; Price / Quantity / Variant get fixed
+ * widths so Variant does not eat half the Source panel under table-layout:fixed.
+ */
+function columnWidthStyle(field: string): string | undefined {
+  const index = props.columns.findIndex((column) => column.field === field)
+  if (index === 0) return undefined
+  if (props.isNumericSourceField(field)) {
+    return 'width: 7rem; min-width: 7rem'
+  }
+  return 'width: 7.5rem; min-width: 7.5rem'
+}
 </script>
 
 <template>
@@ -46,6 +59,8 @@ function numericCellStyle(field: string): Record<string, string> | undefined {
     :sort-field="sortField"
     :sort-order="sortOrder"
     :empty-message="emptyMessage"
+    table-style="table-layout: fixed; width: 100%"
+    class="related-transfer-source-table"
     @sort="emit('sort', $event)"
   >
     <Column
@@ -55,6 +70,7 @@ function numericCellStyle(field: string): Record<string, string> | undefined {
       sortable
       :header-style="numericCellStyle(column.field)"
       :body-style="numericCellStyle(column.field)"
+      :style="columnWidthStyle(column.field)"
     >
       <template #header>
         <span
@@ -73,7 +89,7 @@ function numericCellStyle(field: string): Record<string, string> | undefined {
         </span>
       </template>
     </Column>
-    <Column header="" style="width: 5rem">
+    <Column header="" style="width: 5rem; min-width: 5rem">
       <template #body="{ data }">
         <Button
           :label="addLabel"
@@ -86,3 +102,17 @@ function numericCellStyle(field: string): Record<string, string> | undefined {
     </Column>
   </DataTable>
 </template>
+
+<style scoped>
+.related-transfer-source-table :deep(.p-datatable-table) {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.related-transfer-source-table :deep(.p-datatable-thead > tr > th),
+.related-transfer-source-table :deep(.p-datatable-tbody > tr > td) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

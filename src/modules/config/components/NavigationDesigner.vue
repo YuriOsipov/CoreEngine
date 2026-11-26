@@ -5,18 +5,18 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, toRaw, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import { useTranslation } from '@/core/translation'
 import {
   buildRoleSelectOptions,
-  layoutLabelForRole,
   loadAppRoles,
   roleIdToSelectValue,
   selectValueToRoleId,
 } from '@/core/settingRoleUtils'
-import type { AppRoleOption, NavItem, NavLink, NavigationApp, SavedNavigationApp } from '@/interfaces'
+import type { AppRoleOption, NavItem, NavLink, NavigationApp } from '@/interfaces'
 import {
   createDefaultNavigationApp,
   deleteNavigationApp,
@@ -30,12 +30,13 @@ import NavItemEditor from './NavItemEditor.vue'
 import { createNavFolder, createNavLink } from './navigationItemFactory'
 
 const { t } = useTranslation()
+const route = useRoute()
+const router = useRouter()
 const confirm = useConfirm()
 const toast = useToast()
 const { reload: reloadLiveMenu } = useNavigationMenu()
 
 const app = ref<NavigationApp>(createDefaultNavigationApp())
-const apps = ref<SavedNavigationApp[]>([])
 const roleOptions = ref<AppRoleOption[]>([])
 const selectedRecordId = ref<string | null>(null)
 const appName = ref('')
@@ -52,73 +53,79 @@ const editingHome = ref(false)
 const homeProxy = ref<NavLink | null>(null)
 
 const defaultRoleLabel = computed(() => t('layoutRole.defaultRole', 'Default (all roles)'))
-const appOptions = computed(() => {
-  const roleNameById = new Map(roleOptions.value.map((role) => [role.id, role.name]))
-  return apps.value.map((entry) => ({
-    label: layoutLabelForRole(
-      {
-        id: entry.id,
-        name: entry.label || entry.name,
-        roleId: entry.roleId,
-        roleName: entry.roleName ?? (entry.roleId ? roleNameById.get(entry.roleId) ?? null : null),
-      },
-      defaultRoleLabel.value,
-    ),
-    value: entry.id,
-  }))
-})
 const roleSelectOptions = computed(() =>
   buildRoleSelectOptions(roleOptions.value, defaultRoleLabel.value),
 )
 const canSave = computed(() => Boolean(appName.value.trim()) && !saving.value && !loading.value)
 const canDelete = computed(() => Boolean(selectedRecordId.value) && !deleting.value)
+const isNewRoute = computed(() => route.name === 'setup-navigation-new')
 
 onMounted(async () => {
-  await reloadList()
+  roleOptions.value = await loadAppRoles()
+  await bootstrapFromRoute()
 })
 
-async function reloadList(): Promise<void> {
-  loading.value = true
-  try {
-    const [appList, roles] = await Promise.all([loadNavigationApps(), loadAppRoles()])
-    apps.value = appList
-    roleOptions.value = roles
-    if (selectedRecordId.value) {
-      const stillExists = appList.some((entry) => entry.id === selectedRecordId.value)
-      if (!stillExists) startNewApp()
-    } else if (appList.length > 0) {
-      await selectApp(appList[0].id)
-    } else {
-      startNewApp()
-    }
-  } catch {
-    toast.add({
-      severity: 'error',
-      summary: t('common.error', 'Error'),
-      detail: t('navigation.loadError', 'Failed to load navigation apps.'),
-      life: 4000,
-    })
-  } finally {
-    loading.value = false
+watch(
+  () => [route.name, route.params.appId] as const,
+  async () => {
+    await bootstrapFromRoute()
+  },
+)
+
+async function bootstrapFromRoute(): Promise<void> {
+  if (isNewRoute.value) {
+    startNewApp()
+    return
   }
+  const appId = typeof route.params.appId === 'string' ? route.params.appId : null
+  if (appId) {
+    await selectApp(appId)
+    return
+  }
+  startNewApp()
 }
 
 async function selectApp(recordId: string): Promise<void> {
   loading.value = true
   try {
-    const loaded = await loadNavigationAppById(recordId)
-    const meta = apps.value.find((entry) => entry.id === recordId)
-    app.value = loaded ?? createDefaultNavigationApp()
+    const [loaded, apps] = await Promise.all([
+      loadNavigationAppById(recordId),
+      loadNavigationApps(),
+    ])
+    if (!loaded) {
+      toast.add({
+        severity: 'error',
+        summary: t('common.error', 'Error'),
+        detail: t('navigation.loadError', 'Failed to load navigation apps.'),
+        life: 4000,
+      })
+      void router.replace({ name: 'setup-navigation' })
+      return
+    }
+    const meta = apps.find((entry) => entry.id === recordId)
+    app.value = loaded
     selectedRecordId.value = recordId
-    appName.value = meta?.name ?? app.value.name
+    appName.value = meta?.name || loaded.label || loaded.name
     roleId.value = meta?.roleId ?? null
-    isDefault.value = meta?.isDefault ?? app.value.isDefault === true
+    isDefault.value = meta?.isDefault ?? loaded.isDefault === true
+  } catch (err) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail:
+        err instanceof Error
+          ? err.message
+          : t('navigation.loadError', 'Failed to load navigation apps.'),
+      life: 4000,
+    })
+    void router.replace({ name: 'setup-navigation' })
   } finally {
     loading.value = false
   }
 }
 
 function startNewApp(): void {
+  loading.value = false
   app.value = createDefaultNavigationApp('')
   selectedRecordId.value = null
   appName.value = ''
@@ -150,7 +157,8 @@ async function openHomeEditor(): Promise<void> {
     id: '__home__',
     type: 'link',
     label: t('navigation.home', 'Home'),
-    target: structuredClone(app.value.home),
+    // app.home is a Vue proxy; structuredClone needs a plain object
+    target: structuredClone(toRaw(app.value.home)),
   }
   editingHome.value = true
   editingItem.value = homeProxy.value
@@ -200,6 +208,7 @@ async function save(): Promise<void> {
   try {
     app.value.name = appName.value.trim()
     app.value.label = appName.value.trim()
+    const wasNew = !selectedRecordId.value
     const saved = await saveNavigationApp(app.value, {
       recordId: selectedRecordId.value,
       name: appName.value.trim(),
@@ -207,8 +216,14 @@ async function save(): Promise<void> {
       isDefault: isDefault.value,
     })
     selectedRecordId.value = saved.id
-    await reloadList()
-    await selectApp(saved.id)
+    app.value = {
+      ...app.value,
+      name: saved.name,
+      label: saved.label,
+      isDefault: saved.isDefault,
+    }
+    roleId.value = saved.roleId
+    isDefault.value = saved.isDefault
     await reloadLiveMenu()
     toast.add({
       severity: 'success',
@@ -216,6 +231,12 @@ async function save(): Promise<void> {
       detail: t('navigation.saved', 'Navigation app saved.'),
       life: 3000,
     })
+    if (wasNew || isNewRoute.value) {
+      await router.replace({
+        name: 'setup-navigation-edit',
+        params: { appId: saved.id },
+      })
+    }
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -246,7 +267,6 @@ async function remove(): Promise<void> {
   try {
     await deleteNavigationApp(selectedRecordId.value)
     selectedRecordId.value = null
-    await reloadList()
     await reloadLiveMenu()
     toast.add({
       severity: 'success',
@@ -254,6 +274,7 @@ async function remove(): Promise<void> {
       detail: t('navigation.deleted', 'Navigation app deleted.'),
       life: 3000,
     })
+    void router.push({ name: 'setup-navigation' })
   } catch (err) {
     toast.add({
       severity: 'error',
@@ -269,133 +290,119 @@ async function remove(): Promise<void> {
 
 <template>
   <div class="flex flex-col gap-5">
-    <div class="flex items-end flex-wrap gap-3">
-      <div class="flex flex-col gap-1">
-        <label class="text-ink text-[0.8rem] font-semibold">
-          {{ t('navigation.app', 'Navigation app') }}
-        </label>
-        <Select
-          :model-value="selectedRecordId"
-          :options="appOptions"
-          option-label="label"
-          option-value="value"
-          class="min-w-[280px]"
-          :placeholder="t('navigation.selectApp', 'Select app')"
-          :disabled="loading || appOptions.length === 0"
-          @update:model-value="selectApp(String($event ?? ''))"
-        />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-ink text-[0.8rem] font-semibold">
-          {{ t('navigation.appName', 'App name') }}
-        </label>
-        <InputText v-model="appName" class="min-w-[220px]" :disabled="loading" />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-ink text-[0.8rem] font-semibold">
-          {{ t('layoutRole.role', 'Role') }}
-        </label>
-        <Select
-          :model-value="roleIdToSelectValue(roleId)"
-          :options="roleSelectOptions"
-          option-label="label"
-          option-value="value"
-          class="min-w-[220px]"
-          :disabled="loading"
-          @update:model-value="roleId = selectValueToRoleId($event)"
-        />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-ink text-[0.8rem] font-semibold">
-          {{ t('navigation.defaultForRole', 'Default for role') }}
-        </label>
-        <ToggleSwitch v-model="isDefault" :disabled="loading" />
-      </div>
-
-      <div class="flex flex-wrap gap-2">
-        <Button
-          :label="t('navigation.newApp', 'New app')"
-          size="small"
-          text
-          :disabled="loading || saving"
-          @click="startNewApp"
-        />
-        <Button
-          :label="t('common.delete', 'Delete')"
-          size="small"
-          severity="danger"
-          text
-          :disabled="!canDelete"
-          :loading="deleting"
-          @click="confirmDelete"
-        />
-        <Button
-          :label="t('common.save', 'Save')"
-          size="small"
-          :loading="saving"
-          :disabled="!canSave"
-          @click="save"
-        />
-      </div>
+    <div
+      v-if="loading"
+      class="page-loading"
+    >
+      <ProgressSpinner stroke-width="4" />
+      <span>{{ t('navigation.loading', 'Loading navigation apps...') }}</span>
     </div>
 
-    <div class="bg-canvas border border-line rounded-lg flex items-center gap-3 p-3 text-ink">
-      <i class="pi pi-home text-muted-color" />
-      <div class="flex-1">
-        <div class="font-semibold">{{ t('navigation.home', 'Home') }}</div>
-        <div class="text-muted-color text-[0.8rem]">
-          {{ t('navigation.homeHint', 'Fixed landing shown after login for this app.') }}
+    <template v-else>
+      <div class="flex items-end flex-wrap gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-ink text-[0.8rem] font-semibold">
+            {{ t('navigation.appName', 'App name') }}
+          </label>
+          <InputText v-model="appName" class="min-w-[220px]" />
         </div>
-      </div>
-      <Button
-        icon="pi pi-pencil"
-        :label="t('navigation.configureHome', 'Configure home')"
-        size="small"
-        text
-        @click="openHomeEditor"
-      />
-    </div>
 
-    <div class="flex flex-col gap-2">
-      <div class="flex items-center justify-between">
-        <h3 class="m-0">{{ t('navigation.structure', 'Navigation structure') }}</h3>
-        <div class="flex gap-2">
+        <div class="flex flex-col gap-1">
+          <label class="text-ink text-[0.8rem] font-semibold">
+            {{ t('layoutRole.role', 'Role') }}
+          </label>
+          <Select
+            :model-value="roleIdToSelectValue(roleId)"
+            :options="roleSelectOptions"
+            option-label="label"
+            option-value="value"
+            class="min-w-[220px]"
+            @update:model-value="roleId = selectValueToRoleId($event)"
+          />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-ink text-[0.8rem] font-semibold">
+            {{ t('navigation.defaultForRole', 'Default for role') }}
+          </label>
+          <ToggleSwitch v-model="isDefault" />
+        </div>
+
+        <div class="flex flex-wrap gap-2">
           <Button
-            icon="pi pi-plus"
-            :label="t('navigation.addLink', 'Add link')"
+            :label="t('common.delete', 'Delete')"
             size="small"
+            severity="danger"
             text
-            @click="addTopLink"
+            :disabled="!canDelete"
+            :loading="deleting"
+            @click="confirmDelete"
           />
           <Button
-            icon="pi pi-folder-plus"
-            :label="t('navigation.addFolder', 'Add folder')"
+            :label="t('common.save', 'Save')"
             size="small"
-            text
-            @click="addTopFolder"
+            :loading="saving"
+            :disabled="!canSave"
+            @click="save"
           />
         </div>
       </div>
 
-      <Message
-        v-if="app.items.length === 0"
-        severity="info"
-        :closable="false"
-      >
-        {{ t('navigation.emptyStructure', 'Add folders and links to build this navigation app.') }}
-      </Message>
+      <div class="bg-canvas border border-line rounded-lg flex items-center gap-3 p-3 text-ink">
+        <i class="pi pi-home text-muted-color" />
+        <div class="flex-1">
+          <div class="font-semibold">{{ t('navigation.home', 'Home') }}</div>
+          <div class="text-muted-color text-[0.8rem]">
+            {{ t('navigation.homeHint', 'Fixed landing shown after login for this app.') }}
+          </div>
+        </div>
+        <Button
+          icon="pi pi-pencil"
+          :label="t('navigation.configureHome', 'Configure home')"
+          size="small"
+          text
+          @click="openHomeEditor"
+        />
+      </div>
 
-      <NavTreeNode
-        v-else
-        :items="app.items"
-        :depth="1"
-        class="flex flex-col gap-2"
-        @edit="openEditor"
-      />
-    </div>
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <h3 class="m-0">{{ t('navigation.structure', 'Navigation structure') }}</h3>
+          <div class="flex gap-2">
+            <Button
+              icon="pi pi-plus"
+              :label="t('navigation.addLink', 'Add link')"
+              size="small"
+              text
+              @click="addTopLink"
+            />
+            <Button
+              icon="pi pi-folder-plus"
+              :label="t('navigation.addFolder', 'Add folder')"
+              size="small"
+              text
+              @click="addTopFolder"
+            />
+          </div>
+        </div>
+
+        <Message
+          v-if="app.items.length === 0"
+          severity="info"
+          :closable="false"
+        >
+          {{ t('navigation.emptyStructure', 'Add folders and links to build this navigation app.') }}
+        </Message>
+
+        <NavTreeNode
+          v-else
+          :items="app.items"
+          :depth="1"
+          class="flex flex-col gap-2"
+          @edit="openEditor"
+        />
+      </div>
+    </template>
 
     <NavItemEditor
       :visible="editorVisible"

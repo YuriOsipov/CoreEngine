@@ -1,5 +1,5 @@
 /**
- * Resolve Setup → Connections key from task / job params.
+ * Resolve Setup → External Flows key from task / job params.
  * Prefer `connectionKey` (and `connection`); keep `flowKey` / `webhook` as aliases.
  */
 export function resolveConnectionKey(

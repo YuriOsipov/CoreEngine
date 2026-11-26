@@ -123,7 +123,7 @@ export async function notifyFailedRun(input: FailedRunNotifyInput): Promise<void
     if (input.detail) lines.push(`Detail: ${input.detail.slice(0, 1000)}`)
     lines.push(
       '',
-      'Open Setup → Connections / Tasks → Failed runs for recent history.',
+      'Open Setup → External Flows / Tasks → Failed runs for recent history.',
       'n8n execution errors are separate — use the failed-execution alert template there.',
     )
     const text = lines.join('\n')

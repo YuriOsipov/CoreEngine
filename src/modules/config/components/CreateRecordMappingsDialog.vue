@@ -208,7 +208,7 @@ function save(): void {
       <div
         v-for="(mapping, index) in draft"
         :key="`crmap-dialog-${index}`"
-        class="flex flex-col gap-[0.35rem] rounded border border-surface-200 p-3"
+        class="flex flex-col gap-[0.35rem] rounded border border-line p-3"
       >
         <div class="flex items-center justify-between gap-2">
           <span class="text-[0.75rem] text-muted-color">

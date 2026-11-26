@@ -1,5 +1,5 @@
 /**
- * Admin CRUD for public.app_flow_triggers (Setup → Connections).
+ * Admin CRUD for public.app_flow_triggers (Setup → External Flows).
  */
 import { query } from '../db/pool.js'
 import { flowTriggerKeyFromWebhook } from './flowKey.js'
@@ -35,7 +35,7 @@ function parseHandler(raw: string): FlowHandlerKind {
   }
   if (token === 'ack') {
     throw new Error(
-      'Ack handler is not available in Setup → Connections. Use HTTP or Update record.',
+      'Ack handler is not available in Setup → External Flows. Use HTTP or Update record.',
     )
   }
   throw new Error(

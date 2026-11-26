@@ -613,10 +613,10 @@ onMounted(() => {
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--app-border, var(--p-content-border-color, #e2e8f0));
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--app-text-muted, var(--p-text-muted-color, #64748b));
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;

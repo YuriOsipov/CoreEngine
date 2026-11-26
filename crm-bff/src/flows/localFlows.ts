@@ -387,7 +387,7 @@ async function executeLocalFlow(
   if (!trigger) {
     throw new LocalFlowError(
       404,
-      `Connection "${trimmed}" is not registered. Create it in Setup → Connections (handler http|update_record).`,
+      `External flow "${trimmed}" is not registered. Create it in Setup → External Flows (handler http|update_record).`,
     )
   }
 

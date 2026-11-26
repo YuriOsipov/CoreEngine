@@ -7,6 +7,11 @@ export default {
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useTranslation } from '@/core/translation'
+import {
+  fetchFlowTriggers,
+  type GraphQlFlowTrigger,
+} from '@/core/graphql/flowTriggersApi'
+import { flowTriggerKeyFromWebhook } from '@/core/graphql/flowsProxy'
 import type {
   EntityRecordAutomationActionDto,
   EntityRecordAutomationConditionDto,
@@ -67,6 +72,7 @@ const { t } = useTranslation()
 
 const draft = ref<EntityRecordAutomationDto | null>(null)
 const draftSetRows = ref<AutomationSetFieldRow[]>([])
+const connections = ref<GraphQlFlowTrigger[]>([])
 const fieldMetaByName = ref<Map<string, ConditionFieldMeta>>(new Map())
 const runtimeFieldProps = reactive<Record<string, Record<string, unknown>>>({})
 const autoCompleteTemplates = reactive<Record<string, string | undefined>>({})
@@ -101,6 +107,24 @@ const notifySeverityOptions = computed(() => [
   { label: t('setup.automations.notifyInfo', 'Info'), value: 'info' },
   { label: t('setup.automations.notifyWarn', 'Alarm'), value: 'warn' },
 ])
+
+const connectionOptions = computed(() => {
+  const options = connections.value.map((entry) => ({
+    label: entry.enabled
+      ? entry.key
+      : t('setup.tasks.connectionDisabled', '{key} (disabled)', { key: entry.key }),
+    value: entry.key,
+  }))
+  const known = new Set(options.map((option) => option.value))
+  for (const action of draft.value?.actions ?? []) {
+    if (action.type !== 'trigger_flow') continue
+    const key = action.flowKey.trim()
+    if (!key || known.has(key)) continue
+    options.push({ label: key, value: key })
+    known.add(key)
+  }
+  return options
+})
 
 const valueSourceOptions = computed(() => [
   { label: t('setup.automations.valueSourceLiteral', 'Fixed value'), value: 'literal' },
@@ -151,7 +175,7 @@ function cloneActions(
     if (action.type === 'trigger_flow') {
       return {
         type: 'trigger_flow' as const,
-        flowKey: String(action.flowKey || ''),
+        flowKey: flowTriggerKeyFromWebhook(String(action.flowKey || '')),
       }
     }
     return {
@@ -400,6 +424,14 @@ function hintTooltip(value: string) {
   return { value, class: 'setup-automation-hint-tooltip' }
 }
 
+async function loadConnections(): Promise<void> {
+  try {
+    connections.value = await fetchFlowTriggers()
+  } catch {
+    connections.value = []
+  }
+}
+
 watch(
   () => [props.visible, props.rule] as const,
   ([visible, rule]) => {
@@ -411,6 +443,7 @@ watch(
     }
     draft.value = cloneRule(rule)
     draftSetRows.value = cloneSetRows(props.setFieldRows)
+    void loadConnections()
   },
   { immediate: true },
 )
@@ -717,7 +750,7 @@ watch(
             :aria-label="t('common.hint', 'Hint')"
             v-tooltip.bottom="hintTooltip(t(
               'setup.automations.actionsHint',
-              'Optional. Notify shows a toast to the current user. Call connection needs a key from Setup → Connections (not an external URL). Break stops later rules.',
+              'Optional. Notify shows a toast to the current user. Call external flow needs a key from Setup → External Flows (not an external URL). Break stops later rules.',
             ))"
           />
           <div class="ml-auto flex flex-wrap gap-1">
@@ -730,7 +763,7 @@ watch(
               @click="addNotifyAction"
             />
             <Button
-              :label="t('setup.automations.addFlow', 'Add connection')"
+              :label="t('setup.automations.addFlow', 'Add external flow')"
               icon="pi pi-plus"
               size="small"
               severity="secondary"
@@ -775,17 +808,18 @@ watch(
           </template>
           <template v-else-if="action.type === 'trigger_flow'">
             <Tag
-              :value="t('setup.automations.actionTriggerFlow', 'Call connection')"
+              :value="t('setup.automations.actionTriggerFlow', 'Call external flow')"
               severity="success"
             />
-            <InputText
+            <Select
               v-model="action.flowKey"
+              :options="connectionOptions"
+              option-label="label"
+              option-value="value"
+              filter
               class="setup-automation-row__value"
               :placeholder="
-                t(
-                  'setup.automations.flowKeyPlaceholder',
-                  'my-webhook-key or /flows/trigger/my-webhook-key',
-                )
+                t('setup.automations.flowKeyPlaceholder', 'Select external flow')
               "
             />
           </template>
@@ -834,11 +868,11 @@ watch(
 
 <style scoped>
 .setup-automation-editor {
-  --auto-wash: var(--app-canvas, #edf3f4);
+  --auto-wash: var(--app-hover, var(--p-content-hover-background, #edf3f4));
   --auto-card: var(--app-panel, #fff);
   --auto-ink: var(--app-text, #37352f);
-  --auto-ink-muted: var(--app-text-muted, rgba(55, 53, 47, 0.55));
-  --auto-line: var(--app-border, rgba(55, 53, 47, 0.4));
+  --auto-ink-muted: var(--app-text-muted, #64748b);
+  --auto-line: var(--app-border, #e2e8f0);
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -851,6 +885,7 @@ watch(
   box-sizing: border-box;
   display: grid;
   gap: 0.55rem;
+  border: 1px solid var(--auto-line);
   border-radius: 8px;
   background: var(--auto-wash);
   padding: 0.55rem 0.5rem 0.65rem;
@@ -904,7 +939,7 @@ watch(
   flex: 1;
   min-width: 0;
   font-size: 0.75rem;
-  color: rgba(55, 53, 47, 0.5);
+  color: var(--auto-ink-muted);
 }
 
 .setup-automation-row {
@@ -912,8 +947,9 @@ watch(
   align-items: center;
   gap: 0.45rem;
   padding: 0.4rem 0.45rem;
+  border: 1px solid var(--auto-line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--auto-card);
 }
 
 .setup-automation-row__field {
@@ -966,7 +1002,7 @@ watch(
 }
 
 .setup-automation-hint:focus-visible {
-  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline: 2px solid var(--p-primary-color, #10b981);
   outline-offset: 2px;
 }
 

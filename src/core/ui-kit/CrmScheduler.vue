@@ -3411,7 +3411,7 @@ function daysInMonth(date: Date): number {
 }
 
 .crm-scheduler__range-tabs {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--app-hover, var(--p-content-hover-background, rgba(255, 255, 255, 0.06)));
   border-radius: 8px;
   padding: 0.15rem;
 }
@@ -3419,7 +3419,7 @@ function daysInMonth(date: Date): number {
 .crm-scheduler__range-tabs :deep(.p-togglebutton) {
   border: 0;
   background: transparent;
-  color: rgba(55, 53, 47, 0.62);
+  color: var(--app-text-muted, var(--p-text-muted-color, #64748b));
   font-size: 0.8rem;
   font-weight: 600;
   border-radius: 6px;

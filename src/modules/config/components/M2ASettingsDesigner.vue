@@ -199,7 +199,7 @@ watch(
       <div
         v-for="collection in allowedCollections"
         :key="collection"
-        class="grid gap-2 border border-surface-200 rounded-md p-3"
+        class="grid gap-2 border border-line rounded-md p-3"
       >
         <label class="text-[0.85rem] font-medium">
           {{

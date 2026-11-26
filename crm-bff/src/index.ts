@@ -68,6 +68,7 @@ import { resolveFlowsBackend, triggerFlow } from './flows/flowsAdapter.js'
 import { startTaskScheduler } from './tasks/scheduler.js'
 import { registerRecordsRestApi } from './rest/recordsApi.js'
 import { registerDocumentsRestApi } from './rest/documentsApi.js'
+import { registerMcpApi } from './rest/mcpApi.js'
 import { describePlatformMail } from './mail/platformMail.js'
 
 const port = Number(process.env.PORT || 4000)
@@ -837,6 +838,7 @@ app.post('/flows/trigger/:key', async (request, reply) => {
 
 await registerRecordsRestApi(app)
 await registerDocumentsRestApi(app)
+await registerMcpApi(app)
 
 async function start() {
   try {
@@ -874,6 +876,9 @@ async function start() {
     app.log.info(
       `REST generate document at http://localhost:${port}/api/v1/documents/generate`,
     )
+    if (/^(1|true|yes|on)$/i.test(String(process.env.MCP_HTTP_ENABLED || ''))) {
+      app.log.info(`MCP Streamable HTTP at http://localhost:${port}/api/v1/mcp`)
+    }
     startTaskScheduler()
     app.log.info('Task scheduler started (TASK_SCHEDULER_ENABLED, default on)')
     app.log.info(describePlatformMail())

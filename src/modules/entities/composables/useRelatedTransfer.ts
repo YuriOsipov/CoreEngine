@@ -32,6 +32,7 @@ import {
   buildPendingPayload,
   duplicateValue,
   formatTransferValue,
+  isEmptyTransferValue,
   isLookupSourceColumn,
   lookupSourceTargetField,
   sourceValue,
@@ -97,11 +98,22 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     source.value?.itemLabelFields?.length ? source.value.itemLabelFields : ['name'],
   )
   const duplicateKey = computed(() => target.value?.duplicateKey || target.value?.itemField || 'id')
-  const targetColumns = computed<DataTableColumnConfig[]>(() =>
-    target.value?.columns?.length
+  const targetColumns = computed<DataTableColumnConfig[]>(() => {
+    const itemField = target.value?.itemField?.trim() || ''
+    const hideItemField = target.value?.hideItemField === true
+    const columns = target.value?.columns?.length
       ? target.value.columns
-      : [{ field: target.value?.itemField ?? 'item', header: options.t('relatedTransfer.item', 'Item') }],
-  )
+      : [{
+          field: itemField || 'item',
+          header: options.t('relatedTransfer.item', 'Item'),
+        }]
+    return columns.filter((column) => {
+      if (column.hidden === true) return false
+      // Legacy Bulk-insert flag: hide Destination Item field in Selected.
+      if (hideItemField && itemField && keysEqual(column.field, itemField)) return false
+      return true
+    })
+  })
   const editableTargetFields = computed(() => {
     const configured = target.value?.editableFields?.filter(Boolean) ?? []
     if (configured.length > 0) return new Set(configured)
@@ -329,7 +341,18 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
         if (displayed !== undefined) return displayed
       }
       if (Object.prototype.hasOwnProperty.call(row.draft ?? {}, field)) {
-        return row.draft?.[field]
+        const raw = row.draft?.[field]
+        // Draft often stores a bare M2O id after copy — still show Source label.
+        if (row.source && isTargetFieldM2O(field) && !isEmptyTransferValue(raw)) {
+          const labeled = pendingRelationValue(field, row.source)
+          if (
+            labeled !== undefined
+            && String(scalarId(labeled) ?? '') === String(scalarId(raw) ?? '')
+          ) {
+            return labeled
+          }
+        }
+        return raw
       }
       const payload = row.source && settings.value
         ? buildCreatePayload(settings.value, row.source, payloadContext())
@@ -653,10 +676,21 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     currentSettings: RelatedTransferSettings,
     sourceRecord: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return {
-      ...buildCreatePayload(currentSettings, sourceRecord, payloadContext()),
-      ...await resolveLookupPayload(currentSettings, sourceRecord, dataContext()),
+    const base = buildCreatePayload(currentSettings, sourceRecord, payloadContext())
+    // Prefer explicit / same-named source copies (e.g. Variant Long) over
+    // Child-value lookups that can return null or a different item_variant row.
+    const lookedUp = await resolveLookupPayload(
+      currentSettings,
+      sourceRecord,
+      dataContext(),
+      base,
+    )
+    const merged: Record<string, unknown> = { ...base }
+    for (const [field, value] of Object.entries(lookedUp)) {
+      if (!isEmptyTransferValue(merged[field])) continue
+      merged[field] = value
     }
+    return merged
   }
 
   async function addSourceItem(item: Record<string, unknown>): Promise<void> {
@@ -668,11 +702,18 @@ export function useRelatedTransfer(options: UseRelatedTransferOptions) {
     try {
       const currentSettings = settings.value
       const draft = currentSettings ? await buildCreatePayloadWithLookups(currentSettings, item) : {}
-      const linkedField = target.value?.itemField
-      if (linkedField && isTargetFieldM2O(linkedField)) {
-        const linked = pendingRelationValue(linkedField, item)
-        const linkedId = scalarId(linked)
-        if (linkedId !== null) draft[linkedField] = linkedId
+      // Always persist source PK on itemField (lineage), even when M2O metadata is
+      // cold after a newly added field — do not require isTargetFieldM2O.
+      const linkedField = target.value?.itemField?.trim()
+      if (linkedField) {
+        const linkedId = sourceValue(item, sourcePrimaryKey.value)
+        if (linkedId !== null) {
+          draft[linkedField] = linkedId
+        } else if (isTargetFieldM2O(linkedField)) {
+          const linked = pendingRelationValue(linkedField, item)
+          const fromRelation = scalarId(linked)
+          if (fromRelation !== null) draft[linkedField] = fromRelation
+        }
       }
       applyTargetDefaultValues(
         draft,

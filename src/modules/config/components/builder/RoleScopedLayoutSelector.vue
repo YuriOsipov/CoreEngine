@@ -123,7 +123,7 @@ function confirmDeleteLayout(): void {
         v-if="mode === 'single' && !setupMode"
         class="flex flex-col gap-[0.3rem]"
       >
-        <label class="text-surface-600 text-[0.75rem] font-medium leading-tight">
+        <label class="text-muted-color text-[0.75rem] font-medium leading-tight">
           {{ layoutLabel }}
         </label>
         <Select
@@ -163,7 +163,7 @@ function confirmDeleteLayout(): void {
         v-if="showRole"
         class="flex flex-col gap-[0.3rem]"
       >
-        <label class="text-surface-600 text-[0.75rem] font-medium leading-tight">
+        <label class="text-muted-color text-[0.75rem] font-medium leading-tight">
           {{ t('layoutRole.role', 'Role') }}
         </label>
         <Select
@@ -231,7 +231,7 @@ function confirmDeleteLayout(): void {
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.25;
-  color: var(--p-surface-600, rgba(55, 53, 47, 0.55));
+  color: var(--app-text-muted, var(--p-text-muted-color, #64748b));
 }
 
 .layout-selector-hint {
@@ -242,10 +242,10 @@ function confirmDeleteLayout(): void {
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--app-border, rgba(55, 53, 47, 0.4));
+  border: 1px solid var(--app-border, var(--p-content-border-color, #e2e8f0));
   border-radius: 50%;
   background: transparent;
-  color: var(--app-text-muted, rgba(55, 53, 47, 0.55));
+  color: var(--app-text-muted, var(--p-text-muted-color, #64748b));
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;
@@ -254,7 +254,7 @@ function confirmDeleteLayout(): void {
 }
 
 .layout-selector-hint:focus-visible {
-  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline: 2px solid var(--p-primary-color, #10b981);
   outline-offset: 2px;
 }
 

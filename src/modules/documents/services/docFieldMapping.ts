@@ -74,14 +74,35 @@ export function isDocFieldMappingResult(data: unknown): data is Record<string, u
   return record.kind === 'field' && typeof record.sections === 'object' && record.sections !== null
 }
 
-/** Collects `$payload…` path strings from a stored mapping result. */
+/**
+ * Absolute DocEngine path: bare `close_date` / `account_id.name`, or legacy `$payload…`.
+ * Relative row paths (`$qty`, `$item`) start with `$` but not `$payload`.
+ */
+function isAbsolutePayloadPath(path: string): boolean {
+  const trimmed = stripMappingFormatSuffix(String(path ?? '').trim())
+  if (!trimmed) return false
+  if (trimmed.startsWith('$payload')) return true
+  if (trimmed.startsWith('$')) return false
+  return /^[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*|\["[^"]*"\]|\['[^']*'\]|\[\d+\])*$/.test(
+    trimmed,
+  )
+}
+
+function stripPayloadRoot(path: string): string {
+  const trimmed = String(path ?? '').trim()
+  if (trimmed === '$payload') return ''
+  if (trimmed.startsWith('$payload.')) return trimmed.slice('$payload.'.length)
+  return trimmed
+}
+
+/** Collects absolute payload path strings from a stored mapping result (bare or `$payload…`). */
 export function extractPayloadPaths(mapping: unknown): string[] {
   const paths = new Set<string>()
   collectPayloadPathStrings(mapping, paths)
   return [...paths]
     .map((path) => path.trim())
-    .filter((path) => path.startsWith('$payload'))
-    .map((path) => stripMappingFormatSuffix(path).replace(/^\$payload\.?/, ''))
+    .filter((path) => isAbsolutePayloadPath(path))
+    .map((path) => stripPayloadRoot(stripMappingFormatSuffix(path)))
     .filter(Boolean)
 }
 
@@ -101,10 +122,18 @@ export function stripMappingFormatSuffix(sourcePath: string): string {
   }
 
   const pipe = trimmed.lastIndexOf('|')
-  if (pipe > 0 && trimmed.startsWith('$payload')) {
+  if (pipe > 0) {
     const path = trimmed.slice(0, pipe).trim()
     const format = trimmed.slice(pipe + 1).trim()
-    if (path && format && !format.includes('$')) return path
+    // Absolute bare / `$payload…` paths; avoid treating prose `|` as a format split.
+    if (
+      path &&
+      format &&
+      !format.includes('$') &&
+      (path.startsWith('$payload') || /^[A-Za-z_][\w.$\[\]"']*$/.test(path))
+    ) {
+      return path
+    }
   }
 
   return trimmed
@@ -305,15 +334,15 @@ function rewriteMappingFormatValue(value: unknown): unknown {
   return value
 }
 
-/** Resolve `$children` (etc.) against a parent `$payload…` array path. */
+/** Resolve `$children` (etc.) against a parent absolute array path (bare or `$payload…`). */
 function absolutizeMappingSource(
   source: string,
   parentPayloadSource?: string,
 ): string {
   const trimmed = source.trim()
-  if (trimmed.startsWith('$payload')) return trimmed
-  if (parentPayloadSource?.startsWith('$payload') && trimmed.startsWith('$')) {
-    return `${parentPayloadSource}.${trimmed.replace(/^\$/, '')}`
+  if (isAbsolutePayloadPath(trimmed)) return trimmed
+  if (parentPayloadSource && isAbsolutePayloadPath(parentPayloadSource) && trimmed.startsWith('$')) {
+    return toAbsoluteColumnPath(parentPayloadSource, trimmed).trim()
   }
   return trimmed
 }
@@ -361,14 +390,18 @@ function collectPayloadPathStrings(
 ): void {
   if (typeof value === 'string') {
     const trimmed = value.trim()
-    if (trimmed.startsWith('$payload')) {
+    if (isAbsolutePayloadPath(trimmed)) {
       paths.add(trimmed)
       return
     }
     // Relative `$item` / `$price` under a nested `$children` table → absolute payload path.
-    if (parentPayloadSource?.startsWith('$payload') && trimmed.startsWith('$')) {
+    if (
+      parentPayloadSource &&
+      isAbsolutePayloadPath(parentPayloadSource) &&
+      trimmed.startsWith('$')
+    ) {
       const absolute = toAbsoluteColumnPath(parentPayloadSource, trimmed).trim()
-      if (absolute.startsWith('$payload')) paths.add(absolute)
+      if (isAbsolutePayloadPath(absolute)) paths.add(absolute)
     }
     return
   }
@@ -379,26 +412,26 @@ function collectPayloadPathStrings(
   }
 
   if (value && typeof value === 'object') {
-    // DocEngine table schema: { _source: "$payload.…", items: { col: "$rel" } }
+    // DocEngine table schema: { _source: "records" | "$payload.…", items: { col: "$rel" } }
     if (isDocTableMapping(value)) {
       const source = getTableMappingSourcePath(value)
       const items = (value as { items: Record<string, unknown> }).items
       const absoluteSource = absolutizeMappingSource(source, parentPayloadSource)
-      if (absoluteSource.startsWith('$payload')) paths.add(absoluteSource)
+      if (isAbsolutePayloadPath(absoluteSource)) paths.add(absoluteSource)
 
-      const joinSource = absoluteSource.startsWith('$payload')
+      const joinSource = isAbsolutePayloadPath(absoluteSource)
         ? absoluteSource
         : source
       for (const columnValue of Object.values(items)) {
         if (typeof columnValue === 'string') {
           const absolute = toAbsoluteColumnPath(joinSource, columnValue).trim()
-          if (absolute.startsWith('$payload')) paths.add(absolute)
+          if (isAbsolutePayloadPath(absolute)) paths.add(absolute)
           continue
         }
         collectPayloadPathStrings(
           columnValue,
           paths,
-          absoluteSource.startsWith('$payload') ? absoluteSource : parentPayloadSource,
+          isAbsolutePayloadPath(absoluteSource) ? absoluteSource : parentPayloadSource,
         )
       }
       return
@@ -408,8 +441,8 @@ function collectPayloadPathStrings(
     if (isSourcedSectionFieldMap(value) || isFlatSourcedColumnMap(value)) {
       const source = getTableMappingSourcePath(value)
       const absoluteSource = absolutizeMappingSource(source, parentPayloadSource)
-      if (absoluteSource.startsWith('$payload')) paths.add(absoluteSource)
-      const childParent = absoluteSource.startsWith('$payload')
+      if (isAbsolutePayloadPath(absoluteSource)) paths.add(absoluteSource)
+      const childParent = isAbsolutePayloadPath(absoluteSource)
         ? absoluteSource
         : parentPayloadSource
       for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
@@ -1421,9 +1454,9 @@ export function deriveListRowPayloadPaths(payloadPaths: string[]): string[] {
 }
 
 /**
- * Rewrite `$payload.field` → `$payload.records.field` so DocEngine table expansion
- * uses `records[]` as the source array (sourceArrayPath = `$payload.records`).
- * Leaves `$payload.records.*` and `$payload.meta.*` unchanged.
+ * Rewrite root field → `records.field` so DocEngine table expansion uses `records[]`
+ * as the source array. Accepts bare paths and legacy `$payload…`.
+ * Leaves `records.*`, `meta.*`, `parent.*`, and item-group tree keys unchanged.
  */
 export function rewriteMappingPathsForListRecords(
   mapping: Record<string, unknown>,
@@ -1433,38 +1466,34 @@ export function rewriteMappingPathsForListRecords(
 
 function rewriteListPayloadSourcePath(value: string): string {
   const trimmed = value.trim()
-  if (!trimmed.startsWith('$payload')) return value
+  if (!isAbsolutePayloadPath(trimmed)) return value
 
   // Keep `#format` / `|format` on the path while rewriting the payload prefix.
   const suffixMatch = trimmed.match(/^(.*?)([#|][^#|]+)$/)
   const base = suffixMatch ? suffixMatch[1] : trimmed
   const formatSuffix = suffixMatch ? suffixMatch[2] : ''
+  const bare = stripPayloadRoot(base)
 
-  let rewritten = base
-  if (
-    base === '$payload.records' ||
-    base.startsWith('$payload.records.') ||
-    base === '$payload.meta' ||
-    base.startsWith('$payload.meta.') ||
-    base === '$payload.parent' ||
-    base.startsWith('$payload.parent.') ||
-    base === `$payload.${ITEM_GROUP_TREE_KEY}` ||
-    base.startsWith(`$payload.${ITEM_GROUP_TREE_KEY}.`) ||
-    base === `$payload.${ITEM_GROUP_TREE_ROWS_KEY}` ||
-    base.startsWith(`$payload.${ITEM_GROUP_TREE_ROWS_KEY}.`) ||
-    base === `$payload.${ITEM_GROUP_TREE_SECTIONS_KEY}` ||
-    base.startsWith(`$payload.${ITEM_GROUP_TREE_SECTIONS_KEY}.`)
-  ) {
-    rewritten = base
-  } else if (base === '$payload') {
-    rewritten = '$payload.records'
-  } else if (base.startsWith('$payload.')) {
-    rewritten = `$payload.records.${base.slice('$payload.'.length)}`
-  } else {
-    return value
+  const reserved =
+    bare === 'records' ||
+    bare.startsWith('records.') ||
+    bare === 'meta' ||
+    bare.startsWith('meta.') ||
+    bare === 'parent' ||
+    bare.startsWith('parent.') ||
+    bare === ITEM_GROUP_TREE_KEY ||
+    bare.startsWith(`${ITEM_GROUP_TREE_KEY}.`) ||
+    bare === ITEM_GROUP_TREE_ROWS_KEY ||
+    bare.startsWith(`${ITEM_GROUP_TREE_ROWS_KEY}.`) ||
+    bare === ITEM_GROUP_TREE_SECTIONS_KEY ||
+    bare.startsWith(`${ITEM_GROUP_TREE_SECTIONS_KEY}.`)
+
+  let rewrittenBare = bare
+  if (!reserved) {
+    rewrittenBare = bare ? `records.${bare}` : 'records'
   }
 
-  return formatSuffix ? `${rewritten}${formatSuffix}` : rewritten
+  return formatSuffix ? `${rewrittenBare}${formatSuffix}` : rewrittenBare
 }
 
 function rewriteMappingPathValue(value: unknown): unknown {
@@ -1971,12 +2000,12 @@ function isLeafGroupNameColumnPath(path: string): boolean {
   const { path: clean } = splitMappingPathAndFormat(path)
   const trimmed = clean.trim()
   if (!trimmed) return false
-  const relative = trimmed
-    .replace(/^\$payload\.item_group_tree_rows\.children\./, '')
-    .replace(/^\$payload\.item_group_tree_rows\./, '')
-    .replace(/^\$payload\.item_group_tree_sections\.item_prices\./, '')
-    .replace(/^\$payload\.item_group_tree_sections\./, '')
-    .replace(/^\$payload\.item_group_tree\.children\.item_prices\./, '')
+  const relative = stripPayloadRoot(trimmed)
+    .replace(/^item_group_tree_rows\.children\./, '')
+    .replace(/^item_group_tree_rows\./, '')
+    .replace(/^item_group_tree_sections\.item_prices\./, '')
+    .replace(/^item_group_tree_sections\./, '')
+    .replace(/^item_group_tree\.children\.item_prices\./, '')
     .replace(/^\$/, '')
   return (
     relative === 'group' ||
@@ -1991,20 +2020,24 @@ function isLeafGroupNameColumnPath(path: string): boolean {
 function toGroupPathColumnPath(path: string): string {
   const { path: clean, format } = splitMappingPathAndFormat(path)
   const trimmed = clean.trim()
+  const bare = stripPayloadRoot(trimmed)
   let next = trimmed
   if (trimmed.includes('.children.') || /\$children\b/.test(trimmed)) {
     // Nested price row — keep relative `$group_path` (stamped on each child).
-    next = trimmed.startsWith('$payload')
-      ? trimmed.replace(
-          /\.(group|group_name|group\.name)$/,
-          '.group_path',
-        )
+    next = isAbsolutePayloadPath(trimmed)
+      ? `${bare.replace(/\.(group|group_name|group\.name)$/, '.group_path')}`
       : '$group_path'
-    if (next === trimmed && !trimmed.startsWith('$payload')) next = '$group_path'
-  } else if (trimmed.startsWith('$payload.item_group_tree_rows.')) {
-    next = '$payload.item_group_tree_rows.group_path'
-  } else if (trimmed.startsWith(`$payload.${ITEM_GROUP_TREE_SECTIONS_KEY}.`)) {
-    next = `$payload.${ITEM_GROUP_TREE_SECTIONS_KEY}.group_path`
+    if (next === trimmed && !isAbsolutePayloadPath(trimmed)) next = '$group_path'
+  } else if (
+    bare.startsWith('item_group_tree_rows.') ||
+    trimmed.startsWith('$payload.item_group_tree_rows.')
+  ) {
+    next = 'item_group_tree_rows.group_path'
+  } else if (
+    bare.startsWith(`${ITEM_GROUP_TREE_SECTIONS_KEY}.`) ||
+    trimmed.startsWith(`$payload.${ITEM_GROUP_TREE_SECTIONS_KEY}.`)
+  ) {
+    next = `${ITEM_GROUP_TREE_SECTIONS_KEY}.group_path`
   } else if (trimmed.startsWith('$')) {
     next = '$group_path'
   } else {
@@ -2395,7 +2428,7 @@ function rewriteItemGroupTreeNestedSources(
       }
       let nextSource = source
       if (isItemGroupTreeSource(source) && nestedPriceSource) {
-        nextSource = `$payload.${ITEM_GROUP_TREE_ROWS_KEY}`
+        nextSource = ITEM_GROUP_TREE_ROWS_KEY
       }
       if (typeof section._source === 'string') out._source = nextSource
       if (typeof section.source === 'string') out.source = nextSource
@@ -2453,7 +2486,7 @@ function rewriteItemGroupTreeNestedSources(
       let nextSource = source
       if (isItemGroupTreeSource(source) && nestedPriceSource) {
         // Prefer rows shells (`children`) over recursive tree for DocEngine.
-        nextSource = `$payload.${ITEM_GROUP_TREE_ROWS_KEY}`
+        nextSource = ITEM_GROUP_TREE_ROWS_KEY
       }
 
       const nextTable: Record<string, unknown> = {
@@ -2571,7 +2604,7 @@ function sortMappedTableArrays(
     absoluteSource: string,
     itemSortPath: string | null,
   ): void => {
-    if (!absoluteSource.startsWith('$payload')) return
+    if (!isAbsolutePayloadPath(absoluteSource)) return
     const rows = getPayloadValueAtPath(payload, absoluteSource)
     if (!Array.isArray(rows) || rows.length === 0) return
     if (
@@ -2600,7 +2633,7 @@ function sortMappedTableArrays(
       const itemSortPath = findNestedItemSortPath(value)
       sortGroupTreePayload(absoluteSource, itemSortPath)
 
-      const nextParent = absoluteSource.startsWith('$payload')
+      const nextParent = isAbsolutePayloadPath(absoluteSource)
         ? absoluteSource
         : parentPayloadSource
       for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
@@ -2621,12 +2654,12 @@ function sortMappedTableArrays(
         isItemGroupTreeSectionsSource(source)
       ) {
         sortGroupTreePayload(source, sortPath)
-        visit(items, source.startsWith('$payload') ? source : parentPayloadSource)
+        visit(items, isAbsolutePayloadPath(source) ? source : parentPayloadSource)
         return
       }
 
       // Nested `$children` / `$item_prices` under group shells — already sorted above.
-      if (!source.startsWith('$payload')) {
+      if (!isAbsolutePayloadPath(source)) {
         visit(items, parentPayloadSource)
         return
       }

@@ -98,3 +98,4 @@ Keep Confidential data on objects with tight object ACL / owner RLS. Config hist
 | **TLS & rate limiting** | Terminate TLS at the reverse proxy. Login uses per-IP and per-IP+email failure windows. |
 | **Bootstrap** | Weak bootstrap admin passwords refused unless `ALLOW_INSECURE_BOOTSTRAP=true`. |
 | **n8n / Activepieces automation user** | Any active app user JWT; seed helper defaults to non-admin Integration. |
+| **MCP (`/api/v1/mcp`)** | Off unless `MCP_HTTP_ENABLED=true`. Bearer CoreEngine JWT; admin tools → `requireAdminAccess`; record tools → entity ACL/FLS/owner RLS. `retry_message` needs `confirm: true`. No secrets in tool output. See [`mcp.md`](./mcp.md). |

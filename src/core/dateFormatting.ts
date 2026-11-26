@@ -19,11 +19,12 @@ export function formatDateValue(value: unknown, format: string): string {
   const dateOnly = isDateOnlyValue(value)
   const displayDate =
     dateOnly ? date : toZonedWallClockDate(date, getOrgTimeZone())
-  const displayFormat = normalizeDateFormatForLocale(format)
-  const preset = displayFormat.trim().toLowerCase()
-  if (preset === 'long' || preset === 'short') {
-    return formatDatePreset(displayDate, preset, dateOnly)
-  }
+  const preset = format.trim().toLowerCase()
+  const resolvedFormat =
+    preset === 'short' || preset === 'long'
+      ? resolvePresetDisplayFormat(preset, dateOnly)
+      : format
+  const displayFormat = normalizeDateFormatForLocale(resolvedFormat)
 
   return displayFormat.replace(FORMAT_TOKENS, (token, index) =>
     tokenValue(displayDate, token, displayFormat, index),
@@ -54,7 +55,21 @@ export function effectiveDateDisplayFormat(
   format: string | null | undefined,
   field: DateFieldDefinition | undefined,
 ): string | undefined {
-  if (format?.trim()) return format.trim()
+  const trimmed = format?.trim()
+  if (trimmed) {
+    const preset = trimmed.toLowerCase()
+    if (preset === 'short' || preset === 'long') {
+      if (field) {
+        return fieldPresetFormat(
+          field,
+          preset,
+          field.meta?.display_options ?? field.meta?.displayOptions,
+        )
+      }
+      return fieldPresetDateFormat(preset)
+    }
+    return trimmed
+  }
   if (!field) return undefined
   return fieldDateDisplayFormat(field) ?? defaultFormatForDateField(field)
 }
@@ -89,7 +104,7 @@ export function defaultDateTimeDisplayFormat(
   const orgFormat = getOrgDateTimeFormat()
   if (orgFormat) {
     if (options.includeSeconds === false) {
-      return orgFormat.replace(/:?ss/gi, '').replace(/\s+/g, ' ').trim()
+      return stripSecondsFromFormat(orgFormat) || orgFormat
     }
     return orgFormat
   }
@@ -271,18 +286,26 @@ function tokenValue(date: Date, token: string, format: string, index: number): s
   }
 }
 
-function formatDatePreset(date: Date, preset: 'long' | 'short', dateOnly: boolean): string {
-  // `date` is already org wall-clock for date-times (see formatDateValue).
-  if (dateOnly) {
-    return date.toLocaleDateString(currentLocale(), {
-      dateStyle: preset,
-    })
+/** Expand short/long presets to token patterns (prefer company locale settings). */
+function resolvePresetDisplayFormat(
+  preset: 'long' | 'short',
+  dateOnly: boolean,
+): string {
+  if (dateOnly) return fieldPresetDateFormat(preset)
+  if (preset === 'short') {
+    return (
+      stripSecondsFromFormat(getOrgDateTimeFormat()) ||
+      `${fieldPresetDateFormat('short')} ${isUkrainianLocale() ? 'HH:mm' : 'h:mm A'}`
+    )
   }
+  return `${fieldPresetDateFormat('long')} ${
+    isUkrainianLocale() ? 'HH:mm:ss' : 'h:mm:ss A'
+  }`
+}
 
-  return date.toLocaleString(currentLocale(), {
-    dateStyle: preset,
-    timeStyle: preset === 'long' ? 'medium' : 'short',
-  })
+function stripSecondsFromFormat(format: string | null | undefined): string | null {
+  if (!format?.trim()) return null
+  return format.replace(/:?ss/gi, '').replace(/\s+/g, ' ').trim() || null
 }
 
 /**
@@ -403,8 +426,10 @@ function fieldPresetFormat(
   preset: 'short' | 'long',
   displayOptions: Record<string, unknown> | null | undefined,
 ): string {
-  const dateFormat = fieldPresetDateFormat(preset)
-  if (field.type === 'date') return dateFormat
+  const type = String(field.type ?? '').toLowerCase()
+  if (type === 'date') {
+    return fieldPresetDateFormat(preset)
+  }
 
   const inputOptions = field.meta?.options
   const includeSeconds =
@@ -413,6 +438,17 @@ function fieldPresetFormat(
     booleanOption(inputOptions, 'include_seconds') ??
     booleanOption(inputOptions, 'includeSeconds') ??
     false
+
+  if (preset === 'short') {
+    const orgDateTime = getOrgDateTimeFormat()
+    if (orgDateTime) {
+      return includeSeconds
+        ? orgDateTime
+        : stripSecondsFromFormat(orgDateTime) || orgDateTime
+    }
+  }
+
+  const dateFormat = fieldPresetDateFormat(preset)
   const use24Hour =
     booleanOption(displayOptions, 'use_24') ??
     booleanOption(displayOptions, 'use24') ??
@@ -431,11 +467,14 @@ function fieldPresetFormat(
 }
 
 function fieldPresetDateFormat(preset: 'short' | 'long'): string {
-  if (isUkrainianLocale()) {
-    return preset === 'short' ? 'dd.MM.yyyy' : 'd MMMM yyyy'
+  if (preset === 'short') {
+    return (
+      getOrgDateFormat() ||
+      (isUkrainianLocale() ? 'dd.MM.yyyy' : 'MMM d, y')
+    )
   }
-
-  return preset === 'short' ? 'MMM d, y' : 'MMMM d, y'
+  if (isUkrainianLocale()) return 'd MMMM yyyy'
+  return 'MMMM d, y'
 }
 
 function isUkrainianLocale(): boolean {

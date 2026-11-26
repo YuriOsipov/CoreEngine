@@ -48,7 +48,9 @@ import type {
   FieldDefinition,
   LayoutFieldChildLookup,
   LayoutFieldMetadata,
+  RelationDefinition,
 } from '@/interfaces'
+import { extractRelationFieldId } from '@/modules/entities/utils/recordDisplay'
 import { resolvePrimeVueComponent } from '@/core/primevue'
 import { defaultValueForField } from '@/modules/entities/utils/fieldDefaults'
 import { useFieldLabels } from '@/core/useFieldLabels'
@@ -349,8 +351,7 @@ function fieldComponentProps(field: LayoutFieldMetadata): Record<string, unknown
     readonlyFieldNames.value,
     props.parentName,
     props.parentId,
-    runtimeMeta.runtimeReadonly[field.field] ||
-      isLayoutFieldReadonly(field, showIfEvalRecord.value),
+    isFormFieldReadonly(field),
   )
 }
 
@@ -358,7 +359,14 @@ function isFormFieldReadonly(field: LayoutFieldMetadata): boolean {
   if (props.readonly) return true
   if (readonlyFieldNames.value.has(field.field)) return true
   if (field.readonly === true) return true
-  if (runtimeMeta.runtimeReadonly[field.field]) return true
+  // Setup "Read-only": lock on edit. On create, allow input unless the field is
+  // server-owned (formula / rollup / autoNumber) — e.g. Item stays choosable on New.
+  if (runtimeMeta.runtimeReadonly[field.field]) {
+    if (runtimeMeta.runtimeServerOwned[field.field]) return true
+    if (props.recordId !== undefined && props.recordId !== null && props.recordId !== '') {
+      return true
+    }
+  }
   if (isLayoutFieldReadonly(field, showIfEvalRecord.value)) return true
   if (
     props.parentName &&
@@ -436,9 +444,14 @@ function handleAutoCompleteUpdate(
   void applyRelatedCopy(field, relatedId)
 }
 
+function isEmptyDraftValue(value: unknown): boolean {
+  return value === undefined || value === null || value === ''
+}
+
 async function applyRelatedCopy(
   field: LayoutFieldMetadata,
   relatedId: string | number | null,
+  options?: { fillEmptyOnly?: boolean },
 ): Promise<void> {
   const copyMap: Record<string, string> = { ...(field.relatedCopy ?? {}) }
 
@@ -467,6 +480,7 @@ async function applyRelatedCopy(
 
   const targetFields = Object.keys(copyMap)
   if (!relatedId && relatedId !== 0) {
+    if (options?.fillEmptyOnly) return
     const cleared: Record<string, unknown> = { ...formState.value }
     for (const target of targetFields) {
       cleared[target] = null
@@ -485,10 +499,27 @@ async function applyRelatedCopy(
       fields: ['id', ...sourceFields],
     })
     const next: Record<string, unknown> = { ...formState.value }
+    const childFields = props.schema.entity
+      ? await getCachedCollectionFields(props.schema.entity)
+      : []
+    const relations = (await getCachedRelations()) as RelationDefinition[]
     for (const [target, source] of Object.entries(copyMap)) {
       if (!source) continue
+      if (options?.fillEmptyOnly && !isEmptyDraftValue(next[target])) continue
       const raw = record[source]
-      next[target] = raw === undefined ? null : raw
+      if (raw === undefined) {
+        next[target] = null
+        continue
+      }
+      // Persist M2O as PK — parent rows often return hydrated relation objects.
+      if (
+        props.schema.entity &&
+        isFieldM2O(props.schema.entity, target, childFields, relations)
+      ) {
+        next[target] = extractRelationFieldId(raw)
+      } else {
+        next[target] = raw
+      }
     }
     // Prefer catalog name when local name is empty.
     if (
@@ -561,6 +592,13 @@ async function syncFormState(fields: LayoutFieldMetadata[]): Promise<void> {
       label: parentLabel,
       value: props.parentId,
     })
+    // Create from related list: fill empty defaultFromParent targets for the parent M2O
+    // (e.g. opportunity_id.account_id → account_id) when the FK was only seeded.
+    if (!props.recordId && parentFieldMeta) {
+      await applyRelatedCopy(parentFieldMeta, props.parentId, {
+        fillEmptyOnly: true,
+      })
+    }
   }
   await fieldLabels.sync(fields)
   await runtimeMeta.sync(fields, autoComplete.onAutoComplete)
@@ -613,9 +651,7 @@ function validateRequired(): FormRequiredValidationResult {
         ) {
           continue
         }
-        if (readonlyFieldNames.value.has(field.field)) continue
-        if (runtimeMeta.runtimeReadonly[field.field]) continue
-        if (isLayoutFieldReadonly(field, showIfEvalRecord.value)) continue
+        if (isFormFieldReadonly(field)) continue
         if (!runtimeMeta.runtimeRequired[field.field]) continue
         if (seen.has(field.field)) continue
         seen.add(field.field)

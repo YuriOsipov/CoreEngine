@@ -226,9 +226,17 @@ export function useDataTableLazy(options: UseDataTableLazyOptions) {
 
   function updateRows(rows: Record<string, unknown>[]): void {
     if (!runtime.value) return
+    const prevLen = runtime.value.rows.length
+    const delta = rows.length - prevLen
     runtime.value = {
       ...runtime.value,
       rows,
+      // Keep the “(n)” badge accurate after local create/delete patches
+      // without forcing a full list reload.
+      totalCount:
+        delta === 0
+          ? runtime.value.totalCount
+          : Math.max(0, runtime.value.totalCount + delta),
     }
   }
 

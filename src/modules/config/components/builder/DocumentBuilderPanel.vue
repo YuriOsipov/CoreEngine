@@ -11,6 +11,7 @@ import { useToast } from 'openvue/usetoast'
 import { normalizeFieldMappingSpec } from '@docengine/editor'
 import type { FieldMappingSpec } from '@/modules/documents/services/docFieldMapping'
 import DocEditorHost from '@/core/ui-kit/DocEditorHost.vue'
+import '@/core/styles/doc-editor-theme.css'
 import {
   buildRoleSelectOptions,
   loadAppRoles,
@@ -109,7 +110,7 @@ const metaCollapsed = ref(false)
 const layoutLoading = ref(false)
 const layoutSaving = ref(false)
 const mappingOpening = ref(false)
-/** Default on so Field Mapping shows `$payload.records[]` for list reports. */
+/** Default on so Field Mapping shows `records[]` for list reports. */
 const listPayloadSample = ref(false)
 const listPayloadForced = computed(() => props.forceListPayloadSample === true)
 /** Virtual `item_group_tree*` at payload root for Tree mode list reports. */
@@ -1089,16 +1090,16 @@ defineExpose({
           </ButtonGroup>
 
           <label
-            class="flex items-center gap-2 text-[0.8rem] text-surface-700 cursor-pointer whitespace-nowrap"
+            class="flex items-center gap-2 text-[0.8rem] text-ink cursor-pointer whitespace-nowrap"
             :title="
               props.listSourceContext?.parentCollection
                 ? t(
                     'documents.listPayloadSampleRelatedHint',
-                    'Related list sample uses { records, meta.parent }. Map parent fields to $payload.meta.parent.*',
+                    'Related list sample uses { records, meta.parent }. Map parent fields to meta.parent.*',
                   )
                 : t(
                     'documents.listPayloadSampleHint',
-                    'Use { records, meta } sample so Field Mapping can bind table columns to $payload.records.*',
+                    'Use { records, meta } sample so Field Mapping can bind table columns to records.*',
                   )
             "
           >
@@ -1112,11 +1113,11 @@ defineExpose({
 
           <label
             v-if="treePayloadSampleAvailable && (listPayloadForced || listPayloadSample)"
-            class="flex items-center gap-2 text-[0.8rem] text-surface-700 cursor-pointer whitespace-nowrap"
+            class="flex items-center gap-2 text-[0.8rem] text-ink cursor-pointer whitespace-nowrap"
             :title="
               t(
                 'documents.treePayloadSampleHint',
-                'Add virtual item_group_tree / item_group_tree_rows / item_group_tree_sections for Tree mode list reports. Map group headers and nested prices from $payload.item_group_tree*.',
+                'Add virtual item_group_tree / item_group_tree_rows / item_group_tree_sections for Tree mode list reports. Map group headers and nested prices from item_group_tree*.',
               )
             "
           >
@@ -1183,10 +1184,11 @@ defineExpose({
 
 <style scoped>
 .document-builder__meta {
-  background: var(--p-surface-50);
-  border: 1px solid var(--p-content-border-color);
+  background: var(--app-canvas, var(--p-content-background));
+  border: 1px solid var(--app-border, var(--p-content-border-color));
   border-radius: 6px;
   padding: 1rem;
+  color: var(--app-text, var(--p-text-color));
 }
 
 .document-builder__meta--collapsed {
@@ -1244,7 +1246,13 @@ defineExpose({
 .document-builder__label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--p-text-muted-color);
+  color: var(--app-text-muted, var(--p-text-muted-color, #94a3b8));
+}
+
+.document-builder__meta .document-builder__label,
+.document-builder__meta .document-builder__switch,
+.document-builder__meta .document-builder__version {
+  color: var(--app-text-muted, var(--p-text-muted-color, #94a3b8));
 }
 
 .document-builder__label--inline {
@@ -1262,7 +1270,7 @@ defineExpose({
   align-items: center;
   flex-wrap: wrap;
   gap: 0.75rem 1.5rem;
-  border-top: 1px solid var(--p-content-border-color);
+  border-top: 1px solid var(--app-border, var(--p-content-border-color));
   margin-top: 1rem;
   padding-top: 1rem;
 }
@@ -1282,7 +1290,7 @@ defineExpose({
 .document-builder__switch {
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--p-text-muted-color);
+  color: var(--app-text-muted, var(--p-text-muted-color));
 }
 
 .document-builder__switch label {
@@ -1291,7 +1299,7 @@ defineExpose({
 
 .document-builder__version {
   font-size: 0.75rem;
-  color: var(--p-text-muted-color);
+  color: var(--app-text-muted, var(--p-text-muted-color));
 }
 
 .document-builder__select-sm {

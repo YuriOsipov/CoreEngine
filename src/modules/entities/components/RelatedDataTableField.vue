@@ -499,6 +499,7 @@ async function handleBatchSubmitted(): Promise<void> {
   emit('related-changed')
 }
 
+/** Create needs a list refetch so the new row (labels / M2O) appears. */
 function handleRelatedMutated(): void {
   void refreshRuntime()
   emit('related-changed')
@@ -510,6 +511,15 @@ function handleRelatedMutated(): void {
  * related list — that discards the row patch and re-fetches every record.
  */
 function handleRelatedUpdated(_row: Record<string, unknown>): void {
+  emit('related-changed')
+}
+
+/**
+ * Delete already removes the row via `@update:rows` (and totalCount is
+ * adjusted locally). Skip reload(true) — it flashes the related list and
+ * feels like a full page refresh. Parent rollups still update via related-changed.
+ */
+function handleRelatedDeleted(_row: Record<string, unknown>): void {
   emit('related-changed')
 }
 
@@ -925,7 +935,7 @@ async function handleLinkSelected(option: SelectOption | null): Promise<void> {
           @update:rows="updateRows"
           @record-created="handleRelatedMutated"
           @record-updated="handleRelatedUpdated"
-          @record-deleted="handleRelatedMutated"
+          @record-deleted="handleRelatedDeleted"
         />
       </div>
     </template>

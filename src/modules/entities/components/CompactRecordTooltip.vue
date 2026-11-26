@@ -79,14 +79,14 @@ const isPanelLike = computed(
     }"
   >
     <p
-      v-if="loading"
+      v-if="loading && !runtime?.schema"
       class="m-0 text-muted-color"
     >
       Loading details...
     </p>
 
     <p
-      v-else-if="error"
+      v-else-if="error && !runtime?.schema"
       class="m-0 text-red-600"
     >
       {{ error }}

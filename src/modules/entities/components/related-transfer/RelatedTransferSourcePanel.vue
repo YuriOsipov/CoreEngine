@@ -42,7 +42,7 @@ const emit = defineEmits<{
 
 <template>
   <section
-    class="border border-surface-200 rounded-lg p-3 bg-surface-0 min-h-0 overflow-hidden"
+    class="border border-line rounded-lg p-3 bg-panel min-h-0 overflow-hidden"
     :style="sourcePanelStyle"
   >
     <div class="flex items-center justify-between mb-3 shrink-0">
@@ -71,7 +71,7 @@ const emit = defineEmits<{
       state-storage="local"
     >
       <SplitterPanel :size="28" :min-size="16">
-        <section class="related-transfer-pane border border-surface-200 rounded-lg p-2">
+        <section class="related-transfer-pane border border-line rounded-lg p-2">
           <h4 class="m-0 mb-2 shrink-0 text-[0.8rem]">{{ groupsTitle }}</h4>
           <div class="related-transfer-pane__scroll">
             <Tree
@@ -81,7 +81,7 @@ const emit = defineEmits<{
               <template #default="{ node }">
                 <div
                   class="w-full rounded px-2 py-1 cursor-pointer truncate"
-                  :class="{ 'bg-primary-50 text-primary-700 font-semibold': isSelectedSourceGroup(node) }"
+                  :class="{ 'bg-accent-soft text-accent-soft-text font-semibold': isSelectedSourceGroup(node) }"
                   role="button"
                   tabindex="0"
                   @click="emit('selectGroup', node)"
@@ -96,7 +96,7 @@ const emit = defineEmits<{
       </SplitterPanel>
 
       <SplitterPanel :size="72" :min-size="30">
-        <section class="related-transfer-pane border border-surface-200 rounded-lg p-2">
+        <section class="related-transfer-pane border border-line rounded-lg p-2">
           <h4 class="m-0 mb-2 shrink-0 text-[0.8rem]">{{ itemsTitle }}</h4>
           <div class="related-transfer-pane__table">
             <RelatedTransferSourceTable

@@ -125,6 +125,6 @@ OIDC state and `id_token_hint` cookies set `Secure` from `request.protocol === '
 
 PKCE state and one-time session tickets are **in-process memory** (capped; expired entries pruned). The CSRF state cookie only proves the browser started the flow on **this** node if the pending map lives elsewhere — use a single BFF instance for SSO, sticky sessions, or a shared store (Redis, etc.) before horizontal scale-out.
 
-## MCP (later)
+## MCP
 
-A future MCP resource-server path can validate IdP access tokens via JWKS directly. UI SSO does not require that — it bridges to CoreEngine sessions today.
+CoreEngine MCP (`/api/v1/mcp`, see [`mcp.md`](./mcp.md)) authenticates with **CoreEngine Bearer** access tokens today (same as GraphQL / REST). A future resource-server path can validate IdP access tokens via JWKS directly. UI SSO does not require that — it bridges to CoreEngine sessions today.

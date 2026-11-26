@@ -641,6 +641,15 @@ const showDefaultValue = computed(
     !isImageType.value &&
     !isJsonType.value,
 )
+/** Default-from-parent is allowed on lookups (M2O) as well as scalar fields. */
+const showDefaultFromParent = computed(
+  () =>
+    !isComputed.value &&
+    !isAddressType.value &&
+    !isImageType.value &&
+    !isJsonType.value &&
+    (!form.isLookup || form.relationKind === 'M2O'),
+)
 
 const jsonColumnTypeOptions = computed(() => [
   { label: t('setup.fields.jsonColumnTypeString', 'Text'), value: 'string' },
@@ -1387,7 +1396,7 @@ function isCompatibleParentDefaultType(
 }
 
 async function loadParentDefaultFieldOptions(): Promise<void> {
-  if (!showDefaultValue.value) {
+  if (!showDefaultFromParent.value) {
     parentDefaultFieldOptions.value = []
     return
   }
@@ -1411,6 +1420,9 @@ async function loadParentDefaultFieldOptions(): Promise<void> {
     const options: Array<{ label: string; value: string }> = []
     const seenValues = new Set<string>()
     const targetType = storageType.value
+    const targetRelated = form.isLookup
+      ? String(form.relatedEntity || '').trim()
+      : ''
 
     for (const relation of m2oParents) {
       const related = relation.relatedEntityApiName!.trim()
@@ -1419,17 +1431,45 @@ async function loadParentDefaultFieldOptions(): Promise<void> {
       const parentLabel = entityLabel.get(related) || related
       const { fields, relations: parentRelations } =
         await fetchEntityFieldsAndRelations(related)
-      const relationFields = new Set(
+      const parentM2OByField = new Map(
         parentRelations
-          .filter((item) => item.kind === 'M2O' || item.kind === 'M2M')
-          .map((item) => item.fieldApiName),
+          .filter((item) => item.kind === 'M2O' && item.fieldApiName)
+          .map((item) => [
+            item.fieldApiName as string,
+            String(item.relatedEntityApiName || '').trim(),
+          ]),
       )
+      const relationFields = new Set([
+        ...parentM2OByField.keys(),
+        ...parentRelations
+          .filter((item) => item.kind === 'M2M')
+          .map((item) => item.fieldApiName),
+      ])
 
       for (const field of fields) {
         if (!field.apiName || field.apiName === 'id') continue
-        if (relationFields.has(field.apiName)) continue
-        if (field.relationKind === 'M2O' || field.relationKind === 'M2M') continue
-        if (!isCompatibleParentDefaultType(field.type, targetType)) continue
+        const isParentM2O =
+          parentM2OByField.has(field.apiName) || field.relationKind === 'M2O'
+        const isParentM2M =
+          relationFields.has(field.apiName) &&
+          !isParentM2O &&
+          field.relationKind === 'M2M'
+        if (isParentM2M || field.relationKind === 'M2M') continue
+
+        if (targetRelated) {
+          // Lookup target: allow parent M2O fields that point at the same object
+          // (e.g. Quote.account_id ← Opportunity.account_id).
+          if (isParentM2O) {
+            const parentTarget = parentM2OByField.get(field.apiName) || ''
+            if (!parentTarget || parentTarget !== targetRelated) continue
+          } else if (!isCompatibleParentDefaultType(field.type, targetType)) {
+            continue
+          }
+        } else {
+          if (isParentM2O || relationFields.has(field.apiName)) continue
+          if (field.relationKind === 'M2O') continue
+          if (!isCompatibleParentDefaultType(field.type, targetType)) continue
+        }
         // Path includes the child M2O field so Item.base_price ≠ Opportunity.base_price
         // and runtime can copy when that M2O is selected (not only related-list parent).
         const value = `${relationField}.${field.apiName}`
@@ -1940,6 +1980,8 @@ function buildOptionsAndDisplay(): {
             : [coerced]
           : coerced
     }
+  }
+  if (showDefaultFromParent.value) {
     const fromParent = form.defaultFromParent.trim()
     if (fromParent) {
       options.defaultFromParent = fromParent
@@ -2109,7 +2151,14 @@ watch(
 
 watch(
   () =>
-    [props.visible, props.collection, storageType.value, showDefaultValue.value] as const,
+    [
+      props.visible,
+      props.collection,
+      storageType.value,
+      showDefaultFromParent.value,
+      form.isLookup,
+      form.relatedEntity,
+    ] as const,
   ([visible]) => {
     if (!visible) return
     void loadParentDefaultFieldOptions()
@@ -3141,7 +3190,7 @@ function submit(): void {
       </div>
 
       <div
-        v-if="showDefaultValue"
+        v-if="showDefaultFromParent"
         class="flex flex-col gap-1"
       >
         <label>{{ t('setup.fields.defaultFromParent', 'Default from parent field') }}</label>
@@ -3194,6 +3243,17 @@ function submit(): void {
           />
           <label for="field-readonly">{{ t('setup.fields.readonly', 'Read-only') }}</label>
         </div>
+        <p
+          v-if="!isComputed"
+          class="text-sm text-muted-color m-0"
+        >
+          {{
+            t(
+              'setup.fields.readonlyHint',
+              'Locks the field on edit. On create, users can still set a value (unless the field is formula / rollup / auto-number).',
+            )
+          }}
+        </p>
         <div class="flex items-center gap-2">
           <Checkbox
             v-model="form.hidden"
@@ -3307,7 +3367,7 @@ function submit(): void {
 
       <div
         v-if="supportsChildLookup"
-        class="flex flex-col gap-2 border-t border-surface-200 pt-3"
+        class="flex flex-col gap-2 border-t border-line pt-3"
       >
         <label class="flex items-center justify-between gap-3">
           {{ t('formBuilder.childValueLookup', 'Child value lookup') }}
@@ -3429,10 +3489,10 @@ function submit(): void {
 
 .setup-field-editor__hint {
   align-items: center;
-  background: var(--p-surface-100, #f1f5f9);
-  border: 1px solid var(--p-surface-300, #cbd5e1);
+  background: var(--app-hover, var(--p-content-hover-background, #f1f5f9));
+  border: 1px solid var(--app-border, var(--p-content-border-color, #cbd5e1));
   border-radius: 999px;
-  color: var(--p-surface-600, #475569);
+  color: var(--app-text-muted, var(--p-text-muted-color, #475569));
   cursor: help;
   display: inline-flex;
   flex-shrink: 0;

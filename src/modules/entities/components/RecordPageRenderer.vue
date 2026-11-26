@@ -20,6 +20,7 @@ import { clampRecordPageMainSize } from '@/modules/config/services/recordPageSet
 import { listBlockLayoutRelatedListFields } from '@/modules/config/utils/recordPageRelatedList'
 import {
   fetchCompactRecordDetails,
+  refreshCompactRuntimeFromRecord,
   type CompactRecordDetailsRuntime,
 } from '@/modules/entities/services/recordDetails'
 import {
@@ -180,7 +181,7 @@ async function hydrateRelatedListFields(): Promise<void> {
   relatedListFields.value = next
 }
 
-async function loadHighlights(): Promise<void> {
+async function loadHighlights(options?: { silent?: boolean }): Promise<void> {
   const highlightComponents = allComponents().filter((component) => component.type === 'highlights')
   if (!highlightComponents.length) {
     highlightsByKey.value = {}
@@ -191,7 +192,9 @@ async function loadHighlights(): Promise<void> {
     new Set(highlightComponents.map((component) => component.compactLayoutId || '__role__')),
   )
 
-  highlightsLoading.value = true
+  const hasExisting = keys.some((key) => Boolean(highlightsByKey.value[key]?.schema))
+  const silent = Boolean(options?.silent && hasExisting)
+  if (!silent) highlightsLoading.value = true
   highlightsError.value = null
   try {
     const next: Record<string, CompactRecordDetailsRuntime | null> = {}
@@ -209,10 +212,37 @@ async function loadHighlights(): Promise<void> {
       err instanceof Error
         ? err.message
         : t('recordPage.highlightsLoadError', 'Failed to load highlights.')
-    highlightsByKey.value = {}
+    if (!silent) highlightsByKey.value = {}
   } finally {
-    highlightsLoading.value = false
+    if (!silent) highlightsLoading.value = false
   }
+}
+
+/**
+ * After related-list / path / edit updates, patch Highlights from the already
+ * refreshed parent record — no second item fetch and no “Loading details…” blank.
+ */
+async function syncHighlightsFromModel(): Promise<void> {
+  // Skip the transient `{}` clear during loadRecordDetails — that would wipe
+  // highlight values before the new record arrives.
+  if (!props.recordId || Object.keys(props.modelValue).length === 0) return
+
+  const current = highlightsByKey.value
+  const keys = Object.keys(current)
+  if (keys.length === 0) {
+    await loadHighlights({ silent: true })
+    return
+  }
+
+  const next: Record<string, CompactRecordDetailsRuntime | null> = { ...current }
+  await Promise.all(
+    keys.map(async (key) => {
+      const runtime = current[key]
+      if (!runtime?.schema) return
+      next[key] = await refreshCompactRuntimeFromRecord(runtime, props.modelValue)
+    }),
+  )
+  highlightsByKey.value = next
 }
 
 watch(
@@ -229,7 +259,7 @@ watch(
 watch(
   () => props.modelValue,
   () => {
-    void loadHighlights()
+    void syncHighlightsFromModel()
   },
   { deep: true },
 )

@@ -478,6 +478,35 @@ function updateTarget(patch: Partial<RelatedTransferSettings['target']>): void {
   })
 }
 
+/** Destination Item field is always written from source PK; keep it out of visible columns to hide it. */
+function onItemFieldChange(value: unknown): void {
+  const nextField = String(value ?? '').trim()
+  const previousField = settings.value.target.itemField?.trim() || ''
+  const sourcePk = settings.value.source.itemPrimaryKey?.trim() || 'id'
+  const copyFromSource = { ...(settings.value.mapping?.copyFromSource ?? {}) }
+  if (previousField && !keysEqual(previousField, nextField)) {
+    delete copyFromSource[previousField]
+  }
+  if (nextField) {
+    copyFromSource[nextField] = sourcePk
+  }
+  emitSettings({
+    ...settings.value,
+    target: {
+      ...settings.value.target,
+      itemField: nextField,
+      duplicateKey: nextField,
+      hideItemField: settings.value.target.hideItemField === true,
+    },
+    mapping: {
+      defaults: settings.value.mapping?.defaults ?? {},
+      copyFromSource,
+      values: settings.value.mapping?.values ?? {},
+      lookups: settings.value.mapping?.lookups ?? {},
+    },
+  })
+}
+
 function updateMapping(patch: Partial<NonNullable<RelatedTransferSettings['mapping']>>): void {
   const { lookups: _ignored, ...rest } = patch
   emitSettings({
@@ -535,22 +564,33 @@ function updateDestinationColumns(fields: unknown): void {
       field,
       header: fieldLabel(field, targetFields.value),
       enabled: true,
+      hidden: false,
     }
   })
   const selectedSet = new Set(selected)
+  const itemField = settings.value.target.itemField?.trim() || ''
+  const sourcePk = settings.value.source.itemPrimaryKey?.trim() || 'id'
+  const previousMappings = settings.value.mapping?.copyFromSource ?? {}
   const nextMappings = Object.fromEntries(
-    Object.entries(settings.value.mapping?.copyFromSource ?? {})
-      .filter(([field]) => selectedSet.has(field)),
+    Object.entries(previousMappings).filter(([field]) => {
+      if (selectedSet.has(field)) return true
+      // Keep lineage mapping for Item field even when it is not a visible column.
+      return Boolean(itemField && keysEqual(field, itemField))
+    }),
   )
   // Auto-wire Source field mappings for newly added columns with a same-named source field.
   for (const field of selected) {
     if (entityChildLookupFields.value.has(field)) continue
     if (Object.keys(nextMappings).some((mapped) => keysEqual(mapped, field))) continue
-    if (settings.value.target.itemField && keysEqual(field, settings.value.target.itemField)) {
+    if (itemField && keysEqual(field, itemField)) {
       continue
     }
     const sourceField = matchingSourceFieldName(field)
     if (sourceField) nextMappings[field] = sourceField
+  }
+  // Always persist source PK onto Destination Item field (may be hidden from Selected).
+  if (itemField) {
+    nextMappings[itemField] = previousMappings[itemField] || sourcePk
   }
   const nextDefaults = Object.fromEntries(
     Object.entries(settings.value.mapping?.defaults ?? {})
@@ -814,6 +854,7 @@ function normalizeSettings(
       parentField: targetParentField || target.parentField || '',
       itemField: target.itemField ?? '',
       duplicateKey: target.duplicateKey ?? target.itemField ?? '',
+      hideItemField: target.hideItemField === true,
       columns: target.columns ?? [],
       editableFields: target.editableFields ?? [],
       totalFormulas: target.totalFormulas ?? [],
@@ -1118,10 +1159,7 @@ function uniqueFields(fields: string[]): string[] {
                 :loading="targetFieldsLoading"
                 filter
                 fluid
-                @update:model-value="updateTarget({
-                  itemField: String($event ?? ''),
-                  duplicateKey: String($event ?? ''),
-                })"
+                @update:model-value="onItemFieldChange($event)"
               />
             </label>
           </div>
@@ -1215,12 +1253,13 @@ function uniqueFields(fields: string[]): string[] {
           </section>
 
           <section class="grid gap-2">
-            <div class="bulk-insert-mapping-header grid grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(150px,1fr)] gap-2 px-2">
+            <div class="bulk-insert-mapping-header grid grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(150px,1fr)_auto] gap-2 px-2">
               <span aria-hidden="true"></span>
               <span>{{ t('bulkInsertBuilder.destinationHeader', 'Destination') }}</span>
               <span>{{ t('common.field', 'Field') }}</span>
               <span>{{ t('bulkInsertBuilder.mappingMode', 'Mode') }}</span>
               <span>{{ t('bulkInsertBuilder.mappingValue', 'Mapping') }}</span>
+              <span>{{ t('bulkInsertBuilder.hideInSelected', 'Hide') }}</span>
             </div>
 
             <VueDraggableNext
@@ -1235,7 +1274,7 @@ function uniqueFields(fields: string[]): string[] {
               <div
                 v-for="column in settings.target.columns"
                 :key="column.field"
-                class="bulk-insert-card grid items-center gap-2 grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(150px,1fr)]"
+                class="bulk-insert-card grid items-center gap-2 grid-cols-[auto_minmax(110px,1fr)_minmax(80px,0.5fr)_minmax(120px,0.8fr)_minmax(150px,1fr)_auto]"
               >
                 <button
                   type="button"
@@ -1286,6 +1325,13 @@ function uniqueFields(fields: string[]): string[] {
                   @update:model-value="updateSourceAssignment(column.field, String($event ?? ''))"
                 />
                 <span v-else-if="isEntityLookupColumn(column.field)" />
+                <Checkbox
+                  binary
+                  :model-value="column.hidden === true"
+                  :input-id="`bulk-insert-hide-${column.field}`"
+                  v-tooltip.top="t('bulkInsertBuilder.hideInSelectedHint', 'Hide this field in the Selected table (still written on submit).')"
+                  @update:model-value="updateDestinationColumn(column.field, { hidden: $event === true })"
+                />
               </div>
             </VueDraggableNext>
 
@@ -1350,6 +1396,15 @@ function uniqueFields(fields: string[]): string[] {
   font-weight: 500;
   color: var(--bulk-ink-muted);
 }
+
+.bulk-insert-field__hint {
+  font-size: 0.7rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--bulk-ink-muted);
+  opacity: 0.9;
+}
+
 
 .bulk-insert-card {
   padding: 0.4rem 0.5rem;

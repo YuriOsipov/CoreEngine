@@ -58,7 +58,7 @@ onMounted(() => {
       />
 
       <div class="grid gap-3 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-        <div class="border border-surface-200 rounded-lg flex flex-col gap-3 p-4">
+        <div class="border border-line rounded-lg flex flex-col gap-3 p-4">
           <div class="flex flex-col gap-1">
             <h3 class="text-[0.95rem] m-0">
               {{ t('schedule.generateTitle', 'Generate schedule slots') }}
@@ -80,7 +80,7 @@ onMounted(() => {
           />
         </div>
 
-        <div class="border border-surface-200 rounded-lg flex flex-col gap-3 p-4">
+        <div class="border border-line rounded-lg flex flex-col gap-3 p-4">
           <div class="flex flex-col gap-1">
             <h3 class="text-[0.95rem] m-0">
               {{ t('schedule.templatesTitle', 'Schedule templates') }}
@@ -107,7 +107,7 @@ onMounted(() => {
           </RouterLink>
         </div>
 
-        <div class="border border-surface-200 rounded-lg flex flex-col gap-3 p-4">
+        <div class="border border-line rounded-lg flex flex-col gap-3 p-4">
           <div class="flex flex-col gap-1">
             <h3 class="text-[0.95rem] m-0">
               {{ t('schedule.slotsTitle', 'Generated slots') }}

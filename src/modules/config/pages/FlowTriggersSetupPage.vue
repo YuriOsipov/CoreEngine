@@ -305,10 +305,10 @@ async function load(): Promise<void> {
       failedRuns.value = await fetchFailedFlowDispatches(50)
     } catch (err) {
       failedRuns.value = []
-      showError(err, t('setup.flows.failedRunsError', 'Failed to load connection run errors'))
+      showError(err, t('setup.flows.failedRunsError', 'Failed to load external flow run errors'))
     }
   } catch (err) {
-    showError(err, t('setup.flows.loadError', 'Failed to load connections'))
+    showError(err, t('setup.flows.loadError', 'Failed to load external flows'))
   } finally {
     loading.value = false
   }
@@ -320,7 +320,7 @@ async function save(): Promise<void> {
     toast.add({
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
-      detail: t('setup.flows.keyRequired', 'Connection key is required.'),
+      detail: t('setup.flows.keyRequired', 'External flow key is required.'),
       life: 4000,
     })
     return
@@ -442,15 +442,15 @@ async function save(): Promise<void> {
     await load()
     toast.add({
       severity: 'success',
-      summary: t('setup.flows.saved', 'Connection saved'),
+      summary: t('setup.flows.saved', 'External flow saved'),
       detail: t(
         'setup.flows.savedDetail',
-        'Use this key in Automations → Call connection.',
+        'Use this key in Automations → Call external flow.',
       ),
       life: 4000,
     })
   } catch (err) {
-    showError(err, t('setup.flows.saveError', 'Failed to save connection'))
+    showError(err, t('setup.flows.saveError', 'Failed to save external flow'))
   } finally {
     saving.value = false
   }
@@ -463,7 +463,7 @@ async function openFailedRuns(): Promise<void> {
     failedRuns.value = await fetchFailedFlowDispatches(50)
   } catch (err) {
     failedRuns.value = []
-    showError(err, t('setup.flows.failedRunsError', 'Failed to load connection run errors'))
+    showError(err, t('setup.flows.failedRunsError', 'Failed to load external flow run errors'))
   } finally {
     failedLoading.value = false
   }
@@ -480,10 +480,10 @@ function confirmDelete(flow: GraphQlFlowTrigger): void {
   confirm.require({
     message: t(
       'setup.flows.deleteConfirm',
-      'Delete connection "{key}"? Automations that use this key will fail until updated.',
+      'Delete external flow "{key}"? Automations that use this key will fail until updated.',
       { key: flow.key },
     ),
-    header: t('setup.flows.delete', 'Delete connection'),
+    header: t('setup.flows.delete', 'Delete external flow'),
     icon: 'pi pi-exclamation-triangle',
     rejectProps: {
       label: t('common.cancel', 'Cancel'),
@@ -501,11 +501,11 @@ function confirmDelete(flow: GraphQlFlowTrigger): void {
           await load()
           toast.add({
             severity: 'success',
-            summary: t('setup.flows.deleted', 'Connection deleted'),
+            summary: t('setup.flows.deleted', 'External flow deleted'),
             life: 3000,
           })
         } catch (err) {
-          showError(err, t('setup.flows.deleteError', 'Failed to delete connection'))
+          showError(err, t('setup.flows.deleteError', 'Failed to delete external flow'))
         }
       })()
     },
@@ -520,11 +520,11 @@ onMounted(() => {
 <template>
   <section class="setup-tab-content">
     <SetupPageHeader
-      :title="t('setup.flows.title', 'Connections')"
+      :title="t('setup.flows.title', 'External Flows')"
       :meta="
         t(
           'setup.flows.subtitle',
-          'Map a connection key to your n8n or an external HTTP webhook (or update record). Use the key in Automations → Call connection.',
+          'Map an external flow key to your n8n or an external HTTP webhook (or update record). Use the key in Automations → Call external flow.',
         )
       "
       icon-class="pi pi-link"
@@ -546,7 +546,7 @@ onMounted(() => {
           @click="openFailedRuns"
         />
         <Button
-          :label="t('setup.flows.new', 'New connection')"
+          :label="t('setup.flows.new', 'New external flow')"
           icon="pi pi-plus"
           :disabled="!isAdmin || !graphqlEnabled"
           @click="openCreate"
@@ -562,7 +562,7 @@ onMounted(() => {
       {{
         t(
           'setup.flows.graphqlRequired',
-          'Set VITE_DATA_SOURCE=graphql to manage connections.',
+          'Set VITE_DATA_SOURCE=graphql to manage external flows.',
         )
       }}
     </Message>
@@ -580,7 +580,7 @@ onMounted(() => {
       class="page-loading"
     >
       <ProgressSpinner stroke-width="4" />
-      <span>{{ t('setup.flows.loading', 'Loading connections...') }}</span>
+      <span>{{ t('setup.flows.loading', 'Loading external flows...') }}</span>
     </div>
 
     <DataTable
@@ -588,7 +588,7 @@ onMounted(() => {
       :value="filteredFlows"
       striped-rows
       data-key="key"
-      :empty-message="t('setup.flows.empty', 'No connections yet. Create one to map a key to n8n or an external URL.')"
+      :empty-message="t('setup.flows.empty', 'No external flows yet. Create one to map a key to n8n or an external URL.')"
     >
       <Column
         field="key"
@@ -681,7 +681,7 @@ onMounted(() => {
     <Dialog
       v-model:visible="failedVisible"
       modal
-      :header="t('setup.flows.failedRunsTitle', 'Failed connection runs')"
+      :header="t('setup.flows.failedRunsTitle', 'Failed external flow runs')"
       :style="{ width: 'min(840px, 95vw)' }"
     >
       <p class="text-muted-color text-[0.85rem] mt-0">
@@ -703,7 +703,7 @@ onMounted(() => {
         :value="failedRuns"
         striped-rows
         data-key="id"
-        :empty-message="t('setup.flows.failedRunsEmpty', 'No failed connection runs.')"
+        :empty-message="t('setup.flows.failedRunsEmpty', 'No failed external flow runs.')"
       >
         <Column
           field="startedAt"
@@ -748,15 +748,15 @@ onMounted(() => {
       modal
       :header="
         editingKey
-          ? t('setup.flows.editTitle', 'Edit connection')
-          : t('setup.flows.createTitle', 'New connection')
+          ? t('setup.flows.editTitle', 'Edit external flow')
+          : t('setup.flows.createTitle', 'New external flow')
       "
       class="w-full max-w-xl"
     >
       <div class="flex flex-col gap-3">
         <div class="flex flex-col gap-1">
           <label class="text-[0.85rem] font-medium">
-            {{ t('setup.flows.key', 'Connection key') }}
+            {{ t('setup.flows.key', 'External flow key') }}
           </label>
           <InputText
             v-model="form.key"
@@ -767,7 +767,7 @@ onMounted(() => {
             {{
               t(
                 'setup.flows.keyHint',
-                'This key is what you enter in Automations → Call connection.',
+                'This key is what you enter in Automations → Call external flow.',
               )
             }}
           </span>

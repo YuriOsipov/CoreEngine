@@ -20,6 +20,7 @@ import { resolveFieldFormula } from '@/core/calculatedFields'
 import {
   buildPaletteFromFields,
   isFieldReadonly,
+  isFieldServerOwned,
 } from '../utils/fieldMapper'
 import {
   bestParentRelation,
@@ -112,6 +113,8 @@ async function loadRegistrySnapshot(): Promise<RegistrySnapshot> {
 export interface FieldRuntimeMetadata {
   required: boolean
   readonly: boolean
+  /** Formula / rollup / autoNumber — always locked, including on create. */
+  serverOwned: boolean
   formula?: string
   template?: string
   props: Record<string, unknown>
@@ -1130,6 +1133,7 @@ export async function fetchFieldRuntimeMetadata(
   return {
     required: Boolean(definition.meta?.required),
     readonly: isFieldReadonly(definition),
+    serverOwned: isFieldServerOwned(definition),
     formula,
     template: typeof template === 'string' && template.trim()
       ? template

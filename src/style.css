@@ -58,9 +58,11 @@ html.app-dark {
   color-scheme: dark;
   --app-canvas: var(--p-surface-950, #09090b);
   --app-panel: var(--p-content-background, #18181b);
+  --app-text: var(--p-text-color, #fafafa);
   --app-border: color-mix(in srgb, var(--p-content-border-color, #3f3f46) 88%, #fff 12%);
   /* Brighter than OpenVue muted on near-black so field labels stay readable. */
-  --app-text-muted: color-mix(in srgb, var(--p-text-color, #fafafa) 72%, transparent);
+  --app-text-muted: color-mix(in srgb, var(--p-text-color, #fafafa) 78%, transparent);
+  --app-hover: var(--p-content-hover-background, rgba(255, 255, 255, 0.06));
   scrollbar-color: var(--p-surface-600, #52525b) transparent;
 }
 
@@ -480,8 +482,9 @@ body {
 }
 
 .setup-sidebar {
-  background: var(--app-panel, var(--p-surface-0));
-  border-right: 1px solid var(--p-surface-200);
+  background: var(--app-panel, var(--p-content-background));
+  border-right: 1px solid var(--app-border, var(--p-content-border-color));
+  color: var(--app-text, var(--p-text-color));
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -527,7 +530,7 @@ body {
   align-items: center;
   background: transparent;
   border: none;
-  color: var(--p-text-muted-color);
+  color: var(--app-text-muted, var(--p-text-muted-color));
   cursor: pointer;
   display: flex;
   font: inherit;
@@ -542,7 +545,7 @@ body {
 }
 
 .setup-sidebar__group-toggle:hover {
-  color: var(--p-text-color);
+  color: var(--app-text, var(--p-text-color));
 }
 
 .setup-sidebar__chevron {
@@ -781,7 +784,7 @@ body {
 }
 
 .setup-layout-nav__group-label {
-  color: var(--p-text-muted-color);
+  color: var(--app-text-muted, var(--p-text-muted-color));
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -798,7 +801,7 @@ body {
   background: transparent;
   border: none;
   border-left: 3px solid transparent;
-  color: var(--p-text-color);
+  color: var(--app-text, var(--p-text-color));
   cursor: pointer;
   font: inherit;
   padding: 0.65rem 0.85rem;

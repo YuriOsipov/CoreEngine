@@ -485,7 +485,7 @@ function validateSettings(settings: RelatedTransferSettings): string | null {
     </Message>
 
     <section class="grid gap-2">
-      <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+      <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
         {{ t('relatedTransferSettings.sourceItemCollection', 'Source item collection') }}
         <Select
           v-model="sourceItemCollection"
@@ -498,7 +498,7 @@ function validateSettings(settings: RelatedTransferSettings): string | null {
         />
       </label>
 
-      <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+      <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
         {{ t('relatedTransferSettings.sourceGroupCollection', 'Source group collection') }}
         <Select
           v-model="sourceGroupCollection"
@@ -513,7 +513,7 @@ function validateSettings(settings: RelatedTransferSettings): string | null {
       </label>
     </section>
 
-    <section class="border border-surface-200 rounded-lg grid gap-2 p-3">
+    <section class="border border-line rounded-lg grid gap-2 p-3">
       <h3 class="text-[0.9rem] m-0">{{ t('relatedTransferSettings.sourceFilter', 'Source filter') }}</h3>
       <FilterPairEditor
         :pairs="sourceFilterPairs()"
@@ -530,11 +530,11 @@ function validateSettings(settings: RelatedTransferSettings): string | null {
       />
     </section>
 
-    <section class="border border-surface-200 rounded-lg grid gap-2 p-3">
+    <section class="border border-line rounded-lg grid gap-2 p-3">
       <h3 class="text-[0.9rem] m-0">
         {{ t('relatedTransferSettings.destinationDefaults', 'Destination default values') }}
       </h3>
-      <p class="m-0 text-[0.78rem] text-surface-500">
+      <p class="m-0 text-[0.78rem] text-muted-color">
         {{ t('relatedTransferSettings.destinationDefaultsHint', 'Pre-fill editable fields when a source item is added. Numeric strings are stored as numbers.') }}
       </p>
 

@@ -1494,7 +1494,7 @@ function hintTooltip(value: string) {
 .scheduler-settings-status-row__label code {
   font-size: 0.68rem;
   font-weight: 500;
-  color: rgba(55, 53, 47, 0.5);
+  color: var(--sched-ink-muted);
 }
 
 .scheduler-settings-status-row__swatch {
@@ -1514,10 +1514,10 @@ function hintTooltip(value: string) {
   height: 0.95rem;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.4);
+  border: 1px solid var(--sched-line);
   border-radius: 50%;
   background: transparent;
-  color: rgba(55, 53, 47, 0.55);
+  color: var(--sched-ink-muted);
   font-size: 0.58rem;
   font-style: italic;
   font-weight: 600;
@@ -1526,7 +1526,7 @@ function hintTooltip(value: string) {
 }
 
 .scheduler-settings-hint:focus-visible {
-  outline: 2px solid rgba(55, 53, 47, 0.35);
+  outline: 2px solid var(--p-primary-color, #10b981);
   outline-offset: 2px;
 }
 

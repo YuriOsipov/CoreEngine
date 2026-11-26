@@ -9,10 +9,85 @@ import { fileURLToPath, URL } from 'node:url'
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const editorPackageRoot = fileURLToPath(new URL('../editor', import.meta.url))
 const docEngineRoot = fileURLToPath(new URL('../docEngine', import.meta.url))
+const siblingEditorPkg = fileURLToPath(
+  new URL('../docEngine/packages/editor', import.meta.url),
+)
+const siblingEnginePkg = fileURLToPath(
+  new URL('../docEngine/packages/engine', import.meta.url),
+)
 const siblingFieldDate = fileURLToPath(
   new URL('../docEngine/packages/field-date/dist/index.js', import.meta.url),
 )
+const siblingEditorEntry = fileURLToPath(
+  new URL('../docEngine/packages/editor/lib/index.js', import.meta.url),
+)
+const siblingEngineEntry = fileURLToPath(
+  new URL('../docEngine/packages/engine/dist/index.js', import.meta.url),
+)
+const siblingEditorStyles = fileURLToPath(
+  new URL('../docEngine/packages/editor/src/styles/editor.css', import.meta.url),
+)
+const siblingEditorBridge = fileURLToPath(
+  new URL('../docEngine/packages/editor/src/themes/bridge.css', import.meta.url),
+)
+const siblingEditorPrime = fileURLToPath(
+  new URL('../docEngine/packages/editor/src/themes/prime.css', import.meta.url),
+)
+const siblingEditorSlds = fileURLToPath(
+  new URL('../docEngine/packages/editor/src/themes/slds.css', import.meta.url),
+)
 const hasSiblingDocEngine = existsSync(siblingFieldDate)
+const hasSiblingEditor =
+  existsSync(siblingEditorEntry) && existsSync(siblingEditorPrime)
+const hasSiblingEngine = existsSync(siblingEngineEntry)
+
+const siblingDocEngineAliases: Array<{ find: string | RegExp; replacement: string }> = []
+if (hasSiblingDocEngine) {
+  siblingDocEngineAliases.push({
+    find: '@docengine/field-date',
+    replacement: siblingFieldDate,
+  })
+}
+if (hasSiblingEngine) {
+  siblingDocEngineAliases.push({
+    find: /^@docengine\/engine$/,
+    replacement: siblingEngineEntry,
+  })
+}
+if (hasSiblingEditor) {
+  // Map package exports explicitly (aliasing only the root entry breaks subpaths).
+  siblingDocEngineAliases.push(
+    { find: '@docengine/editor/styles.css', replacement: siblingEditorStyles },
+    { find: '@docengine/editor/themes/bridge.css', replacement: siblingEditorBridge },
+    { find: '@docengine/editor/themes/prime.css', replacement: siblingEditorPrime },
+    { find: '@docengine/editor/themes/slds.css', replacement: siblingEditorSlds },
+    {
+      find: '@docengine/editor/ui/field-form-modal',
+      replacement: fileURLToPath(
+        new URL('../docEngine/packages/editor/lib/ui/field-form-modal.js', import.meta.url),
+      ),
+    },
+    {
+      find: '@docengine/editor/ui/wire-modal-palette',
+      replacement: fileURLToPath(
+        new URL('../docEngine/packages/editor/lib/ui/wire-modal-palette.js', import.meta.url),
+      ),
+    },
+    {
+      find: '@docengine/editor/node',
+      replacement: fileURLToPath(
+        new URL('../docEngine/packages/editor/lib/node.js', import.meta.url),
+      ),
+    },
+    {
+      find: '@docengine/editor/dist',
+      replacement: fileURLToPath(
+        new URL('../docEngine/packages/editor/dist/editor.js', import.meta.url),
+      ),
+    },
+    { find: /^@docengine\/editor$/, replacement: siblingEditorEntry },
+  )
+}
 
 export default defineConfig({
   plugins: [
@@ -24,18 +99,14 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      // Local monorepo: pin to sibling dist. CI resolves published `@docengine/field-date`.
-      ...(hasSiblingDocEngine
-        ? { '@docengine/field-date': siblingFieldDate }
-        : {}),
-    },
-    // Linked local package — always resolve to source, not a stale prebundle.
-    dedupe: ['@docengine/editor'],
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      ...siblingDocEngineAliases,
+    ],
+    dedupe: ['@docengine/editor', '@docengine/engine'],
   },
   optimizeDeps: {
-    exclude: ['@docengine/editor'],
+    exclude: ['@docengine/editor', '@docengine/engine'],
   },
   server: {
     fs: {
@@ -43,9 +114,10 @@ export default defineConfig({
         projectRoot,
         ...(existsSync(editorPackageRoot) ? [editorPackageRoot] : []),
         ...(existsSync(docEngineRoot) ? [docEngineRoot] : []),
+        ...(existsSync(siblingEditorPkg) ? [siblingEditorPkg] : []),
+        ...(existsSync(siblingEnginePkg) ? [siblingEnginePkg] : []),
       ],
     },
-    // Backend / tooling edits must not full-reload the Vite UI.
     watch: {
       ignored: [
         '**/crm-bff/**',

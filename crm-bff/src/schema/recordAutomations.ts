@@ -277,7 +277,7 @@ function assertValidFlowActions(automations: EntityRecordAutomation[]): void {
       const raw = String(action.flowKey || '').trim()
       if (!raw) {
         throw new Error(
-          `Automation "${rule.name || rule.id}": Call connection requires a connection key.`,
+          `Automation "${rule.name || rule.id}": Call external flow requires an external flow key.`,
         )
       }
       if (!flowTriggerKeyFromWebhook(raw)) {

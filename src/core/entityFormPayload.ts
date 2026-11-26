@@ -1,6 +1,9 @@
 import type { EntityLayoutSchema } from '@/interfaces'
 import { normalizeEntityFormFieldValue } from '@/core/entityFormValues'
-import { isWritableLayoutField } from '@/core/layoutFieldRules'
+import {
+  isSystemAuditLayoutField,
+  isWritableLayoutField,
+} from '@/core/layoutFieldRules'
 import {
   applyCalculatedFields,
   formulaValuesEqual,
@@ -9,8 +12,8 @@ import {
 import {
   getCachedCollectionFields,
   getCachedRelations,
-  isCollectionFieldReadonly,
 } from '@/modules/entities/services/collectionSchema'
+import { isFieldServerOwned } from '@/modules/entities/utils/fieldMapper'
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
 import { isFieldM2A, normalizeM2AFieldValue } from '@/modules/entities/utils/m2aSchema'
 import {
@@ -35,9 +38,17 @@ type BuildFormPayloadOptions = {
 async function shouldIncludeFieldInPayload(
   collection: string,
   field: string,
+  options?: { createMode?: boolean },
 ): Promise<boolean> {
-  // Readonly / computed fields are display-only in forms; server hooks own persistence.
-  return !(await isCollectionFieldReadonly(collection, field))
+  const fields = await getCachedCollectionFields(collection)
+  const definition = fields.find((item) => item.field === field)
+  if (!definition) return true
+  // Formula / rollup / autoNumber — server owns the value.
+  if (isFieldServerOwned(definition)) return false
+  // Create: allow meta.readonly so defaultFromParent / prefilled values persist
+  // (UI may still render them locked). Updates keep skipping readonly columns.
+  if (options?.createMode) return true
+  return definition.meta?.readonly !== true
 }
 
 function normalizeComparableValue(value: unknown): unknown {
@@ -129,9 +140,20 @@ async function buildFormPayload(
       for (const field of group.fields) {
         if (field.field === primaryKey) continue
         if (skipComponents.has(field.component)) continue
-        if (!isWritableLayoutField(field, draft)) continue
+        const createMode = !original
+        // Updates: layout-readonly stays out of the patch. Creates: still write
+        // prefilled / defaultFromParent values on locked fields (except audit).
+        if (!isWritableLayoutField(field, draft)) {
+          if (!createMode || isSystemAuditLayoutField(field)) continue
+        }
         if (!Object.prototype.hasOwnProperty.call(draft, field.field)) continue
-        if (!(await shouldIncludeFieldInPayload(collection, field.field))) continue
+        if (
+          !(await shouldIncludeFieldInPayload(collection, field.field, {
+            createMode,
+          }))
+        ) {
+          continue
+        }
 
         const raw = draft[field.field]
         if (

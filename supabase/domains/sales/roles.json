@@ -8,6 +8,8 @@
         "account",
         "contact",
         "opportunity",
+        "quote",
+        "quote_item",
         "message",
         "incoming_message",
         "opportunity_item"
@@ -31,6 +33,8 @@
         "account",
         "contact",
         "opportunity",
+        "quote",
+        "quote_item",
         "message",
         "incoming_message",
         "opportunity_item"
@@ -39,6 +43,8 @@
         "account",
         "contact",
         "opportunity",
+        "quote",
+        "quote_item",
         "message",
         "incoming_message",
         "opportunity_item"

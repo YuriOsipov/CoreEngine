@@ -102,7 +102,7 @@ export async function executeJobType(
     const connectionKey = resolveConnectionKey(params)
     if (!connectionKey) {
       throw new Error(
-        'call_connection requires params.connectionKey (Setup → Connections key)',
+        'call_connection requires params.connectionKey (Setup → External Flows key)',
       )
     }
     const payload = { ...asObject(params.payload) }

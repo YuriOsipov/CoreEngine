@@ -208,7 +208,7 @@ function onAddColumn(event: { value?: FileDisplayColumn | null }): void {
         <div
           v-for="column in columns"
           :key="column.field"
-          class="flex items-center gap-2 border border-surface-200 rounded-md px-2 py-1"
+          class="flex items-center gap-2 border border-line rounded-md px-2 py-1"
         >
           <i class="pi pi-bars drag-handle cursor-move text-muted-color" />
           <span class="flex-1 text-[0.85rem]">{{ column.header }}</span>

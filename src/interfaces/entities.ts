@@ -273,6 +273,11 @@ export interface DataTableColumnConfig {
   /** Currency / number display options from field meta (list cells). */
   numberDisplay?: DataTableNumberDisplayOptions | null
   enabled?: boolean
+  /**
+   * When true on Batch insert destination columns, the field is still mapped /
+   * written but omitted from the Selected table.
+   */
+  hidden?: boolean
   /** When true, this list / related-list column can be edited inline. Default off. */
   inlineEditable?: boolean
 }
@@ -454,6 +459,11 @@ export interface RelatedTransferTargetSettings {
   parentField: string
   itemField: string
   duplicateKey?: string
+  /**
+   * When true, `itemField` is still written from the source row Id on submit,
+   * but omitted from the Batch insert Selected table.
+   */
+  hideItemField?: boolean
   columns: DataTableColumnConfig[]
   /** Target fields editable for pending rows before submit, e.g. ['Quantity']. */
   editableFields?: string[]

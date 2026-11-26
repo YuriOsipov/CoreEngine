@@ -138,10 +138,10 @@ export const SETUP_NAV_GROUPS: SetupNavGroupDef[] = [
         adminOnly: true,
       },
       {
-        id: 'connections',
+        id: 'external-flows',
         labelKey: 'setup.flowsTab',
-        defaultLabel: 'Connections',
-        to: '/setup/connections',
+        defaultLabel: 'External Flows',
+        to: '/setup/external-flows',
         adminOnly: true,
       },
     ],
@@ -235,8 +235,8 @@ export function isSetupNavItemActive(path: string, itemTo: string): boolean {
   if (itemTo === '/setup/tasks') {
     return path.startsWith('/setup/tasks')
   }
-  if (itemTo === '/setup/connections') {
-    return path.startsWith('/setup/connections')
+  if (itemTo === '/setup/external-flows') {
+    return path.startsWith('/setup/external-flows')
   }
   if (itemTo === '/setup/archived') {
     return path.startsWith('/setup/archived')

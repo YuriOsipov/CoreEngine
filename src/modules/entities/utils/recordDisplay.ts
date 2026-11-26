@@ -366,8 +366,19 @@ export function formatDisplayValue(
   }
 
   if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    if (record.__crmValueType === 'm2o') {
+      const id = record.id == null || record.id === '' ? '' : String(record.id)
+      const rawLabel = record.label
+      const label =
+        rawLabel == null || typeof rawLabel === 'object'
+          ? ''
+          : String(rawLabel).trim()
+      if (label && label !== id) return label
+      return emptyValue || '-'
+    }
     const label = relatedRecordFallbackLabel(value)
-    return label || JSON.stringify(value)
+    return label || emptyValue || '-'
   }
 
   return String(value)

@@ -424,6 +424,41 @@ export async function fetchCompactRecordDetails(
 }
 
 /**
+ * Recompute compact highlight field strings from an already-loaded parent
+ * record (e.g. after related-list rollup refresh) without a second item read
+ * or a loading blank in the Highlights strip.
+ */
+export async function refreshCompactRuntimeFromRecord(
+  runtime: CompactRecordDetailsRuntime,
+  record: Record<string, unknown>,
+): Promise<CompactRecordDetailsRuntime> {
+  const schema = runtime.schema
+  if (!schema) return runtime
+
+  const labelByField = new Map(
+    runtime.fields.map((field) => [field.field, field.label] as const),
+  )
+  const fields = await Promise.all(
+    schema.fields.map(async (field) => ({
+      id: field.id,
+      field: field.field,
+      label: labelByField.get(field.field) ?? field.label,
+      value: await displayCompactFieldValue(
+        runtime.collection,
+        field,
+        record[field.field],
+      ),
+      span: field.span,
+    })),
+  )
+
+  return {
+    ...runtime,
+    fields,
+  }
+}
+
+/**
  * Fire On-open automations after a detail view loads.
  * Returns merged record when rules applied setFields; null when skipped/failed.
  */

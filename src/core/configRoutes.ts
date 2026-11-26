@@ -56,13 +56,17 @@ const configRoutes: RouteRecordRaw[] = [
         component: () => import('@/modules/config/pages/TaskSchedulerSetupPage.vue'),
       },
       {
-        path: 'connections',
-        name: 'setup-connections',
+        path: 'external-flows',
+        name: 'setup-external-flows',
         component: () => import('@/modules/config/pages/FlowTriggersSetupPage.vue'),
       },
       {
+        path: 'connections',
+        redirect: '/setup/external-flows',
+      },
+      {
         path: 'flows',
-        redirect: '/setup/connections',
+        redirect: '/setup/external-flows',
       },
       {
         path: 'archived',
@@ -88,6 +92,16 @@ const configRoutes: RouteRecordRaw[] = [
         path: 'navigation',
         name: 'setup-navigation',
         component: () => import('@/modules/config/pages/NavigationSetupPage.vue'),
+      },
+      {
+        path: 'navigation/new',
+        name: 'setup-navigation-new',
+        component: () => import('@/modules/config/pages/NavigationDesignerPage.vue'),
+      },
+      {
+        path: 'navigation/:appId',
+        name: 'setup-navigation-edit',
+        component: () => import('@/modules/config/pages/NavigationDesignerPage.vue'),
       },
       {
         path: 'documents',

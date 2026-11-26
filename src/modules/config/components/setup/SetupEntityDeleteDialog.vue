@@ -144,7 +144,7 @@ function submit(): void {
   display: inline-block;
   padding: 0.35rem 0.55rem;
   border-radius: 0.35rem;
-  background: var(--p-surface-100);
+  background: var(--app-canvas, var(--p-content-hover-background));
   font-size: 0.9rem;
 }
 </style>

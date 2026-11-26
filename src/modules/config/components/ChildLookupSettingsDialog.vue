@@ -85,7 +85,7 @@ const showLookupQuery = computed(
     :breakpoints="{ '960px': '94vw' }"
   >
     <div class="grid gap-4">
-      <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+      <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
         {{ t('formBuilder.childLookupSourceField', 'Source field') }}
         <Select
           :model-value="settings.sourceField"
@@ -100,7 +100,7 @@ const showLookupQuery = computed(
 
       <label
         v-if="!isPicklist"
-        class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700"
+        class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink"
       >
         {{ t('formBuilder.childLookupDefaultFrom', 'Default from') }}
         <Select
@@ -115,7 +115,7 @@ const showLookupQuery = computed(
 
       <template v-if="showLookupQuery">
         <div class="grid gap-4 sm:grid-cols-3">
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{ t('formBuilder.childLookupCollection', 'Child collection') }}
             <Select
               :model-value="settings.collection"
@@ -127,7 +127,7 @@ const showLookupQuery = computed(
               @update:model-value="emit('update:collection', String($event ?? ''))"
             />
           </label>
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{ t('formBuilder.childLookupSourceRelationField', 'Child source field') }}
             <Select
               :model-value="settings.childSourceField || null"
@@ -142,7 +142,7 @@ const showLookupQuery = computed(
               @update:model-value="emit('update:settings', { childSourceField: String($event ?? '') })"
             />
           </label>
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{ t('formBuilder.childLookupValueField', 'Value field') }}
             <Select
               :model-value="settings.valueField"
@@ -160,7 +160,7 @@ const showLookupQuery = computed(
         <div class="grid gap-4 sm:grid-cols-2">
           <label
             v-if="showParentCollectionSelector"
-            class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700"
+            class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink"
           >
             {{ t('formBuilder.childLookupParentCollection', 'Parent collection') }}
             <Select
@@ -175,7 +175,7 @@ const showLookupQuery = computed(
               @update:model-value="emit('update:parent-field', String($event ?? ''))"
             />
           </label>
-          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700">
+          <label class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink">
             {{
               isPicklist
                 ? t('formBuilder.childLookupDefaultValueField', 'Default value')
@@ -195,7 +195,7 @@ const showLookupQuery = computed(
           </label>
         </div>
 
-        <div class="grid gap-2 text-[0.8rem] font-semibold text-surface-700">
+        <div class="grid gap-2 text-[0.8rem] font-semibold text-ink">
           {{ t('formBuilder.childLookupParentFilter', 'Lookup filter') }}
           <p class="m-0 text-[0.75rem] font-normal text-muted-color">
             {{
@@ -226,7 +226,7 @@ const showLookupQuery = computed(
 
       <label
         v-else
-        class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-surface-700"
+        class="grid gap-[0.35rem] text-[0.8rem] font-semibold text-ink"
       >
         {{ t('formBuilder.childLookupDefaultValueField', 'Default value') }}
         <Select

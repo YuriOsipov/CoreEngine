@@ -261,13 +261,13 @@ function jobTypeLabel(jobType: string): string {
     return t('setup.tasks.jobVerifyDatabase', 'Database verification')
   }
   if (jobType === 'call_connection' || jobType === 'send_notification') {
-    return t('setup.tasks.jobCallConnection', 'Call connection')
+    return t('setup.tasks.jobCallConnection', 'Call external flow')
   }
   if (jobType === 'maintain_recent_views') {
     return t('setup.tasks.jobMaintainRecentViews', 'Maintain recently viewed')
   }
   if (jobType === 'sync_promo_prices') {
-    return t('setup.tasks.jobCallConnection', 'Call connection')
+    return t('setup.tasks.jobCallConnection', 'Call external flow')
   }
   if (jobType === 'dispatch_due_messages') {
     return t('setup.tasks.jobDispatchDueMessages', 'Dispatch due messages')
@@ -399,7 +399,7 @@ function parseParams(): Record<string, unknown> {
     const key = form.connectionKey.trim()
     if (!key) {
       throw new Error(
-        t('setup.tasks.connectionRequired', 'Select a Connection from Setup → Connections.'),
+        t('setup.tasks.connectionRequired', 'Select an External Flow from Setup → External Flows.'),
       )
     }
     const raw = form.payloadText.trim() || '{}'
@@ -787,14 +787,14 @@ onMounted(() => {
           <template v-if="isCallConnectionJob">
             <label class="setup-task-field" for="task-connection">
               <span class="setup-task-field__label">
-                {{ t('setup.tasks.connection', 'Connection') }}
+                {{ t('setup.tasks.connection', 'External Flow') }}
                 <button
                   type="button"
                   class="setup-task-hint"
                   :aria-label="t('common.hint', 'Hint')"
                   v-tooltip.bottom="hintTooltip(t(
                     'setup.tasks.connectionHint',
-                    'Key from Setup → Connections (n8n or Activepieces).',
+                    'Key from Setup → External Flows (n8n or Activepieces).',
                   ))"
                 />
               </span>
@@ -804,7 +804,7 @@ onMounted(() => {
                 :options="connectionOptions"
                 option-label="label"
                 option-value="value"
-                :placeholder="t('setup.tasks.connectionPlaceholder', 'Select connection')"
+                :placeholder="t('setup.tasks.connectionPlaceholder', 'Select external flow')"
                 filter
                 fluid
               />

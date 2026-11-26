@@ -23,16 +23,20 @@ import { LOOKUP_SOURCE_COLUMN_PREFIX } from '@/modules/entities/components/relat
 export function formatTransferValue(value: unknown): string {
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
-    if (record.__crmValueType === 'm2o' && record.label !== undefined && record.label !== null) {
-      const label = String(record.label).trim()
-      const id = record.id == null ? '' : String(record.id)
+    // Labeled M2O cell from loadTargetRows / pendingRelationValue — never
+    // JSON.stringify the stub (Selected panel was showing {"__crmValueType":...}).
+    if (record.__crmValueType === 'm2o') {
+      const id = record.id == null || record.id === '' ? '' : String(record.id)
+      const rawLabel = record.label
+      const label =
+        rawLabel == null || typeof rawLabel === 'object'
+          ? ''
+          : String(rawLabel).trim()
       if (label && label !== id) return label
+      return '-'
     }
     const fallback = relatedRecordFallbackLabel(record, record.id)
     if (fallback && fallback !== String(record.id ?? '')) return fallback
-    if (record.__crmValueType === 'm2o' && record.label != null && String(record.label).trim()) {
-      return String(record.label)
-    }
     return fallback || formatDisplayValue(value, { emptyValue: '-' })
   }
   return formatDisplayValue(value, { emptyValue: '-' })
@@ -110,7 +114,9 @@ export function buildCreatePayload(
   for (const [targetField, sourceField] of Object.entries(mapping?.copyFromSource ?? {})) {
     if (!sourceField) continue
     const value = copySourceFieldValue(sourceRecord, sourceField)
-    if (value !== undefined) payload[targetField] = value
+    // Skip empty copies so later fallbacks (e.g. item.base_price) can fill.
+    if (value === undefined || value === null || value === '') continue
+    payload[targetField] = value
   }
 
   for (const [field, value] of Object.entries(mapping?.values ?? {})) {
@@ -129,7 +135,18 @@ export function buildCreatePayload(
   if (context.parentField) {
     payload[context.parentField] = context.parentId
   }
-  payload[targetSettings.itemField] = scalarId(sourceRecord[context.sourcePrimaryKey])
+  // Lineage / catalog link: always pin target.itemField to the source row PK
+  // (e.g. quote_item.opportunity_item ← opportunity_item.id).
+  const itemField = targetSettings.itemField?.trim()
+  if (itemField) {
+    const pkKey =
+      resolveRecordKey(sourceRecord, context.sourcePrimaryKey) ??
+      context.sourcePrimaryKey
+    const sourceId = scalarId(sourceRecord[pkKey])
+    if (sourceId !== null) {
+      payload[itemField] = sourceId
+    }
+  }
 
   return payload
 }
@@ -146,6 +163,74 @@ export function buildPendingPayload(
     ...buildCreatePayload(currentSettings, sourceRecord, payloadContext),
     ...(row.draft ?? {}),
   }
+}
+
+export function isEmptyTransferValue(value: unknown): boolean {
+  return value === undefined || value === null || value === ''
+}
+
+/**
+ * Fill empty draft fields from Setup `defaultFromParent` paths like `item.base_price`
+ * when Batch insert copied a null/missing value from the source row.
+ */
+export async function fillEmptyDefaultFromParentFields(
+  _collection: string,
+  draft: Record<string, unknown>,
+  definitions: FieldDefinition[],
+  readRelated: (
+    relatedCollection: string,
+    id: string | number,
+    fields: string[],
+  ) => Promise<Record<string, unknown> | null>,
+  relatedCollectionForField: (field: string) => string,
+): Promise<Record<string, unknown>> {
+  const next = { ...draft }
+  const byRelation = new Map<string, Array<{ targetField: string; sourceField: string }>>()
+
+  for (const definition of definitions) {
+    const options = definition.meta?.options
+    if (!options || typeof options !== 'object') continue
+    const raw = (options as Record<string, unknown>).defaultFromParent
+    const source = typeof raw === 'string' ? raw.trim() : ''
+    if (!source || !definition.field) continue
+    if (!isEmptyTransferValue(next[definition.field])) continue
+
+    const dot = source.indexOf('.')
+    if (dot <= 0) continue
+    const relationField = source.slice(0, dot).trim()
+    const sourceField = source.slice(dot + 1).trim()
+    if (!relationField || !sourceField) continue
+    if (isEmptyTransferValue(next[relationField])) continue
+
+    const list = byRelation.get(relationField) ?? []
+    list.push({ targetField: definition.field, sourceField })
+    byRelation.set(relationField, list)
+  }
+
+  for (const [relationField, pairs] of byRelation) {
+    const relatedCollection = relatedCollectionForField(relationField)
+    const relatedId = scalarId(next[relationField])
+    if (!relatedCollection || relatedId === null) continue
+
+    try {
+      const related = await readRelated(
+        relatedCollection,
+        relatedId,
+        [...new Set(pairs.map((pair) => pair.sourceField))],
+      )
+      if (!related) continue
+      for (const pair of pairs) {
+        if (!isEmptyTransferValue(next[pair.targetField])) continue
+        const value = related[pair.sourceField]
+        if (isEmptyTransferValue(value)) continue
+        next[pair.targetField] = value
+      }
+    } catch {
+      // Keep draft when related record cannot be loaded.
+    }
+  }
+
+  return next
 }
 
 export function applyTargetDefaultValues(

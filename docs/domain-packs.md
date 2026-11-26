@@ -66,7 +66,7 @@ Outbound automation destinations for pack webhook keys are configured under **Se
 2. Edit `pack.json`, `entities.json`, `roles.json`, `layouts.json`, navigation, and optional `records.json`.
 3. Register the pack id in the provision allow-lists (`scripts/provision-platform-db.mts` / `.ps1`).
 4. Provision or `platform:apply-pack` onto a clean customer database.
-5. Iterate in Setup, then `platform:export-pack` and commit.
+5. Iterate in Setup (or via MCP `upsert_object_schema` / `export_domain_pack` — see [`mcp.md`](./mcp.md)), then `platform:export-pack` and commit.
 
 Do **not** hand-write vertical `CREATE TABLE` into kernel migrations. Keep industry vocabulary in the pack (or customer Setup), so other customers stay on a shared kernel.
 

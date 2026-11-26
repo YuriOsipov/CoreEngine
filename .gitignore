@@ -38,6 +38,8 @@ keys/
 .cursor/rules/
 .cursorrules
 .cursorignore
+# Local MCP Bearer (access tokens) — do not commit
+.cursor/mcp.json
 .DS_Store
 *.suo
 *.ntvs*

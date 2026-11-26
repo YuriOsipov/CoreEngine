@@ -731,7 +731,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
       <div
         v-for="field in relatedListFieldsFor(component)"
         :key="field.id"
-        class="record-page-related-card min-h-0 rounded-lg border border-line bg-panel p-2.5"
+        class="record-page-related-card min-h-0"
       >
         <RelatedListFieldHost
           :field="field"
@@ -832,7 +832,7 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 
     <div
       v-else-if="component.type === 'tabs'"
-      class="record-page-tabs flex min-h-0 flex-1 flex-col rounded-lg border border-line bg-panel p-3"
+      class="record-page-tabs flex min-h-0 flex-1 flex-col"
     >
       <Tabs v-model:value="tabPanelValue">
         <TabList>

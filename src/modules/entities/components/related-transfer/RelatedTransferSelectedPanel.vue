@@ -44,13 +44,28 @@ function isNumericColumn(field: string): boolean {
   return props.isNumericTargetField(field)
 }
 
-/** Keep header/body/footer widths in sync for scrollable DataTable. */
+/**
+ * Keep header/body/footer widths in sync for scrollable DataTable.
+ * Only the first (usually Item) column stays fluid — other text / M2O /
+ * child-lookup columns used to share leftover space equally and made
+ * Variant dominate the Selected panel.
+ */
 function columnWidthStyle(field: string): string | undefined {
-  if (props.childLookupSettingsForField(field)) return 'width: 12rem; min-width: 12rem'
-  if (!isNumericColumn(field)) return undefined
-  const header = props.targetColumns.find((column) => column.field === field)?.header || field
-  const rem = Math.min(16, Math.max(9, Math.ceil(header.length * 0.65 + 3)))
-  return `width: ${rem}rem; min-width: ${rem}rem`
+  const columns = props.targetColumns
+  const index = columns.findIndex((column) => column.field === field)
+  if (index === 0) return undefined
+
+  if (isNumericColumn(field)) {
+    const header = columns.find((column) => column.field === field)?.header || field
+    const rem = Math.min(10, Math.max(7, Math.ceil(header.length * 0.55 + 2.5)))
+    return `width: ${rem}rem; min-width: ${rem}rem`
+  }
+
+  // Variant / M2O / child-lookup: compact — content is a short label or "-".
+  if (props.childLookupSettingsForField(field)) {
+    return 'width: 7.5rem; min-width: 7.5rem'
+  }
+  return 'width: 7.5rem; min-width: 7.5rem'
 }
 
 function numericCellStyle(field: string): Record<string, string> | undefined {
@@ -67,7 +82,7 @@ function quantityModelValue(row: TransferRow, field: string): number {
 
 <template>
   <section
-    class="border border-surface-200 rounded-lg p-3 bg-surface-0 min-h-0 overflow-hidden"
+    class="border border-line rounded-lg p-3 bg-panel min-h-0 overflow-hidden"
     :style="selectedPanelStyle"
   >
     <div class="flex items-center justify-between mb-3 shrink-0">
@@ -149,13 +164,13 @@ function quantityModelValue(row: TransferRow, field: string): number {
         <template v-if="hasAnyTotal" #footer>
           <span
             v-if="selectedColumnTotals[column.field] !== undefined"
-            class="block w-full font-semibold text-primary-700 tabular-nums text-right"
+            class="block w-full font-semibold text-primary tabular-nums text-right"
           >
             {{ formatFieldValue(column.field, selectedColumnTotals[column.field]) }}
           </span>
           <span
             v-else-if="colIndex === 0"
-            class="text-xs font-semibold text-surface-500"
+            class="text-xs font-semibold text-ink-muted"
           >
             {{ totalLabel }}
           </span>

@@ -59,7 +59,7 @@ const props = defineProps<{
   /** @deprecated Detail panel moved to Page Layout settings. */
   hideDetailPanel?: boolean
   disableGrouping?: boolean
-  /** Current list view filter conditions for `$payload.meta.filter` sample. */
+  /** Current list view filter conditions for `meta.filter` sample. */
   listViewConditions?: Array<{
     id: string
     field: string
@@ -1311,7 +1311,7 @@ const batchInsertHint = computed(() =>
               class="table-settings-hint"
               v-tooltip.bottom="hintTooltip(t(
                 'tableSettings.listActionsHint',
-                'Toolbar buttons for this list: document reports ($payload.records) or bulk update with a formula on filtered / visible rows. After saving a Document report with a template, use Template on the action to design Field Mapping — $payload.meta.filter comes from this list layout Filter list.',
+                'Toolbar buttons for this list: document reports (records) or bulk update with a formula on filtered / visible rows. After saving a Document report with a template, use Template on the action to design Field Mapping — meta.filter comes from this list layout Filter list.',
               ))"
               :aria-label="t('common.moreInfo', 'More information')"
               @click.stop

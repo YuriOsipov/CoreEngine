@@ -449,10 +449,18 @@ async function consumeRefreshTokenAtomic(
   }
 }
 
+/** Deactivate a non-admin user. Admins are never flipped inactive by IdP reject. */
 async function deactivateUser(userId: string): Promise<void> {
   await query(
-    `UPDATE public.app_users SET is_active = false, updated_at = now()
-     WHERE id = $1::uuid`,
+    `UPDATE public.app_users u
+     SET is_active = false, updated_at = now()
+     WHERE u.id = $1::uuid
+       AND NOT EXISTS (
+         SELECT 1
+         FROM public.app_roles r
+         WHERE r.id = u.role_id
+           AND COALESCE(r.is_admin, false) = true
+       )`,
     [userId],
   )
 }
@@ -560,8 +568,10 @@ async function bffRefreshExclusive(tokenHash: string): Promise<BffRefreshResult>
     // global revoke (IdP reject is often refresh-token reuse, not a real logout).
     const racedAfterReject = await refreshFromConsumedGrace(tokenHash)
     if (racedAfterReject) return racedAfterReject
+    // Real IdP rejection: revoke sessions. Never deactivate admins
+    // (OIDC_DEACTIVATE_ON_IDP_REJECT also skips admin roles in SQL).
     await revokeAllRefreshTokensForUser(user.id)
-    if (oidcDeactivateOnRejectEnabled()) {
+    if (oidcDeactivateOnRejectEnabled() && !user.is_admin) {
       await deactivateUser(user.id)
     }
     return { ok: false, status: 401, error: 'Refresh failed' }

@@ -22,7 +22,7 @@ Local email/password login defaults to on (`AUTH_BACKEND=local`, `AUTH_LOCAL_LOG
 
 1. Match `app_users.oidc_issuer` + `oidc_subject` (`sub`).
 2. Else, if `email_verified === true` and the email domain is allowed, match a **non-admin** local user by email and store issuer/subject.
-3. Else if `OIDC_JIT_PROVISION=true` (requires `OIDC_DEFAULT_ROLE_BACKEND_ID` + `OIDC_ALLOWED_EMAIL_DOMAINS`), create a user in the default role.
+3. Else if `OIDC_JIT_PROVISION=true` (requires `OIDC_DEFAULT_ROLE_BACKEND_ID` + `OIDC_ALLOWED_EMAIL_DOMAINS`), create a user in the default role. The default role **must not** be an admin role (`app_roles.is_admin`).
 4. Else reject (admin must provision the user first).
 
 **Hardening**
@@ -64,9 +64,9 @@ There is **no SCIM** (or other IdP→CoreEngine user sync). Prefer an explicit C
 1. Deactivate the user in **Setup → Users** (`app_users.is_active = false`) so refresh and guarded API calls fail immediately.
 2. Optionally also disable/remove them in the IdP so SSO cannot mint a new link.
 
-**SSO refresh IdP check (default on):** when a user signs in via OIDC and `OIDC_CHECK_ON_REFRESH` is on, the BFF stores **sealed** IdP access/refresh tokens on the CoreEngine refresh row (`app_refresh_tokens.oidc_*`, migrations `202611170001_*` / `202611170003_*`). Prefer a dedicated **`OIDC_TOKEN_ENCRYPTION_KEY`** in production; if unset, the seal key is derived from `AUTH_JWT_SECRET` (rotating the JWT secret then makes existing seals unreadable — treated as absent, not a 500). On `POST /auth/refresh`, the BFF peeks the live CE refresh row, calls IdP **userinfo** (and IdP refresh if needed), then consumes the CE token — storing **rotated** sealed IdP tokens on `app_refresh_token_consumed` for the 10s grace window. Those columns are **NULLed after ~60s**; the consumed hash row itself is kept for reuse detection (~30 days). Grace retries **do not** call the IdP again (avoids refresh-token reuse / Keycloak revoke-on-reuse). Concurrent refreshes of the same CE token are **single-flighted per BFF process**; a failed IdP check re-checks the consumed grace row before revoking (covers multi-instance losers that arrive after the winner consumed). A narrow cross-instance race remains if B’s IdP call fails before A consumes — accepted. IdP outage before consume returns **503** and leaves the CE refresh row intact. If the IdP refresh token is present and the check fails, CoreEngine revokes that user’s refresh tokens (HTTP 401). If only a short-lived access token is stored (no IdP refresh — e.g. scopes without `offline_access`), a failed userinfo check is **skipped** rather than locking the user out.
+**SSO refresh IdP check (default on):** when a user signs in via OIDC and `OIDC_CHECK_ON_REFRESH` is on, the BFF stores **sealed** IdP access/refresh tokens on the CoreEngine refresh row (`app_refresh_tokens.oidc_*`, migrations `202611170001_*` / `202611170003_*`). Prefer a dedicated **`OIDC_TOKEN_ENCRYPTION_KEY`** in production; if unset, the seal key is derived from `AUTH_JWT_SECRET` (rotating the JWT secret then makes existing seals unreadable — treated as absent, not a 500). On `POST /auth/refresh`, the BFF peeks the live CE refresh row, calls IdP **userinfo** (and IdP refresh if needed), then consumes the CE token — storing **rotated** sealed IdP tokens on `app_refresh_token_consumed` for the 10s grace window. Those columns are **NULLed after ~60s**; the consumed hash row itself is kept for reuse detection (~30 days). Grace retries **do not** call the IdP again (avoids refresh-token reuse / Keycloak revoke-on-reuse). Concurrent refreshes of the same CE token are **single-flighted per BFF process**; a failed IdP check re-checks the consumed grace row before revoking (covers multi-instance losers that arrive after the winner consumed). A narrow cross-instance race remains if B’s IdP call fails before A consumes — accepted. **IdP outages (HTTP 429 / 5xx) and network errors return 503** and leave the CE refresh row intact — they never revoke sessions or deactivate users. A **real IdP reject** (4xx with an IdP refresh token present) revokes that user’s refresh tokens (HTTP 401). If only a short-lived access token is stored (no IdP refresh — e.g. scopes without `offline_access`), a failed userinfo check is **skipped** rather than locking the user out.
 
-**Scopes:** when `OIDC_SCOPES` is unset and check-on-refresh is on, defaults are `openid profile email offline_access` (Auth0 needs **Allow Offline Access**; Keycloak realm import puts `offline_access` on the client’s default + optional scopes). Explicit `OIDC_SCOPES` is honored as-is (opt out of `offline_access` if the IdP client rejects it). When `OIDC_CHECK_ON_REFRESH=false`, defaults omit `offline_access`. Set `OIDC_DEACTIVATE_ON_IDP_REJECT=true` to also flip `is_active=false` on reject.
+**Scopes:** when `OIDC_SCOPES` is unset and check-on-refresh is on, defaults are `openid profile email offline_access` (Auth0 needs **Allow Offline Access**; Keycloak realm import puts `offline_access` on the client’s default + optional scopes). Explicit `OIDC_SCOPES` is honored as-is (opt out of `offline_access` if the IdP client rejects it). When `OIDC_CHECK_ON_REFRESH=false`, defaults omit `offline_access`. Set `OIDC_DEACTIVATE_ON_IDP_REJECT=true` to also flip `is_active=false` on a real IdP reject — **admins are never deactivated** by this path.
 
 Access JWTs remain valid until their short TTL (~15 minutes) after revoke. Local-password sessions do not carry IdP tokens — they still require Setup deactivate (or password rotate) when local login is enabled. With `AUTH_LOCAL_LOGIN_ENABLED=false`, only SSO can mint a new session.
 
@@ -98,9 +98,11 @@ OIDC_DISPLAY_NAME=Keycloak
 # TRUST_PROXY=loopback,uniquelocal
 # Optional: create unknown emails into a role (domain allowlist required)
 # OIDC_JIT_PROVISION=true
-# OIDC_DEFAULT_ROLE_BACKEND_ID=<backend_role_id>
+# OIDC_DEFAULT_ROLE_BACKEND_ID=<non-admin backend_role_id>
 # OIDC_ALLOWED_EMAIL_DOMAINS=example.com
 ```
+
+Discovery endpoint URLs must share the `OIDC_ISSUER` origin (and `OIDC_INTERNAL_ISSUER` when set). Foreign hosts in the discovery document are rejected.
 
 Apply migration `202611130001_oidc_subject.sql` (via `npm run registry:migrate` / provision).
 

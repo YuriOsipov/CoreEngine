@@ -80,6 +80,7 @@ import {
   readRecordOwnerId,
 } from '../../services/rowLevelSecurity.js'
 import {
+  assertInheritOwnerParentImmutable,
   resolveEffectiveCreateOwnerId,
   resolveOwnerReassignment,
 } from '../../services/ownerInheritance.js'
@@ -1157,6 +1158,7 @@ export async function updateRecord(
       'update',
     )
   }
+  await assertInheritOwnerParentImmutable(apiName, existing, dataForWrite)
   const withoutClientAudit = await sanitizeHtmlFieldWrites(
     apiName,
     stripClientAuditUserFields(dataForWrite),

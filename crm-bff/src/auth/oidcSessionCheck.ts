@@ -1,6 +1,9 @@
 /**
  * Re-validate SSO users against the IdP on CoreEngine refresh.
  * Uses stored IdP access/refresh tokens from the CE refresh row.
+ *
+ * Transient IdP failures (429 / 5xx / network) throw so the BFF returns 503
+ * and leaves the CE refresh row intact — never revoke or deactivate on outage.
  */
 import { fetchOidcDiscovery } from './oidcDiscovery.js'
 import { fetchOidcHttp } from './oidcFetch.js'
@@ -23,20 +26,54 @@ export function oidcDeactivateOnRejectEnabled(): boolean {
   return raw === '1' || raw === 'true' || raw === 'yes'
 }
 
-async function userinfoOk(userinfoUrl: string, accessToken: string): Promise<boolean> {
+/** True for rate-limit / server errors that must not revoke CE sessions. */
+export function isTransientIdpStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599)
+}
+
+export class OidcIdpUnavailableError extends Error {
+  readonly status: number
+
+  constructor(status: number, detail: string) {
+    super(`SSO temporarily unavailable (${status}): ${detail}`)
+    this.name = 'OidcIdpUnavailableError'
+    this.status = status
+  }
+}
+
+type IdpHttpOutcome = 'ok' | 'reject' | 'unavailable'
+
+function classifyIdpResponse(response: {
+  ok?: boolean
+  status?: number
+}): IdpHttpOutcome {
+  if (response.ok === true) return 'ok'
+  const status = Number(response.status)
+  if (Number.isFinite(status) && isTransientIdpStatus(status)) return 'unavailable'
+  return 'reject'
+}
+
+async function userinfoOutcome(
+  userinfoUrl: string,
+  accessToken: string,
+): Promise<{ outcome: IdpHttpOutcome; status: number }> {
   const response = await fetchOidcHttp(userinfoUrl, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json',
     },
   })
-  return response.ok
+  return {
+    outcome: classifyIdpResponse(response),
+    status: Number(response.status) || (response.ok ? 200 : 0),
+  }
 }
 
-async function refreshIdpAccessToken(refreshToken: string): Promise<{
-  access_token: string
-  refresh_token?: string
-} | null> {
+async function refreshIdpAccessToken(refreshToken: string): Promise<
+  | { outcome: 'ok'; access_token: string; refresh_token?: string }
+  | { outcome: 'reject' }
+  | { outcome: 'unavailable'; status: number }
+> {
   const cfg = readOidcConfig()
   const discovery = await fetchOidcDiscovery()
   const body = new URLSearchParams({
@@ -53,15 +90,20 @@ async function refreshIdpAccessToken(refreshToken: string): Promise<{
     },
     body,
   })
-  if (!response.ok) return null
+  const classified = classifyIdpResponse(response)
+  if (classified === 'unavailable') {
+    return { outcome: 'unavailable', status: Number(response.status) || 503 }
+  }
+  if (classified !== 'ok') return { outcome: 'reject' }
   const payload = (await response.json().catch(() => null)) as Record<
     string,
     unknown
   > | null
   const access =
     payload && typeof payload.access_token === 'string' ? payload.access_token : ''
-  if (!access) return null
+  if (!access) return { outcome: 'reject' }
   return {
+    outcome: 'ok',
     access_token: access,
     refresh_token:
       payload && typeof payload.refresh_token === 'string'
@@ -77,6 +119,7 @@ export type OidcSessionCheckResult =
 /**
  * Confirm the IdP still recognizes the SSO subject.
  * No stored IdP token → skip (cannot prove either way; CE is_active still applies).
+ * Transient IdP failures throw {@link OidcIdpUnavailableError}.
  */
 export async function assertOidcSessionStillValid(input: {
   oidcAccessToken?: string | null
@@ -95,23 +138,36 @@ export async function assertOidcSessionStillValid(input: {
     return { ok: true }
   }
 
-  if (access && (await userinfoOk(userinfo, access))) {
-    return { ok: true, accessToken: access, refreshToken: refresh || undefined }
+  if (access) {
+    const accessCheck = await userinfoOutcome(userinfo, access)
+    if (accessCheck.outcome === 'ok') {
+      return { ok: true, accessToken: access, refreshToken: refresh || undefined }
+    }
+    if (accessCheck.outcome === 'unavailable') {
+      throw new OidcIdpUnavailableError(accessCheck.status, 'userinfo')
+    }
   }
 
   if (refresh) {
     const rotated = await refreshIdpAccessToken(refresh)
-    if (rotated) {
+    if (rotated.outcome === 'unavailable') {
+      throw new OidcIdpUnavailableError(rotated.status, 'token refresh')
+    }
+    if (rotated.outcome === 'ok') {
       const nextRefresh = rotated.refresh_token || refresh
-      if (await userinfoOk(userinfo, rotated.access_token)) {
+      const nextCheck = await userinfoOutcome(userinfo, rotated.access_token)
+      if (nextCheck.outcome === 'ok') {
         return {
           ok: true,
           accessToken: rotated.access_token,
           refreshToken: nextRefresh,
         }
       }
+      if (nextCheck.outcome === 'unavailable') {
+        throw new OidcIdpUnavailableError(nextCheck.status, 'userinfo after refresh')
+      }
     }
-    // Had an IdP refresh token and it (or subsequent userinfo) failed → revoke.
+    // Had an IdP refresh token and it (or subsequent userinfo) was rejected → revoke.
     return { ok: false, reason: 'IdP rejected SSO session (userinfo/refresh failed)' }
   }
 

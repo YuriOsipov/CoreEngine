@@ -44,11 +44,15 @@ describe('oidcSessionCheck', () => {
   })
 
   it('accepts a valid userinfo response', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: true })
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 })
     const result = await assertOidcSessionStillValid({
       oidcAccessToken: 'access-1',
     })
-    expect(result.ok).toBe(true)
+    expect(result).toEqual({
+      ok: true,
+      accessToken: 'access-1',
+      refreshToken: undefined,
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -74,17 +78,40 @@ describe('oidcSessionCheck', () => {
     })
   })
 
+  it('throws on userinfo 429 so CE refresh is not revoked', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 429 })
+    await expect(
+      assertOidcSessionStillValid({
+        oidcAccessToken: 'access-1',
+        oidcRefreshToken: 'refresh-1',
+      }),
+    ).rejects.toMatchObject({ name: 'OidcIdpUnavailableError', status: 429 })
+  })
+
+  it('throws on IdP token refresh 5xx so CE refresh is not revoked', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+    await expect(
+      assertOidcSessionStillValid({
+        oidcAccessToken: 'stale',
+        oidcRefreshToken: 'refresh-1',
+      }),
+    ).rejects.toMatchObject({ name: 'OidcIdpUnavailableError', status: 503 })
+  })
+
   it('rotates IdP access via refresh then rechecks userinfo', async () => {
     fetchMock
       .mockResolvedValueOnce({ ok: false, status: 401 })
       .mockResolvedValueOnce({
         ok: true,
+        status: 200,
         json: async () => ({
           access_token: 'access-2',
           refresh_token: 'refresh-2',
         }),
       })
-      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
     const result = await assertOidcSessionStillValid({
       oidcAccessToken: 'stale',
       oidcRefreshToken: 'refresh-1',

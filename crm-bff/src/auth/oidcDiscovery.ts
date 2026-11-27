@@ -36,6 +36,48 @@ export function rewriteInternalUrl(
   return `${to}/${url.slice(prefix.length)}`
 }
 
+function originOf(raw: string): string {
+  return new URL(raw).origin
+}
+
+/**
+ * Discovery endpoints must live on the configured issuer origin (or
+ * internalIssuer when dual-host). Blocks discovery docs that advertise
+ * attacker-controlled hosts for token/JWKS/userinfo.
+ */
+export function assertDiscoveryEndpointOrigins(
+  endpoints: Record<string, string | undefined>,
+  allowedIssuers: string[],
+): void {
+  const allowed = new Set<string>()
+  for (const issuer of allowedIssuers) {
+    const trimmed = String(issuer || '').trim()
+    if (!trimmed) continue
+    try {
+      allowed.add(originOf(trimmed))
+    } catch {
+      throw new Error(`OIDC issuer is not a valid URL: ${trimmed}`)
+    }
+  }
+  if (!allowed.size) {
+    throw new Error('OIDC discovery has no allowed issuer origins')
+  }
+  for (const [label, endpoint] of Object.entries(endpoints)) {
+    if (!endpoint) continue
+    let origin: string
+    try {
+      origin = originOf(endpoint)
+    } catch {
+      throw new Error(`OIDC discovery ${label} is not a valid URL`)
+    }
+    if (!allowed.has(origin)) {
+      throw new Error(
+        `OIDC discovery ${label} origin ${origin} is outside the issuer origin`,
+      )
+    }
+  }
+}
+
 export async function fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
   const cfg = readOidcConfig()
   if (!cfg.issuer) throw new Error('OIDC_ISSUER is not configured')
@@ -74,6 +116,18 @@ export async function fetchOidcDiscovery(): Promise<OidcDiscoveryDocument> {
       `OIDC discovery issuer mismatch: expected ${cfg.issuer}, got ${issuer}`,
     )
   }
+  assertDiscoveryEndpointOrigins(
+    {
+      authorization_endpoint,
+      token_endpoint,
+      jwks_uri,
+      end_session_endpoint,
+      userinfo_endpoint,
+    },
+    [cfg.issuer, cfg.internalIssuer].filter(
+      (value): value is string => typeof value === 'string' && Boolean(value.trim()),
+    ),
+  )
   if (cfg.internalIssuer) {
     // Browser authorize/logout stay on the public issuer host.
     authorization_endpoint = rewriteInternalUrl(

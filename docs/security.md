@@ -51,7 +51,7 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 
 - Opt-in per object so users without View/Modify all only reach rows they **own** (`owner_id`). Kernel default is **off**. The **Sales pack** turns it **on** for `account`, `contact`, `opportunity`, `message`, and `opportunity_item`.
 - **Enable:** Setup → Entity parameters → **Owner row security**, or `backendConfig.rowLevelSecurity = "owner"` in pack JSON.
-- Optional **Inherit owner from parent** (`backendConfig.inheritOwnerFrom`) copies parent `owner_id` on create. **Created By** (`user_created`) stays the creating actor.
+- Optional **Inherit owner from parent** (`backendConfig.inheritOwnerFrom`) copies parent `owner_id` on create after the caller can **read** that parent (owner RLS / View all). The parent FK is **immutable on update**. **Created By** (`user_created`) stays the creating actor.
 - **Change Owner:** record action + `updateRecord` with `owner_id` (one row). Allowed for **Modify all** / admin / system, and for the **current owner**. The new id must be an **active** `app_users` row (`is_active`, `backend_user_id` or id); typos and deactivated users are rejected. Unauthorized reassignment returns **Permission denied** (it is not dropped). Activity/revision audit includes the new `owner_id`. **`inheritOwnerFrom` copies parent owner on create only** — changing a parent’s owner does **not** cascade to existing children. There is **no** bulk “reassign all of user A’s records” list/admin action yet; for a leaver, reassign each row (or script `updateRecord` / MCP) before or after deactivating the user. Managers with Modify all are not limited to “edit others’ fields while leaving ownership stranded.”
 - **Also grant read if** (`rowLevelReadAlsoIf`): UUID/M2O → Users fields (e.g. Message `to_user`). Matching users may **read**; update/delete stay owner-only.
 - **Also grant read if same role as owner** (`rowLevelReadAlsoIfSameRole`): peers with the owner’s app Role may **read**. Coarser than a future Teams object.
@@ -82,7 +82,7 @@ Keep Confidential data on objects with tight object ACL / owner RLS. Config hist
 | Topic | Behavior |
 |-------|----------|
 | **JWTs** | HMAC-signed, algorithm-pinned, verified on each guarded request. Access TTL **15 minutes**; refresh rotates. Reuse of a rotated refresh token revokes **all** sessions. Placeholder / too-short `AUTH_JWT_SECRET` refused at every BFF start. |
-| **OIDC SSO** | Optional external IdP. BFF is the relying party. Roles stay in CoreEngine. See [`oidc-sso.md`](./oidc-sso.md). |
+| **OIDC SSO** | Optional external IdP. Discovery endpoints must share the issuer (or `OIDC_INTERNAL_ISSUER`) origin. IdP **429/5xx** → refresh **503**, no revoke/deactivate. Real IdP reject may revoke sessions; `OIDC_DEACTIVATE_ON_IDP_REJECT` never deactivates admins. JIT default role must be non-admin. See [`oidc-sso.md`](./oidc-sso.md). |
 | **Admin status** | From the **database**, not JWT / IdP claims. |
 | **Setup mutations** | Require **admin**. Config changes → `config_audits` / `configAudits` query (includes automations + org settings). BFF start + `registry:check-cutover` refuse missing append-only triggers (`config_audits_append_only` / `_truncate`) — migrate can NOTICE-skip them when the role does not own the table. |
 | **Automation rules** | Admin-only schema read; create/update/delete/open `setFields` are trusted server policy (caller needs Update + owner RLS). JWT flow patches are FLS-checked. |

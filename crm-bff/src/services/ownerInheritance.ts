@@ -18,6 +18,7 @@ import { isSystemRecordAccess } from '../adapters/records/types.js'
 import { query } from '../db/pool.js'
 import { resolveRoleOwnerBypass } from './rolePermissions.js'
 import {
+  assertOwnerAccessIfNeeded,
   isAdminMe,
   readRecordOwnerId,
   resolveInheritOwnerFrom,
@@ -120,15 +121,24 @@ export async function resolveOwnerReassignment(
   return assertActiveOwnerId(requested)
 }
 
+/** Returned when inheritOwnerFrom parent is missing or not readable by the caller. */
+export const INHERIT_OWNER_PARENT_DENIED = 'Permission denied'
+
+/** Returned when an inheritOwnerFrom parent FK is changed after create. */
+export const INHERIT_OWNER_PARENT_IMMUTABLE =
+  'Parent relationship cannot be changed after create'
+
 /**
  * Resolve `owner_id` for a new row: parent owner's id when inheritance is
  * configured and the parent FK is present; otherwise the creating actor.
+ * Requires the caller to be able to **read** the parent (owner RLS / View all).
  * Does not change audit `user_created` (stamped separately as the actor).
  */
 export async function resolveCreateOwnerId(
   entityApiName: string,
   data: Record<string, unknown>,
   actorUserId?: string | null,
+  access?: RecordAccess,
 ): Promise<string> {
   const actor =
     typeof actorUserId === 'string' && actorUserId.trim()
@@ -141,18 +151,52 @@ export async function resolveCreateOwnerId(
   const rels = await loadM2ORelations(entityApiName)
   const rel = rels.find((entry) => entry.fieldApiName === parentField)
   if (!rel?.relatedEntityApiName) return actor
+  const store = await resolveRecordsStore(rel.relatedEntityApiName)
+  let parent: Record<string, unknown> | null = null
   try {
-    const store = await resolveRecordsStore(rel.relatedEntityApiName)
-    const parent = await store.findOne(rel.relatedEntityApiName, parentId, [
+    parent = await store.findOne(rel.relatedEntityApiName, parentId, [
       ROW_OWNER_FIELD,
+      'user_created',
     ])
-    return readRecordOwnerId(parent) || actor
   } catch (error) {
     console.warn(
-      `[createRecord] ${entityApiName}: inheritOwnerFrom ${parentField} failed`,
+      `[createRecord] ${entityApiName}: inheritOwnerFrom ${parentField} load failed`,
       error,
     )
-    return actor
+    throw new Error(INHERIT_OWNER_PARENT_DENIED)
+  }
+  if (!parent) throw new Error(INHERIT_OWNER_PARENT_DENIED)
+  if (access && !isSystemRecordAccess(access)) {
+    try {
+      await assertOwnerAccessIfNeeded(
+        rel.relatedEntityApiName,
+        access,
+        parent,
+        'read',
+      )
+    } catch {
+      throw new Error(INHERIT_OWNER_PARENT_DENIED)
+    }
+  }
+  return readRecordOwnerId(parent) || actor
+}
+
+/**
+ * Reject updates that change the inheritOwnerFrom parent FK after create.
+ */
+export async function assertInheritOwnerParentImmutable(
+  entityApiName: string,
+  existing: Record<string, unknown> | null | undefined,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const parentField = await resolveInheritOwnerFrom(entityApiName)
+  if (!parentField) return
+  if (!(parentField in data)) return
+  const previous = existing ? fkIdFromValue(existing[parentField]) : null
+  const next = fkIdFromValue(data[parentField])
+  if (!previous) return
+  if (next !== previous) {
+    throw new Error(INHERIT_OWNER_PARENT_IMMUTABLE)
   }
 }
 
@@ -174,5 +218,5 @@ export async function resolveEffectiveCreateOwnerId(
   if (requested && (await canAssignOwnerOnCreate(access, entityApiName))) {
     return assertActiveOwnerId(requested)
   }
-  return resolveCreateOwnerId(entityApiName, data, actorUserId)
+  return resolveCreateOwnerId(entityApiName, data, actorUserId, access)
 }

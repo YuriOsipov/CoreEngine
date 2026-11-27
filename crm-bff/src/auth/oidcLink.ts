@@ -98,19 +98,26 @@ async function createJitUser(claims: OidcIdClaims): Promise<LinkedAuthUser | nul
   const cfg = readOidcConfig()
   if (!cfg.jitProvision || !cfg.defaultRoleBackendId) return null
 
-  const roleRows = await query<{ id: string }>(
-    `SELECT id::text AS id
+  const roleRows = await query<{ id: string; is_admin: boolean }>(
+    `SELECT id::text AS id,
+            COALESCE(is_admin, false) AS is_admin
      FROM public.app_roles
      WHERE backend_role_id = $1
      LIMIT 1`,
     [cfg.defaultRoleBackendId],
   )
-  const roleId = roleRows[0]?.id
-  if (!roleId) {
+  const role = roleRows[0]
+  if (!role?.id) {
     throw new Error(
       `OIDC JIT: role backend_role_id=${cfg.defaultRoleBackendId} not found`,
     )
   }
+  if (role.is_admin) {
+    throw new Error(
+      `OIDC JIT: role backend_role_id=${cfg.defaultRoleBackendId} is an admin role — set OIDC_DEFAULT_ROLE_BACKEND_ID to a non-admin role`,
+    )
+  }
+  const roleId = role.id
 
   const userId = randomUUID()
   const backendUserId = `oidc:${claims.sub}`

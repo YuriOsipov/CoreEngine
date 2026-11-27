@@ -162,7 +162,7 @@ describe('resolveUserFromOidcClaims', () => {
     query
       .mockResolvedValueOnce([]) // by subject
       .mockResolvedValueOnce([]) // by email
-      .mockResolvedValueOnce([{ id: 'role-1' }]) // role lookup
+      .mockResolvedValueOnce([{ id: 'role-1', is_admin: false }]) // role lookup
       .mockRejectedValueOnce(Object.assign(new Error('duplicate'), { code: '23505' }))
       .mockResolvedValueOnce([
         {
@@ -180,5 +180,24 @@ describe('resolveUserFromOidcClaims', () => {
     const result = await resolveUserFromOidcClaims(claims)
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.user.id).toBe('u-raced')
+  })
+
+  it('refuses JIT when the default role is an admin role', async () => {
+    process.env.OIDC_JIT_PROVISION = 'true'
+    process.env.OIDC_DEFAULT_ROLE_BACKEND_ID = 'admin'
+    process.env.OIDC_ALLOWED_EMAIL_DOMAINS = 'example.com'
+    resetOidcConfigCache()
+
+    query
+      .mockResolvedValueOnce([]) // by subject
+      .mockResolvedValueOnce([]) // by email
+      .mockResolvedValueOnce([{ id: 'role-admin', is_admin: true }])
+
+    const result = await resolveUserFromOidcClaims(claims)
+    expect(result).toMatchObject({
+      ok: false,
+      status: 500,
+    })
+    expect(String((result as { error: string }).error)).toMatch(/admin role/)
   })
 })

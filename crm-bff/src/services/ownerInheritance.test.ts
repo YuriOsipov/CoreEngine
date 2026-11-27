@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const resolveInheritOwnerFrom = vi.fn()
+const assertOwnerAccessIfNeeded = vi.fn()
 const loadM2ORelations = vi.fn()
 const resolveRecordsStore = vi.fn()
 const resolveRoleOwnerBypass = vi.fn()
@@ -14,6 +15,8 @@ vi.mock('./rowLevelSecurity.js', async () => {
     ...actual,
     resolveInheritOwnerFrom: (...args: unknown[]) =>
       resolveInheritOwnerFrom(...args),
+    assertOwnerAccessIfNeeded: (...args: unknown[]) =>
+      assertOwnerAccessIfNeeded(...args),
   }
 })
 vi.mock('./rolePermissions.js', async () => {
@@ -44,6 +47,7 @@ vi.mock('../db/pool.js', () => ({
 }))
 
 import {
+  assertInheritOwnerParentImmutable,
   canAssignOwnerOnCreate,
   canAssignOwnerOnUpdate,
   resolveCreateOwnerId,
@@ -55,6 +59,8 @@ import { SYSTEM_RECORD_ACCESS } from '../adapters/records/types.js'
 describe('resolveCreateOwnerId (rep + manager add items)', () => {
   beforeEach(() => {
     resolveInheritOwnerFrom.mockReset()
+    assertOwnerAccessIfNeeded.mockReset()
+    assertOwnerAccessIfNeeded.mockResolvedValue(undefined)
     loadM2ORelations.mockReset()
     resolveRecordsStore.mockReset()
   })
@@ -88,6 +94,7 @@ describe('resolveCreateOwnerId (rep + manager add items)', () => {
     expect(asManager).toBe('rep-owner')
     expect(findOne).toHaveBeenCalledWith('opportunity', 'opp-1', [
       'owner_id',
+      'user_created',
     ])
   })
 
@@ -97,6 +104,59 @@ describe('resolveCreateOwnerId (rep + manager add items)', () => {
       resolveCreateOwnerId('opportunity_item', { opportunity: 'opp-1' }, 'mgr'),
     ).resolves.toBe('mgr')
     expect(loadM2ORelations).not.toHaveBeenCalled()
+  })
+
+  it('denies create when the caller cannot read the parent', async () => {
+    resolveInheritOwnerFrom.mockResolvedValue('opportunity')
+    loadM2ORelations.mockResolvedValue([
+      { fieldApiName: 'opportunity', relatedEntityApiName: 'opportunity' },
+    ])
+    resolveRecordsStore.mockResolvedValue({
+      findOne: vi.fn().mockResolvedValue({ id: 'opp-1', owner_id: 'other' }),
+    })
+    assertOwnerAccessIfNeeded.mockRejectedValue(new Error('Permission denied'))
+    await expect(
+      resolveCreateOwnerId(
+        'opportunity_item',
+        { opportunity: 'opp-1' },
+        'rep',
+        {
+          me: {
+            id: 'rep',
+            email: 'rep@example.com',
+            isAdmin: false,
+          } as never,
+        },
+      ),
+    ).rejects.toThrow('Permission denied')
+  })
+})
+
+describe('assertInheritOwnerParentImmutable', () => {
+  beforeEach(() => {
+    resolveInheritOwnerFrom.mockReset()
+  })
+
+  it('rejects changing the inheritOwnerFrom parent FK', async () => {
+    resolveInheritOwnerFrom.mockResolvedValue('opportunity')
+    await expect(
+      assertInheritOwnerParentImmutable(
+        'opportunity_item',
+        { opportunity: 'opp-1' },
+        { opportunity: 'opp-2' },
+      ),
+    ).rejects.toThrow(/cannot be changed after create/)
+  })
+
+  it('allows updates that leave the parent FK unchanged', async () => {
+    resolveInheritOwnerFrom.mockResolvedValue('opportunity')
+    await expect(
+      assertInheritOwnerParentImmutable(
+        'opportunity_item',
+        { opportunity: 'opp-1' },
+        { opportunity: 'opp-1', name: 'Line' },
+      ),
+    ).resolves.toBeUndefined()
   })
 })
 

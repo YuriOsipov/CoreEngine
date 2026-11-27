@@ -6,10 +6,10 @@ CoreEngine separates your **Control Plane** (schema registry, role-scoped layout
 
 ### Core capabilities
 
-- **Schema-driven UI:** Object Manager, role-scoped edit/view forms, tree navigation + master-detail, conditional field/block rules, inline editing, and barcode scanning.
+- **Schema-driven UI:** Object Manager, role-scoped edit/view forms, tree navigation + master-detail, conditional field/block rules, inline editing, barcode scanning, and cross-object file linking (D2D).
 - **Backend-agnostic BFF:** Unified GraphQL & REST layer decoupling your UI configurations from underlying data providers.
 - **Built-in operational modules:** Resource scheduling, Kanban/Gantt projects, tiered/campaign pricing engines, and scheduled background tasks.
-- **Structured documents:** [DocEngine](https://docengine.pro/) interactive editor — typed fields, `$payload` Mapping, in-document fill, HTML preview, and PDF from one `EditorDocument` model (sections/tables grow with data; not fixed-coordinate pixel grids). See [docengine.pro/docs](https://docengine.pro/docs).
+- **Structured documents:** [DocEngine](https://docengine.pro/) interactive editor — typed fields, `$payload` Mapping, in-document fill, HTML preview, and PDF from one `EditorDocument` model (sections/tables grow with data; not fixed-coordinate pixel grids). List Document reports and selected-group tree reports ship from the same templates. See [docengine.pro/docs](https://docengine.pro/docs).
 - **Git-versioned domain packs:** Ship and version full vertical configurations as code (see [`docs/domain-packs.md`](docs/domain-packs.md) for starter packs including **Sales**, **Pricing**, **Clinic**, and **Documents**).
 
 **License:** MIT ([`LICENSE`](LICENSE)). Other components: [`THIRD_PARTY.md`](THIRD_PARTY.md). Support: [`SUPPORT.md`](SUPPORT.md) (community, no SLA). Vulnerabilities: [`SECURITY.md`](SECURITY.md).

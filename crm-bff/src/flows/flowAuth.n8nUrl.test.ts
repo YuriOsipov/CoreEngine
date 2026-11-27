@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  appendSyncPath,
   assertProductionFlowAuthConfig,
   isActivepiecesDestination,
   isN8nDestination,
   n8nBaseUrl,
   n8nWebhookPathForKey,
   resolveActivepiecesFlowUrl,
+  resolveCustomFlowUrl,
   resolveN8nFlowUrl,
   sanitizeActivepiecesFlowId,
   warnIfActivepiecesWebhookSecretMissing,
@@ -63,6 +65,9 @@ describe('n8n flow URL helpers', () => {
     expect(resolveN8nFlowUrl('send_quote_pdf')).toBe(
       'http://n8n:5678/webhook/ce-send_quote_pdf',
     )
+    expect(resolveN8nFlowUrl('send_quote_pdf', { sync: true })).toBe(
+      'http://n8n:5678/webhook/ce-send_quote_pdf/sync',
+    )
   })
 
   it('falls back to N8N_WEBHOOK_URL origin', () => {
@@ -101,6 +106,30 @@ describe('n8n flow URL helpers', () => {
     warn.mockClear()
     warnIfN8nWebhookSecretMissing({ warn })
     expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('custom flow URL /sync', () => {
+  it('appends /sync before the query string and does not double it', () => {
+    expect(appendSyncPath('https://integrations.example/api/hook?token=1')).toBe(
+      'https://integrations.example/api/hook/sync?token=1',
+    )
+    expect(appendSyncPath('https://integrations.example/api/hook/sync')).toBe(
+      'https://integrations.example/api/hook/sync',
+    )
+    expect(appendSyncPath('https://integrations.example/api/hook/')).toBe(
+      'https://integrations.example/api/hook/sync',
+    )
+  })
+
+  it('appends /sync only when Wait for response is on', () => {
+    const url = 'https://integrations.example/api/hook'
+    expect(resolveCustomFlowUrl(url, {})).toBe(url)
+    expect(resolveCustomFlowUrl(url, { sync: 'true' })).toBe(`${url}/sync`)
+    expect(resolveCustomFlowUrl('not a url', { sync: true })).toBe('not a url')
+    const fileUrl =
+      'https://fastly.picsum.photos/id/813/536/354.jpg?hmac=abc'
+    expect(resolveCustomFlowUrl(fileUrl, { sync: true })).toBe(fileUrl)
   })
 })
 

@@ -118,6 +118,38 @@ export function n8nBaseUrl(): string {
   }
 }
 
+/** True when Setup → External Flows has Wait for response (/sync) enabled. */
+export function flowSyncRequested(
+  config: { sync?: unknown } | null | undefined,
+): boolean {
+  if (!config) return false
+  return (
+    config.sync === true ||
+    String(config.sync || '')
+      .trim()
+      .toLowerCase() === 'true'
+  )
+}
+
+/**
+ * Append `/sync` before the query string.
+ * A path that already ends in `/sync` is left unchanged.
+ * The original authority is kept (including default ports such as `:80`).
+ */
+export function appendSyncPath(url: string): string {
+  const parsed = new URL(url)
+  const path = parsed.pathname.replace(/\/+$/, '')
+  if (path.endsWith('/sync')) return url
+  const hashIndex = url.indexOf('#')
+  const queryIndex = url.indexOf('?')
+  let cut = -1
+  if (queryIndex !== -1) cut = queryIndex
+  if (hashIndex !== -1 && (cut === -1 || hashIndex < cut)) cut = hashIndex
+  const head = cut === -1 ? url : url.slice(0, cut)
+  const tail = cut === -1 ? '' : url.slice(cut)
+  return `${head.replace(/\/+$/, '')}/sync${tail}`
+}
+
 /** Stable webhook path segment for a flow key: `ce-send_quote_pdf`. */
 export function n8nWebhookPathForKey(flowKey: string): string {
   const sanitized = String(flowKey || '')
@@ -131,15 +163,23 @@ export function n8nWebhookPathForKey(flowKey: string): string {
   return `ce-${sanitized}`
 }
 
-/** Full webhook URL: `{N8N_BASE_URL}/webhook/ce-{key}`. */
-export function resolveN8nFlowUrl(flowKey: string): string {
+/**
+ * Full webhook URL: `{N8N_BASE_URL}/webhook/ce-{key}` (+ `/sync` when requested).
+ * Register that path on the n8n Webhook node and set Respond to When Last Node
+ * Finishes or Respond to Webhook when Wait for response is on.
+ */
+export function resolveN8nFlowUrl(
+  flowKey: string,
+  config?: { sync?: unknown } | null,
+): string {
   const base = n8nBaseUrl()
   if (!base) {
     throw new Error(
       'N8N_BASE_URL (or N8N_WEBHOOK_URL) is required to resolve n8n flow targets',
     )
   }
-  return `${base}/webhook/${n8nWebhookPathForKey(flowKey)}`
+  const url = `${base}/webhook/${n8nWebhookPathForKey(flowKey)}`
+  return flowSyncRequested(config) ? appendSyncPath(url) : url
 }
 
 /** True when destination is under the configured n8n base / legacy webhook origin. */
@@ -195,12 +235,32 @@ export function resolveActivepiecesFlowUrl(config: Record<string, unknown>): str
     throw new Error('ACTIVEPIECES_BASE_URL is required to resolve activepieces flow targets')
   }
   const flowId = sanitizeActivepiecesFlowId(config.flowId)
-  const sync =
-    config.sync === true ||
-    String(config.sync || '')
-      .trim()
-      .toLowerCase() === 'true'
-  return `${base}/api/v1/webhooks/${flowId}${sync ? '/sync' : ''}`
+  const url = `${base}/api/v1/webhooks/${flowId}`
+  return flowSyncRequested(config) ? appendSyncPath(url) : url
+}
+
+/**
+ * Custom URL as stored, with `/sync` appended when Wait for response is on.
+ * Invalid URLs are returned unchanged so the outbound shape check can reject them.
+ */
+/** True when the URL path already names a file, so `/sync` must not be appended. */
+export function urlPathIsFile(url: string): boolean {
+  const path = new URL(url).pathname.replace(/\/+$/, '')
+  return /\.[A-Za-z0-9]{1,8}$/.test(path)
+}
+
+export function resolveCustomFlowUrl(
+  url: string,
+  config?: { sync?: unknown } | null,
+): string {
+  const trimmed = url.trim()
+  if (!flowSyncRequested(config)) return trimmed
+  try {
+    if (urlPathIsFile(trimmed)) return trimmed
+    return appendSyncPath(trimmed)
+  } catch {
+    return trimmed
+  }
 }
 
 /** True when destination is under the configured Activepieces base. */

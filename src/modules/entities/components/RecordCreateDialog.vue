@@ -16,6 +16,7 @@ import {
   buildDefaultDraft,
   applyParentFieldDefaults,
   collectDefaultFromParentSources,
+  enrichLayoutRelatedCopyFromDefaults,
   enrichParentRecordForFieldDefaults,
   resolveDefaultFromParentDefinitions,
 } from '@/core/entityLayoutUtils'
@@ -116,10 +117,13 @@ async function prepareDialog(): Promise<void> {
       return
     }
 
-    const createSchema = createLayoutSchema(schema)
     const definitions = await resolveDefaultFromParentDefinitions(
       collection,
       (await getCachedCollectionFields(collection)) as unknown as FieldDefinition[],
+    )
+    const createSchema = enrichLayoutRelatedCopyFromDefaults(
+      createLayoutSchema(schema),
+      definitions,
     )
     // Parent defaults only on create (this dialog), never on edit.
     const parentForDefaults = await enrichParentRecordForFieldDefaults(

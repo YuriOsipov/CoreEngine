@@ -1035,6 +1035,8 @@ function normalizeEntityActions(actions: EntityLayoutSchema['actions']): EntityA
           confirmBeforeRun: action.flow?.confirmBeforeRun ?? true,
           successMessage: action.flow?.successMessage ?? 'Action completed.',
           refreshRecordAfterRun: action.flow?.refreshRecordAfterRun ?? true,
+          previewResponseFile: action.flow?.previewResponseFile === true,
+          attachResponseFile: action.flow?.attachResponseFile === true,
         },
         payload: {
           includeCollection: action.payload?.includeCollection ?? true,

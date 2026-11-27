@@ -220,10 +220,31 @@ function isEmptyDraftValue(value: unknown): boolean {
   return value === undefined || value === null || value === ''
 }
 
+function coerceFieldOptions(
+  options: unknown,
+): Record<string, unknown> | null {
+  if (!options) return null
+  if (typeof options === 'string') {
+    try {
+      const parsed = JSON.parse(options) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+  if (typeof options === 'object' && !Array.isArray(options)) {
+    return options as Record<string, unknown>
+  }
+  return null
+}
+
 function readDefaultFromParentOption(definition: FieldDefinition): string {
-  const options = definition.meta?.options
-  if (!options || typeof options !== 'object') return ''
-  const raw = (options as Record<string, unknown>).defaultFromParent
+  const options = coerceFieldOptions(definition.meta?.options)
+  if (!options) return ''
+  const raw = options.defaultFromParent ?? options.default_from_parent
   return typeof raw === 'string' ? raw.trim() : ''
 }
 
@@ -349,6 +370,56 @@ export function defaultFromParentTargetsForRelation(
     result.push({ targetField: definition.field, sourceField: parsed.field })
   }
   return result
+}
+
+/**
+ * Stamp layout M2O fields with `relatedCopy` derived from Setup defaultFromParent
+ * (e.g. Item ← opportunity_item.item). Create dialogs then copy on lookup change
+ * even when registry re-reads race or miss options.
+ */
+export function enrichLayoutRelatedCopyFromDefaults(
+  schema: EntityLayoutSchema,
+  definitions: FieldDefinition[],
+): EntityLayoutSchema {
+  const byRelation = new Map<string, Record<string, string>>()
+  for (const definition of definitions) {
+    const source = readDefaultFromParentOption(definition)
+    if (!source || !definition.field) continue
+    const parsed = parseDefaultFromParentSource(source)
+    if (!parsed.relationField || !parsed.field) continue
+    const key = parsed.relationField
+    const existing = byRelation.get(key) ?? {}
+    existing[definition.field] = parsed.field
+    byRelation.set(key, existing)
+  }
+  if (byRelation.size === 0) return schema
+
+  return {
+    ...schema,
+    sections: schema.sections.map((section) => ({
+      ...section,
+      groups: section.groups.map((group) => ({
+        ...group,
+        fields: group.fields.map((field) => {
+          let stamped: Record<string, string> | null = null
+          for (const [relationField, copyMap] of byRelation) {
+            if (!keysEqual(relationField, field.field)) continue
+            stamped = copyMap
+            break
+          }
+          if (!stamped) return field
+          return {
+            ...field,
+            relatedCopy: {
+              ...(field.relatedCopy ?? {}),
+              // Setup defaultFromParent wins over empty/stale layout relatedCopy.
+              ...stamped,
+            },
+          }
+        }),
+      })),
+    })),
+  }
 }
 
 /**

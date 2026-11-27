@@ -313,6 +313,10 @@ export interface EntityActionFlowSettings {
   confirmBeforeRun?: boolean
   successMessage?: string
   refreshRecordAfterRun?: boolean
+  /** When a sync response includes Data, open a preview of that file. */
+  previewResponseFile?: boolean
+  /** When a sync response includes Data, save that file on the record attachments. */
+  attachResponseFile?: boolean
 }
 
 /**

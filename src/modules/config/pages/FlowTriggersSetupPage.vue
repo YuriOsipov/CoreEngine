@@ -42,7 +42,6 @@ const editingConfig = ref<Record<string, unknown>>({})
 
 const form = reactive({
   key: '',
-  handler: 'http' as string,
   enabled: true,
   description: '',
   /**
@@ -52,7 +51,7 @@ const form = reactive({
   httpTarget: 'n8n' as 'n8n' | 'activepieces' | 'url',
   /** Activepieces Catch Webhook Live URL id (last path segment). */
   flowId: '',
-  /** Append /sync so Activepieces waits for Return Response. */
+  /** Append /sync so the destination waits and returns the workflow response. */
   sync: false,
   url: '',
   method: 'POST',
@@ -63,17 +62,6 @@ const form = reactive({
   authUsername: '',
   authPassword: '',
 })
-
-const handlerOptions = computed(() => [
-  {
-    label: t('setup.flows.handlerHttp', 'HTTP (webhook)'),
-    value: 'http',
-  },
-  {
-    label: t('setup.flows.handlerUpdateRecord', 'Update record'),
-    value: 'update_record',
-  },
-])
 
 const httpTargetOptions = computed(() => [
   {
@@ -144,43 +132,29 @@ function showError(err: unknown, fallback: string): void {
 
 function handlerLabel(handler: string): string {
   if (handler === 'http') return t('setup.flows.handlerHttpShort', 'HTTP')
-  if (handler === 'update_record') {
-    return t('setup.flows.handlerUpdateRecordShort', 'Update record')
-  }
   return handler
 }
 
 function destinationLabel(flow: GraphQlFlowTrigger): string {
-  if (flow.handler === 'http') {
-    const target =
-      typeof flow.config?.target === 'string'
-        ? flow.config.target.trim().toLowerCase()
-        : ''
-    if (target === 'n8n') {
-      return t('setup.flows.destinationN8n', 'n8n (ce-{key})', {
-        key: flow.key,
-      })
-    }
-    if (target === 'activepieces') {
-      const flowId =
-        typeof flow.config?.flowId === 'string' ? flow.config.flowId : ''
-      return t('setup.flows.destinationActivepieces', 'Activepieces ({flowId})', {
-        flowId: flowId || '—',
-      })
-    }
-    const url = typeof flow.config?.url === 'string' ? flow.config.url : ''
-    return url || '—'
+  if (flow.handler !== 'http') return '—'
+  const target =
+    typeof flow.config?.target === 'string'
+      ? flow.config.target.trim().toLowerCase()
+      : ''
+  if (target === 'n8n') {
+    return t('setup.flows.destinationN8n', 'n8n (ce-{key})', {
+      key: flow.key,
+    })
   }
-  if (flow.handler === 'update_record') {
-    const collection =
-      typeof flow.config?.collection === 'string' ? flow.config.collection : ''
-    return collection
-      ? t('setup.flows.updateRecordTarget', 'Collection: {collection}', {
-          collection,
-        })
-      : t('setup.flows.updateRecordPayload', 'From payload')
+  if (target === 'activepieces') {
+    const flowId =
+      typeof flow.config?.flowId === 'string' ? flow.config.flowId : ''
+    return t('setup.flows.destinationActivepieces', 'Activepieces ({flowId})', {
+      flowId: flowId || '—',
+    })
   }
-  return '—'
+  const url = typeof flow.config?.url === 'string' ? flow.config.url : ''
+  return url || '—'
 }
 
 function resetAuthFields(): void {
@@ -194,7 +168,6 @@ function resetAuthFields(): void {
 
 function resetForm(): void {
   form.key = ''
-  form.handler = 'http'
   form.enabled = true
   form.description = ''
   form.httpTarget = 'n8n'
@@ -265,28 +238,31 @@ function openEdit(flow: GraphQlFlowTrigger): void {
   editingKey.value = flow.key
   editingConfig.value = { ...(flow.config ?? {}) }
   form.key = flow.key
-  form.handler = flow.handler
   form.enabled = flow.enabled
   form.description = flow.description || ''
+  // Legacy non-http rows (e.g. removed update_record) must be re-saved as HTTP.
+  const isHttp = flow.handler === 'http'
   const target =
-    typeof flow.config?.target === 'string'
+    isHttp && typeof flow.config?.target === 'string'
       ? flow.config.target.trim().toLowerCase()
       : ''
   form.httpTarget =
     target === 'n8n' || target === 'activepieces' ? target : 'url'
   form.flowId =
-    typeof flow.config?.flowId === 'string' ? flow.config.flowId : ''
-  form.sync =
-    flow.config?.sync === true ||
-    String(flow.config?.sync || '')
-      .trim()
-      .toLowerCase() === 'true'
-  form.url = typeof flow.config?.url === 'string' ? flow.config.url : ''
+    isHttp && typeof flow.config?.flowId === 'string' ? flow.config.flowId : ''
+  form.sync = isHttp
+    ? flow.config?.sync === true ||
+      String(flow.config?.sync || '')
+        .trim()
+        .toLowerCase() === 'true'
+    : false
+  form.url = isHttp && typeof flow.config?.url === 'string' ? flow.config.url : ''
   form.method =
-    typeof flow.config?.method === 'string' && flow.config.method
+    isHttp && typeof flow.config?.method === 'string' && flow.config.method
       ? String(flow.config.method).toUpperCase()
       : 'POST'
-  loadAuthFromConfig(flow.config ?? {})
+  if (isHttp) loadAuthFromConfig(flow.config ?? {})
+  else resetAuthFields()
   dialogVisible.value = true
 }
 
@@ -325,7 +301,7 @@ async function save(): Promise<void> {
     })
     return
   }
-  if (form.handler === 'http' && form.httpTarget === 'url' && !form.url.trim()) {
+  if (form.httpTarget === 'url' && !form.url.trim()) {
     toast.add({
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
@@ -334,11 +310,7 @@ async function save(): Promise<void> {
     })
     return
   }
-  if (
-    form.handler === 'http' &&
-    form.httpTarget === 'activepieces' &&
-    !form.flowId.trim()
-  ) {
+  if (form.httpTarget === 'activepieces' && !form.flowId.trim()) {
     toast.add({
       severity: 'warn',
       summary: t('common.warning', 'Warning'),
@@ -351,7 +323,6 @@ async function save(): Promise<void> {
     return
   }
   if (
-    form.handler === 'http' &&
     form.httpTarget === 'url' &&
     form.authType === 'bearer' &&
     !form.authToken.trim()
@@ -365,7 +336,6 @@ async function save(): Promise<void> {
     return
   }
   if (
-    form.handler === 'http' &&
     form.httpTarget === 'url' &&
     form.authType === 'api_key' &&
     !form.authHeaderValue.trim()
@@ -379,7 +349,6 @@ async function save(): Promise<void> {
     return
   }
   if (
-    form.handler === 'http' &&
     form.httpTarget === 'url' &&
     form.authType === 'basic' &&
     !form.authUsername.trim()
@@ -397,43 +366,37 @@ async function save(): Promise<void> {
   try {
     const preserved = editingConfig.value
     const config: Record<string, unknown> =
-      form.handler === 'http'
-        ? form.httpTarget === 'n8n'
+      form.httpTarget === 'n8n'
+        ? {
+            allowedRoles: preserved.allowedRoles,
+            target: 'n8n',
+            ...(form.sync ? { sync: true } : {}),
+            method: form.method || 'POST',
+            headers: { Accept: 'application/json' },
+            auth: { type: 'none' },
+          }
+        : form.httpTarget === 'activepieces'
           ? {
               allowedRoles: preserved.allowedRoles,
-              target: 'n8n',
+              target: 'activepieces',
+              flowId: form.flowId.trim(),
+              ...(form.sync ? { sync: true } : {}),
               method: form.method || 'POST',
               headers: { Accept: 'application/json' },
               auth: { type: 'none' },
             }
-          : form.httpTarget === 'activepieces'
-            ? {
-                allowedRoles: preserved.allowedRoles,
-                target: 'activepieces',
-                flowId: form.flowId.trim(),
-                ...(form.sync ? { sync: true } : {}),
-                method: form.method || 'POST',
-                headers: { Accept: 'application/json' },
-                auth: { type: 'none' },
-              }
-            : {
-                allowedRoles: preserved.allowedRoles,
-                url: form.url.trim(),
-                method: form.method || 'POST',
-                headers: { Accept: 'application/json' },
-                auth: buildAuthConfig(),
-              }
-        : {
-            collection: preserved.collection,
-            recordId: preserved.recordId,
-            patch: preserved.patch,
-            allowedFields: preserved.allowedFields,
-            allowedRoles: preserved.allowedRoles,
-          }
+          : {
+              allowedRoles: preserved.allowedRoles,
+              url: form.url.trim(),
+              ...(form.sync ? { sync: true } : {}),
+              method: form.method || 'POST',
+              headers: { Accept: 'application/json' },
+              auth: buildAuthConfig(),
+            }
 
     await upsertFlowTrigger({
       key,
-      handler: form.handler,
+      handler: 'http',
       enabled: form.enabled,
       description: form.description.trim() || null,
       config,
@@ -819,33 +782,20 @@ onMounted(() => {
 
           <div
             v-if="form.httpTarget === 'activepieces'"
-            class="flex flex-col gap-2"
+            class="flex flex-col gap-1"
           >
-            <div class="flex flex-col gap-1">
-              <label class="text-[0.85rem] font-medium">
-                {{ t('setup.flows.flowId', 'Activepieces flow id') }}
-              </label>
-              <InputText
-                v-model="form.flowId"
-                :placeholder="
-                  t(
-                    'setup.flows.flowIdPlaceholder',
-                    'Last segment of Catch Webhook Live URL',
-                  )
-                "
-              />
-            </div>
-            <div class="flex items-center gap-2">
-              <ToggleSwitch v-model="form.sync" input-id="flow-ap-sync" />
-              <label for="flow-ap-sync" class="text-[0.85rem]">
-                {{
-                  t(
-                    'setup.flows.syncResponse',
-                    'Wait for response (/sync)',
-                  )
-                }}
-              </label>
-            </div>
+            <label class="text-[0.85rem] font-medium">
+              {{ t('setup.flows.flowId', 'Activepieces flow id') }}
+            </label>
+            <InputText
+              v-model="form.flowId"
+              :placeholder="
+                t(
+                  'setup.flows.flowIdPlaceholder',
+                  'Last segment of Catch Webhook Live URL',
+                )
+              "
+            />
           </div>
 
           <div
@@ -864,6 +814,38 @@ onMounted(() => {
                 )
               "
             />
+          </div>
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center gap-2">
+              <ToggleSwitch v-model="form.sync" input-id="flow-sync" />
+              <label for="flow-sync" class="text-[0.85rem]">
+                {{
+                  t(
+                    'setup.flows.syncResponse',
+                    'Wait for response (/sync)',
+                  )
+                }}
+              </label>
+            </div>
+            <span v-if="form.sync" class="text-muted-color text-[0.8rem]">
+              {{
+                form.httpTarget === 'n8n'
+                  ? t(
+                      'setup.flows.syncResponseHintN8n',
+                      'Posts to /webhook/ce-{key}/sync. Set that path on the n8n Webhook node and Respond to When Last Node Finishes or Respond to Webhook.',
+                      { key: form.key.trim() || 'your_key' },
+                    )
+                  : form.httpTarget === 'activepieces'
+                    ? t(
+                        'setup.flows.syncResponseHintActivepieces',
+                        'Appends /sync so Activepieces waits for a Return Response step.',
+                      )
+                    : t(
+                        'setup.flows.syncResponseHintUrl',
+                        'Appends /sync before the query string. A URL that already points at a file is left unchanged.',
+                      )
+              }}
+            </span>
           </div>
           <div class="flex flex-col gap-1">
             <label class="text-[0.85rem] font-medium">

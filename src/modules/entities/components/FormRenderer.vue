@@ -63,11 +63,15 @@ import {
   resolveDefaultFromParentDefinitions,
 } from '@/core/entityLayoutUtils'
 import {
+  fetchRelatedCollectionOptionById,
   getCachedCollectionFields,
   getCachedRelations,
 } from '@/modules/entities/services/collectionSchema'
 import { loadChildLookupFieldSettings } from '@/modules/config/services/layoutSettings'
+import { findRelationForField } from '@/modules/entities/utils/fieldMapper'
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
+import { relatedCollectionForCollectionField } from '@/core/relationHelpers'
+import { resolveRecordKey } from '@/core/utils/object'
 import {
   coerceBooleanDisplayValue,
   gridStyle,
@@ -414,6 +418,7 @@ function updateFormField(fieldName: string, value: unknown): void {
   if (Object.is(formState.value[fieldName], value)) return
   formState.value = { ...formState.value, [fieldName]: value }
   formStateTick.value += 1
+  scheduleRelatedCopyForField(fieldName, value)
 }
 
 function handleBlocksSaved(payload: { field: string; value: unknown }): void {
@@ -432,6 +437,14 @@ function handleFilesChanged(payload: {
   updateFormField(payload.field, payload.value)
 }
 
+function isCreateForm(): boolean {
+  return (
+    props.recordId === undefined ||
+    props.recordId === null ||
+    props.recordId === ''
+  )
+}
+
 function handleAutoCompleteUpdate(
   field: LayoutFieldMetadata,
   value: Parameters<typeof autoComplete.updateValue>[1],
@@ -444,8 +457,58 @@ function handleAutoCompleteUpdate(
   void applyRelatedCopy(field, relatedId)
 }
 
+/**
+ * Any M2O / child-lookup change (not only AutoComplete) must run relatedCopy /
+ * defaultFromParent — e.g. Opportunity Item Select → Item / prices.
+ * applyRelatedCopy no-ops when the field is not a defaultFromParent source.
+ */
+function scheduleRelatedCopyForField(
+  fieldName: string,
+  value: unknown,
+  options?: { fillEmptyOnly?: boolean },
+): void {
+  if (!isCreateForm()) return
+  const fieldMeta = visibleFields.value.find((field) =>
+    keysEqual(field.field, fieldName),
+  )
+  if (!fieldMeta) return
+  const relatedId = extractRelationFieldId(value)
+  void applyRelatedCopy(fieldMeta, relatedId, options)
+}
+
 function isEmptyDraftValue(value: unknown): boolean {
   return value === undefined || value === null || value === ''
+}
+
+async function resolveFieldRelatedCollection(
+  fieldName: string,
+  layoutRelatedCollection?: string | null,
+): Promise<string> {
+  const fromLayout = layoutRelatedCollection?.trim() || ''
+  if (fromLayout) return fromLayout
+  const entity = props.schema.entity?.trim()
+  if (!entity || !fieldName.trim()) return ''
+  try {
+    const [childFields, relations] = await Promise.all([
+      getCachedCollectionFields(entity),
+      getCachedRelations(),
+    ])
+    const fromMap = relatedCollectionForCollectionField(
+      relations as RelationDefinition[],
+      entity,
+      fieldName,
+    )
+    if (fromMap) return fromMap
+    const definition = childFields.find((item) => keysEqual(item.field, fieldName))
+    if (!definition) return ''
+    const relation = findRelationForField(
+      definition,
+      relations as RelationDefinition[],
+    )
+    return relation?.related_collection?.trim() || ''
+  } catch {
+    return ''
+  }
 }
 
 async function applyRelatedCopy(
@@ -455,8 +518,9 @@ async function applyRelatedCopy(
 ): Promise<void> {
   const copyMap: Record<string, string> = { ...(field.relatedCopy ?? {}) }
 
-  // Create-only: also apply Setup "Default from parent field" paths like item.base_price.
-  if (!props.recordId && props.schema.entity) {
+  // Create-only: also apply Setup "Default from parent field" paths like
+  // opportunity_item.item → item.
+  if (isCreateForm() && props.schema.entity) {
     try {
       const definitions = await resolveDefaultFromParentDefinitions(
         props.schema.entity,
@@ -475,8 +539,13 @@ async function applyRelatedCopy(
     }
   }
 
-  const collection = field.relatedCollection?.trim()
-  if (!collection || Object.keys(copyMap).length === 0) return
+  if (Object.keys(copyMap).length === 0) return
+
+  const collection = await resolveFieldRelatedCollection(
+    field.field,
+    field.relatedCollection,
+  )
+  if (!collection) return
 
   const targetFields = Object.keys(copyMap)
   if (!relatedId && relatedId !== 0) {
@@ -487,6 +556,7 @@ async function applyRelatedCopy(
     }
     formState.value = cleared
     formStateTick.value += 1
+    await syncAutoCompleteAfterRelatedCopy(targetFields)
     return
   }
 
@@ -495,20 +565,31 @@ async function applyRelatedCopy(
       ...Object.values(copyMap).filter(Boolean),
       'name',
     ])]
-    const record = await bridgeReadItem(collection, relatedId, {
+    let record = await bridgeReadItem(collection, relatedId, {
       fields: ['id', ...sourceFields],
     })
+    // Some backends omit projected M2O FKs; retry with a full row.
+    const missingSource = sourceFields.some((source) => {
+      if (source === 'name') return false
+      const key = resolveRecordKey(record, source)
+      return !key || record[key] === undefined
+    })
+    if (missingSource) {
+      record = await bridgeReadItem(collection, relatedId, { fields: null })
+    }
     const next: Record<string, unknown> = { ...formState.value }
     const childFields = props.schema.entity
       ? await getCachedCollectionFields(props.schema.entity)
       : []
     const relations = (await getCachedRelations()) as RelationDefinition[]
+    let copied = false
     for (const [target, source] of Object.entries(copyMap)) {
       if (!source) continue
       if (options?.fillEmptyOnly && !isEmptyDraftValue(next[target])) continue
-      const raw = record[source]
-      if (raw === undefined) {
-        next[target] = null
+      const sourceKey = resolveRecordKey(record, source) ?? source
+      const raw = record[sourceKey]
+      if (raw === undefined || raw === null || raw === '') {
+        if (!options?.fillEmptyOnly) next[target] = null
         continue
       }
       // Persist M2O as PK — parent rows often return hydrated relation objects.
@@ -516,9 +597,12 @@ async function applyRelatedCopy(
         props.schema.entity &&
         isFieldM2O(props.schema.entity, target, childFields, relations)
       ) {
-        next[target] = extractRelationFieldId(raw)
+        const id = extractRelationFieldId(raw)
+        next[target] = id
+        if (id !== null) copied = true
       } else {
         next[target] = raw
+        copied = true
       }
     }
     // Prefer catalog name when local name is empty.
@@ -531,9 +615,78 @@ async function applyRelatedCopy(
     }
     formState.value = next
     formStateTick.value += 1
-  } catch {
-    // Keep current draft if related record cannot be loaded.
+    // defaultFromParent / relatedCopy often fill other M2O fields (e.g.
+    // Opportunity item → Item). Sync Autocomplete selections so the UI shows
+    // the copied value instead of staying on "Select...".
+    await syncAutoCompleteAfterRelatedCopy(targetFields)
+    // Static readonly targets (Setup Read-only on create) render via fieldDisplay.
+    fieldDisplay.sync(visibleFields.value, (layoutField) => formState.value[layoutField.field])
+    if (import.meta.env.DEV && !copied && Object.keys(copyMap).length > 0) {
+      console.warn('[FormRenderer] applyRelatedCopy produced no values', {
+        field: field.field,
+        relatedId,
+        collection,
+        copyMap,
+        recordKeys: Object.keys(record),
+      })
+    }
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('[FormRenderer] applyRelatedCopy failed', error)
+    }
   }
+}
+
+async function syncAutoCompleteAfterRelatedCopy(
+  targetFields: string[],
+): Promise<void> {
+  const fields = visibleFields.value
+  autoComplete.syncSelections(fields)
+  await Promise.all(
+    targetFields.map(async (target) => {
+      const fieldMeta = fields.find((field) => keysEqual(field.field, target))
+      const value = extractRelationFieldId(formState.value[target])
+      if (value === null) {
+        if (fieldMeta) autoComplete.selections[fieldMeta.field] = null
+        return
+      }
+
+      const relatedCollection = await resolveFieldRelatedCollection(
+        target,
+        fieldMeta?.relatedCollection,
+      )
+      if (!relatedCollection) return
+
+      const option = await fetchRelatedCollectionOptionById(
+        relatedCollection,
+        value,
+        fieldMeta
+          ? autoComplete.templates[fieldMeta.field]
+          : undefined,
+      )
+      if (option?.label && option.label !== String(value)) {
+        autoComplete.seedSelection(target, {
+          value: option.value,
+          label: option.restricted
+            ? t('common.relatedRecordRestricted', 'Restricted')
+            : option.label,
+        })
+        return
+      }
+
+      if (fieldMeta) {
+        await autoComplete.syncSelectionLabel(
+          { ...fieldMeta, relatedCollection },
+          autoComplete.templates[fieldMeta.field],
+        )
+      } else {
+        autoComplete.seedSelection(target, {
+          value,
+          label: String(value),
+        })
+      }
+    }),
+  )
 }
 
 async function syncFormState(fields: LayoutFieldMetadata[]): Promise<void> {

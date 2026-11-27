@@ -1,6 +1,7 @@
 import { config as loadEnv } from 'dotenv'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { localDiskRead, localDiskWrite } from './localDiskStorage.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../..')
@@ -91,10 +92,39 @@ function isRetryableStorageFailure(status: number, body: string): boolean {
 }
 
 async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms))
+  await new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 }
 
-export async function storageUpload(options: {
+function collectErrorText(error: unknown, seen = new Set<unknown>()): string {
+  if (!error || typeof error !== 'object' || seen.has(error)) return ''
+  seen.add(error)
+  const record = error as { message?: unknown; code?: unknown; cause?: unknown; errors?: unknown }
+  const parts = [record.message, record.code].filter((part) => typeof part === 'string')
+  if (record.cause) parts.push(collectErrorText(record.cause, seen))
+  if (Array.isArray(record.errors)) {
+    for (const item of record.errors) parts.push(collectErrorText(item, seen))
+  }
+  return parts.join(' ')
+}
+
+/** True when the storage HTTP API cannot be reached (nothing is listening). */
+export function isStorageUnreachable(error: unknown): boolean {
+  return /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH/i.test(
+    collectErrorText(error),
+  )
+}
+
+let localFallbackWarned = false
+
+function warnLocalFallback(error: unknown): void {
+  if (localFallbackWarned) return
+  localFallbackWarned = true
+  console.warn(
+    `[files] Supabase Storage is unreachable (${collectErrorText(error)}). Saving files on local disk.`,
+  )
+}
+
+async function putRemote(options: {
   path: string
   buffer: Buffer
   mimeType?: string | null
@@ -127,7 +157,23 @@ export async function storageUpload(options: {
   throw new Error(lastError || 'Storage upload failed')
 }
 
-export async function storageDownload(path: string): Promise<{
+export async function storageUpload(options: {
+  path: string
+  buffer: Buffer
+  mimeType?: string | null
+}): Promise<{ location: 'supabase' | 'local' }> {
+  try {
+    await putRemote(options)
+    return { location: 'supabase' }
+  } catch (error) {
+    if (!isStorageUnreachable(error)) throw error
+    warnLocalFallback(error)
+    await localDiskWrite(options.path, options.buffer)
+    return { location: 'local' }
+  }
+}
+
+async function downloadRemote(path: string): Promise<{
   buffer: Buffer
   contentType: string | null
 } | null> {
@@ -153,5 +199,19 @@ export async function storageDownload(path: string): Promise<{
   return {
     buffer: Buffer.from(await res.arrayBuffer()),
     contentType: res.headers.get('content-type'),
+  }
+}
+
+export async function storageDownload(path: string): Promise<{
+  buffer: Buffer
+  contentType: string | null
+} | null> {
+  try {
+    return await downloadRemote(path)
+  } catch (error) {
+    if (!isStorageUnreachable(error)) throw error
+    const buffer = await localDiskRead(path)
+    if (!buffer) throw error
+    return { buffer, contentType: null }
   }
 }

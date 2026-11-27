@@ -4,6 +4,11 @@ import { useConfirm } from 'openvue/useconfirm'
 import { useToast } from 'openvue/usetoast'
 import type { EntityAction } from '@/interfaces'
 import { triggerFlowAction } from '@/modules/entities/services/recordDetails'
+import {
+  externalFlowFallbackMessage,
+  presentExternalFlowResponse,
+} from '@/modules/entities/services/presentExternalFlowResponse'
+import { useExternalFlowFileDialog } from '@/modules/entities/composables/useExternalFlowFileDialog'
 import { applyCloneRelatedAction } from '@/modules/entities/services/cloneRelatedFromSource'
 import { applyBulkUpdateRelatedAction } from '@/modules/entities/services/bulkUpdateRelatedAction'
 import {
@@ -73,6 +78,17 @@ export function useEntityRecordActions(options: {
 
   const collection = computed(() => options.collection())
   const recordId = computed(() => options.recordId())
+  const {
+    flowFileVisible,
+    flowFile,
+    flowFileAllowSave,
+    flowFileSaving,
+    openFlowFile,
+    saveFlowFile,
+    saveFlowFileNow,
+  } = useExternalFlowFileDialog({
+    onSaved: () => options.onRefresh?.(),
+  })
 
   function isSourceWritable(): boolean {
     if (options.sourceWritable) return options.sourceWritable()
@@ -449,33 +465,46 @@ export function useEntityRecordActions(options: {
           await options.onRefresh?.()
         }
       } else {
-        await triggerFlowAction(
+        const body = await triggerFlowAction(
           action,
           collection.value,
           recordId.value,
           options.record(),
         )
-        actionMessage.value =
-          action.flow?.successMessage?.trim() ||
-          t('recordDetails.actionCompleted', 'Action completed.')
-        if (action.flow?.refreshRecordAfterRun !== false) {
-          await options.onRefresh?.()
-        }
+        const completed = t('recordDetails.actionCompleted', 'Action completed.')
+        await presentExternalFlowResponse({
+          body,
+          successMessage: externalFlowFallbackMessage(
+            action.flow?.successMessage,
+            completed,
+          ),
+          refreshAfterRun: action.flow?.refreshRecordAfterRun !== false,
+          refresh: () => options.onRefresh?.(),
+          toast,
+          t,
+          previewFile: action.flow?.previewResponseFile === true,
+          attachFile: action.flow?.attachResponseFile === true,
+          openFile: (file) =>
+            openFlowFile(
+              file,
+              collection.value,
+              recordId.value,
+              action.flow?.attachResponseFile === true,
+            ),
+          saveFile: (file) => saveFlowFileNow(file, collection.value, recordId.value),
+        })
       }
     } catch (err) {
       const message =
         err instanceof Error
           ? err.message
           : t('recordDetails.actionFailed', 'Action failed.')
-      actionError.value = message
-      if (action.behavior === 'bulkUpdateRelated') {
-        toast.add({
-          severity: 'error',
-          summary: t('common.error', 'Error'),
-          detail: message,
-          life: 5000,
-        })
-      }
+      toast.add({
+        severity: 'error',
+        summary: t('common.error', 'Error'),
+        detail: message,
+        life: 5000,
+      })
     } finally {
       actionRunning.value = { ...actionRunning.value, [action.id]: false }
     }
@@ -505,6 +534,11 @@ export function useEntityRecordActions(options: {
     numberPromptVisible,
     numberPromptLabel,
     numberPromptHeader,
+    flowFileVisible,
+    flowFile,
+    flowFileAllowSave,
+    flowFileSaving,
+    saveFlowFile,
     createDialogVisible,
     createTargetCollection,
     createInitialValues,

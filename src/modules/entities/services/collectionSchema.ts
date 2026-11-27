@@ -2,7 +2,10 @@ import {
   featureFlags,
   refuseLegacyFallback,
 } from '@/core/graphql/featureFlags'
-import { keysEqual } from '@/core/relationHelpers'
+import {
+  keysEqual,
+  relatedCollectionForCollectionField,
+} from '@/core/relationHelpers'
 import { fetchRegistrySnapshotFromGraphQL } from '@/core/graphql/registryApi'
 import { fetchRegistrySnapshotFromRest } from '@/core/supabase/registryRest'
 import { bridgeReadItem, bridgeReadItems } from '@/core/graphql/itemsBridge'
@@ -27,8 +30,10 @@ import {
   parentFkFromRelation,
 } from '../utils/parentRelation'
 import { isChoiceOption, filesSettings } from '@/core/fieldHelpers'
+import { resolveRecordKey } from '@/core/utils/object'
 import {
   choiceLabel,
+  extractRelationFieldId,
   extractTemplateFields,
   humanizeFieldName,
   relatedRecordDisplayField,
@@ -732,24 +737,31 @@ export async function searchRelatedCollectionOptions(
   }
 
   const allFields = await getCachedFields()
-  const relatedFields = allFields.filter(
-    (f) => f.collection === relatedCollection,
+  const relatedFields = allFields.filter((f) =>
+    keysEqual(f.collection, relatedCollection),
   )
-  const resolvedTemplate =
-    template?.trim() ||
-    (await fetchCollectionDisplayTemplate(relatedCollection)) ||
-    undefined
+  const resolvedTemplate = await resolveRelatedDisplayTemplate(
+    relatedCollection,
+    template,
+  )
   const templateFields = resolvedTemplate
     ? extractTemplateFields(resolvedTemplate)
     : []
   const displayField = relatedRecordDisplayField(relatedFields)
   // Prefer real template/display scalars for sort — registry may expose formula
-  // fields like `name` that Hasura cannot order_by.
+  // fields like `name` that Hasura cannot order_by. Skip M2O template roots
+  // (e.g. {{item}}) — those are FKs, not sortable label columns.
+  const relations = await getCachedRelations()
+  const sortableTemplateField = templateFields.find((field) => {
+    const root = field.split('.')[0] ?? field
+    if (relatedCollectionForCollectionField(relations, relatedCollection, root)) {
+      return false
+    }
+    return relatedFields.some((candidate) => keysEqual(candidate.field, root))
+  })
   const sortField =
-    templateFields.find((field) =>
-      relatedFields.some((candidate) => candidate.field === field),
-    ) ||
-    (relatedFields.some((field) => field.field === displayField)
+    sortableTemplateField ||
+    (relatedFields.some((field) => keysEqual(field.field, displayField))
       ? displayField
       : null) ||
     'id'
@@ -770,13 +782,28 @@ export async function searchRelatedCollectionOptions(
       sort: [sortField],
     })
 
-    const mapped = items.map((row) => ({
-      value: row.id as string | number,
-      label: relatedPickerLabel(row, {
+    const labelForRow = async (row: Record<string, unknown>): Promise<string> => {
+      const labelRow =
+        resolvedTemplate && shouldUseTemplateForRelatedLabel(resolvedTemplate, templateFields)
+          ? await hydrateDisplayTemplateM2OValues(
+              relatedCollection,
+              row,
+              templateFields,
+              relatedFields,
+            )
+          : row
+      return relatedPickerLabel(labelRow, {
         template: resolvedTemplate,
         displayField,
-      }),
-    }))
+      })
+    }
+
+    const mapped = await Promise.all(
+      items.map(async (row) => ({
+        value: row.id as string | number,
+        label: await labelForRow(row),
+      })),
+    )
 
     if (!search) return withoutExcluded(mapped)
 
@@ -815,10 +842,7 @@ export async function searchRelatedCollectionOptions(
       const value = row.id as string | number
       byId.set(String(value), {
         value,
-        label: relatedPickerLabel(row, {
-          template: resolvedTemplate,
-          displayField,
-        }),
+        label: await labelForRow(row),
       })
     }
     for (const option of mapped) {
@@ -852,6 +876,91 @@ function relatedOptionDenied(
   id: string | number,
 ): RelatedCollectionOption {
   return { value: id, label: '', restricted: true }
+}
+
+/** Cap nested Display Template M2O resolution (A→B→C…). */
+const MAX_DISPLAY_TEMPLATE_M2O_DEPTH = 3
+
+/**
+ * Layout / field stubs often ship `{{name}}`. Prefer the related entity Display
+ * Template (authoritative) — same rule as CrmDataTable M2O cell labels.
+ */
+function isBareNameDisplayTemplate(template: string | null | undefined): boolean {
+  return Boolean(template && /^\{\{\s*name\s*\}\}$/i.test(template.trim()))
+}
+
+async function resolveRelatedDisplayTemplate(
+  relatedCollection: string,
+  explicitTemplate?: string,
+): Promise<string | undefined> {
+  const explicit = explicitTemplate?.trim() || ''
+  if (explicit && !isBareNameDisplayTemplate(explicit)) return explicit
+  const entityTemplate = await fetchCollectionDisplayTemplate(relatedCollection)
+  return entityTemplate?.trim() || undefined
+}
+
+/**
+ * When a Display Template token is itself an M2O (e.g. Opportunity item → {{item}}),
+ * replace the raw FK / nested object with the related entity's Display Template label.
+ */
+async function hydrateDisplayTemplateM2OValues(
+  collection: string,
+  row: Record<string, unknown>,
+  templateFields: string[],
+  collectionFields: FieldDefinition[],
+  depth = 0,
+): Promise<Record<string, unknown>> {
+  if (!templateFields.length || depth >= MAX_DISPLAY_TEMPLATE_M2O_DEPTH) {
+    return row
+  }
+
+  const relations = await getCachedRelations()
+  const roots = Array.from(
+    new Set(
+      templateFields
+        .map((field) => field.split('.')[0]?.trim())
+        .filter((field): field is string => Boolean(field)),
+    ),
+  )
+  if (!roots.length) return row
+
+  const hydrated: Record<string, unknown> = { ...row }
+  await Promise.all(
+    roots.map(async (field) => {
+      const definition = collectionFields.find((candidate) =>
+        keysEqual(candidate.field, field),
+      )
+      const relatedCollection =
+        relatedCollectionForCollectionField(relations, collection, field) ||
+        String(definition?.schema?.foreign_key_table || '').trim()
+      // Skip non-relation template tokens (scalars / missing relation metadata).
+      if (!relatedCollection) return
+
+      const recordKey = resolveRecordKey(hydrated, field) ?? field
+      const raw = hydrated[recordKey]
+      const nestedId = extractRelationFieldId(raw)
+      if (nestedId == null) return
+
+      // Already a finished label (not equal to the FK id).
+      if (
+        typeof raw === 'string' &&
+        raw.trim() &&
+        raw !== String(nestedId)
+      ) {
+        return
+      }
+
+      const option = await fetchRelatedCollectionOptionById(
+        relatedCollection,
+        nestedId,
+      )
+      if (option?.label && option.label !== String(nestedId)) {
+        hydrated[recordKey] = option.label
+      }
+    }),
+  )
+
+  return hydrated
 }
 
 export async function fetchRelatedCollectionOptionById(
@@ -896,10 +1005,10 @@ export async function fetchRelatedCollectionOptionById(
   const relatedFields = allFields.filter((f) =>
     keysEqual(f.collection, relatedCollection),
   )
-  const resolvedTemplate =
-    template?.trim() ||
-    (await fetchCollectionDisplayTemplate(relatedCollection)) ||
-    undefined
+  const resolvedTemplate = await resolveRelatedDisplayTemplate(
+    relatedCollection,
+    template,
+  )
   const templateFields = resolvedTemplate ? extractTemplateFields(resolvedTemplate) : []
   const displayField = relatedRecordDisplayField(relatedFields)
   const fields = Array.from(
@@ -916,7 +1025,16 @@ export async function fetchRelatedCollectionOptionById(
 
     if (!row) return null
 
-    const label = relatedPickerLabel(row, {
+    const labelRow = useTemplate
+      ? await hydrateDisplayTemplateM2OValues(
+          relatedCollection,
+          row,
+          templateFields,
+          relatedFields,
+        )
+      : row
+
+    const label = relatedPickerLabel(labelRow, {
       template: useTemplate ? resolvedTemplate : undefined,
       displayField,
     })

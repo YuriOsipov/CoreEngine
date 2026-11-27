@@ -9,11 +9,14 @@ import { query } from '../db/pool.js'
 import { assertFieldsEditable, redactRecordForMe } from '../services/fieldSecurity.js'
 import { assertMeEntityPermission, resolveAppRoleId } from '../services/rolePermissions.js'
 import {
+  flowSyncRequested,
   outboundHttpFlowHeaders,
   resolveActivepiecesFlowUrl,
+  resolveCustomFlowUrl,
   resolveN8nFlowUrl,
 } from './flowAuth.js'
 import { flowDispatchContext, recordFlowDispatchFailure } from './flowDispatchLog.js'
+import { binaryFlowContract, isBinaryFlowContentType } from './httpFlowBody.js'
 import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
 import { assertOutboundUrlShape, guardedFlowFetch } from './outboundHttp.js'
 
@@ -75,7 +78,7 @@ function resolveHttpFlowUrl(key: string, config: Record<string, unknown>): strin
     .toLowerCase()
   if (target === 'n8n') {
     try {
-      return resolveN8nFlowUrl(key)
+      return resolveN8nFlowUrl(key, config)
     } catch (error) {
       throw new LocalFlowError(
         500,
@@ -100,7 +103,7 @@ function resolveHttpFlowUrl(key: string, config: Record<string, unknown>): strin
       `Flow "${key}" http handler missing config.url (or set config.target=n8n|activepieces)`,
     )
   }
-  return url
+  return resolveCustomFlowUrl(url, config)
 }
 
 async function runHttpHandler(
@@ -153,6 +156,16 @@ async function runHttpHandler(
           : ''
     const message = cause && cause !== top ? `${top} (${cause})` : top
     throw new LocalFlowError(502, `Flow "${key}" request refused/failed: ${message}`)
+  }
+
+  if (upstream.ok && isBinaryFlowContentType(upstream.headers.get('content-type'))) {
+    const bytes = Buffer.from(await upstream.arrayBuffer())
+    return binaryFlowContract({
+      bytes,
+      contentType: upstream.headers.get('content-type'),
+      contentDisposition: upstream.headers.get('content-disposition'),
+      url,
+    })
   }
 
   const text = await upstream.text()
@@ -410,12 +423,14 @@ async function executeLocalFlow(
   }
 
   if (trigger.handler === 'http') {
-    const result = await runHttpHandler(trimmed, trigger.config ?? {}, payload)
+    const config = trigger.config ?? {}
+    const result = await runHttpHandler(trimmed, config, payload)
     return {
       ok: true,
       backend: 'local',
       key: trimmed,
       handler: 'http',
+      ...(flowSyncRequested(config) ? { sync: true } : {}),
       result,
     }
   }

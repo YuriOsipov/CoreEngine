@@ -3,6 +3,7 @@
  */
 import { query } from '../db/pool.js'
 import { flowTriggerKeyFromWebhook } from './flowKey.js'
+import { flowSyncRequested } from './flowAuth.js'
 import { sanitizeHttpFlowAuth } from './httpFlowAuth.js'
 import { assertOutboundUrlShape } from './outboundHttp.js'
 import type { FlowHandlerKind, FlowTriggerRow } from './localFlows.js'
@@ -88,10 +89,13 @@ function sanitizeConfig(
       }
     }
 
+    const sync = flowSyncRequested(config) ? { sync: true as const } : {}
+
     // Customer's n8n: resolve URL at dispatch from N8N_BASE_URL + ce-{key} (no raw URL in Setup).
     if (target === 'n8n') {
       return {
         target: 'n8n',
+        ...sync,
         method,
         headers,
         auth: { type: 'none' },
@@ -109,15 +113,10 @@ function sanitizeConfig(
           'http flow target=activepieces requires config.flowId (Catch Webhook Live URL id)',
         )
       }
-      const sync =
-        config.sync === true ||
-        String(config.sync || '')
-          .trim()
-          .toLowerCase() === 'true'
       return {
         target: 'activepieces',
         flowId,
-        ...(sync ? { sync: true } : {}),
+        ...sync,
         method,
         headers,
         auth: { type: 'none' },
@@ -137,8 +136,8 @@ function sanitizeConfig(
     assertOutboundUrlShape(url)
     const auth = sanitizeHttpFlowAuth(config.auth)
     return auth.type === 'none'
-      ? { url, method, headers, auth: { type: 'none' }, ...access }
-      : { url, method, headers, auth, ...access }
+      ? { url, ...sync, method, headers, auth: { type: 'none' }, ...access }
+      : { url, ...sync, method, headers, auth, ...access }
   }
 
   // update_record — keep collection / recordId / patch / allowedFields if present

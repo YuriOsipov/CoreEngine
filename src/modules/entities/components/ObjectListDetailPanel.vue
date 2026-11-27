@@ -12,6 +12,7 @@ import DocValueListDialog from '@/modules/documents/components/DocValueListDialo
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
 import DocViewDialog from '@/modules/documents/components/DocViewDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
+import ExternalFlowFileDialog from '@/modules/entities/components/ExternalFlowFileDialog.vue'
 import { useEntityRecordActions } from '@/modules/entities/composables/useEntityRecordActions'
 import type { EntityAction, LayoutFieldMetadata, ListViewDetailPanel } from '@/interfaces'
 import { loadEntityLayoutById } from '@/modules/config/services/layoutSettings'
@@ -79,6 +80,11 @@ const {
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
+  flowFileVisible,
+  flowFile,
+  flowFileAllowSave,
+  flowFileSaving,
+  saveFlowFile,
   runEntityAction,
   onNumberPromptConfirm,
   onExistingDocumentSelected,
@@ -420,6 +426,14 @@ function emitViewRecord(row: Record<string, unknown>, relatedCollection: string)
       :header="numberPromptHeader"
       :label="numberPromptLabel"
       @confirm="onNumberPromptConfirm"
+    />
+
+    <ExternalFlowFileDialog
+      v-model:visible="flowFileVisible"
+      :file="flowFile"
+      :saving="flowFileSaving"
+      :allow-save="flowFileAllowSave"
+      @save="saveFlowFile"
     />
   </div>
 </template>

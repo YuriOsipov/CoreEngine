@@ -40,6 +40,8 @@ keys/
 .cursorignore
 # Local MCP Bearer (access tokens) — do not commit
 .cursor/mcp.json
+# Files saved while Supabase Storage is unreachable
+crm-bff/.file-storage/
 .DS_Store
 *.suo
 *.ntvs*

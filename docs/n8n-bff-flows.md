@@ -127,9 +127,9 @@ Content-Type: application/json
 
 **Setup → Connections** manages `app_flow_triggers`: create a **key** (e.g. `send_quote_pdf`), set handler **HTTP**, choose Destination **Your n8n** (recommended), **Your Activepieces (MIT)**, or **Custom URL**.
 
-- **Your n8n** stores `config.target=n8n` — no raw URL. At dispatch the BFF posts to `{N8N_BASE_URL}/webhook/ce-{key}` (e.g. `http://n8n:5678/webhook/ce-send_quote_pdf`). CoreEngine does not ship n8n; that URL is the instance you run.
+- **Your n8n** stores `config.target=n8n` — no raw URL. At dispatch the BFF posts to `{N8N_BASE_URL}/webhook/ce-{key}` (e.g. `http://n8n:5678/webhook/ce-send_quote_pdf`). Optional `config.sync=true` appends `/sync` (`/webhook/ce-{key}/sync`). Register that path on the n8n Webhook node and set Respond to When Last Node Finishes or Respond to Webhook. CoreEngine does not ship n8n; that URL is the instance you run.
 - **Your Activepieces** stores `config.target=activepieces` + `config.flowId` (Catch Webhook Live URL id). Optional `config.sync=true` appends `/sync`. Dispatch URL: `{ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}`. Headless seed (CE JWT, no Platform API keys): `npm run registry:seed-activepieces-flows`. See [`activepieces/README.md`](./activepieces/README.md).
-- **Custom URL** stores an absolute `config.url` (legacy / other engines). Optional Authentication (None / Bearer / API key / Basic).
+- **Custom URL** stores an absolute `config.url` (legacy / other engines). Optional `config.sync=true` appends `/sync` before the query string. Optional Authentication (None / Bearer / API key / Basic).
 
 Then use that key in Object Manager → Automations → Call connection, or in Setup → Tasks with job type **Call connection** (`params`: `{ "connectionKey": "<key>", "payload": {} }`; legacy `send_notification` / `flowKey` still accepted). Promo price sync uses Connection `sync_promo_prices` + Activepieces template [`activepieces/sync-promo-prices.flow.json`](./activepieces/sync-promo-prices.flow.json).
 

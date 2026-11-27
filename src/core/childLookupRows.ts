@@ -12,12 +12,16 @@ import {
   lookupOptionLabel,
   resolveFieldPath,
 } from '@/core/childLookupOptions'
-import { getCachedCollectionFields } from '@/modules/entities/services/collectionSchema'
+import {
+  fetchRelatedCollectionOptionById,
+  getCachedCollectionFields,
+} from '@/modules/entities/services/collectionSchema'
 import { readRelatedTransferItems } from '@/modules/entities/services/relatedTransfer'
 import {
   extractRelationFieldId,
   scalarId,
 } from '@/modules/entities/utils/recordDisplay'
+import { keysEqual } from '@/core/relationHelpers'
 
 export interface ChildLookupFetchContext {
   entityCollection?: string
@@ -205,14 +209,35 @@ export async function fetchChildLookupPicklistOptions(
     },
   )
 
-  const options = rows.flatMap((row) => {
-    const value = scalarId(row[valueField]) ?? row[valueField]
-    if (value === undefined || value === null || value === '') return []
-    return [{
-      value,
-      label: lookupOptionLabel(row, labelMetadata, value),
-    }]
-  })
+  const options = (
+    await Promise.all(
+      rows.map(async (row): Promise<PicklistOption | null> => {
+        const value = scalarId(row[valueField]) ?? row[valueField]
+        if (value === undefined || value === null || value === '') return null
+        // PK / whole-row picklist: resolve via entity Display Template so M2O
+        // tokens (e.g. Opportunity item {{item}}) become related labels.
+        if (
+          (typeof value === 'string' || typeof value === 'number') &&
+          (keysEqual(valueField, 'id') ||
+            Boolean(fields.find((field) => keysEqual(field.field, valueField))?.schema
+              ?.is_primary_key))
+        ) {
+          const option = await fetchRelatedCollectionOptionById(
+            lookup.collection,
+            value,
+            labelMetadata.template,
+          )
+          if (option?.label && option.label !== String(value)) {
+            return { value, label: option.label }
+          }
+        }
+        return {
+          value,
+          label: lookupOptionLabel(row, labelMetadata, value),
+        }
+      }),
+    )
+  ).filter((option): option is PicklistOption => option != null)
 
   picklistOptionsCache.set(cacheKey, {
     expiresAt: Date.now() + PICKLIST_CACHE_TTL_MS,
@@ -252,6 +277,21 @@ export async function fetchChildLookupOptionByValue(
     if (!row) return null
     const resolved = scalarId(row[valueField]) ?? row[valueField]
     if (resolved === undefined || resolved === null || resolved === '') return null
+    if (
+      (typeof resolved === 'string' || typeof resolved === 'number') &&
+      (keysEqual(valueField, 'id') ||
+        Boolean(fields.find((field) => keysEqual(field.field, valueField))?.schema
+          ?.is_primary_key))
+    ) {
+      const option = await fetchRelatedCollectionOptionById(
+        lookup.collection,
+        resolved,
+        labelMetadata.template,
+      )
+      if (option?.label && option.label !== String(resolved)) {
+        return { value: resolved, label: option.label }
+      }
+    }
     return {
       value: resolved,
       label: lookupOptionLabel(row, labelMetadata, resolved),

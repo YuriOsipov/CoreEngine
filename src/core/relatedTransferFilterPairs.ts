@@ -188,19 +188,37 @@ function parseCondition(condition: unknown): {
 
 function flattenFilterEntries(
   filter: Record<string, unknown>,
+  prefix = '',
 ): Array<[string, unknown]> {
   const entries: Array<[string, unknown]> = []
   for (const [key, value] of Object.entries(filter)) {
     if (key === '_and' && Array.isArray(value)) {
       for (const item of value) {
         if (item && typeof item === 'object' && !Array.isArray(item)) {
-          entries.push(...flattenFilterEntries(item as Record<string, unknown>))
+          entries.push(
+            ...flattenFilterEntries(item as Record<string, unknown>, prefix),
+          )
         }
       }
       continue
     }
     if (key.startsWith('_')) continue
-    entries.push([key, value])
+    const path = prefix ? `${prefix}.${key}` : key
+    // Nested relation object `{ quote: { status: { _eq: "x" } } }` → `quote.status`
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      !Object.keys(value as Record<string, unknown>).some((child) =>
+        child.startsWith('_'),
+      )
+    ) {
+      entries.push(
+        ...flattenFilterEntries(value as Record<string, unknown>, path),
+      )
+      continue
+    }
+    entries.push([path, value])
   }
   return entries
 }

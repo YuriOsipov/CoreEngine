@@ -163,6 +163,27 @@ export function mapRegistryEntityToCollection(
   }
 }
 
+function coerceRegistryOptions(
+  value: unknown,
+): Record<string, unknown> | null {
+  if (!value) return null
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return null
+}
+
 export function mapRegistryFieldToSchema(
   entityApiName: string,
   field: RegistryFieldDto,
@@ -173,8 +194,8 @@ export function mapRegistryFieldToSchema(
     type: mapFieldTypeToSchema(field.type),
     meta: {
       interface: normalizeFieldInterface(field.interface),
-      options: (field.options as Record<string, unknown>) ?? null,
-      display_options: (field.displayOptions as Record<string, unknown>) ?? null,
+      options: coerceRegistryOptions(field.options),
+      display_options: coerceRegistryOptions(field.displayOptions),
       required: field.required,
       readonly: field.readonly,
       hidden: field.hidden,

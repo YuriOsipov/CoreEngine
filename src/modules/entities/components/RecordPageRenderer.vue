@@ -461,54 +461,13 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
 }
 
 .record-page-runtime__body--with-sidebar > .record-page-runtime__region {
-  min-height: 0;
-}
-
-/* Related / Activity column: use leftover height instead of a short card strip. */
-.record-page-runtime__body--with-sidebar > .record-page-runtime__region:last-child {
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  min-height: min(70vh, 42rem);
-}
-
-.record-page-runtime__body--with-sidebar
-  > .record-page-runtime__region:last-child
-  > .min-w-0 {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.record-page-runtime__body--with-sidebar
-  > .record-page-runtime__region:last-child
-  :deep(.record-page-component-view) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.record-page-runtime__body--with-sidebar
-  > .record-page-runtime__region:last-child
-  :deep(.record-page-component-view > .rounded-lg),
-.record-page-runtime__body--with-sidebar
-  > .record-page-runtime__region:last-child
-  :deep(.record-page-component-view > .flex.flex-col) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
+  align-self: start;
   min-height: 0;
 }
 
 @media (max-width: 1023px) {
   .record-page-runtime__body--with-sidebar {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .record-page-runtime__body--with-sidebar > .record-page-runtime__region:last-child {
-    min-height: 0;
   }
 }
 

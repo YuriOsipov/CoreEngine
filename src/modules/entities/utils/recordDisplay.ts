@@ -49,6 +49,13 @@ export function extractRelationFieldId(value: unknown): string | number | null {
       const id = scalarId(record.id)
       return isEmptyRelationId(id) ? null : id
     }
+    // AutoComplete / Select option objects: { label, value }
+    if ('value' in record) {
+      const fromValue = scalarId(record.value)
+      if (!isEmptyRelationId(fromValue)) return fromValue
+    }
+    const fromId = scalarId(record.id)
+    if (!isEmptyRelationId(fromId)) return fromId
   }
 
   const id = scalarId(value)
@@ -113,12 +120,25 @@ export function shouldUseTemplateForRelatedLabel(
   )
 }
 
+function templateTokenDisplayValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const stamped =
+      record.__coreEngineDisplayLabel ?? record.__helixDisplayLabel
+    if (typeof stamped === 'string' && stamped.trim()) return stamped.trim()
+    // Prefer nested Display Template stamp / fallbacks over "[object Object]".
+    return relatedRecordFallbackLabel(record, record.id)
+  }
+  return String(value)
+}
+
 export function renderTemplateLabel(
   template: string,
   row: Record<string, unknown>,
 ): string {
   const rendered = template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) =>
-    String(getPathValue(row, key) ?? ''),
+    templateTokenDisplayValue(getPathValue(row, key)),
   )
 
   return rendered.trim() || String(row.id ?? '')
@@ -166,7 +186,9 @@ export function resolvePrimaryKeyRecordLabel(
   }
 
   const rendered = template
-    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => String(getPathValue(row, key) ?? ''))
+    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) =>
+      templateTokenDisplayValue(getPathValue(row, key)),
+    )
     .trim()
 
   return rendered || pkValue

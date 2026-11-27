@@ -10,6 +10,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useToast } from 'openvue/usetoast'
 import CrmDataTable from '@/core/ui-kit/CrmDataTable.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
+import ExternalFlowFileDialog from '../components/ExternalFlowFileDialog.vue'
 import BatchInsertDialog from '../components/BatchInsertDialog.vue'
 import ObjectListDetailPanel from '../components/ObjectListDetailPanel.vue'
 import CrmNotFoundState from '@/core/ui-kit/CrmNotFoundState.vue'
@@ -117,6 +118,11 @@ const {
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
+  flowFileVisible,
+  flowFile,
+  flowFileAllowSave,
+  flowFileSaving,
+  saveFlowFile,
   runEntityAction,
   onNumberPromptConfirm,
 } = useEntityRecordActions({
@@ -886,6 +892,14 @@ async function handleBatchSubmitted(): Promise<void> {
       :header="numberPromptHeader"
       :label="numberPromptLabel"
       @confirm="onNumberPromptConfirm"
+    />
+
+    <ExternalFlowFileDialog
+      v-model:visible="flowFileVisible"
+      :file="flowFile"
+      :saving="flowFileSaving"
+      :allow-save="flowFileAllowSave"
+      @save="saveFlowFile"
     />
   </main>
 </template>

@@ -20,9 +20,24 @@ import {
   getCachedRelations,
   listUserCollections,
 } from '@/modules/entities/services/collectionSchema'
-import { findRelationForField } from '@/modules/entities/utils/fieldMapper'
+import {
+  findRelationForField,
+  normalizeSpecial,
+} from '@/modules/entities/utils/fieldMapper'
 import { humanizeFieldName } from '@/modules/entities/utils/recordDisplay'
 import { isFieldM2O } from '@/modules/entities/utils/relatedTransferSchema'
+
+const AUDIT_SOURCE_FIELDS = new Set(['user_created', 'user_updated', 'owner_id'])
+const EXCLUDED_DEFAULT_SPECIAL = new Set([
+  'address',
+  'files',
+  'file',
+  'm2m',
+  'o2m',
+  'm2a',
+  'json-list',
+  'json-sensitivity',
+])
 import {
   loadChildLookupFieldSettings,
   saveChildLookupFieldSetting,
@@ -169,15 +184,65 @@ export function useChildLookupFieldConfig(options: {
       })),
   )
 
-  const defaultFieldOptions = computed<FieldOption[]>(() => [
-    { label: t('formBuilder.noDefaultValue', 'No default value'), value: '' },
-    ...sourceFields.value
-      .filter((field) => field.type !== 'alias')
-      .map((field) => ({
-        label: field.meta?.note?.trim() || field.field,
-        value: field.field,
-      })),
-  ])
+  /**
+   * Default value is read from the Source field's related record
+   * (`loadChildLookupDefaultValue`). For M2O picklists only offer source fields
+   * that point at the same related entity (e.g. Opportunity item.item → Item) —
+   * never Address / Phone / other unrelated user columns.
+   */
+  const defaultFieldOptions = computed<FieldOption[]>(() => {
+    const none = {
+      label: t('formBuilder.noDefaultValue', 'No default value'),
+      value: '',
+    }
+    const sourceColl = sourceCollection.value
+    const valueCollection = relatedEntityOf()?.trim() || ''
+
+    const toOption = (field: FieldDefinition): FieldOption => ({
+      label: field.meta?.note?.trim() || humanizeFieldName(field.field),
+      value: field.field,
+    })
+
+    const usable = sourceFields.value.filter((field) => {
+      if (field.type === 'alias') return false
+      const special = normalizeSpecial(field.meta?.special)
+      return !special.some((entry) => EXCLUDED_DEFAULT_SPECIAL.has(entry))
+    })
+
+    if (isM2OOf() && valueCollection && sourceColl) {
+      const matching = usable.filter((field) => {
+        const related =
+          relatedCollectionForCollectionField(
+            relationDefinitions.value,
+            sourceColl,
+            field.field,
+          ) || String(field.schema?.foreign_key_table || '').trim()
+        return Boolean(related && keysEqual(related, valueCollection))
+      })
+      return [none, ...matching.map(toOption)]
+    }
+
+    // Scalar fallback: keep simple scalars / M2Os only.
+    const scalars = usable.filter((field) => {
+      const special = normalizeSpecial(field.meta?.special)
+      if (special.includes('m2o')) return true
+      const type = String(field.type || '').toLowerCase()
+      return [
+        'string',
+        'text',
+        'uuid',
+        'integer',
+        'biginteger',
+        'float',
+        'decimal',
+        'boolean',
+        'date',
+        'timestamp',
+        'time',
+      ].includes(type)
+    })
+    return [none, ...scalars.map(toOption)]
+  })
 
   const parentRelationOptions = computed<ParentRelationOption[]>(() =>
     relationDefinitions.value
@@ -295,6 +360,32 @@ export function useChildLookupFieldConfig(options: {
     return parts.join(' · ')
   })
 
+  function preferredSourceField(): string {
+    const options = sourceFieldOptions.value
+    if (!options.length) return ''
+    const valueCollection = relatedEntityOf()?.trim() || ''
+    if (valueCollection) {
+      for (const option of options) {
+        const definition = entityFields.value.find((field) =>
+          keysEqual(field.field, option.value),
+        )
+        const relation = definition
+          ? findRelationForField(definition, relationDefinitions.value)
+          : undefined
+        const sourceColl = relation ? relationRelatedCollection(relation) : ''
+        if (!sourceColl) continue
+        const bridgesToValue = relationDefinitions.value.some(
+          (item) =>
+            keysEqual(relationManyCollection(item), sourceColl) &&
+            keysEqual(relationRelatedCollection(item), valueCollection),
+        )
+        if (bridgesToValue) return option.value
+      }
+    }
+    const nonAudit = options.find((option) => !AUDIT_SOURCE_FIELDS.has(option.value))
+    return nonAudit?.value ?? options[0]?.value ?? ''
+  }
+
   async function loadEntityContext(): Promise<void> {
     const collection = collectionOf()
     if (!collection) {
@@ -390,7 +481,7 @@ export function useChildLookupFieldConfig(options: {
   ): Promise<LayoutFieldChildLookup> {
     const valueCollection = relatedEntityOf() ?? ''
     const inferredSourceName =
-      settings.sourceField || sourceFieldOptions.value[0]?.value || ''
+      settings.sourceField || preferredSourceField() || ''
     if (!settings.collection) {
       return {
         ...settings,
@@ -515,7 +606,7 @@ export function useChildLookupFieldConfig(options: {
   async function inferNonM2OSettings(
     settings: LayoutFieldChildLookup,
   ): Promise<LayoutFieldChildLookup> {
-    const source = settings.sourceField || sourceFieldOptions.value[0]?.value || ''
+    const source = settings.sourceField || preferredSourceField() || ''
     const sourceColl = (() => {
       const def = entityFields.value.find((field) => field.field === source)
       if (!def) return ''
@@ -610,7 +701,7 @@ export function useChildLookupFieldConfig(options: {
       return
     }
     enabled.value = false
-    draft.value = emptySettings(sourceFieldOptions.value[0]?.value ?? '')
+    draft.value = emptySettings(preferredSourceField())
   }
 
   async function setEnabled(next: boolean): Promise<void> {
@@ -621,7 +712,7 @@ export function useChildLookupFieldConfig(options: {
       dialogVisible.value = false
       return
     }
-    const base = emptySettings(sourceFieldOptions.value[0]?.value ?? '')
+    const base = emptySettings(preferredSourceField())
     if (isM2OOf()) {
       // Prefer direct related-entity mode so Lookup filter can scope the picklist
       // (e.g. Variants filtered by Item.variant_type) without a bridge table.
@@ -746,6 +837,15 @@ export function useChildLookupFieldConfig(options: {
 
   watch(sourceCollection, () => {
     void loadSourceFields()
+  })
+
+  // Drop a stale default when Source / related entity changes and the field
+  // is no longer a valid default candidate (e.g. users.address after switching).
+  watch(defaultFieldOptions, (options) => {
+    const current = draft.value.defaultValueField?.trim() || ''
+    if (!current) return
+    if (options.some((option) => option.value === current)) return
+    void updateSettings({ defaultValueField: '' })
   })
 
   watch(parentCollection, () => {

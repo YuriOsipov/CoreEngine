@@ -588,6 +588,12 @@ const messages = {
       flowIdPlaceholder: 'Останній сегмент Live URL Catch Webhook',
       flowIdRequired: 'Потрібен ID flow Activepieces (Live URL Catch Webhook).',
       syncResponse: 'Чекати відповідь (/sync)',
+      syncResponseHintN8n:
+        'Надсилає на /webhook/ce-{key}/sync. Вкажіть цей шлях у вузлі Webhook n8n і Respond: When Last Node Finishes або Respond to Webhook.',
+      syncResponseHintActivepieces:
+        'Додає /sync, щоб Activepieces дочекався кроку Return Response.',
+      syncResponseHintUrl:
+        'Додає /sync перед рядком запиту. URL, що вже вказує на файл, не змінюється.',
       url: 'Зовнішній URL',
       urlPlaceholder: 'https://integrations.example.com/api/hook',
       urlRequired: 'HTTP URL обов’язковий.',
@@ -921,7 +927,7 @@ const messages = {
       rollupStoragePhysical: 'Фізичне (зберігається)',
       rollupFilter: 'Фільтр дочірніх',
       rollupFilterHint:
-        'Необов’язково. Обмежте, які дочірні рядки враховуються (напр. status дорівнює Draft).',
+        'Необов’язково. Обмежте, які дочірні рядки враховуються (напр. status дорівнює Draft, або Quote / Status).',
       rollupFilterAdd: 'Додати умову фільтра',
       rollupHintVirtual:
         'Обчислюється на льоту під час читання записів. Не зберігається на цьому об’єкті.',
@@ -1303,6 +1309,11 @@ const messages = {
   recordDetails: {
     actionCompleted: 'Дію виконано.',
     actionFailed: 'Не вдалося виконати дію.',
+    flowFilePreview: 'Файл відповіді',
+    flowFileSave: 'Зберегти у вкладеннях',
+    flowFileSaved: 'Файл збережено у вкладеннях.',
+    flowFileSaveError: 'Не вдалося зберегти файл у вкладеннях.',
+    flowFilePreviewUnavailable: 'Попередній перегляд недоступний для цього типу файлу.',
     actionPromptHeader: 'Введіть значення',
     actionPromptMultiplier: 'Множник',
     actionPromptRequired: 'Введіть числове значення, щоб продовжити.',
@@ -1894,6 +1905,12 @@ const messages = {
     confirmBeforeRun: 'Підтверджувати перед запуском',
     refreshAfterRun: 'Оновити запис після виконання зовнішнього потоку',
     includeRecordPayload: 'Включити повний запис у payload',
+    previewResponseFile: 'Попередній перегляд файлу відповіді',
+    previewResponseFileHint:
+      'Якщо синхронна відповідь містить Data, відкрити перегляд цього файлу.',
+    attachResponseFile: 'Зберегти файл відповіді у вкладеннях',
+    attachResponseFileHint:
+      'Якщо синхронна відповідь містить Data, зберегти файл у вкладеннях цього запису.',
     flowPayloadHint: 'Payload завжди містить колекцію та id запису.',
     recordActions: 'Дії запису',
     recordActionsHint: 'Налаштуйте кнопки та посилання на сторінці деталей сутності.',

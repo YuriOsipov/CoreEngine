@@ -586,6 +586,12 @@ const messages = {
       flowIdPlaceholder: 'Last segment of Catch Webhook Live URL',
       flowIdRequired: 'Activepieces flow id is required (Catch Webhook Live URL).',
       syncResponse: 'Wait for response (/sync)',
+      syncResponseHintN8n:
+        'Posts to /webhook/ce-{key}/sync. Set that path on the n8n Webhook node and Respond to When Last Node Finishes or Respond to Webhook.',
+      syncResponseHintActivepieces:
+        'Appends /sync so Activepieces waits for a Return Response step.',
+      syncResponseHintUrl:
+        'Appends /sync before the query string. A URL that already points at a file is left unchanged.',
       url: 'External URL',
       urlPlaceholder: 'https://integrations.example.com/api/hook',
       urlRequired: 'HTTP URL is required.',
@@ -919,7 +925,7 @@ const messages = {
       rollupStoragePhysical: 'Physical (stored)',
       rollupFilter: 'Child filter',
       rollupFilterHint:
-        'Optional. Limit which child rows are counted (e.g. status equals Draft).',
+        'Optional. Limit which child rows are counted (e.g. status equals Draft, or Quote / Status).',
       rollupFilterAdd: 'Add filter condition',
       rollupHintVirtual:
         'Computed on the fly when reading records. Not stored on this object.',
@@ -1300,6 +1306,11 @@ const messages = {
   recordDetails: {
     actionCompleted: 'Action completed.',
     actionFailed: 'Action failed.',
+    flowFilePreview: 'Response file',
+    flowFileSave: 'Save to attachments',
+    flowFileSaved: 'File saved to attachments.',
+    flowFileSaveError: 'Failed to save the file to attachments.',
+    flowFilePreviewUnavailable: 'Preview is not available for this file type.',
     actionPromptHeader: 'Enter value',
     actionPromptMultiplier: 'Multiplier',
     actionPromptRequired: 'Enter a numeric value to continue.',
@@ -1892,6 +1903,12 @@ const messages = {
     confirmBeforeRun: 'Confirm before running',
     refreshAfterRun: 'Refresh record after external flow runs',
     includeRecordPayload: 'Include full record in payload',
+    previewResponseFile: 'Preview response file',
+    previewResponseFileHint:
+      'When a sync response includes Data, open a preview of that file.',
+    attachResponseFile: 'Save response file to attachments',
+    attachResponseFileHint:
+      'When a sync response includes Data, save that file on this record’s Attachments.',
     flowPayloadHint: 'Payload always includes selected collection and record id.',
     recordActions: 'Record actions',
     recordActionsHint: 'Configure buttons and links shown on the entity detail page.',

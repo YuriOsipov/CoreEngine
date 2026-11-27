@@ -56,11 +56,8 @@ import {
 import { canCreateEntity, useEntityPermissions } from '@/core/entityPermissions'
 import { useRecordEditAccess } from '@/core/useRecordEditAccess'
 import { currentUserId, peekCachedCurrentUserId } from '@/core/currentUser'
-import { extractRelationFieldId, renderTemplateLabel } from '../utils/recordDisplay'
-import {
-  fetchCollectionDisplayTemplate,
-  fetchRelatedCollectionOptionById,
-} from '../services/collectionSchema'
+import { extractRelationFieldId } from '../utils/recordDisplay'
+import { fetchRelatedCollectionOptionById } from '../services/collectionSchema'
 import { useFavoriteContext } from '@/core/navigation/useFavoriteContext'
 import { buildChangedFormPayload } from '@/core/entityFormPayload'
 import { createLayoutSchema } from '@/core/entityLayoutUtils'
@@ -71,6 +68,12 @@ import DocValueListDialog from '@/modules/documents/components/DocValueListDialo
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
 import DocViewDialog from '@/modules/documents/components/DocViewDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
+import ExternalFlowFileDialog from '../components/ExternalFlowFileDialog.vue'
+import { useExternalFlowFileDialog } from '../composables/useExternalFlowFileDialog'
+import {
+  externalFlowFallbackMessage,
+  presentExternalFlowResponse,
+} from '../services/presentExternalFlowResponse'
 import ApplyTemplateDialog from '@/modules/projects/components/ApplyTemplateDialog.vue'
 import {
   loadDocTemplateByIdForCurrentUser,
@@ -202,6 +205,17 @@ const editSaving = ref(false)
 const actionRunning = ref<Record<string, boolean>>({})
 const actionMessage = ref<string | null>(null)
 const actionError = ref<string | null>(null)
+const {
+  flowFileVisible,
+  flowFile,
+  flowFileAllowSave,
+  flowFileSaving,
+  openFlowFile,
+  saveFlowFile,
+  saveFlowFileNow,
+} = useExternalFlowFileDialog({
+  onSaved: () => loadRecordDetails(detailCollectionName.value, detailRecordId.value),
+})
 const templatePickerVisible = ref(false)
 const templatePickerLoading = ref(false)
 const publishedTemplates = ref<DocTemplateOption[]>([])
@@ -480,10 +494,19 @@ watchEffect(() => {
   const record = recordData.value
   if (!collection || !id || !Object.keys(record).length) return
 
-  fetchCollectionDisplayTemplate(collection).then((template) => {
-    const name = template
-      ? renderTemplateLabel(template, record)
-      : (String(record.id ?? id))
+  // Resolve via related-option path so Display Template M2O tokens (e.g. {{item}})
+  // use the related entity Display Template instead of the raw FK.
+  void fetchRelatedCollectionOptionById(collection, id).then((option) => {
+    if (
+      detailCollectionName.value !== collection ||
+      detailRecordId.value !== id
+    ) {
+      return
+    }
+    const name =
+      option?.label && option.label !== String(id)
+        ? option.label
+        : String(record.id ?? id)
     recordDisplayLabel.value = name
 
     const label = `${detailCollectionLabel.value} · ${name}`
@@ -1145,20 +1168,36 @@ async function runEntityActionConfirmed(
         await loadRecordDetails(detailCollectionName.value, detailRecordId.value)
       }
     } else {
-      await triggerFlowAction(
+      const body = await triggerFlowAction(
         action,
         detailCollectionName.value,
         detailRecordId.value,
         recordData.value,
       )
-      const successMessage = action.flow?.successMessage?.trim()
-      actionMessage.value =
-        successMessage && successMessage !== 'Action completed.'
-          ? successMessage
-          : t('recordDetails.actionCompleted', 'Action completed.')
-      if (action.flow?.refreshRecordAfterRun !== false) {
-        await loadRecordDetails(detailCollectionName.value, detailRecordId.value)
-      }
+      const completed = t('recordDetails.actionCompleted', 'Action completed.')
+      await presentExternalFlowResponse({
+        body,
+        successMessage: externalFlowFallbackMessage(
+          action.flow?.successMessage,
+          completed,
+        ),
+        refreshAfterRun: action.flow?.refreshRecordAfterRun !== false,
+        refresh: () =>
+          loadRecordDetails(detailCollectionName.value, detailRecordId.value),
+        toast,
+        t,
+        previewFile: action.flow?.previewResponseFile === true,
+        attachFile: action.flow?.attachResponseFile === true,
+        openFile: (file) =>
+          openFlowFile(
+            file,
+            detailCollectionName.value,
+            detailRecordId.value,
+            action.flow?.attachResponseFile === true,
+          ),
+        saveFile: (file) =>
+          saveFlowFileNow(file, detailCollectionName.value, detailRecordId.value),
+      })
     }
   } catch (err) {
     const message =
@@ -1167,15 +1206,12 @@ async function runEntityActionConfirmed(
         : t('recordDetails.failedRunAction', 'Failed to run "{label}".', {
           label: action.label,
         })
-    actionError.value = message
-    if (action.behavior === 'bulkUpdateRelated') {
-      toast.add({
-        severity: 'error',
-        summary: t('common.error', 'Error'),
-        detail: message,
-        life: 5000,
-      })
-    }
+    toast.add({
+      severity: 'error',
+      summary: t('common.error', 'Error'),
+      detail: message,
+      life: 5000,
+    })
   } finally {
     actionRunning.value = { ...actionRunning.value, [action.id]: false }
   }
@@ -1658,6 +1694,14 @@ function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
       :header="numberPromptHeader"
       :label="numberPromptLabel"
       @confirm="onNumberPromptConfirm"
+    />
+
+    <ExternalFlowFileDialog
+      v-model:visible="flowFileVisible"
+      :file="flowFile"
+      :saving="flowFileSaving"
+      :allow-save="flowFileAllowSave"
+      @save="saveFlowFile"
     />
   </main>
 </template>

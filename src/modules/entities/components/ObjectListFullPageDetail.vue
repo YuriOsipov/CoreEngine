@@ -20,6 +20,7 @@ import DocValueListDialog from '@/modules/documents/components/DocValueListDialo
 import DocFillDialog from '@/modules/documents/components/DocFillDialog.vue'
 import DocViewDialog from '@/modules/documents/components/DocViewDialog.vue'
 import ActionNumberPromptDialog from '@/core/ui-kit/ActionNumberPromptDialog.vue'
+import ExternalFlowFileDialog from '@/modules/entities/components/ExternalFlowFileDialog.vue'
 import { useEntityRecordActions } from '@/modules/entities/composables/useEntityRecordActions'
 import type {
   EntityAction,
@@ -145,6 +146,11 @@ const {
   numberPromptVisible,
   numberPromptLabel,
   numberPromptHeader,
+  flowFileVisible,
+  flowFile,
+  flowFileAllowSave,
+  flowFileSaving,
+  saveFlowFile,
   createDialogVisible,
   createTargetCollection,
   createInitialValues,
@@ -687,6 +693,14 @@ async function restoreCurrentRecordConfirmed(): Promise<void> {
       :header="numberPromptHeader"
       :label="numberPromptLabel"
       @confirm="onNumberPromptConfirm"
+    />
+
+    <ExternalFlowFileDialog
+      v-model:visible="flowFileVisible"
+      :file="flowFile"
+      :saving="flowFileSaving"
+      :allow-save="flowFileAllowSave"
+      @save="saveFlowFile"
     />
   </div>
 </template>

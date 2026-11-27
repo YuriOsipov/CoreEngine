@@ -120,10 +120,15 @@ async function searchOptions(event: { query?: string }): Promise<void> {
   suggestions.value = withCreateOption([])
 
   try {
+    // Ignore bare {{name}} field stubs — entity Display Template is authoritative
+    // (same rule as list M2O cells), so nested DT tokens like {{item}} resolve.
+    const template = props.template?.trim() || ''
+    const templateForSearch =
+      !template || /^\{\{\s*name\s*\}\}$/i.test(template) ? undefined : template
     const records = await searchRelatedCollectionOptions(
       props.collection,
       event.query ?? '',
-      props.template,
+      templateForSearch,
       props.excludeIds,
     )
     suggestions.value = withCreateOption(records)
@@ -187,11 +192,14 @@ async function handleRecordCreated(record: Record<string, unknown>): Promise<voi
     return
   }
 
+  const template = props.template?.trim() || ''
+  const templateForFetch =
+    !template || /^\{\{\s*name\s*\}\}$/i.test(template) ? undefined : template
   const option =
     (await fetchRelatedCollectionOptionById(
       props.collection,
       id,
-      props.template,
+      templateForFetch,
     )) ?? {
       label: String(id),
       value: id,

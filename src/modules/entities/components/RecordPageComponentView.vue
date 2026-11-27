@@ -30,11 +30,10 @@ import { buildRecordPageActivityLogField } from '@/modules/config/utils/recordPa
 import { buildRecordPageMessageTimelineField } from '@/modules/config/utils/recordPageMessageTimeline'
 import type { CompactRecordDetailsRuntime } from '@/modules/entities/services/recordDetails'
 import {
-  fetchCollectionDisplayTemplate,
   fetchCollectionIcon,
   fetchFieldRuntimeMetadata,
+  fetchRelatedCollectionOptionById,
 } from '@/modules/entities/services/collectionSchema'
-import { renderTemplateLabel } from '@/modules/entities/utils/recordDisplay'
 import {
   loadDynamicPicklistOptions,
   parseDynamicPicklistSource,
@@ -159,7 +158,7 @@ watch(
 
 const collectionLabel = useTranslatedCollection(() => props.collection)
 const collectionIcon = ref<string | null>(null)
-const displayTemplate = ref<string | undefined>(undefined)
+const resolvedRecordTitle = ref('')
 const activeTabId = ref<string | null>(null)
 const overflowMenu = ref<{ toggle: (event: Event) => void } | null>(null)
 const pathSteps = ref<CrmStagePathStep[]>([])
@@ -173,33 +172,48 @@ const isPrimeCollectionIcon = computed(() => {
   return icon.startsWith('pi ') || icon.startsWith('pi-') || /(^|\s)pi-/.test(icon)
 })
 
-const recordTitle = computed(() => {
-  const record = props.modelValue
-  const template = displayTemplate.value?.trim()
-  if (template) {
-    const label = renderTemplateLabel(template, record)
-    if (label) return label
-  }
+function fallbackRecordTitle(
+  record: Record<string, unknown>,
+  recordId: string,
+): string {
   const fallbackKeys = ['name', 'title', 'label'] as const
   for (const key of fallbackKeys) {
     const value = record[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
     if (typeof value === 'number') return String(value)
   }
-  return String(props.recordId || record.id || '')
-})
+  return String(recordId || record.id || '')
+}
+
+const recordTitle = computed(
+  () =>
+    resolvedRecordTitle.value ||
+    fallbackRecordTitle(props.modelValue, props.recordId),
+)
 
 watch(
   () => props.collection,
   (collection) => {
     collectionIcon.value = null
-    displayTemplate.value = undefined
     if (!collection) return
     void fetchCollectionIcon(collection).then((icon) => {
       if (props.collection === collection) collectionIcon.value = icon
     })
-    void fetchCollectionDisplayTemplate(collection).then((template) => {
-      if (props.collection === collection) displayTemplate.value = template
+  },
+  { immediate: true },
+)
+
+watch(
+  () =>
+    [props.collection, props.recordId, props.modelValue] as const,
+  ([collection, recordId, record]) => {
+    resolvedRecordTitle.value = ''
+    if (!collection || !recordId || !Object.keys(record).length) return
+    void fetchRelatedCollectionOptionById(collection, recordId).then((option) => {
+      if (props.collection !== collection || props.recordId !== recordId) return
+      if (option?.label && option.label !== String(recordId)) {
+        resolvedRecordTitle.value = option.label
+      }
     })
   },
   { immediate: true },
@@ -919,10 +933,6 @@ function componentGridStyle(component: RecordPageComponent): Record<string, stri
   position: sticky;
   right: 0;
   z-index: 12;
-}
-
-.record-page-related-stack > .record-page-related-card:first-child {
-  flex: 1 1 auto;
 }
 
 .record-page-tabs :deep(.p-tabpanels),

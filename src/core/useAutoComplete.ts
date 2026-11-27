@@ -111,10 +111,13 @@ export function useAutoComplete(formState: Ref<Record<string, unknown>>) {
       return
     }
 
+    const trimmed = template?.trim() || ''
+    const templateForFetch =
+      !trimmed || /^\{\{\s*name\s*\}\}$/i.test(trimmed) ? undefined : trimmed
     const option = await fetchRelatedCollectionOptionById(
       field.relatedCollection,
       value,
-      template,
+      templateForFetch,
     )
     if (option) {
       selections[field.field] = option.restricted

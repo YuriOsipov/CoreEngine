@@ -17,6 +17,7 @@ import {
   storageDownload,
   storageUpload,
 } from '../files/supabaseStorage.js'
+import { localDiskRead } from '../files/localDiskStorage.js'
 import { enrichHtmlAssetBuffer } from '../files/htmlAssetEnrichment.js'
 import { listUsers } from './usersAdapter.js'
 
@@ -204,7 +205,7 @@ export async function uploadFileBuffer(input: {
   const mimeType = input.mimeType || 'application/octet-stream'
   const id = randomUUID()
   const storagePath = `${id}/${filename}`
-  await storageUpload({
+  const stored = await storageUpload({
     path: storagePath,
     buffer: input.buffer,
     mimeType,
@@ -218,7 +219,10 @@ export async function uploadFileBuffer(input: {
     filesize: input.buffer.length,
     title: input.title ?? filename,
     uploadedBy: input.uploadedBy ?? null,
-    meta: { storage_path: storagePath },
+    meta: {
+      storage_path: storagePath,
+      ...(stored.location === 'local' ? { storage_backend: 'local' } : {}),
+    },
     parentCollection: input.parentCollection ?? null,
     parentRecordId: input.parentRecordId ?? null,
   })
@@ -384,7 +388,11 @@ export async function loadAsset(
     typeof row.meta?.storage_path === 'string'
       ? row.meta.storage_path
       : `${row.backend_file_id}/${row.filename || 'file'}`
-  const downloaded = await storageDownload(path)
+  const local =
+    row.meta?.storage_backend === 'local' ? await localDiskRead(path) : null
+  const downloaded = local
+    ? { buffer: local, contentType: null }
+    : await storageDownload(path)
   if (!downloaded) return null
   const contentType = resolveAssetContentType({
     mimeType: row.mime_type,

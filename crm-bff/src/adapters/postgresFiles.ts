@@ -37,6 +37,7 @@ export function toFileAssetShape(
   // Columns win over legacy meta keys if both exist.
   delete meta.uploaded_by
   delete meta.created_on
+  delete meta.storage_backend
   return {
     id,
     filename_download: row.filename,

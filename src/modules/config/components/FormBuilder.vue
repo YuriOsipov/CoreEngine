@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 export default {
   name: 'FormBuilder',
 }
@@ -1231,6 +1231,8 @@ const configActionDisplayType = computed({
           selectedAction.value?.flow?.successMessage
           ?? t('formBuilder.actionCompleted', 'Action completed.'),
         refreshRecordAfterRun: selectedAction.value?.flow?.refreshRecordAfterRun ?? true,
+        previewResponseFile: selectedAction.value?.flow?.previewResponseFile === true,
+        attachResponseFile: selectedAction.value?.flow?.attachResponseFile === true,
       },
       payload: {
         includeCollection: true,
@@ -1470,6 +1472,18 @@ const configActionIncludeRecord = computed({
     updateSelectedActionPayload({ includeRecord })
   },
 })
+const configActionPreviewResponseFile = computed({
+  get: () => selectedAction.value?.flow?.previewResponseFile === true,
+  set: (previewResponseFile: boolean) => {
+    updateSelectedActionFlow({ previewResponseFile })
+  },
+})
+const configActionAttachResponseFile = computed({
+  get: () => selectedAction.value?.flow?.attachResponseFile === true,
+  set: (attachResponseFile: boolean) => {
+    updateSelectedActionFlow({ attachResponseFile })
+  },
+})
 
 const configFilesSettings = computed({
   get: (): FilesSettings => {
@@ -1703,6 +1717,8 @@ function addAction(): void {
       confirmBeforeRun: true,
       successMessage: t('formBuilder.actionCompleted', 'Action completed.'),
       refreshRecordAfterRun: true,
+      previewResponseFile: false,
+      attachResponseFile: false,
     },
     payload: {
       includeCollection: true,
@@ -3562,6 +3578,30 @@ function hintTooltip(value: string) {
         <div class="properties-switch">
           <span>{{ t('formBuilder.includeRecordPayload', 'Include full record in payload') }}</span>
           <ToggleSwitch v-model="configActionIncludeRecord" />
+        </div>
+        <div class="properties-switch">
+          <span class="inline-flex items-center gap-1">
+            {{ t('formBuilder.previewResponseFile', 'Preview response file') }}
+            <button
+              type="button"
+              class="property-hint"
+              v-tooltip.bottom="hintTooltip(t('formBuilder.previewResponseFileHint', 'When a sync response includes Data, open a preview of that file.'))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </span>
+          <ToggleSwitch v-model="configActionPreviewResponseFile" />
+        </div>
+        <div class="properties-switch">
+          <span class="inline-flex items-center gap-1">
+            {{ t('formBuilder.attachResponseFile', 'Save response file to attachments') }}
+            <button
+              type="button"
+              class="property-hint"
+              v-tooltip.bottom="hintTooltip(t('formBuilder.attachResponseFileHint', 'When a sync response includes Data, save that file on this record’s Attachments.'))"
+              :aria-label="t('common.moreInfo', 'More information')"
+            />
+          </span>
+          <ToggleSwitch v-model="configActionAttachResponseFile" />
         </div>
         <button
           type="button"

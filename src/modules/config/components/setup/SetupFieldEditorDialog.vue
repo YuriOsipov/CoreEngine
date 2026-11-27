@@ -161,6 +161,8 @@ const form = reactive({
 })
 
 const childFieldOptions = ref<Array<{ label: string; value: string }>>([])
+/** Child fields plus one-hop related paths (e.g. quote.status) for rollup filters. */
+const rollupFilterFieldOptions = ref<Array<{ label: string; value: string }>>([])
 const childLookupFieldOptions = ref<Array<{ label: string; value: string }>>([])
 const childFieldsLoading = ref(false)
 const relatedChildEntityOptions = ref<Array<{ label: string; value: string }>>([])
@@ -1332,16 +1334,26 @@ async function loadRelatedChildEntities(): Promise<void> {
 
 async function loadChildFields(childEntity: string | null): Promise<void> {
   childFieldOptions.value = []
+  rollupFilterFieldOptions.value = []
   childLookupFieldOptions.value = []
   if (!childEntity) return
   childFieldsLoading.value = true
   try {
     const { fields, relations } = await fetchEntityFieldsAndRelations(childEntity)
-    const m2oByField = new Map(
-      relations
-        .filter((r) => r.kind === 'M2O')
-        .map((r) => [r.fieldApiName, r.relatedEntityApiName]),
-    )
+    const m2oByField = new Map<string, string>()
+    for (const relation of relations) {
+      if (relation.kind !== 'M2O') continue
+      const fieldApi = relation.fieldApiName?.trim()
+      const related = relation.relatedEntityApiName?.trim()
+      if (fieldApi && related) m2oByField.set(fieldApi, related)
+    }
+    for (const field of fields) {
+      if (field.relationKind !== 'M2O' || !field.apiName) continue
+      const related = String(field.relatedEntityApiName || '').trim()
+      if (related && !m2oByField.has(field.apiName)) {
+        m2oByField.set(field.apiName, related)
+      }
+    }
     childFieldOptions.value = fields
       .filter((f) => f.apiName !== 'id')
       .map((f) => ({
@@ -1359,8 +1371,52 @@ async function loadChildFields(childEntity: string | null): Promise<void> {
         label: `${f.label} (${f.apiName})`,
         value: f.apiName,
       }))
+
+    // Child filter: include related one-hop fields (Quote → Status → quote.status).
+    const filterOptions: Array<{ label: string; value: string }> = [
+      ...childFieldOptions.value,
+    ]
+    const relatedNames = [...new Set(m2oByField.values())]
+    const nestedByRelated = new Map<
+      string,
+      Array<{ label: string; apiName: string }>
+    >()
+    await Promise.all(
+      relatedNames.map(async (related) => {
+        try {
+          const { fields: relatedFields } =
+            await fetchEntityFieldsAndRelations(related)
+          nestedByRelated.set(
+            related,
+            relatedFields
+              .filter((item) => item.apiName && item.apiName !== 'id')
+              .map((item) => ({
+                label: item.label || item.apiName,
+                apiName: item.apiName,
+              })),
+          )
+        } catch {
+          nestedByRelated.set(related, [])
+        }
+      }),
+    )
+    for (const field of fields) {
+      if (!field.apiName || field.apiName === 'id') continue
+      const related = m2oByField.get(field.apiName)
+      if (!related) continue
+      const nested = nestedByRelated.get(related) ?? []
+      const parentLabel = field.label || field.apiName
+      for (const nestedField of nested) {
+        filterOptions.push({
+          label: `${parentLabel} / ${nestedField.label} (${field.apiName}.${nestedField.apiName})`,
+          value: `${field.apiName}.${nestedField.apiName}`,
+        })
+      }
+    }
+    rollupFilterFieldOptions.value = filterOptions
   } catch {
     childFieldOptions.value = []
+    rollupFilterFieldOptions.value = []
     childLookupFieldOptions.value = []
   } finally {
     childFieldsLoading.value = false
@@ -1811,6 +1867,7 @@ function resetFromProps(): void {
   form.startingNumber = 1
   choiceFilter.value = ''
   childFieldOptions.value = []
+  rollupFilterFieldOptions.value = []
   childLookupFieldOptions.value = []
   relatedChildEntityOptions.value = []
   parentDefaultFieldOptions.value = []
@@ -2637,18 +2694,19 @@ function submit(): void {
               {{
                 t(
                   'setup.fields.rollupFilterHint',
-                  'Optional. Limit which child rows are counted (e.g. status equals Draft).',
+                  'Optional. Limit which child rows are counted (e.g. status equals Draft, or Quote / Status).',
                 )
               }}
             </small>
             <FilterPairEditor
               :pairs="rollupFilterPairs"
-              :source-options="childFieldOptions"
+              :source-options="rollupFilterFieldOptions"
               :filter-options="[]"
               :source-placeholder="t('setup.fields.selectField', 'Select field')"
               :filter-placeholder="t('formBuilder.filterLiteralPlaceholder', 'Value')"
               :add-label="t('setup.fields.rollupFilterAdd', 'Add filter condition')"
               :source-loading="childFieldsLoading"
+              :literal-value-collection="form.rollupChildEntity"
               rich
               literal-only
               @add="addRollupFilterPair"

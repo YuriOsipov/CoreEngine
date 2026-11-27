@@ -36,7 +36,7 @@ CoreEngine separates your **Control Plane** (schema registry, role-scoped layout
 | Projects (board / Gantt) | Built-in | Plugins / build | Limited | Build it | Custom / AppExchange |
 | Document generation (PDF/HTML) | UI DocEngine + server generate (pinned `@docengine/*`; PDF smoke in DocEngine CI) | Plugins / build | Limited | Build it | Good |
 | Durable multi-step workflows | No in-app queue — **[Activepieces](https://www.activepieces.com/)** (**MIT**), **n8n** (Sustainable Use), or custom webhook via Setup → External Flows. Tasks: advisory lock; Message claim: `SKIP LOCKED` (reclaim can still double-send with stock templates) | Built-in | Built-in + AI | Built-in | Flow + Apex |
-| AI / MCP assistants | Opt-in BFF **MCP** for schema/packs/records ([`docs/mcp.md`](docs/mcp.md)); **no** in-product AI agents — use external agents against GraphQL/REST/MCP | Built-in MCP server + AI Employees plugins | In-product AI agents | Retool AI | Agentforce (Einstein brand still on some predictive features) |
+| AI / MCP assistants | Opt-in BFF **MCP** ([`docs/mcp.md`](docs/mcp.md)): Setup → MCP `ce_mcp_…` credentials + human approval for retry/schema writes; same ACL/FLS as GraphQL; **no** in-product AI agents | Built-in MCP server + AI Employees plugins | In-product AI agents | Retool AI | Agentforce (Einstein brand still on some predictive features) |
 | Config as code (packs in git) | Yes | Partial | Yes (SDK) | App source | Metadata / DX |
 | Community / product maturity | Early-stage | Established OSS | Growing OSS CRM | Mature commercial | Mature enterprise |
 | Price | Free / self-hosted (MIT) | Free Core / commercial | Free self-host core; Org license for SSO / row ACL | Paid | Expensive |
@@ -89,7 +89,7 @@ What each starter includes, compliance posture for Clinic/Pricing, vertical matr
 | [`docs/n8n/README.md`](docs/n8n/README.md) | n8n profile, pack flows, Message outbox templates |
 | [`docs/activepieces/README.md`](docs/activepieces/README.md) | Activepieces (MIT) — minimal Compose (`restart: always`); headless seed `registry:seed-activepieces-flows` (CE JWT + project variables; no Platform API keys) |
 | [`docs/n8n-bff-flows.md`](docs/n8n-bff-flows.md) | Setup → External Flows + GraphQL write-back (n8n / Activepieces) |
-| [`docs/mcp.md`](docs/mcp.md) | Opt-in BFF MCP server for schema, packs, and records |
+| [`docs/mcp.md`](docs/mcp.md) | Opt-in BFF MCP: `ce_mcp_…` credentials, pending approvals, FLS, HTTPS, audit |
 | [`docs/upgrading.md`](docs/upgrading.md) | Pull → migrate → rebuild |
 | [`docs/backup-restore.md`](docs/backup-restore.md) | Postgres dump / restore |
 | [`docs/generate-document-api.md`](docs/generate-document-api.md) | Automation `generateDocument` |
@@ -101,3 +101,10 @@ What each starter includes, compliance posture for Clinic/Pricing, vertical matr
 **DocEngine** (interactive HTML/PDF) ships as npm packages `@docengine/editor`, `@docengine/engine`, `@docengine/pdf-renderer`, `@docengine/field-date` at **0.0.107** (MIT source: [YuriiOsypov/docEngine](https://github.com/YuriiOsypov/docEngine)). Links: [editor](https://www.npmjs.com/package/@docengine/editor) · [engine](https://www.npmjs.com/package/@docengine/engine) · [pdf-renderer](https://www.npmjs.com/package/@docengine/pdf-renderer) · [field-date](https://www.npmjs.com/package/@docengine/field-date). CoreEngine CI covers **no `file:` pins** (`npm run assert:no-file-deps`), BFF / app unit tests, and `npm run build` with **`npm ci`** (lockfile enforced). Real PDF smoke lives in the DocEngine package (or locally: `crm-bff` `npm run test:docengine-render`). Stubs under `ci/stubs/` are **opt-in only** (`workflow_dispatch` → Use DocEngine stubs, or `DOCENGINE_ALLOW_STUBS=true`); a missing pin or registry blip fails the job instead of silently stubbing. Maintainers iterating on DocEngine next to this repo: `npm run docengine:use-local` (sibling `../docEngine`), then `npm run docengine:use-npm` before committing. Publish checklist: [docEngine/docs/PUBLISH.md](https://github.com/YuriiOsypov/docEngine/blob/main/docs/PUBLISH.md).
 
 **External Flows** (Setup → External Flows): outbound HTTP to n8n / Activepieces / custom webhooks with host allowlisting (`FLOWS_HTTP_ALLOWED_HOSTS`), AES-GCM sealed custom-URL auth secrets, and URL/token redaction in failed-run records — see [`docs/security.md`](docs/security.md).
+
+**MCP** (`MCP_HTTP_ENABLED=true`, [`docs/mcp.md`](docs/mcp.md)):
+
+- **Credentials:** **Setup → MCP** issues opaque `ce_mcp_…` tokens (shown once; scopes `read` / `write` / `schema`). `/api/v1/mcp` accepts those only — never the browser web session.
+- **Approvals:** `retry_message` and schema/layout writes enqueue for human Approve/Reject on the same page (a model boolean is not approval). Schema enqueue also needs `MCP_SCHEMA_WRITE_ENABLED`.
+- **FLS:** record tools use the GraphQL facade (dotted filters/sorts, related search, redaction); covered by MCP FLS tests and `node scripts/audit-backend.mjs` (discovers `/api/v1/mcp`).
+- **Transport / limits:** local `http://127.0.0.1` is fine; remote endpoints must be HTTPS. Rate limit is in-process per BFF instance.

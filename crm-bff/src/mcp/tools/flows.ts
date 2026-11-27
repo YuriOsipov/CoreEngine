@@ -1,20 +1,28 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import {
-  findOneRecord,
-  SYSTEM_RECORD_ACCESS,
-  updateRecord,
-} from '../../adapters/records/facade.js'
-import { auditAfterMutation } from '../../audit/auditAfterMutation.js'
-import { writeAuditEntry } from '../../audit/auditService.js'
 import type { AuthContext } from '../../auth/accessGuards.js'
 import { actorIdFromMe } from '../../auth/rolePreview.js'
-import { listFailedFlowDispatches } from '../../flows/flowDispatchLog.js'
-import { runLocalFlow } from '../../flows/localFlows.js'
+import {
+  listFailedFlowDispatches,
+  type FlowDispatchRow,
+} from '../../flows/flowDispatchLog.js'
+import { sanitizeFlowErrorMessage } from '../../flows/flowErrorSanitize.js'
 import { assertMeEntityPermission } from '../../services/rolePermissions.js'
 import { assertToolAccess } from '../auth.js'
+import { enqueueMcpPendingAction } from '../pendingActions.js'
+import { summarizePendingPayload } from '../pendingExecute.js'
 import { errorToolResult, jsonToolResult } from '../result.js'
-import { assertConfirm } from '../toolPolicy.js'
+
+/** Drop request bodies / keep admin error text sanitized for MCP clients. */
+function redactFlowLogForMcp(row: FlowDispatchRow): Omit<FlowDispatchRow, 'requestBody'> & {
+  requestBody: null
+} {
+  return {
+    ...row,
+    error: row.error ? sanitizeFlowErrorMessage(row.error) : null,
+    requestBody: null,
+  }
+}
 
 const DEFAULT_MESSAGE_COLLECTION = 'message'
 const DEFAULT_CONNECTION_KEY = 'dispatch_outbound_message'
@@ -28,7 +36,7 @@ export function registerFlowTools(
     {
       title: 'Inspect flow logs',
       description:
-        'List recent failed Connection / runLocalFlow dispatches (app_flow_dispatches). Admin only.',
+        'List recent failed External Flow / runLocalFlow dispatches (app_flow_dispatches). Admin only. Request bodies are omitted (PII).',
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional(),
       },
@@ -37,7 +45,9 @@ export function registerFlowTools(
       try {
         await assertToolAccess(ctx, 'inspect_flow_logs')
         const rows = await listFailedFlowDispatches(args.limit ?? 50)
-        return jsonToolResult({ failed: rows })
+        return jsonToolResult({
+          failed: rows.map(redactFlowLogForMcp),
+        })
       } catch (error) {
         return errorToolResult(error)
       }
@@ -49,7 +59,7 @@ export function registerFlowTools(
     {
       title: 'Retry message',
       description:
-        'Re-dispatch one Message via Connection (default dispatch_outbound_message). Requires confirm: true.',
+        'Request re-dispatch of one Message via External Flow. Does not run immediately — enqueues a pending action for a human admin to approve in Setup → MCP.',
       inputSchema: {
         recordId: z.string().describe('Message record id'),
         collection: z
@@ -60,15 +70,11 @@ export function registerFlowTools(
           .string()
           .optional()
           .describe('Setup → External Flows key (default dispatch_outbound_message)'),
-        confirm: z
-          .boolean()
-          .describe('Must be true to re-dispatch'),
       },
     },
     async (args) => {
       try {
         const me = await assertToolAccess(ctx, 'retry_message')
-        assertConfirm('retry_message', { confirm: args.confirm })
         const collection =
           String(args.collection || '').trim() || DEFAULT_MESSAGE_COLLECTION
         const connectionKey =
@@ -79,63 +85,28 @@ export function registerFlowTools(
         await assertMeEntityPermission(me, collection, 'update', {
           recordId,
         })
-        const actorUserId = actorIdFromMe(me)
 
-        let before: Record<string, unknown>
-        try {
-          before = await findOneRecord(
-            collection,
-            recordId,
-            null,
-            SYSTEM_RECORD_ACCESS,
-          )
-        } catch {
-          throw new Error(`${collection} record not found: ${recordId}`)
-        }
-
-        const patch = {
-          delivery_status: 'sending',
-        }
-        const updated = await updateRecord(
+        const payload = { recordId, collection, connectionKey }
+        const summary = summarizePendingPayload('retry_message', payload)
+        console.warn('[mcp] retry_message enqueue', {
+          userId: actorIdFromMe(me),
           collection,
           recordId,
-          patch,
-          null,
-          { actorUserId, access: { me } },
-        )
-        await auditAfterMutation({
-          audit: async () => {
-            await writeAuditEntry({
-              entityApiName: collection,
-              recordId,
-              action: 'UPDATE',
-              before,
-              after: updated,
-              userId: actorUserId,
-            })
-          },
+          connectionKey,
         })
-
-        const idempotencyKey = `ce-message-${recordId}-mcp-retry-${Date.now()}`
-        const flowResult = await runLocalFlow(
-          connectionKey,
-          {
-            source: 'mcp',
-            trigger: 'retry_message',
-            collection,
-            recordId,
-            idempotencyKey,
-            record: { ...updated, delivery_status: 'sending' },
-          },
-          { kind: 'user', me },
-        )
-
+        const pending = await enqueueMcpPendingAction({
+          toolName: 'retry_message',
+          summary,
+          payload,
+          me,
+        })
         return jsonToolResult({
-          ok: true,
-          collection,
-          recordId,
-          connectionKey,
-          flowResult,
+          status: 'pending_approval',
+          pendingActionId: pending.id,
+          summary: pending.summary,
+          expiresAt: pending.expiresAt,
+          message:
+            'Queued for human approval in Setup → MCP. Not executed yet.',
         })
       } catch (error) {
         return errorToolResult(error)

@@ -7,7 +7,7 @@ Active product/ops docs belong here.
 - [Vertical domain packs](./domain-packs.md) — shipped packs, industry matrix, apply/export, fork guide
 - [Security model](./security.md) — auth, ACL, FLS, owner RLS, deployment checklist
 - [Compliance posture](./compliance-posture.md) — audit / retention / encryption (not a GDPR/HIPAA certification)
-- [MCP server](./mcp.md) — Claude/Cursor tools for schema, packs, records (`/api/v1/mcp`)
+- [MCP server](./mcp.md) — Claude/Cursor tools (`/api/v1/mcp`); SSO bridge, schema-write gate, rate limits
 - [Setup & development](./setup.md) — Docker, local npm, env, scripts, CI |
 - [OIDC SSO](./oidc-sso.md) — external IdP (Keycloak, Auth0, Entra, …)
 - [n8n ↔ BFF flows](./n8n-bff-flows.md) — webhook trigger + GraphQL write-back (`target=n8n` → `/webhook/ce-{key}`; `target=activepieces` → `/api/v1/webhooks/{flowId}`)

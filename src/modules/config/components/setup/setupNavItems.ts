@@ -144,6 +144,13 @@ export const SETUP_NAV_GROUPS: SetupNavGroupDef[] = [
         to: '/setup/external-flows',
         adminOnly: true,
       },
+      {
+        id: 'mcp',
+        labelKey: 'setup.mcpTab',
+        defaultLabel: 'MCP',
+        to: '/setup/mcp',
+        adminOnly: true,
+      },
     ],
   },
   {
@@ -237,6 +244,9 @@ export function isSetupNavItemActive(path: string, itemTo: string): boolean {
   }
   if (itemTo === '/setup/external-flows') {
     return path.startsWith('/setup/external-flows')
+  }
+  if (itemTo === '/setup/mcp') {
+    return path.startsWith('/setup/mcp')
   }
   if (itemTo === '/setup/archived') {
     return path.startsWith('/setup/archived')

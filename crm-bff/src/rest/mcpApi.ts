@@ -8,7 +8,9 @@ import {
   PASSWORD_CHANGE_REQUIRED,
   requireAuthenticatedUser,
 } from '../auth/accessGuards.js'
-import { readRolePreviewHeader } from '../auth/rolePreview.js'
+import { rateLimitConsume } from '../auth/rateLimit.js'
+import { actorIdFromMe, readRolePreviewHeader } from '../auth/rolePreview.js'
+import { mcpRateLimitPerMinute } from '../mcp/limits.js'
 import { createCoreEngineMcpServer } from '../mcp/server.js'
 
 function isMcpHttpEnabled(): boolean {
@@ -83,8 +85,9 @@ export async function registerMcpApi(app: FastifyInstance): Promise<void> {
   }
 
   const handler = async (request: FastifyRequest, reply: FastifyReply) => {
+    let me
     try {
-      await requireAuthenticatedUser({
+      me = await requireAuthenticatedUser({
         authorization: authHeaderFromRequest(request),
         rolePreview: readRolePreviewHeader(
           request.headers as Record<string, unknown>,
@@ -98,6 +101,28 @@ export async function registerMcpApi(app: FastifyInstance): Promise<void> {
       return reply
         .status(401)
         .send({ error: 'Authorization Bearer token required' })
+    }
+
+    // Dedicated MCP credentials only — never share the browser web session JWT/refresh.
+    if (!me.mcpCredentialId) {
+      return reply.status(401).send({
+        error:
+          'MCP credential required. Create one in Setup → MCP (opaque ce_mcp_… token).',
+      })
+    }
+
+    const userKey = actorIdFromMe(me) || 'anonymous'
+    const limit = rateLimitConsume(
+      `mcp:${userKey}`,
+      mcpRateLimitPerMinute(),
+      60_000,
+    )
+    if (!limit.ok) {
+      void reply.header('Retry-After', String(limit.retryAfterSec))
+      return reply.status(429).send({
+        error: 'MCP rate limit exceeded',
+        retryAfterSec: limit.retryAfterSec,
+      })
     }
 
     const ctx = {

@@ -273,6 +273,14 @@ function withHelpers(masked, text, depth = 2, seen = new Set()) {
   for (const m of text.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) calls.add(m[1])
   // bare handler references like `app.put('/x', updateHandler)`
   for (const m of text.matchAll(/,\s*([A-Za-z_$][\w$]*)\s*\)\s*$/g)) calls.add(m[1])
+  // object shorthand / property refs: { handler } or { handler: updateHandler }
+  // (app.route({ method, url, handler }) must resolve `handler` to find guards)
+  for (const m of text.matchAll(/(?:^|[,{])\s*([A-Za-z_$][\w$]*)\s*(?:,|\})/gm)) {
+    calls.add(m[1])
+  }
+  for (const m of text.matchAll(/:\s*([A-Za-z_$][\w$]*)\s*(?:,|\})/g)) {
+    calls.add(m[1])
+  }
   for (const name of calls) {
     if (seen.has(name) || allGuards.some((p) => p.test(`${name}(`))) continue
     seen.add(name)
@@ -401,6 +409,34 @@ function auditGraphql(file) {
 }
 
 const ROUTE_RE = new RegExp(`\\b(?:${CONFIG.routerNames.join('|')})\\s*\\.\\s*(get|post|put|patch|delete|all)\\s*(?=[<(])`, 'g')
+const APP_ROUTE_RE = new RegExp(`\\b(?:${CONFIG.routerNames.join('|')})\\s*\\.\\s*route\\s*\\(`, 'g')
+
+function classifyRestRoute(file, method, path, handlerText, line) {
+  const id = `${method} ${path}`
+  stats.rest++
+  const kind = classify(withHelpers(file.masked, handlerText))
+  if (CONFIG.publicRest.includes(id)) {
+    seenPublic.add(id)
+    return
+  }
+  if (kind === 'none') {
+    add(
+      'HIGH',
+      'GUARD-REST',
+      file,
+      line,
+      `${id} has NO guard (requireAuth / assertEntityPermission / assertFile*), and is not allowlisted as public`,
+    )
+  } else if (kind === 'auth-only' && method !== 'GET' && !CONFIG.authOnlyRest.includes(id)) {
+    add(
+      'LOW',
+      'GUARD-AUTH-ONLY',
+      file,
+      line,
+      `${id} is protected by authentication only — confirm no entity permission is needed`,
+    )
+  }
+}
 
 function auditRest(file) {
   const { raw, masked } = file
@@ -426,17 +462,35 @@ function auditRest(file) {
     if (close < 0) continue
     const pathMatch = /^\(\s*(['"`])([^'"`]+)\1/.exec(raw.slice(i, close + 1))
     if (!pathMatch) continue
-    const id = `${method} ${pathMatch[2]}`
-    const line = lineOf(raw, m.index)
-    stats.rest++
-    const kind = classify(withHelpers(masked, masked.slice(i, close + 1)))
-    if (CONFIG.publicRest.includes(id)) {
-      seenPublic.add(id)
-      continue
+    classifyRestRoute(file, method, pathMatch[2], masked.slice(i, close + 1), lineOf(raw, m.index))
+  }
+
+  // app.route({ method: ['GET','POST'], url: '/path', handler }) — used by MCP Streamable HTTP
+  APP_ROUTE_RE.lastIndex = 0
+  while ((m = APP_ROUTE_RE.exec(masked))) {
+    const open = masked.indexOf('{', m.index + m[0].length - 1)
+    if (open < 0) continue
+    const close = matchBracket(masked, open)
+    if (close < 0) continue
+    const chunk = raw.slice(open, close + 1)
+    const urlMatch = /\burl\s*:\s*(['"`])([^'"`]+)\1/.exec(chunk)
+    if (!urlMatch) continue
+    const path = urlMatch[2]
+    const methods = []
+    const methodArr = /\bmethod\s*:\s*\[([^\]]*)\]/.exec(chunk)
+    if (methodArr) {
+      for (const piece of methodArr[1].matchAll(/(['"`])([A-Za-z]+)\1/g)) {
+        methods.push(piece[2].toUpperCase())
+      }
+    } else {
+      const single = /\bmethod\s*:\s*(['"`])([A-Za-z]+)\1/.exec(chunk)
+      if (single) methods.push(single[2].toUpperCase())
     }
-    if (kind === 'none') add('HIGH', 'GUARD-REST', file, line, `${id} has NO guard (requireAuth / assertEntityPermission / assertFile*), and is not allowlisted as public`)
-    else if (kind === 'auth-only' && method !== 'GET' && !CONFIG.authOnlyRest.includes(id)) {
-      add('LOW', 'GUARD-AUTH-ONLY', file, line, `${id} is protected by authentication only — confirm no entity permission is needed`)
+    if (!methods.length) methods.push('ALL')
+    const handlerText = masked.slice(open, close + 1)
+    const line = lineOf(raw, m.index)
+    for (const method of methods) {
+      classifyRestRoute(file, method, path, handlerText, line)
     }
   }
 }
@@ -565,8 +619,8 @@ if (fieldSecurityActive) {
   }
 }
 
-// 2d. results of facade writes must be redacted at API boundaries
-const BOUNDARY = /(^|\/)(rest|resolvers|flows)\//
+// 2d. results of facade writes must be redacted at API boundaries (incl. MCP tools)
+const BOUNDARY = /(^|\/)(rest|resolvers|flows|mcp\/tools)\//
 if (fieldSecurityActive) {
   for (const f of files) {
     if (!BOUNDARY.test(f.rel)) continue

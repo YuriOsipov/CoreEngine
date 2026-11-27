@@ -61,6 +61,11 @@ const configRoutes: RouteRecordRaw[] = [
         component: () => import('@/modules/config/pages/FlowTriggersSetupPage.vue'),
       },
       {
+        path: 'mcp',
+        name: 'setup-mcp',
+        component: () => import('@/modules/config/pages/McpCredentialsSetupPage.vue'),
+      },
+      {
         path: 'connections',
         redirect: '/setup/external-flows',
       },

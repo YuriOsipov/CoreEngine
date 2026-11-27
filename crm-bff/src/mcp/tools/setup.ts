@@ -1,17 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { AuthContext } from '../../auth/accessGuards.js'
-import { recordConfigAudit } from '../../audit/configAuditService.js'
 import { query } from '../../db/pool.js'
-import { updateEntityMeta } from '../../schema/entityMeta.js'
-import { createRegistryEntity } from '../../schema/entityRegistry.js'
-import {
-  createRegistryField,
-  updateRegistryField,
-  type RegistryFieldInput,
-} from '../../schema/fieldRegistry.js'
-import { upsertLayoutSettingRow } from '../../schema/layoutSettings.js'
 import { assertToolAccess } from '../auth.js'
+import { enqueueMcpPendingAction } from '../pendingActions.js'
+import { summarizePendingPayload } from '../pendingExecute.js'
 import { errorToolResult, jsonToolResult } from '../result.js'
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -221,7 +214,7 @@ export function registerSetupTools(
     {
       title: 'Upsert object schema',
       description:
-        'Create an object and/or upsert fields (including PII sensitivity 0–2). Applies DDL.',
+        'Request create/upsert of an object and fields (including PII sensitivity 0–2). Does not apply DDL immediately — enqueues a pending action for a human admin to approve in Setup → MCP. Requires MCP_SCHEMA_WRITE_ENABLED and schema scope to enqueue.',
       inputSchema: {
         apiName: z.string().describe('Object apiName'),
         label: z.string().optional().describe('Object label (create / rename)'),
@@ -262,143 +255,30 @@ export function registerSetupTools(
     async (args) => {
       try {
         const me = await assertToolAccess(ctx, 'upsert_object_schema')
-        const apiName = String(args.apiName || '').trim()
-        const createIfMissing = args.createIfMissing !== false
-
-        const existing = await query<{ api_name: string }>(
-          `SELECT api_name FROM public.entities
-           WHERE api_name = $1 AND deleted_at IS NULL LIMIT 1`,
-          [apiName],
-        )
-
-        let createdEntity = false
-        if (!existing[0]) {
-          if (!createIfMissing) {
-            throw new Error(`Entity not found: ${apiName}`)
-          }
-          const created = await createRegistryEntity({
-            apiName,
-            label: args.label || apiName,
-            icon: args.icon,
-            note: args.note,
-          })
-          createdEntity = true
-          await recordConfigAudit(me, {
-            action: 'CREATE',
-            resourceType: 'entity',
-            resourceKey: created.apiName,
-            summary: `MCP create entity ${created.apiName}`,
-            after: { apiName: created.apiName, label: created.label },
-          })
-        } else if (
-          args.label != null ||
-          args.displayTemplate != null ||
-          args.icon != null ||
-          args.note != null
-        ) {
-          const patch = {
-            label: args.label,
-            displayTemplate: args.displayTemplate,
-            icon: args.icon,
-            note: args.note,
-          }
-          await updateEntityMeta(apiName, patch)
-          await recordConfigAudit(me, {
-            action: 'UPDATE',
-            resourceType: 'entity',
-            resourceKey: apiName,
-            summary: `MCP update entity meta ${apiName}`,
-            after: {
-              label: args.label ?? null,
-              displayTemplate: args.displayTemplate ?? null,
-              icon: args.icon ?? null,
-              note: args.note ?? null,
-            },
-          })
+        const payload = {
+          apiName: String(args.apiName || '').trim(),
+          label: args.label,
+          displayTemplate: args.displayTemplate,
+          icon: args.icon,
+          note: args.note,
+          createIfMissing: args.createIfMissing !== false,
+          fields: args.fields ?? [],
         }
-
-        const fieldResults: Array<Record<string, unknown>> = []
-        for (const field of args.fields ?? []) {
-          const fieldApi = String(field.apiName || '').trim()
-          const existingField = await query<{ id: string; api_name: string }>(
-            `SELECT f.id::text AS id, f.api_name
-             FROM public.fields f
-             JOIN public.entities e ON e.id = f.entity_id
-             WHERE e.api_name = $1 AND f.api_name = $2
-             LIMIT 1`,
-            [apiName, fieldApi],
-          )
-          const input: RegistryFieldInput = {
-            apiName: fieldApi,
-            label: field.label,
-            type: field.type || 'STRING',
-            interface: field.interface || 'input',
-            required: field.required,
-            readonly: field.readonly,
-            hidden: field.hidden,
-            sensitivity: field.sensitivity,
-            isUnique: field.isUnique,
-            isIndexed: field.isIndexed,
-            options: field.options ?? null,
-            displayOptions: field.displayOptions ?? null,
-            relationKind: field.relationKind,
-            relatedEntity: field.relatedEntity,
-            junctionEntity: field.junctionEntity,
-          }
-
-          if (existingField[0]) {
-            if (field.updateExisting === false) {
-              fieldResults.push({
-                apiName: fieldApi,
-                skipped: true,
-                reason: 'exists',
-              })
-              continue
-            }
-            const updated = await updateRegistryField(
-              existingField[0].id,
-              input,
-              { entityApiName: apiName },
-            )
-            await recordConfigAudit(me, {
-              action: 'UPDATE',
-              resourceType: 'field',
-              resourceKey: `${apiName}.${fieldApi}`,
-              summary: `MCP update field ${apiName}.${fieldApi}`,
-              after: {
-                apiName: updated.apiName,
-                sensitivity: updated.sensitivity,
-              },
-            })
-            fieldResults.push({
-              apiName: updated.apiName,
-              action: 'updated',
-              sensitivity: updated.sensitivity,
-            })
-          } else {
-            const created = await createRegistryField(apiName, input)
-            await recordConfigAudit(me, {
-              action: 'CREATE',
-              resourceType: 'field',
-              resourceKey: `${apiName}.${fieldApi}`,
-              summary: `MCP create field ${apiName}.${fieldApi}`,
-              after: {
-                apiName: created.apiName,
-                sensitivity: created.sensitivity,
-              },
-            })
-            fieldResults.push({
-              apiName: created.apiName,
-              action: 'created',
-              sensitivity: created.sensitivity,
-            })
-          }
-        }
-
+        if (!payload.apiName) throw new Error('apiName is required')
+        const summary = summarizePendingPayload('upsert_object_schema', payload)
+        const pending = await enqueueMcpPendingAction({
+          toolName: 'upsert_object_schema',
+          summary,
+          payload,
+          me,
+        })
         return jsonToolResult({
-          apiName,
-          createdEntity,
-          fields: fieldResults,
+          status: 'pending_approval',
+          pendingActionId: pending.id,
+          summary: pending.summary,
+          expiresAt: pending.expiresAt,
+          message:
+            'Queued for human approval in Setup → MCP. Schema changes are not applied yet.',
         })
       } catch (error) {
         return errorToolResult(error)
@@ -411,7 +291,7 @@ export function registerSetupTools(
     {
       title: 'Update role layout',
       description:
-        'Upsert a role-scoped layout (Block / Record / list) via layout_settings.',
+        'Request upsert of a role-scoped layout. Does not write immediately — enqueues a pending action for a human admin to approve in Setup → MCP. Requires MCP_SCHEMA_WRITE_ENABLED and schema scope to enqueue.',
       inputSchema: {
         entityApiName: z.string(),
         groupKey: z.string().describe('e.g. block, record, list, app'),
@@ -427,34 +307,32 @@ export function registerSetupTools(
     async (args) => {
       try {
         const me = await assertToolAccess(ctx, 'update_role_layout')
-        const saved = await upsertLayoutSettingRow({
-          settingId: args.settingId,
-          entityApiName: String(args.entityApiName).trim(),
-          groupKey: String(args.groupKey).trim(),
+        const payload = {
+          entityApiName: String(args.entityApiName || '').trim(),
+          groupKey: String(args.groupKey || '').trim(),
           subGroup: args.subGroup ?? null,
           roleId: args.roleId ?? null,
+          settingId: args.settingId,
           name: args.name ?? null,
-          body: asObject(args.body),
+          body: args.body ?? {},
+        }
+        if (!payload.entityApiName) throw new Error('entityApiName is required')
+        if (!payload.groupKey) throw new Error('groupKey is required')
+        const summary = summarizePendingPayload('update_role_layout', payload)
+        const pending = await enqueueMcpPendingAction({
+          toolName: 'update_role_layout',
+          summary,
+          payload,
+          me,
         })
-        const settingId = String(
-          asObject(saved.payload).__meta &&
-            asObject(asObject(saved.payload).__meta).settingId
-            ? asObject(asObject(saved.payload).__meta).settingId
-            : saved.id,
-        )
-        await recordConfigAudit(me, {
-          action: 'UPDATE',
-          resourceType: 'layout',
-          resourceKey: settingId,
-          summary: `MCP upsert layout ${saved.entityApiName}/${saved.groupKey}`,
-          after: {
-            entityApiName: saved.entityApiName,
-            groupKey: saved.groupKey,
-            roleId: saved.roleId,
-            settingId,
-          },
+        return jsonToolResult({
+          status: 'pending_approval',
+          pendingActionId: pending.id,
+          summary: pending.summary,
+          expiresAt: pending.expiresAt,
+          message:
+            'Queued for human approval in Setup → MCP. Layout is not updated yet.',
         })
-        return jsonToolResult({ ...saved, settingId })
       } catch (error) {
         return errorToolResult(error)
       }

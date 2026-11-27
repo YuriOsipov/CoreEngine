@@ -14,6 +14,7 @@ import {
 import { subscribeAutomationToasts } from '@/core/automationToasts'
 import { useNarrowViewport } from '@/core/useNarrowViewport'
 import { useTranslation } from './core/translation'
+import { bffBaseUrl } from '@/core/graphql/filesProxy'
 
 const { t } = useTranslation()
 const toast = useToast()
@@ -24,6 +25,7 @@ const sidebarRef = ref<InstanceType<typeof AppSidebar> | null>(null)
 const topBarRef = ref<InstanceType<typeof AppHeaderUtilities> | null>(null)
 const navOpen = ref(false)
 const rolePreviewActive = ref(isRolePreviewActive())
+const sandboxEnvironment = ref(false)
 const rolePreviewLabel = ref(getRolePreviewDisplayLabel())
 const showGlobalChrome = computed(() => route.name !== 'login')
 const isSetupRoute = computed(() => route.path.startsWith('/setup'))
@@ -35,6 +37,18 @@ const rolePreviewBannerText = computed(() => {
         'Preview mode: layouts, views, and access (including Read) follow role "{role}". API calls still use your admin account.',
     { role: rolePreviewLabel.value },
   )
+})
+
+onMounted(() => {
+  const base = bffBaseUrl()
+  void fetch(`${base}/health`)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((body: { environment?: string } | null) => {
+      sandboxEnvironment.value = body?.environment === 'sandbox'
+    })
+    .catch(() => {
+      sandboxEnvironment.value = false
+    })
 })
 
 function handlePreviewActive(active: boolean): void {
@@ -128,6 +142,14 @@ onErrorCaptured((error) => {
       />
 
       <div class="app-root__main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <Message
+          v-if="sandboxEnvironment"
+          severity="warn"
+          :closable="false"
+          class="app-chrome-banner"
+        >
+          {{ t('app.sandboxBanner', 'Sandbox. Changes here are not in production.') }}
+        </Message>
         <Message
           v-if="rolePreviewActive"
           severity="warn"

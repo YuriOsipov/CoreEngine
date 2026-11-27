@@ -129,4 +129,12 @@ PKCE state and one-time session tickets are **in-process memory** (capped; expir
 
 ## MCP
 
-CoreEngine MCP (`/api/v1/mcp`, see [`mcp.md`](./mcp.md)) authenticates with **CoreEngine Bearer** access tokens today (same as GraphQL / REST). A future resource-server path can validate IdP access tokens via JWKS directly. UI SSO does not require that — it bridges to CoreEngine sessions today.
+CoreEngine MCP (`/api/v1/mcp`, see [`mcp.md`](./mcp.md)) accepts **dedicated MCP credentials** (`ce_mcp_…`) only — not the browser web-session JWT/refresh, and not IdP access tokens via JWKS.
+
+**SSO-only (`AUTH_LOCAL_LOGIN_ENABLED=false`):**
+
+1. Complete UI SSO (OIDC login → callback → `POST /auth/oidc/session`).
+2. Open **Setup → MCP → Create credential** (choose scopes + expiry).
+3. Copy the token **once** into the MCP client as `Authorization: Bearer ce_mcp_…`.
+
+Do **not** copy `crm.auth.access_token` or reuse the refresh token for MCP — that shares the web session and can revoke it on refresh reuse. `scripts/refresh-cursor-mcp.ps1` needs local login; under SSO-only use Setup → MCP.

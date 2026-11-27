@@ -1,4 +1,8 @@
 {
-  "authOnlyRest": ["POST /api/v1/documents/generate"],
+  "authOnlyRest": [
+    "POST /api/v1/documents/generate",
+    "POST /api/v1/mcp",
+    "DELETE /api/v1/mcp"
+  ],
   "authOnlyMutations": ["Mutation.generateDocument"]
 }

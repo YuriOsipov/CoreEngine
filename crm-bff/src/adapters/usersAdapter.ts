@@ -6,6 +6,11 @@ import {
   postgresListUsers,
   postgresUpdateUserProfile,
 } from './postgresUsers.js'
+import {
+  isMcpCredentialToken,
+  resolveMeFromMcpToken,
+  type McpCredentialScope,
+} from '../mcp/credentials.js'
 
 export interface MeUser {
   /**
@@ -30,6 +35,12 @@ export interface MeUser {
   canAuthorReports: boolean
   /** From app_user_credentials — blocks API until changed (except change-password / me). */
   mustChangePassword: boolean
+  /**
+   * When set, auth came from a dedicated MCP credential (not a web session JWT).
+   * Tool access is limited to these scopes (`read` | `write` | `schema`).
+   */
+  mcpScopes?: McpCredentialScope[] | null
+  mcpCredentialId?: string | null
 }
 
 interface ListUsersOptions {
@@ -94,6 +105,10 @@ export async function fetchMe(options?: {
 
     const token = bearerToken(options?.authorization)
     if (!token) return emptyMe()
+
+    if (isMcpCredentialToken(token)) {
+      return (await resolveMeFromMcpToken(token)) ?? emptyMe()
+    }
 
     const claims = verifyAccessToken(token)
     if (!claims?.id) return emptyMe()

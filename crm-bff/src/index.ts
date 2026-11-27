@@ -69,6 +69,10 @@ import { startTaskScheduler } from './tasks/scheduler.js'
 import { registerRecordsRestApi } from './rest/recordsApi.js'
 import { registerDocumentsRestApi } from './rest/documentsApi.js'
 import { registerMcpApi } from './rest/mcpApi.js'
+import { registerMcpCredentialsApi } from './rest/mcpCredentialsApi.js'
+import { registerMcpPendingActionsApi } from './rest/mcpPendingActionsApi.js'
+import { registerSnapshotApi } from './rest/snapshotApi.js'
+import { healthBody } from './snapshot/environment.js'
 import { describePlatformMail } from './mail/platformMail.js'
 
 const port = Number(process.env.PORT || 4000)
@@ -268,7 +272,7 @@ app.route({
 
 app.get('/health', async () => {
   const result = await pool.query('SELECT 1 AS ok')
-  return { ok: result.rows[0]?.ok === 1, service: 'crm-bff' }
+  return healthBody(result.rows[0]?.ok === 1)
 })
 
 /** request.ip honours X-Forwarded-For only from proxies allowed by TRUST_PROXY. */
@@ -838,6 +842,9 @@ app.post('/flows/trigger/:key', async (request, reply) => {
 
 await registerRecordsRestApi(app)
 await registerDocumentsRestApi(app)
+await registerMcpCredentialsApi(app)
+await registerMcpPendingActionsApi(app)
+await registerSnapshotApi(app)
 await registerMcpApi(app)
 
 async function start() {

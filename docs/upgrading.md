@@ -104,7 +104,7 @@ npm run registry:smoke-backup-restore
 1. `GET http://localhost:4000/health`
 2. Sign in as admin (or SSO)
 3. Open one list + one record detail for a pack object you care about
-4. If you use server document generate, run one generate smoke (real PDF uses published `@docengine/pdf-renderer@0.0.105`, or `npm run docengine:use-local`)
+4. If you use server document generate, run one generate smoke (real PDF uses published `@docengine/pdf-renderer@0.0.107`, or `npm run docengine:use-local`)
 
 ## Rollback
 

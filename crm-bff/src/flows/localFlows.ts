@@ -1,13 +1,6 @@
-import {
-  findOneRecord,
-  SYSTEM_RECORD_ACCESS,
-  updateRecord,
-} from '../adapters/records/facade.js'
 import type { MeUser } from '../adapters/usersAdapter.js'
-import { writeAuditEntry } from '../audit/auditService.js'
 import { query } from '../db/pool.js'
-import { assertFieldsEditable, redactRecordForMe } from '../services/fieldSecurity.js'
-import { assertMeEntityPermission, resolveAppRoleId } from '../services/rolePermissions.js'
+import { resolveAppRoleId } from '../services/rolePermissions.js'
 import {
   flowSyncRequested,
   outboundHttpFlowHeaders,
@@ -15,17 +8,25 @@ import {
   resolveCustomFlowUrl,
   resolveN8nFlowUrl,
 } from './flowAuth.js'
-import { flowDispatchContext, recordFlowDispatchFailure } from './flowDispatchLog.js'
+import {
+  flowDebugRequested,
+  flowDispatchContext,
+  recordFlowDispatch,
+  truncateFlowRequestBody,
+} from './flowDispatchLog.js'
 import { binaryFlowContract, isBinaryFlowContentType } from './httpFlowBody.js'
 import { applyHttpFlowAuthHeaders } from './httpFlowAuth.js'
+import { sanitizeFlowErrorMessage } from './flowErrorSanitize.js'
 import { assertOutboundUrlShape, guardedFlowFetch } from './outboundHttp.js'
 
-export type FlowHandlerKind = 'ack' | 'http' | 'update_record'
+/** Product Setup supports http only; ack is internal/smoke. */
+export type FlowHandlerKind = 'ack' | 'http'
 
 export interface FlowTriggerRow {
   key: string
   enabled: boolean
-  handler: FlowHandlerKind
+  /** Runtime may still see legacy `update_record` rows until migrated. */
+  handler: FlowHandlerKind | string
   config: Record<string, unknown>
   description: string | null
 }
@@ -40,10 +41,10 @@ export interface LocalFlowResult {
 
 /**
  * Who is running the flow.
- * - system: trusted in-process callers (record automations, scheduler) — full patch
- * - service: HTTP FLOWS_TRIGGER_SERVICE_KEY — payload keys still limited by allowedFields
- * - user: JWT caller of POST /flows/trigger — role + entity ACL + allowedFields
- * - anonymous: FLOWS_TRIGGER_REQUIRE_AUTH=false — never allowed to write records
+ * - system: trusted in-process callers (record automations, scheduler)
+ * - service: HTTP FLOWS_TRIGGER_SERVICE_KEY
+ * - user: JWT caller of POST /flows/trigger — role gate via config.allowedRoles
+ * - anonymous: FLOWS_TRIGGER_REQUIRE_AUTH=false
  */
 export type FlowInvoker =
   | { kind: 'system' }
@@ -53,10 +54,26 @@ export type FlowInvoker =
 
 export class LocalFlowError extends Error {
   status: number
+  /** Upstream or BFF HTTP status to show in Setup → Runs. */
+  httpStatus: number | null
+  /** Truncated outbound JSON body (no auth headers). */
+  requestBody: string | null
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    extras?: { httpStatus?: number | null; requestBody?: string | null },
+  ) {
     super(message)
     this.status = status
+    this.httpStatus =
+      typeof extras?.httpStatus === 'number' && Number.isFinite(extras.httpStatus)
+        ? Math.trunc(extras.httpStatus)
+        : status
+    this.requestBody =
+      typeof extras?.requestBody === 'string' && extras.requestBody
+        ? extras.requestBody
+        : null
     this.name = 'LocalFlowError'
   }
 }
@@ -112,6 +129,7 @@ async function runHttpHandler(
   payload: unknown,
 ): Promise<unknown> {
   const url = resolveHttpFlowUrl(key, config)
+  const requestBody = truncateFlowRequestBody(payload)
 
   const method =
     typeof config.method === 'string' && config.method.trim()
@@ -132,7 +150,11 @@ async function runHttpHandler(
   try {
     originalOrigin = assertOutboundUrlShape(url).origin
   } catch (error) {
-    throw new LocalFlowError(400, `Flow "${key}": ${error instanceof Error ? error.message : error}`)
+    throw new LocalFlowError(
+      400,
+      `Flow "${key}": ${error instanceof Error ? error.message : error}`,
+      { httpStatus: 400, requestBody },
+    )
   }
 
   let upstream: Awaited<ReturnType<typeof guardedFlowFetch>>
@@ -155,7 +177,10 @@ async function runHttpHandler(
           ? error.cause
           : ''
     const message = cause && cause !== top ? `${top} (${cause})` : top
-    throw new LocalFlowError(502, `Flow "${key}" request refused/failed: ${message}`)
+    throw new LocalFlowError(502, `Flow "${key}" request refused/failed: ${message}`, {
+      httpStatus: 502,
+      requestBody,
+    })
   }
 
   if (upstream.ok && isBinaryFlowContentType(upstream.headers.get('content-type'))) {
@@ -177,21 +202,22 @@ async function runHttpHandler(
   }
 
   if (!upstream.ok) {
-    const message =
+    const upstreamDetail =
       typeof json === 'object' &&
       json &&
       typeof (json as { error?: unknown }).error === 'string'
         ? String((json as { error: string }).error)
-        : `Flow "${key}" upstream HTTP ${upstream.status}`
-    throw new LocalFlowError(upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502, message)
+        : text.trim().slice(0, 500) || `upstream HTTP ${upstream.status}`
+    const httpStatus =
+      upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502
+    throw new LocalFlowError(
+      httpStatus,
+      `HTTP ${upstream.status}: ${upstreamDetail}`,
+      { httpStatus: upstream.status, requestBody },
+    )
   }
 
   return json ?? { ok: true }
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return value as Record<string, unknown>
 }
 
 function stringList(value: unknown): string[] {
@@ -208,7 +234,7 @@ function isAdmin(me: MeUser): boolean {
 
 /**
  * Per-flow gate: `config.allowedRoles` (app_roles id or backend_role_id).
- * Empty/missing → any active user; update_record still needs entity update ACL.
+ * Empty/missing → any active user.
  */
 async function assertFlowRoleAllowed(
   key: string,
@@ -222,117 +248,6 @@ async function assertFlowRoleAllowed(
   const appRoleId = await resolveAppRoleId(roleRef)
   if (allowed.includes(roleRef) || (appRoleId && allowed.includes(appRoleId))) return
   throw new LocalFlowError(403, `Permission denied: flow "${key}"`)
-}
-
-/**
- * Patch a business record. Target comes from config and/or action payload
- * (`collection` / `recordId`). Patch fields: `config.patch` merged with
- * `payload.data` / `payload.patch` (payload wins on key clash).
- * For user callers, payload patch keys must be listed in `config.allowedFields`,
- * and the merged patch (including admin `config.patch`) must pass FLS edit checks.
- * System / service invokers still apply `config.patch` without caller FLS.
- */
-async function runUpdateRecordHandler(
-  key: string,
-  config: Record<string, unknown>,
-  payload: unknown,
-  invoker: FlowInvoker,
-): Promise<unknown> {
-  if (invoker.kind === 'anonymous') {
-    throw new LocalFlowError(401, `Flow "${key}" update_record requires authentication`)
-  }
-  const body = asObject(payload)
-  const collection =
-    (typeof config.collection === 'string' && config.collection.trim()) ||
-    (typeof body.collection === 'string' && body.collection.trim()) ||
-    ''
-  const recordId =
-    (typeof config.recordId === 'string' && config.recordId.trim()) ||
-    (typeof body.recordId === 'string' && body.recordId.trim()) ||
-    (typeof body.id === 'string' && body.id.trim()) ||
-    ''
-
-  if (!collection || !recordId) {
-    throw new LocalFlowError(
-      400,
-      `Flow "${key}" update_record requires collection and recordId (config or payload)`,
-    )
-  }
-
-  const configPatch = asObject(config.patch)
-  const payloadPatch = {
-    ...asObject(body.patch),
-    ...asObject(body.data),
-  }
-
-  // HTTP callers (user JWT + service key) may only send keys listed in allowedFields.
-  // Trusted in-process `system` invokers keep full payload freedom.
-  if (invoker.kind === 'user' || invoker.kind === 'service') {
-    const allowedFields = new Set(stringList(config.allowedFields))
-    const rejected = Object.keys(payloadPatch).filter((field) => !allowedFields.has(field))
-    if (rejected.length) {
-      throw new LocalFlowError(
-        403,
-        `Flow "${key}" does not allow patching: ${rejected.join(', ')} (config.allowedFields)`,
-      )
-    }
-  }
-  const patch = { ...configPatch, ...payloadPatch }
-  delete patch.id
-  delete patch.collection
-  delete patch.recordId
-
-  if (invoker.kind === 'user') {
-    try {
-      await assertMeEntityPermission(invoker.me, collection, 'update')
-      // FLS on the merged patch — admin config.patch must not bypass caller edit tiers.
-      await assertFieldsEditable(invoker.me, collection, Object.keys(patch))
-    } catch (error) {
-      throw new LocalFlowError(403, error instanceof Error ? error.message : 'Permission denied')
-    }
-  }
-
-  if (!Object.keys(patch).length) {
-    throw new LocalFlowError(
-      400,
-      `Flow "${key}" update_record requires a non-empty patch (config.patch and/or payload.data)`,
-    )
-  }
-
-  const actorUserId = invoker.kind === 'user' ? invoker.me.id : null
-  const writeAccess =
-    invoker.kind === 'user' ? { me: invoker.me } : SYSTEM_RECORD_ACCESS
-  let before: Record<string, unknown> | null = null
-  try {
-    before = await findOneRecord(collection, recordId, null, SYSTEM_RECORD_ACCESS)
-  } catch {
-    before = null
-  }
-  const updated = await updateRecord(collection, recordId, patch, null, {
-    actorUserId,
-    access: writeAccess,
-  })
-  try {
-    await writeAuditEntry({
-      entityApiName: collection,
-      recordId,
-      action: 'UPDATE',
-      before,
-      after: updated,
-      userId: actorUserId,
-      comment: `flow:${key}`,
-    })
-  } catch (error) {
-    console.warn(`[localFlows] audit write failed for flow "${key}"`, error)
-  }
-  return {
-    collection,
-    recordId,
-    updated:
-      invoker.kind === 'user'
-        ? await redactRecordForMe(invoker.me, collection, updated)
-        : updated,
-  }
 }
 
 /**
@@ -357,30 +272,52 @@ export async function runLocalFlow(
   invoker: FlowInvoker = { kind: 'system' },
 ): Promise<LocalFlowResult> {
   const startedAt = new Date()
+  const trimmed = key.trim()
+  let debug = false
   try {
-    return await executeLocalFlow(key, payload, invoker)
+    const trigger = await resolveFlowTrigger(trimmed)
+    debug = flowDebugRequested(trigger.config)
+    const result = await executeLocalFlow(trigger, payload, invoker)
+    if (debug) {
+      const context = flowDispatchContext(payload)
+      await recordFlowDispatch({
+        flowKey: trimmed || '(missing)',
+        source: context.source,
+        collection: context.collection,
+        recordId: context.recordId,
+        status: 'success',
+        httpStatus: 200,
+        requestBody: truncateFlowRequestBody(payload),
+        startedAt,
+        finishedAt: new Date(),
+        debug: true,
+      })
+    }
+    return result
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = sanitizeFlowErrorMessage(
+      error instanceof Error ? error.message : String(error),
+    )
     const context = flowDispatchContext(payload)
-    await recordFlowDispatchFailure({
-      flowKey: key.trim() || '(missing)',
+    const flowError = error instanceof LocalFlowError ? error : null
+    await recordFlowDispatch({
+      flowKey: trimmed || '(missing)',
       source: context.source,
       collection: context.collection,
       recordId: context.recordId,
+      status: 'error',
       error: message,
+      httpStatus: flowError?.httpStatus ?? flowError?.status ?? null,
+      requestBody: flowError?.requestBody ?? truncateFlowRequestBody(payload),
       startedAt,
       finishedAt: new Date(),
+      debug,
     })
     throw error
   }
 }
 
-async function executeLocalFlow(
-  key: string,
-  payload: unknown,
-  invoker: FlowInvoker,
-): Promise<LocalFlowResult> {
-  const trimmed = key.trim()
+async function resolveFlowTrigger(trimmed: string): Promise<FlowTriggerRow> {
   if (!trimmed) {
     throw new LocalFlowError(400, 'flow trigger key is required')
   }
@@ -400,9 +337,18 @@ async function executeLocalFlow(
   if (!trigger) {
     throw new LocalFlowError(
       404,
-      `External flow "${trimmed}" is not registered. Create it in Setup → External Flows (handler http|update_record).`,
+      `External flow "${trimmed}" is not registered. Create it in Setup → External Flows (handler http).`,
     )
   }
+  return trigger
+}
+
+async function executeLocalFlow(
+  trigger: FlowTriggerRow,
+  payload: unknown,
+  invoker: FlowInvoker,
+): Promise<LocalFlowResult> {
+  const trimmed = trigger.key.trim()
 
   if (!trigger.enabled) {
     throw new LocalFlowError(403, `Flow "${trimmed}" is disabled`)
@@ -412,7 +358,11 @@ async function executeLocalFlow(
     await assertFlowRoleAllowed(trimmed, trigger.config ?? {}, invoker.me)
   }
 
-  if (trigger.handler === 'ack') {
+  const handler = String(trigger.handler || '')
+    .trim()
+    .toLowerCase()
+
+  if (handler === 'ack') {
     return {
       ok: true,
       backend: 'local',
@@ -422,7 +372,7 @@ async function executeLocalFlow(
     }
   }
 
-  if (trigger.handler === 'http') {
+  if (handler === 'http') {
     const config = trigger.config ?? {}
     const result = await runHttpHandler(trimmed, config, payload)
     return {
@@ -435,20 +385,11 @@ async function executeLocalFlow(
     }
   }
 
-  if (trigger.handler === 'update_record') {
-    const result = await runUpdateRecordHandler(
-      trimmed,
-      trigger.config ?? {},
-      payload,
-      invoker,
+  if (handler === 'update_record') {
+    throw new LocalFlowError(
+      410,
+      `External flow "${trimmed}" uses the removed update_record handler. Edit it in Setup → External Flows and switch to HTTP.`,
     )
-    return {
-      ok: true,
-      backend: 'local',
-      key: trimmed,
-      handler: 'update_record',
-      result,
-    }
   }
 
   throw new LocalFlowError(500, `Flow "${trimmed}" has unsupported handler`)

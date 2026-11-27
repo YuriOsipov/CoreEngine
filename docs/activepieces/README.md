@@ -15,14 +15,14 @@ n8n webhooks can use a stable path `/webhook/ce-{key}`. Activepieces Catch Webho
 {ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}/sync   # wait for Return Response
 ```
 
-`flowId` is the last segment of the trigger’s **Live URL** in the Activepieces UI. Setup → Connections stores `config.target=activepieces` + `config.flowId` (optional `config.sync=true`).
+`flowId` is the last segment of the trigger’s **Live URL** in the Activepieces UI. Setup → External Flows stores `config.target=activepieces` + `config.flowId` (optional `config.sync=true`).
 
 ## Seamless client model
 
 | Who | Sees |
 |-----|------|
 | Receptionist / sales rep | Message / records — same as n8n path |
-| Client admin | Setup → Connections keys on/off — Destination **Your Activepieces (MIT)** + flow id (no raw full URL) |
+| Client admin | Setup → External Flows keys on/off — Destination **Your Activepieces (MIT)** + flow id (no raw full URL) |
 | You / partner | Activepieces canvas, credentials, SMTP / Slack connections |
 
 ## Activepieces in the minimal stack
@@ -86,13 +86,13 @@ npm run registry:seed-n8n-automation-user   # Integration user for BFF login pie
 npm run registry:seed-activepieces-flows    # or --sign-up on a fresh instance; --dry-run; --only=sync_promo_prices
 ```
 
-Imports `docs/activepieces/*.flow.json`, publishes them, and upserts Setup → Connections (`sync_promo_prices`, `dispatch_outbound_message`) with `target=activepieces` + `flowId`. Also upserts Activepieces **project variables** (encrypted): `CRM_N8N_EMAIL`, `CRM_N8N_PASSWORD`, `BFF_URL`, `ACTIVEPIECES_WEBHOOK_SECRET` — flows use `{{variables['…']}}` (no secrets baked into steps). Idempotent via `externalId=ce-{connectionKey}`. Does not need the Developers → API Keys screen.
+Imports `docs/activepieces/*.flow.json`, publishes them, and upserts Setup → External Flows (`sync_promo_prices`, `dispatch_outbound_message`) with `target=activepieces` + `flowId`. Also upserts Activepieces **project variables** (encrypted): `CRM_N8N_EMAIL`, `CRM_N8N_PASSWORD`, `BFF_URL`, `ACTIVEPIECES_WEBHOOK_SECRET` — flows use `{{variables['…']}}` (no secrets baked into steps). Idempotent via `externalId=ce-{connectionKey}`. Does not need the Developers → API Keys screen.
 
-## Setup → Connections (manual)
+## Setup → External Flows (manual)
 
 1. Start the minimal stack (Activepieces comes up with it). Set `AP_FRONTEND_URL` to the URL you open in the browser.
 2. Prefer `npm run registry:seed-activepieces-flows` above — or create a flow: **Catch Webhook** → auth **Header** → header name `X-CRM-Flow-Secret` → value = shared secret.
-3. Copy the Live URL id → Setup → Connections → Destination **Your Activepieces (MIT)** → paste flow id. Optional: **Wait for response (/sync)**.
+3. Copy the Live URL id → Setup → External Flows → Destination **Your Activepieces (MIT)** → paste flow id. Optional: **Wait for response (/sync)**.
 4. Add HTTP pieces: `POST {BFF_URL}/auth/login`, then GraphQL / REST with `Authorization: Bearer {{…body.access_token}}` and `X-CRM-Automation: activepieces`.
    The HTTP piece nests JSON under **`body`** — use `BFF Login → body → access_token`, not a top-level `access_token`. Easier: Credentials → **Bearer Token** and paste that same field as Token.
    With host `npm run bff:dev` (no Compose `bff` container), use `http://host.docker.internal:4000` in every HTTP URL — `http://bff:4000` only resolves when the Compose `bff` service is up.
@@ -110,7 +110,7 @@ Mirror [`../n8n/dispatch-outbound-message.workflow.json`](../n8n/dispatch-outbou
 6. SMTP / channel send via Activepieces pieces
 7. Optional Return Response when Setup has **Wait for response**
 
-Importable template: [`dispatch-outbound-message.flow.json`](./dispatch-outbound-message.flow.json) (Activepieces **Template** shape: `{ name, flows: [{ trigger, … }] }` — not a raw flow version). Prefer `npm run registry:seed-activepieces-flows`; manual UI import still works if you set Catch Webhook header secret + BFF login, publish, then paste the Live URL id into Setup → Connections.
+Importable template: [`dispatch-outbound-message.flow.json`](./dispatch-outbound-message.flow.json) (Activepieces **Template** shape: `{ name, flows: [{ trigger, … }] }` — not a raw flow version). Prefer `npm run registry:seed-activepieces-flows`; manual UI import still works if you set Catch Webhook header secret + BFF login, publish, then paste the Live URL id into Setup → External Flows.
 
 ## Sync promo prices (scheduled Task)
 
@@ -118,7 +118,7 @@ Full match / winner / compute / clear logic runs in Activepieces (same algorithm
 
 1. `npm run registry:seed-activepieces-flows` (or import [`sync-promo-prices.flow.json`](./sync-promo-prices.flow.json) manually).
 2. Seed script fills Connection **`sync_promo_prices`** (`sync=true`) — or paste Live URL **flow id** yourself and enable **Wait for response (/sync)**.
-3. Setup → Tasks → **Promo Price updates** (job type **Call connection**, `connectionKey: sync_promo_prices`) → enable when ready.
+3. Setup → Tasks → **Promo Price updates** (job type **Call external flow**, `connectionKey: sync_promo_prices`) → enable when ready.
 
 The flow: login → GET `promotion` / `item` / `item_price` → CODE sync → LOOP PATCH `item_price` → Return summary.
 

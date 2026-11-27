@@ -10,7 +10,7 @@ Enable this pipeline without a browser session:
 
 ```text
 Opportunity saved
-  → Automations → Call connection (HTTP)
+  → Automations → Call external flow (HTTP)
       → n8n
            1) generateDocument(opportunity, template)
            2) attach / use outputFileId
@@ -148,7 +148,7 @@ POST {{$env.BFF_URL}}/api/v1/documents/generate
 - Upload via existing files pipeline (`uploadFileBuffer`)
 - Set `doc_value.output_file` when persisting
 - Return `outputFileId` + `downloadUrl` (`/assets/:id`)
-- Uses `@docengine/pdf-renderer` from npm (`@docengine/*@0.0.105`, or `npm run docengine:use-local` against sibling `../docEngine`). CoreEngine CI uses `npm ci` (lockfile); `ci/stubs/` only when `DOCENGINE_ALLOW_STUBS=true` / workflow_dispatch — a missing pin fails the job. Real PDF smoke: DocEngine package CI, or locally `crm-bff` `npm run test:docengine-render`.
+- Uses `@docengine/pdf-renderer` from npm (`@docengine/*@0.0.107`, or `npm run docengine:use-local` against sibling `../docEngine`). CoreEngine CI uses `npm ci` (lockfile); `ci/stubs/` only when `DOCENGINE_ALLOW_STUBS=true` / workflow_dispatch — a missing pin fails the job. Real PDF smoke: DocEngine package CI, or locally `crm-bff` `npm run test:docengine-render`.
 
 ### Phase 3 — attach helpers (optional)
 - Optional `attachToRecordFiles: Boolean` to also add the file on a record files/M2M field

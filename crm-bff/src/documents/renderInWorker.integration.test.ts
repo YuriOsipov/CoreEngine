@@ -2,7 +2,8 @@
  * Real DocEngine PDF/HTML render.
  * Runs when @docengine/pdf-renderer resolves outside ci/stubs (published
  * @docengine/* or a sibling checkout), or when DOCENGINE_REAL_RENDER=1.
- * The CI render job installs @docengine/*@0.0.105 and sets that flag.
+ * Not part of default CoreEngine CI — run via `npm run test:docengine-render`
+ * (or DocEngine package CI) against the lockfile pin.
  */
 import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'

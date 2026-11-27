@@ -2,7 +2,7 @@
 
 CoreEngine security is enforced by the **BFF** (GraphQL / REST / SOQL). The UI never stands alone — hiding a field or list filter in Setup does not replace API checks.
 
-Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`](../SUPPORT.md).
+Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`](../SUPPORT.md). Compliance expectations (audit, retention, encryption — **not** a certification): [`compliance-posture.md`](./compliance-posture.md).
 
 ## Layers
 
@@ -19,7 +19,7 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 | Goal | Configure |
 |------|-----------|
 | Rep sees only own Accounts / Opportunities | Owner row security **on** for those objects; Rep has Read/Update (no View all) |
-| Manager sees everyone’s book / reassigns leavers | Same objects; Manager gets **View all** + **Modify all**, then **Change Owner** on records |
+| Manager sees everyone’s book / reassigns a leaver’s rows | Same objects; Manager gets **View all** + **Modify all**, then **Change Owner** **per record** (no bulk “move all of user A” UI yet; no cascade to children on parent reassignment) |
 | Recipient can open Messages sent to them | Owner RLS on `message` + **Also grant read if** → `to_user` (Sales pack seeds this) |
 | Peer queue (all Sales Reps read each other’s rows) | **Also grant read if same role as owner** on that object (coarser than future Teams) |
 | Hide salary / cost from most roles | Mark field Restricted/Confidential; grant Sensitive read/edit only on trusted roles |
@@ -45,14 +45,14 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 - Mark a field **None / Restricted / Confidential** in Setup → Fields; grant a per-role max **Sensitive read** / **Sensitive edit** tier in Setup → Roles. Platform default is open (new fields = None) until an admin marks them. Admins bypass. **UI hide alone is not enough**.
 - **Entity / pack default:** Setup → Entity parameters → **Default field security level** (`backend_config.defaultFieldSensitivity`).
 - **Column-level only.** Flags do **not** by themselves cover “Sales can see salary only for their own team” — combine with owner row security or keep that data on a separate object.
-- **Covered (unit-tested):** record reads & writes; filters, sorts, aggregates (`assertReadableQuery` before every store); dotted SOQL keys; list search; revision snapshot redaction; export/import; upsert / unique-key lookups; `expand=children`; bulk update; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (value field, **rollup child filters**, formula sources); live rollup omit on filter FLS deny; child value lookup filter/value FLS; ddlSync sensitivity column comments; production boot refuses missing sensitivity columns; hard delete audits **before** erase; GraphQL strips / admin-gates automation rules; JWT flow `update_record` FLS on merged patch; presets/dashboards/panels list visibility.
+- **Covered (unit-tested):** record reads & writes; filters, sorts, aggregates (`assertReadableQuery` before every store); dotted SOQL keys; list search; revision snapshot redaction; export/import; upsert / unique-key lookups; `expand=children`; bulk update; unique-violation API text (no Postgres `detail`); formula/rollup inherit max source sensitivity (value field, **rollup child filters**, formula sources); live rollup omit on filter FLS deny; child value lookup filter/value FLS; ddlSync sensitivity column comments; production boot refuses missing sensitivity columns; hard delete audits **before** erase; GraphQL strips / admin-gates automation rules; presets/dashboards/panels list visibility.
 - **Documents vs FLS:** `generateDocument` freezes the generating caller’s readable snapshot. Persisted `doc_value` / PDF/HTML then follows **document-object ACL**. See [`generate-document-api.md`](./generate-document-api.md).
 ## Owner row security (record-level)
 
 - Opt-in per object so users without View/Modify all only reach rows they **own** (`owner_id`). Kernel default is **off**. The **Sales pack** turns it **on** for `account`, `contact`, `opportunity`, `message`, and `opportunity_item`.
 - **Enable:** Setup → Entity parameters → **Owner row security**, or `backendConfig.rowLevelSecurity = "owner"` in pack JSON.
 - Optional **Inherit owner from parent** (`backendConfig.inheritOwnerFrom`) copies parent `owner_id` on create. **Created By** (`user_created`) stays the creating actor.
-- **Change Owner:** record action + `updateRecord` with `owner_id`. Allowed for **Modify all** / admin / system, and for the **current owner**. The new id must be an **active** `app_users` row (`is_active`, `backend_user_id` or id); typos and deactivated users are rejected. Unauthorized reassignment returns **Permission denied** (it is not dropped). Use this when a rep leaves — reassign their rows before (or after) deactivating the user. Managers with Modify all are not limited to “edit others’ fields while leaving ownership stranded.”
+- **Change Owner:** record action + `updateRecord` with `owner_id` (one row). Allowed for **Modify all** / admin / system, and for the **current owner**. The new id must be an **active** `app_users` row (`is_active`, `backend_user_id` or id); typos and deactivated users are rejected. Unauthorized reassignment returns **Permission denied** (it is not dropped). Activity/revision audit includes the new `owner_id`. **`inheritOwnerFrom` copies parent owner on create only** — changing a parent’s owner does **not** cascade to existing children. There is **no** bulk “reassign all of user A’s records” list/admin action yet; for a leaver, reassign each row (or script `updateRecord` / MCP) before or after deactivating the user. Managers with Modify all are not limited to “edit others’ fields while leaving ownership stranded.”
 - **Also grant read if** (`rowLevelReadAlsoIf`): UUID/M2O → Users fields (e.g. Message `to_user`). Matching users may **read**; update/delete stay owner-only.
 - **Also grant read if same role as owner** (`rowLevelReadAlsoIfSameRole`): peers with the owner’s app Role may **read**. Coarser than a future Teams object.
 - **Typical setup:** Reps = Read/Update (owner filter). Managers = same CRUD **plus View all** (and **Modify all** if needed). Platform admins bypass.
@@ -71,7 +71,7 @@ Vulnerability reporting: [`SECURITY.md`](../SECURITY.md). Support: [`SUPPORT.md`
 
 No open high-priority FLS/ACL gaps. Buyer notes:
 
-- **Record automations** — Setup → Automations are **trusted server policy** (like formulas/rollups). create/update/delete/open `setFields` apply after the caller passes object Update + owner RLS; caller FLS does not block automation keys. **`notify`** is toast-only. JWT flow `update_record` still FLS-checks the merged patch. Automation definition changes go to `config_audits`.
+- **Record automations** — Setup → Automations are **trusted server policy** (like formulas/rollups). create/update/delete/open `setFields` apply after the caller passes object Update + owner RLS; caller FLS does not block automation keys. **`notify`** is toast-only. Automation definition changes go to `config_audits`.
 - **FLS cache** — Setup field/role writes call `clearFieldSecurityCache()` (DB epoch); peers reload on next request. In-memory TTL is a fallback only.
 - **Owner RLS “Not yet”** — Teams / membership subsets, manual share UI, role hierarchy, criteria sharing, bulk Change Owner (see Owner row security above). Directus related-row owner filters are fail-closed, not implemented.
 
@@ -93,7 +93,7 @@ Keep Confidential data on objects with tight object ACL / owner RLS. Config hist
 | **Document render** | Worker thread + hard kill on timeout; V8 heap/stack `resourceLimits`; `DOC_RENDER_*` caps. Uses published `@docengine/pdf-renderer` (real PDF smoke lives in the DocEngine package / local `crm-bff` `npm run test:docengine-render`). |
 | **Hasura / Directus** | Optional record backends — keep admin consoles / secrets off public networks. Clients talk to the BFF only. Directus: nested/dotted filters through owner-secured related objects are refused (no related-row owner filter). Prefer Supabase/Hasura when owner RLS + relation filters are required. |
 | **Scheduler** | In-process with **Postgres advisory locks** per task + Message **SKIP LOCKED** claim. Prefer **one** BFF with `TASK_SCHEDULER_ENABLED=true`; disable on replicas. Durable multi-instance queue (pg-boss / Graphile Worker) is planned. |
-| **Flows** | `FLOWS_TRIGGER_REQUIRE_AUTH=false` refused in production. |
+| **External Flows** | Setup → External Flows (`app_flow_triggers`). Outbound HTTP uses SSRF guards + `FLOWS_HTTP_ALLOWED_HOSTS` (and configured n8n/Activepieces bases) for private targets; loopback hard-blocked in production unless explicitly allowed. Custom-URL auth secrets are AES-GCM sealed at rest (`FLOWS_SECRET_ENCRYPTION_KEY` or derived from `AUTH_JWT_SECRET`); admin list redacts them. Failed-run / notify text strips absolute URLs and credential-like substrings. Shared n8n/Activepieces webhook secrets stay in env, not in trigger rows. `FLOWS_TRIGGER_REQUIRE_AUTH=false` refused in production. |
 | **CORS** | Explicit origin allowlist; `CORS_ORIGIN=*` ignored / refused in production. |
 | **TLS & rate limiting** | Terminate TLS at the reverse proxy. Login uses per-IP and per-IP+email failure windows. |
 | **Bootstrap** | Weak bootstrap admin passwords refused unless `ALLOW_INSECURE_BOOTSTRAP=true`. |

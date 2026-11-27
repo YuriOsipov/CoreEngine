@@ -8,11 +8,11 @@ CRM record action (Form Builder button)
       → app_flow_triggers handler=http
           → n8n / Activepieces webhook (+ X-CRM-Flow-Secret, X-CRM-Source: bff-flow)
 
-CRM record automation (Setup → Automations → Call connection)
+CRM record automation (Setup → Automations → Call external flow)
   → create/update/delete commits
       → runLocalFlow(key)  (server-side, after save; failures are logged only)
-          → app_flow_triggers handler=http|update_record
-              → automation webhook when handler=http
+          → app_flow_triggers handler=http
+              → automation webhook
 
 n8n / Activepieces workflow
   → POST /auth/login           (Integration user)
@@ -37,7 +37,7 @@ Content-Type: application/json
 }
 ```
 
-Populate, persist, and PDF/HTML upload are implemented. Real PDF/HTML uses published `@docengine/pdf-renderer@0.0.105` (or `npm run docengine:use-local`). Contract: [`generate-document-api.md`](./generate-document-api.md). Importable workflow: [`n8n/generate-opportunity-document.workflow.json`](./n8n/generate-opportunity-document.workflow.json).
+Populate, persist, and PDF/HTML upload are implemented. Real PDF/HTML uses published `@docengine/pdf-renderer@0.0.107` (or `npm run docengine:use-local`). Contract: [`generate-document-api.md`](./generate-document-api.md). Importable workflow: [`n8n/generate-opportunity-document.workflow.json`](./n8n/generate-opportunity-document.workflow.json).
 
 ### REST records (n8n-friendly)
 
@@ -125,13 +125,13 @@ Content-Type: application/json
 
 ### Setup UI
 
-**Setup → Connections** manages `app_flow_triggers`: create a **key** (e.g. `send_quote_pdf`), set handler **HTTP**, choose Destination **Your n8n** (recommended), **Your Activepieces (MIT)**, or **Custom URL**.
+**Setup → External Flows** manages `app_flow_triggers`: create a **key** (e.g. `send_quote_pdf`), set handler **HTTP**, choose Destination **Your n8n** (recommended), **Your Activepieces (MIT)**, or **Custom URL**.
 
 - **Your n8n** stores `config.target=n8n` — no raw URL. At dispatch the BFF posts to `{N8N_BASE_URL}/webhook/ce-{key}` (e.g. `http://n8n:5678/webhook/ce-send_quote_pdf`). Optional `config.sync=true` appends `/sync` (`/webhook/ce-{key}/sync`). Register that path on the n8n Webhook node and set Respond to When Last Node Finishes or Respond to Webhook. CoreEngine does not ship n8n; that URL is the instance you run.
 - **Your Activepieces** stores `config.target=activepieces` + `config.flowId` (Catch Webhook Live URL id). Optional `config.sync=true` appends `/sync`. Dispatch URL: `{ACTIVEPIECES_BASE_URL}/api/v1/webhooks/{flowId}`. Headless seed (CE JWT, no Platform API keys): `npm run registry:seed-activepieces-flows`. See [`activepieces/README.md`](./activepieces/README.md).
 - **Custom URL** stores an absolute `config.url` (legacy / other engines). Optional `config.sync=true` appends `/sync` before the query string. Optional Authentication (None / Bearer / API key / Basic).
 
-Then use that key in Object Manager → Automations → Call connection, or in Setup → Tasks with job type **Call connection** (`params`: `{ "connectionKey": "<key>", "payload": {} }`; legacy `send_notification` / `flowKey` still accepted). Promo price sync uses Connection `sync_promo_prices` + Activepieces template [`activepieces/sync-promo-prices.flow.json`](./activepieces/sync-promo-prices.flow.json).
+Then use that key in Object Manager → Automations → Call external flow, or in Setup → Tasks with job type **Call external flow** (`params`: `{ "connectionKey": "<key>", "payload": {} }`; legacy `send_notification` / `flowKey` still accepted). Promo price sync uses External Flow `sync_promo_prices` + Activepieces template [`activepieces/sync-promo-prices.flow.json`](./activepieces/sync-promo-prices.flow.json).
 
 Outbound http also adds `X-CRM-Source: bff-flow` and, when the destination is under `N8N_BASE_URL` / `N8N_WEBHOOK_URL` or `ACTIVEPIECES_BASE_URL`, `X-CRM-Flow-Secret` from `N8N_WEBHOOK_SECRET` or `ACTIVEPIECES_WEBHOOK_SECRET` (Activepieces falls back to the n8n secret when unset).
 
@@ -151,7 +151,7 @@ When an automation action `trigger_flow` matches, the BFF posts:
 }
 ```
 
-Prefer `http` flow handlers from automations. An `update_record` handler can re-enter automations — use conditions / `requireChanged` carefully. JWT callers of `/flows/trigger` must pass FLS on the **merged** patch (including admin `config.patch`); in-process **system** dispatch (record automations / scheduler) does not. See [`security.md`](./security.md).
+External Flows are HTTP-only. Update records from n8n/Activepieces via GraphQL/`updateRecord` (or MCP). See [`security.md`](./security.md).
 
 ### Sales Message outbox
 
@@ -222,7 +222,7 @@ Form Builder action **Send to n8n** is attached to the `visit` entity layout by 
 
 Catalog (quote PDF + message status, appointment reminder, inbound IMAP, document generate, failed-execution alert): [`n8n/README.md`](./n8n/README.md). Hardening checklist (localhost bind, encryption key, node exclude, Integration ACL): same doc → **Hardening**.
 
-For your n8n, import the template whose webhook path is `ce-{key}`, activate it, and keep Setup → Connections on **Your n8n**. From Docker n8n set:
+For your n8n, import the template whose webhook path is `ce-{key}`, activate it, and keep Setup → External Flows on **Your n8n**. From Docker n8n set:
 
 - `BFF_URL` — `http://bff:4000`
 - `N8N_WEBHOOK_SECRET` — same as BFF `.env` (templates reject calls without matching `X-CRM-Flow-Secret`)
@@ -263,6 +263,5 @@ Headers on every GraphQL call:
 
 ## Later (not in this milestone)
 
-- `skipRecordAutomations` on flow-driven `update_record` writes to prevent loops
-- Retries / durable outbox for failed `trigger_flow` dispatches (failures are stored in `app_flow_dispatches` and listed under Setup → Connections → Failed runs; they are not replayed)
+- Retries / durable outbox for failed `trigger_flow` dispatches (failures are stored in `app_flow_dispatches` and listed under Setup → External Flows; they are not replayed). With `config.debug`, the last 50 success+error runs per key are kept for admin debugging.
 - Optional local step pipeline inside BFF when n8n is overkill

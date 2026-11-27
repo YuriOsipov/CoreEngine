@@ -159,7 +159,10 @@ import {
   runScheduledTask,
   upsertScheduledTask,
 } from '../tasks/taskService.js'
-import { listFailedFlowDispatches } from '../flows/flowDispatchLog.js'
+import {
+  listFailedFlowDispatches,
+  listFlowDispatches,
+} from '../flows/flowDispatchLog.js'
 import {
   deleteFlowTrigger,
   listFlowTriggers,
@@ -1164,6 +1167,18 @@ export const resolvers = {
     ) => {
       await requireAdminAccess(ctx)
       return listFailedFlowDispatches(args.limit ?? 50)
+    },
+
+    flowDispatches: async (
+      _: unknown,
+      args: { flowKey?: string | null; limit?: number | null },
+      ctx: GraphQlAuthContext,
+    ) => {
+      await requireAdminAccess(ctx)
+      return listFlowDispatches({
+        flowKey: args.flowKey ?? null,
+        limit: args.limit ?? 50,
+      })
     },
 
     itemGroupPriceTree: async (

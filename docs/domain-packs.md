@@ -56,7 +56,7 @@ npm run platform:export-pack -- sales
 
 Windows: `npm run platform:provision:ps1 -- -Domain sales`. Minimal Docker install: `./scripts/install-minimal.sh --domain sales --with-ui` (see [`setup.md`](./setup.md)).
 
-Outbound automation destinations for pack webhook keys are configured under **Setup → Connections** (not raw URLs in Automations). See [`n8n-bff-flows.md`](./n8n-bff-flows.md).
+Outbound automation destinations for pack webhook keys are configured under **Setup → External Flows** (not raw URLs in Automations). See [`n8n-bff-flows.md`](./n8n-bff-flows.md).
 
 ---
 

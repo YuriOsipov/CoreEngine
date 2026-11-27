@@ -18,6 +18,17 @@ env:
   DOCENGINE_ALLOW_STUBS: ${{ inputs.use_docengine_stubs && 'true' || 'false' }}
 
 jobs:
+  # Catch committed docengine:use-local / use-stub file: pins before install jobs mutate package.json.
+  package-json:
+    name: No file: package.json pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: npm run assert:no-file-deps
+
   bff:
     name: BFF typecheck + tests
     runs-on: ubuntu-latest

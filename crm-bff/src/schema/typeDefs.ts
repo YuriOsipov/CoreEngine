@@ -553,10 +553,15 @@ export const typeDefs = /* GraphQL */ `
     scheduledTaskRuns(taskId: ID!, limit: Int = 20): [ScheduledTaskRun!]!
     """Admin: recent scheduled runs with status FAILED."""
     failedScheduledTaskRuns(limit: Int = 50): [ScheduledTaskRun!]!
-    """Admin: local flow triggers (app_flow_triggers) — key → http/update_record."""
+    """Admin: local flow triggers (app_flow_triggers) — key → http."""
     flowTriggers: [FlowTrigger!]!
     """Admin: recent failed runLocalFlow attempts (app_flow_dispatches)."""
     failedFlowDispatches(limit: Int = 50): [FlowDispatch!]!
+    """
+    Admin: recent flow runs (errors always; successes when config.debug was on).
+    Optional flowKey filters to one external flow.
+    """
+    flowDispatches(flowKey: String, limit: Int = 50): [FlowDispatch!]!
     """
     Admin: append-only Setup / registry config change trail
     (entities, fields, roles, permissions, users, layouts, …).
@@ -696,6 +701,10 @@ export const typeDefs = /* GraphQL */ `
     collection: String
     recordId: String
     error: String
+    """Upstream / BFF HTTP status code when recorded."""
+    httpStatus: Int
+    """Truncated outbound request JSON (no auth headers)."""
+    requestBody: String
     startedAt: String!
     finishedAt: String
     createdAt: String!
@@ -704,13 +713,15 @@ export const typeDefs = /* GraphQL */ `
   """Local app_flow_triggers row — maps a key used by automations/actions to a handler."""
   type FlowTrigger {
     key: String!
-    """http | update_record"""
+    """http (Setup). ack is internal/smoke only."""
     handler: String!
     enabled: Boolean!
-    """http: { url, method, headers, auth? }. update_record: { collection, recordId?, patch? }."""
+    """http: { target?, url?, flowId?, method, headers, auth?, sync?, debug?, allowedRoles? }."""
     config: JSON!
     description: String
     updatedAt: String!
+    """Latest app_flow_dispatches.started_at for this key (null if never run)."""
+    lastLaunchedAt: String
   }
 
   input UpsertFlowTriggerInput {

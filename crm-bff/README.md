@@ -26,7 +26,7 @@ npm run dev
 - REST documents: `POST /api/v1/documents/generate` — populate + persist `doc_value` + PDF/HTML render/upload (`outputFileId` / `downloadUrl`; owner RLS on the source record). See docs/generate-document-api.md.
 - Sales pack examples: [supabase/domains/sales/README.md](../supabase/domains/sales/README.md)
 - Files: `POST /files`, `PATCH /files/:id`, `GET /assets/:id` → Supabase Storage + `public.files`
-- Flows: `POST /flows/trigger/:key` → local `app_flow_triggers` (`http` | `update_record`; Setup → Connections)
+- Flows: `POST /flows/trigger/:key` → local `app_flow_triggers` (`http`; Setup → Connections)
   - Auth: JWT Bearer or `FLOWS_TRIGGER_SERVICE_KEY` (default required)
   - Outbound `http` handlers inject `X-CRM-Flow-Secret` / `X-CRM-Source` from `N8N_WEBHOOK_*`
   - Runbook: [docs/n8n-bff-flows.md](../docs/n8n-bff-flows.md)

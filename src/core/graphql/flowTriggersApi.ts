@@ -1,6 +1,6 @@
 import { graphqlRequest } from './client'
 
-export type FlowTriggerHandler = 'http' | 'update_record'
+export type FlowTriggerHandler = 'http'
 
 export interface GraphQlFlowDispatch {
   id: string
@@ -10,6 +10,8 @@ export interface GraphQlFlowDispatch {
   collection: string | null
   recordId: string | null
   error: string | null
+  httpStatus: number | null
+  requestBody: string | null
   startedAt: string
   finishedAt: string | null
   createdAt: string
@@ -22,6 +24,7 @@ export interface GraphQlFlowTrigger {
   config: Record<string, unknown>
   description: string | null
   updatedAt: string
+  lastLaunchedAt: string | null
 }
 
 export interface UpsertFlowTriggerInput {
@@ -39,6 +42,7 @@ const FLOW_FIELDS = `
   config
   description
   updatedAt
+  lastLaunchedAt
 `
 
 const LIST_FLOWS = /* GraphQL */ `
@@ -57,19 +61,33 @@ const UPSERT_FLOW = /* GraphQL */ `
   }
 `
 
+const DISPATCH_FIELDS = `
+  id
+  flowKey
+  source
+  status
+  collection
+  recordId
+  error
+  httpStatus
+  requestBody
+  startedAt
+  finishedAt
+  createdAt
+`
+
 const LIST_FAILED = /* GraphQL */ `
   query FailedFlowDispatches($limit: Int) {
     failedFlowDispatches(limit: $limit) {
-      id
-      flowKey
-      source
-      status
-      collection
-      recordId
-      error
-      startedAt
-      finishedAt
-      createdAt
+      ${DISPATCH_FIELDS}
+    }
+  }
+`
+
+const LIST_DISPATCHES = /* GraphQL */ `
+  query FlowDispatches($flowKey: String, $limit: Int) {
+    flowDispatches(flowKey: $flowKey, limit: $limit) {
+      ${DISPATCH_FIELDS}
     }
   }
 `
@@ -88,6 +106,20 @@ export async function fetchFailedFlowDispatches(
     { limit },
   )
   return data.failedFlowDispatches ?? []
+}
+
+export async function fetchFlowDispatches(options?: {
+  flowKey?: string | null
+  limit?: number
+}): Promise<GraphQlFlowDispatch[]> {
+  const data = await graphqlRequest<{ flowDispatches: GraphQlFlowDispatch[] }>(
+    LIST_DISPATCHES,
+    {
+      flowKey: options?.flowKey ?? null,
+      limit: options?.limit ?? 50,
+    },
+  )
+  return data.flowDispatches ?? []
 }
 
 export async function fetchFlowTriggers(): Promise<GraphQlFlowTrigger[]> {

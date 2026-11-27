@@ -8,7 +8,7 @@ Product surface for operators and implementers. For security layers see [`securi
 |------|------------------|
 | **Workflow engine** | Partial — flow **keys** + handlers (HTTP / update record), record-automation **conditions**, Setup → **Tasks**. Visual multi-step designer lives in **n8n** or **Activepieces** (MIT). |
 | **Permissions** | Partial — layered BFF security (auth → object CRUD → field sensitivity → owner row security + read-share). Layouts/nav are UX only. No manual share / Teams / hierarchy. See [`security.md`](./security.md). |
-| **Owner transfer** | **Done** — Change Owner on record pages; BFF allows `owner_id` on update for Modify all / admin / current owner. Bulk list transfer still open. |
+| **Owner transfer** | Partial — Change Owner on record pages (per row) with activity/revision audit; BFF allows `owner_id` on update for Modify all / admin / current owner. **Open:** bulk list / “reassign leaver” transfer across objects; cascade owner to existing children (`inheritOwnerFrom` is create-only). |
 | **Teams / peer groups** | **Open** — MVP peer-queue read uses **same Role as owner**. True Teams subsets are future work. |
 | **Authentication** | Partial — local JWT + optional **OIDC**. MFA on IdP. No SAML/SCIM. See [`oidc-sso.md`](./oidc-sso.md). |
 | **Version control** | Partial — domain packs in git (`platform:export-pack` / `apply-pack`). No in-app config revision UI. |
@@ -16,7 +16,7 @@ Product surface for operators and implementers. For security layers see [`securi
 | **Resource scheduler** | Yes — Scheduler block + Setup schedule slots. Clinic pack seeds practitioners / visits / appointments. |
 | **Projects** | Yes — `pm_project` List / Board / Gantt, templates, stages, services. |
 | **Automation** | Partial — record automations, flow keys, Message outbox → n8n / Activepieces, in-process scheduled jobs. Durable graphs in **n8n** or **Activepieces**. |
-| **Reliable operations** | Partial — advisory locks + SKIP LOCKED claim for scheduled Message dispatch; failed-run monitoring; backup/upgrade smokes. Still prefer one scheduler process; durable Postgres queue (pg-boss / Graphile Worker) is the next step. |
+| **Reliable operations** | Partial — advisory locks + SKIP LOCKED claim for scheduled Message dispatch; failed-run monitoring; backup/upgrade smokes. **Not** exactly-once send: stock outbox templates can double-deliver on reclaim after a crash between channel send and Mark sent. Prefer one scheduler process; durable Postgres queue (pg-boss / Graphile Worker) is the next step. |
 | **Validation & business rules** | Partial — required / unique / unique groups; automations often used as rules. No dedicated validation-rules designer. |
 | **Admin config audit** | Yes — append-only `config_audits` + GraphQL `configAudits` + Setup → **Config audit** browser (filter/paginate/detail). Pack apply remains git-based. See [`security.md`](./security.md#known-gaps-close-or-test). |
 | **Integrations** | Partial — GraphQL BFF + REST CRUD, SOQL `/api/v1/query`, n8n templates + Activepieces (MIT) destination, optional Hasura/Directus. No first-party SaaS connector catalog. |
@@ -50,16 +50,16 @@ Product surface for operators and implementers. For security layers see [`securi
 ## Automation & workflows
 
 - Record automations (conditions, set fields, notify, break, trigger flow).
-- **Setup → Connections** — `app_flow_triggers` (`http` to your n8n via `ce-{key}`, Activepieces via `flowId`, custom URL, or `update_record`). Failed runs in Setup.
-- **Setup → Tasks** — scheduled jobs (**Call connection** → Setup → Connections / Activepieces or n8n, **Dispatch due messages**, purge archived, …). Promo price sync is an Activepieces Connection (`sync_promo_prices`), not an in-process job. Runner uses a **Postgres advisory lock** per task; set `TASK_SCHEDULER_ENABLED=false` on extra BFF replicas.
-- **Sales Message outbox** — one Message row per send; due rows are claimed with **`FOR UPDATE SKIP LOCKED`** (`sending_since` + `attempts`). Stale `sending` rows are reclaimed after `staleMinutes` and stop after `maxAttempts`. Flow payload carries `idempotencyKey` (`ce-message-{id}`). Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales`. See [`n8n/README.md`](./n8n/README.md) and [`n8n-bff-flows.md`](./n8n-bff-flows.md).
+- **Setup → External Flows** — `app_flow_triggers` (`http` to your n8n via `ce-{key}`, Activepieces via `flowId`, or custom URL). Failed runs in Setup; optional **Log recent runs** (`config.debug`) keeps the last 50 success+error rows per key.
+- **Setup → Tasks** — scheduled jobs (**Call external flow** → Setup → External Flows / Activepieces or n8n, **Dispatch due messages**, purge archived, …). Promo price sync is External Flow key `sync_promo_prices` (Activepieces destination), not an in-process job. Runner uses a **Postgres advisory lock** per task; set `TASK_SCHEDULER_ENABLED=false` on extra BFF replicas.
+- **Sales Message outbox** — one Message row per send; due rows are claimed with **`FOR UPDATE SKIP LOCKED`** (`sending_since` + `attempts`). Concurrent `dispatch_due_messages` runs cannot claim the same row. Stale `sending` rows are reclaimed after `staleMinutes` and stop after `maxAttempts`. Flow payload carries `idempotencyKey` (`ce-message-{id}`), but the shipped n8n/Activepieces templates only skip when `delivery_status` is already `sent`/`delivered` — a crash after SMTP and before **Mark sent** can still produce a **second customer email** on reclaim. Details: [`n8n-bff-flows.md`](./n8n-bff-flows.md). Seed: `npm run registry:seed-n8n-pack-flows -- --pack=sales`.
 - Complex visual orchestration: optional **n8n** (compose profile `automation`) or **Activepieces** (MIT; starts with the minimal Compose stack). Headless AP import: `npm run registry:seed-activepieces-flows` (CE admin JWT + project variables; Platform API keys not required). License notes: [`THIRD_PARTY.md`](../THIRD_PARTY.md) — n8n Sustainable Use limits hosting/resale; Activepieces is MIT — see [`activepieces/README.md`](./activepieces/README.md). A built-in Postgres queue remains an option for “reliable ops” without an external designer.
 
 ## Reliable operations
 
 - Backup / restore: [`backup-restore.md`](./backup-restore.md) (`npm run registry:smoke-backup-restore`).
 - Upgrades: [`upgrading.md`](./upgrading.md) (`npm run registry:smoke-upgrade`).
-- Failed-run monitoring: Setup → Connections / Tasks; optional admin email (Setup → General or `FAILED_RUN_NOTIFY*`).
+- Failed-run monitoring: Setup → External Flows / Tasks; optional admin email (Setup → General or `FAILED_RUN_NOTIFY*`).
 - **Scheduler today:** one enabled BFF + advisory lock + message claim locks. Enough for SMB single-node / careful HA.
 - **Next (recommended):** Postgres-backed queue (**pg-boss** or **Graphile Worker**) for retries, failed-run history, and multi-instance workers — no new infra beyond the DB you already run, and no dependence on n8n for durable operations.
 

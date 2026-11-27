@@ -4,12 +4,22 @@
 import { query } from '../db/pool.js'
 import { flowTriggerKeyFromWebhook } from './flowKey.js'
 import { flowSyncRequested } from './flowAuth.js'
-import { sanitizeHttpFlowAuth } from './httpFlowAuth.js'
+import {
+  clearFlowDispatchSuccesses,
+  flowDebugRequested,
+} from './flowDispatchLog.js'
+import {
+  mergeHttpFlowAuth,
+  redactHttpFlowAuthForAdmin,
+  sealHttpFlowAuth,
+} from './httpFlowAuth.js'
 import { assertOutboundUrlShape } from './outboundHttp.js'
 import type { FlowHandlerKind, FlowTriggerRow } from './localFlows.js'
 
 export type FlowTriggerAdminRow = FlowTriggerRow & {
   updatedAt: string
+  /** Latest app_flow_dispatches.started_at for this key (null if never run / table missing). */
+  lastLaunchedAt: string | null
 }
 
 export interface UpsertFlowTriggerInput {
@@ -30,18 +40,21 @@ function parseHandler(raw: string): FlowHandlerKind {
   const token = String(raw || '')
     .trim()
     .toLowerCase()
-  // Product Flows UI only supports http + update_record (ack is internal/smoke only).
-  if (token === 'http' || token === 'update_record') {
-    return token
+  // Product Flows UI only supports http (ack is internal/smoke only).
+  if (token === 'http') {
+    return 'http'
   }
   if (token === 'ack') {
     throw new Error(
-      'Ack handler is not available in Setup → External Flows. Use HTTP or Update record.',
+      'Ack handler is not available in Setup → External Flows. Use HTTP.',
     )
   }
-  throw new Error(
-    `Unsupported flow handler "${raw}". Use http or update_record.`,
-  )
+  if (token === 'update_record') {
+    throw new Error(
+      'Update record handler has been removed. Use HTTP (webhook) and update records from n8n/Activepieces or the API.',
+    )
+  }
+  throw new Error(`Unsupported flow handler "${raw}". Use http.`)
 }
 
 function sanitizeStringList(value: unknown): string[] | undefined {
@@ -60,6 +73,7 @@ function sanitizeStringList(value: unknown): string[] | undefined {
 function sanitizeConfig(
   handler: FlowHandlerKind,
   config: Record<string, unknown>,
+  existingConfig: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const allowedRoles = sanitizeStringList(config.allowedRoles)
   const access = allowedRoles ? { allowedRoles } : {}
@@ -90,12 +104,14 @@ function sanitizeConfig(
     }
 
     const sync = flowSyncRequested(config) ? { sync: true as const } : {}
+    const debug = flowDebugRequested(config) ? { debug: true as const } : {}
 
     // Customer's n8n: resolve URL at dispatch from N8N_BASE_URL + ce-{key} (no raw URL in Setup).
     if (target === 'n8n') {
       return {
         target: 'n8n',
         ...sync,
+        ...debug,
         method,
         headers,
         auth: { type: 'none' },
@@ -117,6 +133,7 @@ function sanitizeConfig(
         target: 'activepieces',
         flowId,
         ...sync,
+        ...debug,
         method,
         headers,
         auth: { type: 'none' },
@@ -134,45 +151,35 @@ function sanitizeConfig(
       throw new Error('http flow config.url must be an absolute http(s) URL')
     }
     assertOutboundUrlShape(url)
-    const auth = sanitizeHttpFlowAuth(config.auth)
+    const merged = mergeHttpFlowAuth(config.auth, existingConfig.auth)
+    const auth = sealHttpFlowAuth(merged)
     return auth.type === 'none'
-      ? { url, ...sync, method, headers, auth: { type: 'none' }, ...access }
-      : { url, ...sync, method, headers, auth, ...access }
+      ? { url, ...sync, ...debug, method, headers, auth: { type: 'none' }, ...access }
+      : { url, ...sync, ...debug, method, headers, auth, ...access }
   }
 
-  // update_record — keep collection / recordId / patch / allowedFields if present
-  const out: Record<string, unknown> = { ...access }
-  const allowedFields = sanitizeStringList(config.allowedFields)
-  if (allowedFields) out.allowedFields = allowedFields
-  if (typeof config.collection === 'string' && config.collection.trim()) {
-    out.collection = config.collection.trim()
-  }
-  if (typeof config.recordId === 'string' && config.recordId.trim()) {
-    out.recordId = config.recordId.trim()
-  }
-  if (config.patch && typeof config.patch === 'object' && !Array.isArray(config.patch)) {
-    out.patch = config.patch
-  }
-  return out
+  return { ...access }
+}
+
+function redactConfigForAdmin(config: Record<string, unknown>): Record<string, unknown> {
+  if (!('auth' in config)) return config
+  return { ...config, auth: redactHttpFlowAuthForAdmin(config.auth) }
 }
 
 function mapRow(row: Record<string, unknown>): FlowTriggerAdminRow {
   const handlerRaw = String(row.handler || 'http')
     .trim()
     .toLowerCase()
-  const handler: FlowHandlerKind =
-    handlerRaw === 'update_record'
-      ? 'update_record'
-      : handlerRaw === 'http'
-        ? 'http'
-        : handlerRaw === 'ack'
-          ? 'ack'
-          : 'http'
+  // Preserve legacy update_record in list so admins can migrate/delete the row.
+  const handler: string =
+    handlerRaw === 'http' || handlerRaw === 'ack' || handlerRaw === 'update_record'
+      ? handlerRaw
+      : 'http'
   return {
     key: String(row.key),
     enabled: row.enabled !== false,
     handler,
-    config: asObject(row.config),
+    config: redactConfigForAdmin(asObject(row.config)),
     description:
       row.description == null || row.description === ''
         ? null
@@ -180,18 +187,43 @@ function mapRow(row: Record<string, unknown>): FlowTriggerAdminRow {
     updatedAt: row.updated_at
       ? new Date(String(row.updated_at)).toISOString()
       : new Date().toISOString(),
+    lastLaunchedAt: row.last_launched_at
+      ? new Date(String(row.last_launched_at)).toISOString()
+      : null,
   }
 }
 
 export async function listFlowTriggers(): Promise<FlowTriggerAdminRow[]> {
-  const rows = await query<Record<string, unknown>>(
-    `SELECT key, enabled, handler, COALESCE(config, '{}'::jsonb) AS config,
-            description, updated_at
-     FROM public.app_flow_triggers
-     WHERE lower(handler) <> 'ack'
-     ORDER BY key ASC`,
-  )
-  return rows.map(mapRow)
+  try {
+    const rows = await query<Record<string, unknown>>(
+      `SELECT t.key, t.enabled, t.handler, COALESCE(t.config, '{}'::jsonb) AS config,
+              t.description, t.updated_at,
+              d.last_launched_at
+       FROM public.app_flow_triggers t
+       LEFT JOIN (
+         SELECT flow_key, max(started_at) AS last_launched_at
+         FROM public.app_flow_dispatches
+         GROUP BY flow_key
+       ) d ON d.flow_key = t.key
+       WHERE lower(t.handler) <> 'ack'
+       ORDER BY t.key ASC`,
+    )
+    return rows.map(mapRow)
+  } catch (error) {
+    // Dispatches table missing before migrate — still list triggers.
+    const message = error instanceof Error ? error.message : String(error)
+    if (!/app_flow_dispatches/i.test(message) && !/does not exist/i.test(message)) {
+      throw error
+    }
+    const rows = await query<Record<string, unknown>>(
+      `SELECT key, enabled, handler, COALESCE(config, '{}'::jsonb) AS config,
+              description, updated_at
+       FROM public.app_flow_triggers
+       WHERE lower(handler) <> 'ack'
+       ORDER BY key ASC`,
+    )
+    return rows.map(mapRow)
+  }
 }
 
 export async function upsertFlowTrigger(
@@ -210,7 +242,20 @@ export async function upsertFlowTrigger(
   }
 
   const handler = parseHandler(input.handler)
-  const config = sanitizeConfig(handler, asObject(input.config))
+  let existingConfig: Record<string, unknown> = {}
+  try {
+    const existingRows = await query<Record<string, unknown>>(
+      `SELECT COALESCE(config, '{}'::jsonb) AS config
+       FROM public.app_flow_triggers
+       WHERE key = $1
+       LIMIT 1`,
+      [key],
+    )
+    existingConfig = asObject(existingRows[0]?.config)
+  } catch {
+    existingConfig = {}
+  }
+  const config = sanitizeConfig(handler, asObject(input.config), existingConfig)
   const enabled = input.enabled !== false
   const description =
     typeof input.description === 'string' && input.description.trim()
@@ -228,6 +273,10 @@ export async function upsertFlowTrigger(
        updated_at = now()`,
     [key, handler, enabled, description, JSON.stringify(config)],
   )
+
+  if (!flowDebugRequested(config)) {
+    await clearFlowDispatchSuccesses(key)
+  }
 
   const rows = await query<Record<string, unknown>>(
     `SELECT key, enabled, handler, COALESCE(config, '{}'::jsonb) AS config,

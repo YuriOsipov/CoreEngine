@@ -97,12 +97,13 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Optional registry REST |
 | `DIRECTUS_RUNTIME` | Must be `off` |
 | `SMTP_HOST` / `SMTP_FROM` | Optional BFF platform mail (invite, reset, failed-run alerts) |
-| `N8N_BASE_URL` / `N8N_WEBHOOK_SECRET` / `N8N_ENCRYPTION_KEY` | Your n8n instance for Setup → Connections |
+| `N8N_BASE_URL` / `N8N_WEBHOOK_SECRET` / `N8N_ENCRYPTION_KEY` | Your n8n instance for Setup → External Flows |
 | `ACTIVEPIECES_BASE_URL` / `ACTIVEPIECES_WEBHOOK_SECRET` | Optional MIT Activepieces (`target=activepieces` + flow id) |
 | `AP_EMAIL` / `AP_PASSWORD` | Activepieces admin for `registry:seed-activepieces-flows` (CE JWT; not Platform API keys) |
 | `ACTIVEPIECES_SEED_URL` / `AP_FRONTEND_URL` | Host URL the seed script reaches (default `http://127.0.0.1:8081`) |
 | `AP_ENCRYPTION_KEY` / `AP_JWT_SECRET` / `AP_POSTGRES_PASSWORD` | Required to start Activepieces with the minimal Compose stack |
-| `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP flow targets |
+| `FLOWS_HTTP_ALLOWED_HOSTS` | Hosts allowed for private/Docker HTTP External Flow targets |
+| `FLOWS_SECRET_ENCRYPTION_KEY` | Optional 32-byte key (or passphrase) for sealing custom-URL flow auth at rest; otherwise derived from `AUTH_JWT_SECRET` |
 | `CRM_N8N_EMAIL` / `CRM_N8N_PASSWORD` | Integration user for n8n → BFF |
 | `FAILED_RUN_NOTIFY` / `FAILED_RUN_NOTIFY_EMAIL` | Optional email on flow/task failure |
 | `TASK_SCHEDULER_ENABLED` | In-process scheduled jobs (default on). Keep **on for one** BFF; set `false` on replicas. Jobs take a Postgres advisory lock; Message dispatch claims rows with `SKIP LOCKED`. |
@@ -124,7 +125,7 @@ Enable `OIDC_*` in repo-root `.env` and restart the BFF. Full env, linking, JIT,
 | `npm run registry:smoke-backup-restore` | `pg_dump` archive check |
 | `npm run registry:seed-n8n-pack-flows` | Seed pack flow keys + Message outbox (`--pack=sales`) |
 | `npm run registry:seed-n8n-automation-user` | Create Integration user for n8n / Activepieces BFF login |
-| `npm run registry:seed-activepieces-flows` | Import AP templates, project vars, Connections `flowId` (CE JWT; `--only=sync_promo_prices`) |
+| `npm run registry:seed-activepieces-flows` | Import AP templates, project vars, External Flows `flowId` (CE JWT; `--only=sync_promo_prices`) |
 | `npm run platform:provision` | **New** customer DB (`--domain`, `--admin-password`) |
 | `npm run platform:apply-pack` | Apply a domain pack onto an existing kernel DB |
 | `npm run platform:export-pack` | Save live Setup config into `supabase/domains/<id>` |
@@ -138,6 +139,6 @@ npm --prefix crm-bff run typecheck
 npm run build                 # vue-tsc -b && vite build
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): BFF typecheck + tests, app unit tests, and app build (`npm run build`: `vue-tsc -b && vite build`). Default installs use **`npm ci`** against lockfile `@docengine/*@0.0.105`. Stubs (`ci/stubs/`) are opt-in only via `workflow_dispatch` → Use DocEngine stubs (`DOCENGINE_ALLOW_STUBS=true`); registry miss / network errors fail the job. Real PDF/HTML smoke belongs in the DocEngine package CI (or locally: `crm-bff` `npm run test:docengine-render`). Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub`.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): no `file:` pins in package.json (`npm run assert:no-file-deps`), BFF typecheck + tests, app unit tests, and app build (`npm run build`: `vue-tsc -b && vite build`). Default installs use **`npm ci`** against lockfile `@docengine/*@0.0.107`. Stubs (`ci/stubs/`) are opt-in only via `workflow_dispatch` → Use DocEngine stubs (`DOCENGINE_ALLOW_STUBS=true`); registry miss / network errors fail the job. Real PDF/HTML smoke belongs in the DocEngine package CI (or locally: `crm-bff` `npm run test:docengine-render`). Maintainers: `npm run docengine:use-local` / `docengine:use-npm` / `docengine:use-stub` — restore npm pins before commit; CI fails on leftover `file:` refs.
 
 Layout schemas live under `src/interfaces` / config layout services and are stored in registry `layout_settings`.

@@ -64,6 +64,7 @@
     "bff:check-o2m-write": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-o2m-write-path.mts",
     "bff:check-files-uploaded-by": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-files-uploaded-by.mts",
     "bff:check-activity-actor": "npx --prefix ./crm-bff tsx --env-file=.env --env-file=supabase/.env ./scripts/check-activity-actor.mts",
+    "assert:no-file-deps": "node ./scripts/assert-no-file-deps.mjs",
     "docengine:use-npm": "node ./scripts/use-docengine.mjs npm",
     "docengine:use-local": "node ./scripts/use-docengine.mjs local",
     "docengine:use-stub": "node ./scripts/use-docengine.mjs stub"

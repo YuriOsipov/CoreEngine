@@ -20,7 +20,7 @@ env:
 jobs:
   # Catch committed docengine:use-local / use-stub file: pins before install jobs mutate package.json.
   package-json:
-    name: No file: package.json pins
+    name: 'No file: package.json pins'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -1,14 +1,22 @@
-# CoreEngine — operations suite for service, sales, clinic & pricing teams
+# CoreEngine — schema-driven, backend-agnostic development platform
 
-Schema-driven UI, resource scheduling, tiered pricing & PDF docs on Postgres/Supabase or any GraphQL backend (Vue 3 + TypeScript).
+Build internal tools, custom business apps, and operational systems from metadata—without hand-coding CRUD screens (Vue 3 + TypeScript + GraphQL BFF).
 
-Self-hosted ops with **role-scoped layouts**, **tree price lists / campaign pricing**, **in-app documents** (HTML/PDF), **resource scheduling + projects**, and **git-versioned domain packs**. Registry on Supabase; vertical starters (**Sales**, **Clinic**, **Pricing**, **Documents**) — Clinic/Pricing are domain starters, not a compliance certification (see [`docs/compliance-posture.md`](docs/compliance-posture.md)).
+CoreEngine separates your **Control Plane** (schema registry, role-scoped layouts, automations, and document templates on Supabase/Postgres) from your **Data Plane** (Postgres/Supabase, Hasura, Directus, or any GraphQL backend). Define your objects, relations, and UI layouts once in Setup, and CoreEngine dynamically renders forms, tree/list views, resource schedulers, projects, and pixel-perfect PDF/HTML documents (`@docengine/*`).
+
+### Core capabilities
+
+- **Schema-driven UI:** Object Manager, role-scoped edit/view forms, tree navigation + master-detail, conditional field/block rules, inline editing, and barcode scanning.
+- **Backend-agnostic BFF:** Unified GraphQL & REST layer decoupling your UI configurations from underlying data providers.
+- **Built-in operational modules:** Resource scheduling, Kanban/Gantt projects, tiered/campaign pricing engines, and scheduled background tasks.
+- **Pixel-perfect documents:** Visual HTML/PDF template builder (`DocEngine`) with recursive tree mapping.
+- **Git-versioned domain packs:** Ship and version full vertical configurations as code (see [`docs/domain-packs.md`](docs/domain-packs.md) for starter packs including **Sales**, **Pricing**, **Clinic**, and **Documents**).
 
 **License:** MIT ([`LICENSE`](LICENSE)). Other components: [`THIRD_PARTY.md`](THIRD_PARTY.md). Support: [`SUPPORT.md`](SUPPORT.md) (community, no SLA). Vulnerabilities: [`SECURITY.md`](SECURITY.md).
 
 **Project status:** early-stage, aimed at **SMB / mid-market** (tens to a few hundred users). No sharing hierarchies, **no SAML/SCIM**, no AppExchange-depth automation, **no built-in durable workflow queue**. Owner row security + View/Modify all + **Change Owner** (per record; **no** bulk leaver transfer or child-owner cascade yet) cover “my rows / manager sees all”; multi-step retries live in **Activepieces (MIT)**, **n8n**, or a custom webhook via Setup → External Flows. Platform Setup → Tasks uses a **Postgres advisory lock** per job; Message outbox claims rows with **`FOR UPDATE SKIP LOCKED`** (see [`docs/features.md`](docs/features.md) — stock send templates can still double-deliver on crash-before-Mark-sent). Interactive DocEngine comes from npm `@docengine/*` — see below.
 
-**For:** operators and vertical implementers who want Setup + packs + documents, with optional engineer-owned blocks.
+**For:** developers and architects building schema-driven internal tools; implementers who want Setup + packs + documents, with optional engineer-owned blocks.
 
 **Not trying to be:** Twenty-style SDK CRM, Retool canvases, inbox/calendar CRM, full ERP accounting (see Frappe note), enterprise sharing hierarchies / SAML/SCIM, in-product AI agents, or a mature multi-tenant SaaS community yet.
 
@@ -61,9 +69,9 @@ Full Supabase stack, local npm, env vars, and scripts: [`docs/setup.md`](docs/se
 
 ## Vertical domain packs
 
-Git-versioned packs under `supabase/domains/` adapt the same kernel to an industry (entities, roles, layouts, seed data). Included starters: **sales**, **clinic**, **pricing**; **documents** is always applied on provision.
+Starter packs under `supabase/domains/` are **optional configurations**, not the identity of the platform. They adapt the same kernel to an industry (entities, roles, layouts, seed data). Included: **sales**, **clinic**, **pricing**; **documents** is always applied on provision.
 
-Vertical matrix (shipped vs example forks), apply/export, and how to build a pack: [`docs/domain-packs.md`](docs/domain-packs.md). Runbooks: [`supabase/README.md`](supabase/README.md).
+What each starter includes, compliance posture for Clinic/Pricing, vertical matrix, apply/export, and how to build your own: [`docs/domain-packs.md`](docs/domain-packs.md). Runbooks: [`supabase/README.md`](supabase/README.md).
 
 ---
 

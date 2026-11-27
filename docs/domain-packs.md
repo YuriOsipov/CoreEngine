@@ -1,6 +1,6 @@
 # Vertical domain packs
 
-CoreEngine uses Git-versioned **domain packs** so the same lightweight kernel adapts to different industries without forking the Vue / GraphQL codebase.
+CoreEngine is a **multipurpose schema-driven platform**. Domain packs are optional starter configurations — not the product identity. They ship git-versioned registry seed so the same lightweight kernel adapts to different industries without forking the Vue / GraphQL codebase.
 
 A pack is additive registry seed data under [`supabase/domains/<id>/`](../supabase/domains/): entities, roles, layouts, navigation, optional seed records, and related n8n / Connection keys. Business tables are created in `crm_schema` by DDL sync when objects are applied — vertical vocabulary stays out of the kernel SQL in `supabase/migrations/`.
 
@@ -9,6 +9,8 @@ New customer DB  →  kernel  →  documents (always)  →  optional vertical pa
 ```
 
 Operational runbooks (provision, apply, export): [`../supabase/README.md`](../supabase/README.md). Install flags: [`setup.md`](./setup.md).
+
+**Compliance note:** Clinic and Pricing packs are domain starters (scheduling, catalog, campaigns). They are **not** a GDPR, HIPAA, or SOC 2 certification. See [`compliance-posture.md`](./compliance-posture.md).
 
 ---
 
@@ -20,6 +22,13 @@ Operational runbooks (provision, apply, export): [`../supabase/README.md`](../su
 | **`sales`** | `--domain sales` | Accounts, Contacts, Opportunities (+ line items / messaging in commercial seed), roles **Sales Rep**, **Sales Manager**, **Pricing Manager** |
 | **`pricing`** | Often with Sales / `--domain pricing` | Item groups, items, price groups, campaigns → promotions, promo price sync |
 | **`clinic`** | `--domain clinic` | Patients, Practitioners, Visits, Appointments; roles **Clinician**, **Reception** |
+
+### What each starter includes
+
+- **Documents** — always applied. Registry objects for Setup → Document Templates (empty of sample templates until you add them). Enables HTML/PDF generation via DocEngine.
+- **Sales** — CRM-shaped starter: accounts & contacts, opportunities with line items, catalog wiring when Pricing is present, sample campaign/promotions in commercial seed, a few inbox messages. Roles: Sales Rep, Sales Manager, Pricing Manager. No quote rows in the default seed.
+- **Pricing** — hierarchical catalogs (item groups / items / price groups / item prices), campaign → promotion rules, and promo price sync. Often provisioned with Sales.
+- **Clinic** — appointment-oriented starter: patients, practitioners, visits, appointments; Clinician and Reception roles. Extend with Pricing + Document Templates for reports/consents.
 
 Per-pack detail: [`sales`](../supabase/domains/sales/README.md) · [`pricing`](../supabase/domains/pricing/README.md) · [`clinic`](../supabase/domains/clinic/README.md) · [`documents`](../supabase/domains/documents/README.md).
 

@@ -27,6 +27,7 @@ Product surface for operators and implementers. For security layers see [`securi
 - **Per-role edit and view forms** and **per-role list filters (views)**.
 - **Tree navigation + master-detail**, **batch insert**, **in-context edit dialogs**.
 - **String vs Text fields** — String (1–255, default 255 → `varchar`) vs Text (256–131 072, default 32 768 → `text`); list search uses **Indexed** (`ILIKE`) for short strings and **Full-text search** (Postgres GIN / `tsvector`) for Text. Details: [`fields-and-search.md`](./fields-and-search.md).
+- **Rollup storage** — **Physical (stored)** only stays correct when every **Child filter** field belongs to the **Child object** (physical values refresh on child writes). If the filter uses a related (non-child) field — e.g. Quote item rollup filtered by **Quote / Status** — use **Virtual (on the fly)** only.
 - **Custom palette blocks** (Attachments, DocEngine, Tree table, Scheduler). Vertical UI via `registerCustomBlock` — see [`custom-blocks.md`](./custom-blocks.md).
 - Block Layout **show / readonly conditions**, **inline editor**, **child value lookup**, **soft delete**.
 

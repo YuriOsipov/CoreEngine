@@ -1,8 +1,8 @@
 # Generate Document API (contract)
 
-Server-side DocEngine generation for automations / n8n / Flows.
+Server-side DocEngine fill/export for automations / n8n / Flows — same template → values → HTML/PDF loop as the interactive editor ([DocEngine docs](https://docengine.pro/docs)).
 
-**Status:** **Phase 1 + Phase 2** are live. The API loads the source record (owner RLS applies), maps field values, can create/update `doc_value`, and when `renderOutput=true` renders PDF/HTML via `@docengine/pdf-renderer`, uploads the file, sets `doc_value.output_file`, and returns `outputFileId` + `downloadUrl` (`/assets/:id`). Interactive DocEngine in the Vue UI still works for browser fill/export.
+**Status:** **Phase 1 + Phase 2** are live. The API loads the source record (owner RLS applies), applies `$payload` Mapping onto a pinned template, can create/update `doc_value` (`kind: "field"` values), and when `renderOutput=true` renders PDF/HTML via `@docengine/pdf-renderer`, uploads the file, sets `doc_value.output_file`, and returns `outputFileId` + `downloadUrl` (`/assets/:id`). Interactive DocEngine in the Vue UI still works for browser Design → Fill → Preview → Export.
 
 ## Goal
 

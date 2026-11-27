@@ -65,8 +65,8 @@ Product surface for operators and implementers. For security layers see [`securi
 
 ## Documents & list reports
 
-- Document Templates + Field Mapping; list Document reports; tree-aware price lists.
-- Interactive DocEngine via npm `@docengine/*` ([docEngine](https://github.com/YuriiOsypov/docEngine); local: `npm run docengine:use-local`). Automation generate: [`generate-document-api.md`](./generate-document-api.md).
+- Document Templates + `$payload` Field Mapping; keep template (`kind: "template"`) separate from filled values (`kind: "field"`); list Document reports; tree-aware price lists.
+- Interactive [DocEngine](https://docengine.pro/) via npm `@docengine/*` — Design → Fill → Preview → Export (HTML/PDF from one `EditorDocument` model: sections, typed fields, Mapping). Product docs: [docengine.pro/docs](https://docengine.pro/docs). Source: [docEngine](https://github.com/YuriiOsypov/docEngine) (local: `npm run docengine:use-local`). Automation generate: [`generate-document-api.md`](./generate-document-api.md).
 - Cross-object file links (D2D).
 
 ## Reports, import/export, activity

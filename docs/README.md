@@ -15,7 +15,7 @@ Active product/ops docs belong here.
 - [Activepieces (MIT)](./activepieces/README.md) — alternative orchestrator; Setup → External Flows Destination **Your Activepieces**; headless import via `npm run registry:seed-activepieces-flows` (project variables, no Platform API keys)
 - [Backup and restore](./backup-restore.md)
 - [Upgrading](./upgrading.md)
-- [Generate Document API](./generate-document-api.md) — server DocEngine contract for automations / n8n
+- [Generate Document API](./generate-document-api.md) — server DocEngine fill/export (template + values → HTML/PDF); product docs at [docengine.pro/docs](https://docengine.pro/docs)
 - [Custom blocks](./custom-blocks.md) — `registerCustomBlock`
 
 Record automations live in Setup → Object Manager → Automations (`backend_config.automations`). Scheduled tasks live in Setup → Tasks.

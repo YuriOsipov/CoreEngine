@@ -25,7 +25,7 @@ Operational runbooks (provision, apply, export): [`../supabase/README.md`](../su
 
 ### What each starter includes
 
-- **Documents** — always applied. Registry objects for Setup → Document Templates (empty of sample templates until you add them). Enables HTML/PDF generation via DocEngine.
+- **Documents** — always applied. Registry objects for Setup → Document Templates (empty of sample templates until you add them). Enables structured DocEngine documents (interactive editor → HTML/PDF; see [docengine.pro/docs](https://docengine.pro/docs)).
 - **Sales** — CRM-shaped starter: accounts & contacts, opportunities with line items, catalog wiring when Pricing is present, sample campaign/promotions in commercial seed, a few inbox messages. Roles: Sales Rep, Sales Manager, Pricing Manager. No quote rows in the default seed.
 - **Pricing** — hierarchical catalogs (item groups / items / price groups / item prices), campaign → promotion rules, and promo price sync. Often provisioned with Sales.
 - **Clinic** — appointment-oriented starter: patients, practitioners, visits, appointments; Clinician and Reception roles. Extend with Pricing + Document Templates for reports/consents.
